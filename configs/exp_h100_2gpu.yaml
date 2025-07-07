@@ -1,0 +1,143 @@
+# _run_: true
+
+cemetery_experiments_dir: ~/llmrandom_cemetery
+
+checkpoint_config:
+  interval: 12500
+  load_path: null
+  model_checkpoint_filename: __model_optim_scheduler__.pt
+  path: checkpoints
+  save_path: checkpoints
+  training_state_filename: __training_state__.pt
+
+# cluster_name: local
+
+distributed:
+  fsdp:
+    mixed_precision:
+      dtype: bfloat16
+      ignored_classes:
+      - LayerNorm
+      - AttentionMechanism
+    modules_to_wrap:
+    - TransformerBlock
+    - EmbeddingLayer
+    - PredictionHead
+
+experiment_prepare_venv_path: ${venv_path}
+
+git:
+  remote_name: cemetery
+  remote_url: git@github.com:llm-random/llm-random-cemetery.git
+
+metric_logger:
+  _target_: model.MetricLoggerConfig
+  heavy_metrics_calculation_interval: 100
+  name: test
+  new_neptune_job: false
+  project_name: pmtest/llm-random
+  tags:
+  - nano
+  - k8
+  - merge
+  - final_decay
+  type: neptune
+
+model:
+  _target_: model.LLM
+  common:
+    _target_: model.Common
+    dff: 256
+    dmodel: 64
+    head_norm: true
+    init_scale: 0.1
+    init_type: truncated_normal_fixed
+    model_type: gpt
+    sequence_length: 32
+    vocab_size: 50257
+  embedding:
+    _target_: model.get_vanilla_embedding
+    common: ${model.common}
+  tower_config:
+    _target_: model.TowerConfig
+    block_config:
+      _target_: model.BlockConfig
+      attention:
+        _target_: model.AttentionConfig
+        mode: vanilla
+        n_heads: 2
+      feedforward:
+        _target_: model.FeedForwardConfig
+        mode: vanilla
+      norm_class_mode: layer_norm
+      residual_mode: pre_norm
+    mode: same
+    n_blocks: 2
+
+server: entropia
+
+slurm:
+  cpus-per-task: 32
+  gres: gpu:2
+  job-name: test
+  mem_per_gpu: 125G
+  nodes: 1
+  partition: h100
+  time: "0-1:00:00"
+  ntasks-per-node: 2
+
+trainer_factory:
+  _partial_: true
+  _target_: model.Trainer
+  checkpoint_config: ${checkpoint_config}
+  eval_dataloader:
+    _target_: model.get_dataloader
+    # dataset_path: data_eval
+    dataset_path: "/storage_nvme_1/llm-random/datasets/c4/validation"
+    dataset_split: validation
+    dataset_type: c4
+    num_workers: 0 # Change me!
+    seed: 123
+    sequence_length: 32
+    shuffle: true
+    total_batch_size: 32
+    use_new_sampling_method: true
+    world_size_independent: false
+  eval_interval: ${training.evaluation.eval_interval}
+  gradient_accumulation_steps: ${training.gradient_accumulation_steps}
+  gradient_clipping: ${training.gradient_clipping}
+  n_eval_steps: ${training.evaluation.n_eval_steps}
+  n_steps: ${training.n_steps}
+  train_dataloader:
+    _target_: model.get_dataloader
+    dataset_path: "/storage_nvme_1/llm-random/datasets/c4/train"
+    dataset_split: train
+    dataset_type: c4
+    num_workers: 0 # Change me!
+    seed: 20001
+    sequence_length: 32
+    shuffle: true
+    total_batch_size: 32
+    use_new_sampling_method: true
+    world_size_independent: false
+
+training:
+  _target_: model.TrainingConfig
+  evaluation:
+    eval_interval: 100
+    n_eval_steps: 5
+  gradient_accumulation_steps: 1
+  gradient_clipping: 1.0
+  learning_rate: 0.001
+  n_steps: 100
+  scheduler:
+    _partial_: true
+    _target_: model.get_cosine_scheduler_with_warmup
+    config:
+      final_lr_fraction: 0.1
+      n_steps: ${training.n_steps}
+      type: cosine
+      warmup_steps: 500
+  weight_decay: 0.1
+
+venv_path: $HOME/nano/.venv/bin/activate # Change me!

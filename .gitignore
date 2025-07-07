@@ -183,3 +183,5 @@ data
 data_eval
 generated_configs
 exp.job
+
+checkpoints

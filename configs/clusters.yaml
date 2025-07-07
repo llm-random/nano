@@ -1,0 +1,18 @@
+# - name: "dgx"
+#   hosts: 
+#     - "^login01$"
+#     - "gpu01"
+
+- name: "entropia"
+  hosts: 
+    - "asusgpu0"
+    - "a100a"
+
+# - name: "athena"
+#   hosts: 
+#     - "t00*"
+
+# - name: "helios"
+#   hosts: 
+#     - "login01.helios*"
+#     - "x100*"

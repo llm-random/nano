@@ -1,4 +1,4 @@
-_run_: true
+# _run_: true
 
 cemetery_experiments_dir: ~/llmrandom_cemetery
 
@@ -10,7 +10,7 @@ checkpoint_config:
   save_path: checkpoints
   training_state_filename: __training_state__.pt
 
-cluster_name: local
+# cluster_name: local
 
 distributed:
   fsdp:
@@ -78,12 +78,13 @@ server: entropia
 
 slurm:
   cpus-per-task: 32
-  gres: gpu:1
+  gres: gpu:2
   job-name: test
   mem_per_gpu: 125G
   nodes: 1
-  partition: a100
-  time: 0-3:00:00
+  partition: h100
+  time: "0-1:00:00"
+  ntasks-per-node: 2
 
 trainer_factory:
   _partial_: true
@@ -138,4 +139,4 @@ training:
       warmup_steps: 500
   weight_decay: 0.1
 
-venv_path: $HOME/onefiler/venv/bin/activate
+venv_path: $HOME/nano/.venv/bin/activate # Change me!
