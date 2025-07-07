@@ -31,7 +31,7 @@ git:
   remote_url: git@github.com:llm-random/llm-random-cemetery.git
 
 metric_logger:
-  _target_: model.MetricLoggerConfig
+  _target_: src.definitions.MetricLoggerConfig
   heavy_metrics_calculation_interval: 100
   name: test
   new_neptune_job: false
@@ -44,9 +44,9 @@ metric_logger:
   type: neptune
 
 model:
-  _target_: model.LLM
+  _target_: src.core.model.LLM
   common:
-    _target_: model.Common
+    _target_: src.definitions.Common
     dff: 256
     dmodel: 64
     head_norm: true
@@ -56,18 +56,18 @@ model:
     sequence_length: 32
     vocab_size: 50257
   embedding:
-    _target_: model.get_vanilla_embedding
+    _target_: src.core.model.get_vanilla_embedding
     common: ${model.common}
   tower_config:
-    _target_: model.TowerConfig
+    _target_: src.definitions.TowerConfig
     block_config:
-      _target_: model.BlockConfig
+      _target_: src.definitions.BlockConfig
       attention:
-        _target_: model.AttentionConfig
+        _target_: src.definitions.AttentionConfig
         mode: vanilla
         n_heads: 2
       feedforward:
-        _target_: model.FeedForwardConfig
+        _target_: src.definitions.FeedForwardConfig
         mode: vanilla
       norm_class_mode: layer_norm
       residual_mode: pre_norm
@@ -88,11 +88,10 @@ slurm:
 
 trainer_factory:
   _partial_: true
-  _target_: model.Trainer
+  _target_: src.core.trainer.Trainer
   checkpoint_config: ${checkpoint_config}
   eval_dataloader:
-    _target_: model.get_dataloader
-    # dataset_path: data_eval
+    _target_: src.core.datasets.get_dataloader
     dataset_path: "/storage_nvme_1/llm-random/datasets/c4/validation"
     dataset_split: validation
     dataset_type: c4
@@ -109,7 +108,7 @@ trainer_factory:
   n_eval_steps: ${training.evaluation.n_eval_steps}
   n_steps: ${training.n_steps}
   train_dataloader:
-    _target_: model.get_dataloader
+    _target_: src.core.datasets.get_dataloader
     dataset_path: "/storage_nvme_1/llm-random/datasets/c4/train"
     dataset_split: train
     dataset_type: c4
@@ -122,7 +121,7 @@ trainer_factory:
     world_size_independent: false
 
 training:
-  _target_: model.TrainingConfig
+  _target_: src.definitions.TrainingConfig
   evaluation:
     eval_interval: 100
     n_eval_steps: 5
@@ -132,7 +131,7 @@ training:
   n_steps: 100
   scheduler:
     _partial_: true
-    _target_: model.get_cosine_scheduler_with_warmup
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
     config:
       final_lr_fraction: 0.1
       n_steps: ${training.n_steps}
