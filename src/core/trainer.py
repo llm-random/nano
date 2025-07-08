@@ -31,7 +31,10 @@ class Trainer:
     eval_interval: int
     n_eval_steps: int
     gradient_clipping: Optional[float]
-    checkpoint_config: Optional[dict]
+    checkpoint: Optional[dict]
+    learning_rate: float
+    weight_decay: float
+    distributed: Optional[dict]
 
     def __attrs_post_init__(self):
         self.processed_tokens = self.training_state["processed_tokens"]
@@ -63,10 +66,10 @@ class Trainer:
     @property
     def _should_save_checkpoint(self) -> bool:
         return (
-            self.checkpoint_config.interval > 0
-            and (self.step) % self.checkpoint_config.interval == 0
+            self.checkpoint.interval > 0
+            and (self.step) % self.checkpoint.interval == 0
             and self.step != 0
-            and self.checkpoint_config.save_path is not None
+            and self.checkpoint.save_path is not None
         )
 
     def train(self):

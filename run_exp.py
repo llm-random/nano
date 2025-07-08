@@ -137,8 +137,8 @@ def submit_experiment(
     experiment_config_path = f"{config_path}/{config_name}.yaml"
 
     experiment_branch_name = version_code(
-        cfg.git.remote_name,
-        cfg.git.remote_url,
+        cfg.infrastructure.git.remote_name,
+        cfg.infrastructure.git.remote_url,
         experiment_config_path,
         hydra_config.job.name,
     )
@@ -147,7 +147,7 @@ def submit_experiment(
     if missing_keys:
         raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
 
-    with ConnectWithPassphrase(host=cfg.server, inline_ssh_env=True) as connection:
+    with ConnectWithPassphrase(host=cfg.infrastructure.server, inline_ssh_env=True) as connection:
         result = connection.run("uname -n", hide=True)
         hostname = result.stdout.strip()
         username = connection.user
@@ -173,7 +173,7 @@ def submit_experiment(
         if connection.run(f"test -d {experiment_dir}", warn=True).failed:
             print(f"Cloning {experiment_branch_name} to {experiment_dir}...")
             connection.run(
-                f"git clone --depth 1 -b {experiment_branch_name} {cfg.git.remote_url} {experiment_dir}"
+                f"git clone --depth 1 -b {experiment_branch_name} {cfg.infrastructure.git.remote_url} {experiment_dir}"
             )
             print(f"Cloned.")
         else:
@@ -187,7 +187,7 @@ def submit_experiment(
                 f'tmux send -t {experiment_branch_name}.0 "cd {experiment_dir}" ENTER'
             )
             connection.run(
-                f'tmux send -t {experiment_branch_name}.0 "source {cfg.experiment_prepare_venv_path}" ENTER'
+                f'tmux send -t {experiment_branch_name}.0 "source {cfg.infrastructure.experiment_prepare_venv_path}" ENTER'
             )
             pwd = os.getcwd()
             relative_path = os.path.relpath(config_path, pwd)

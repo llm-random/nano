@@ -103,16 +103,16 @@ def cleanup():
 
 
 def run(cfg, metric_logger=None):
-    instantiate(cfg.training, _convert_="all")  # Works as check
     setup_enviroment()
 
-    if "distributed" in cfg and cfg.distributed is not None:
+    if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
-    training_state = load_training_state(cfg.checkpoint_config)
+
+    training_state = load_training_state(cfg.trainer.checkpoint)
 
     if metric_logger is None:
         metric_logger = get_metric_logger(
-            metric_logger_config=instantiate(cfg.metric_logger, _convert_="all"),
+            metric_logger_config=instantiate(cfg.infrastructure.metric_logger, _convert_="all"),
             neptune_run_id=training_state["run_id"],
         )
 
@@ -120,7 +120,7 @@ def run(cfg, metric_logger=None):
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
 
-    torch.manual_seed(cfg.trainer_factory.train_dataloader.seed)
+    torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -131,24 +131,24 @@ def run(cfg, metric_logger=None):
         if isinstance(module, Residual):
             module.set_metric_logger(metric_logger)
 
-    if "distributed" in cfg and cfg.distributed is not None:
+    if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         if torch.cuda.is_available():
-            model = wrap_model(model, cfg.distributed.fsdp)
+            model = wrap_model(model, cfg.trainer.distributed.fsdp)
         else:
             logger.info("FSDP is not supported with CPU. Running DDP instead")
             model = DDP(model)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=cfg.training.learning_rate,
-        weight_decay=cfg.training.weight_decay,
+        lr=cfg.trainer.learning_rate,
+        weight_decay=cfg.trainer.weight_decay,
     )
 
-    scheduler = instantiate(cfg.training.scheduler)(optimizer=optimizer)
+    scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
 
-    load_checkpoint(cfg.checkpoint_config, model, optimizer, scheduler)
-    trainer_factory = instantiate(cfg.trainer_factory)
-    trainer_factory(
+    load_checkpoint(cfg.trainer.checkpoint, model, optimizer, scheduler)
+    trainer = instantiate(cfg.trainer)
+    trainer(
         model=model,
         optimizer=optimizer,
         scheduler=scheduler,
@@ -167,12 +167,11 @@ def main(config):
         return
 
     configs_grid = create_grid_config(config)
-    output_folder = "generated_configs"  # TODO parametrize
-    dump_grid_configs(configs_grid, output_folder)
+    dump_grid_configs(configs_grid, config.infrastructure.generated_configs_path)
 
-    modules_to_add = config.get("modules_to_add", None)
+    modules_to_add = config.infrastructure.get("modules_to_add", None)
     generate_sbatch_script(
-        config.slurm, output_folder, len(configs_grid), config.venv_path, modules_to_add
+        config.infrastructure.slurm, config.infrastructure.generated_configs_path, len(configs_grid), config.infrastructure.venv_path, modules_to_add
     )
 
     if config.get("_debug_"):

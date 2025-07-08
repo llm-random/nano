@@ -12,6 +12,9 @@ from torch.nn.init import trunc_normal_
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from src.definitions import AttentionConfig, Common, TowerConfig
+from torch.nn import (
+    LayerNorm as LayerNorm,
+)  # used by FSDP, but it keeps getting removed during file formatting
 import logging
 
 logger = logging.getLogger(__name__)
@@ -613,12 +616,15 @@ def get_classes_from_globals(names):
 def wrap_model(model, fsdp_config):
 
     classes_to_wrap = get_classes_from_globals(fsdp_config.modules_to_wrap)
+    print(f"Wrapping model with classes: {classes_to_wrap}")
     igonore_mixed_precision_classes = get_classes_from_globals(
         fsdp_config.mixed_precision.ignored_classes
     )
+    print(f"Ignoring mixed precision for classes: {igonore_mixed_precision_classes}")
     mixed_precision_dtype = getattr(
         sys.modules["torch"], fsdp_config.mixed_precision.dtype
     )
+    print(f"Using mixed precision dtype: {mixed_precision_dtype}")
 
     wrapped_model = FSDP(
         model,
