@@ -11,7 +11,6 @@ from torch.nn.attention import SDPBackend
 from torch.nn.init import trunc_normal_
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
-from src.definitions import AttentionConfig, Common, TowerConfig
 from torch.nn import (
     LayerNorm as LayerNorm,
 )  # used by FSDP, but it keeps getting removed during file formatting
@@ -183,29 +182,19 @@ class PositionalEmbedding(nn.Module):
 class TransformerBlock(nn.Module):
     def __init__(
         self,
-        common,
-        block_config,
+        residual_fn,
+        attention_fn,
+        ff_layer_fn,
     ):
         super(TransformerBlock, self).__init__()
-        residual_fn = get_residual_function(
-            block_config.residual_mode, common.dmodel, block_config.norm_class_mode
-        )
-
-        attention_function = get_attention_function(common, block_config.attention)
-
-        ff_layer = get_ff_layer_function(
-            common,
-            block_config.feedforward.mode,
-        )
-
         residual_layers = [
             (
                 "residual_attention",
-                residual_fn(layer=attention_function(), name="attention"),
+                residual_fn(layer=attention_fn(), name="attention"),
             ),
             (
                 "residual_feedforward",
-                residual_fn(layer=ff_layer(), name="feedforward"),
+                residual_fn(layer=ff_layer_fn(), name="feedforward"),
             ),
         ]
         self.block = nn.Sequential(OrderedDict(residual_layers))
@@ -217,19 +206,16 @@ class TransformerBlock(nn.Module):
 class TransformerTower(nn.Module):
     def __init__(
         self,
-        common: Common,
-        tower_config: TowerConfig,
+        block_fn: Callable[[], nn.Module],
+        n_blocks: int,
     ):
         super().__init__()
         blocks = [
             (
                 f"block_{i}",
-                TransformerBlock(
-                    common,
-                    tower_config.block_config,
-                ),
+                block_fn()
             )
-            for i in range(tower_config.n_blocks)
+            for i in range(n_blocks)
         ]
         self.blocks = nn.Sequential(OrderedDict(blocks))
 
@@ -312,26 +298,15 @@ class PredictionHead(nn.Module):
 class LLM(nn.Module):
     def __init__(
         self,
-        embedding,
-        common: Common,
-        tower_config: TowerConfig,
+        embedding: nn.Module,
+        tower: nn.Module,
+        head: nn.Module,
     ):
         super(LLM, self).__init__()
 
         self.embedding_layer = embedding
-
-        self.encoder = TransformerTower(
-            common=common,
-            tower_config=tower_config,
-        )
-
-        self.head = PredictionHead(
-            common.dmodel,
-            common.vocab_size,
-            init_type=common.init_type,
-            init_scale=common.init_scale,
-            use_layer_norm=common.head_norm,
-        )
+        self.encoder = tower
+        self.head = head
 
         self._add_metric_log_names()
 
@@ -510,101 +485,19 @@ def get_init_weight(shape, fan_in, init_type: str, scale, dtype=torch.float32):
 
     return init_types[init_type](shape=shape, fan_in=fan_in, scale=scale, dtype=dtype)
 
-
-def get_norm_class_function(norm_class_mode: str):
-    norm_classes = {
-        "layer_norm": nn.LayerNorm,
-        "rms_norm": RMSNorm,
-    }
-
-    if norm_class_mode not in norm_classes:
-        raise NotImplementedError(
-            f"Norm class {norm_class_mode} not implemented. Supported types are: {list(norm_classes.keys())}"
-        )
-
-    return norm_classes[norm_class_mode]
-
-
-def get_residual_function(
-    residual_mode: str, dmodel: int, norm_class_mode: str
-) -> Callable[[], nn.Module]:
-    norm_class = get_norm_class_function(norm_class_mode)
-    residual_layers = {
-        "pre_norm": lambda layer, name: PreNormBlock(
-            dmodel, layer, name, norm_class=norm_class
-        ),
-        "post_norm": lambda: PostNormBlock(dmodel, norm_class=norm_class),
-    }
-
-    if residual_mode not in residual_layers:
-        raise NotImplementedError(
-            f"Unsupported residual_mode: {residual_mode}. Supported modes are: {list(residual_layers.keys())}"
-        )
-
-    return residual_layers[residual_mode]
-
-
-def get_attention_function(
-    common: Common,
-    attention_config: AttentionConfig,
-) -> Callable[[], nn.Module]:
-    causal = common.model_type == "gpt"
-
-    attention_functions = {
-        "vanilla": lambda: Attention(
-            dmodel=common.dmodel,
-            heads=attention_config.n_heads,
-            causal=causal,
-            init_type=common.init_type,
-            init_scale=common.init_scale,
-        ),
-        # Add other attention modes here
-    }
-
-    if attention_config.mode not in attention_functions:
-        raise ValueError(
-            f"Unsupported attention_mode: {attention_config.mode}. Supported modes are: {list(attention_functions.keys())}"
-        )
-
-    return attention_functions[attention_config.mode]
-
-
-def get_ff_layer_function(
-    common: Common,
-    ff_mode: str,
-) -> Callable[[], nn.Module]:
-
-    ff_functions = {
-        "vanilla": lambda: FeedForward(
-            common.dmodel,
-            common.dff,
-            init_type=common.init_type,
-            init_scale=common.init_scale,
-        ),
-        # Add other here
-    }
-
-    if ff_mode not in ff_functions:
-        raise ValueError(
-            f"Unsupported ff_mode: {ff_mode}. Supported modes are: {list(ff_functions.keys())}"
-        )
-
-    return ff_functions[ff_mode]
-
-
-def get_vanilla_embedding(common):
+def get_vanilla_embedding(vocab_size, dmodel, init_type, init_scale, sequence_length):
     return EmbeddingLayer(
         TokenEmbedding(
-            common.vocab_size,
-            common.dmodel,
-            init_type=common.init_type,
-            init_scale=common.init_scale,
+            vocab_size,
+            dmodel,
+            init_type=init_type,
+            init_scale=init_scale,
         ),
         PositionalEmbedding(
-            common.sequence_length,
-            common.dmodel,
-            init_type=common.init_type,
-            init_scale=common.init_scale,
+            sequence_length,
+            dmodel,
+            init_type=init_type,
+            init_scale=init_scale,
         ),
     )
 
