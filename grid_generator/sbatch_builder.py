@@ -34,7 +34,7 @@ def create_master_node_configuration() -> list[str]:
 def create_distributed_variables() -> list[str]:
     return [
         "export WORLD_SIZE=$((${SLURM_NNODES} * ${SLURM_NTASKS_PER_NODE}))",
-        'echo "Running on ${WORLD_SIZE} nodes"',
+        'echo "Running on ${WORLD_SIZE} nodes"', #dev TODO gpus not nodes? 
     ]
 
 

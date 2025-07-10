@@ -1,0 +1,142 @@
+# _run_: true
+
+model:
+  _target_: src.utils.LLM
+  common:
+    _target_: src.definitions.Common
+    base_dmodel: 1024
+    base_dff: 4096
+    dff: 2048
+    dmodel: 512
+    head_norm: true
+    init_scale: null
+    init_type: zeros
+    model_type: gpt # dev TODO new type PC Compressor
+    sequence_length: 512
+    vocab_size: 50257
+  head:
+    _target_: src.core.projected_compression.model.get_projected_head
+    common: ${model.common}
+  embedding:
+    _target_: src.core.projected_compression.model.get_projected_embedding
+    common: ${model.common}
+  tower_config:
+    _target_: src.definitions.TowerConfig
+    block_config:
+      _target_: src.definitions.BlockConfig
+      attention:
+        _target_: src.definitions.AttentionConfig
+        mode: pc_vanilla
+        n_heads: ${model.tower_config.n_blocks}
+      feedforward:
+        _target_: src.definitions.FeedForwardConfig
+        mode: pc_vanilla
+      norm_class_mode: layer_norm
+      residual_mode: pre_norm
+    mode: sameTODO?
+    n_blocks: 16
+
+trainer:
+  _partial_: true
+  _target_: src.core.trainer.Trainer
+
+  checkpoint:
+    interval: 1_000_000
+    load_path: null
+    model_checkpoint_filename: __model_optim_scheduler__.pt
+    path: checkpoints
+    save_path: checkpoints
+    training_state_filename: __training_state__.pt
+
+  eval_interval: 1000
+  n_eval_steps: 5
+
+  gradient_accumulation_steps: 1
+  gradient_clipping: 0.5
+  n_steps: 23172
+
+  learning_rate: 0.0008
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.03
+    warmup_steps: 231
+
+  weight_decay: 0.1
+
+  train_dataloader:
+    _target_: src.core.datasets.get_dataloader
+    dataset_path: "/storage_nvme_1/llm-random/datasets/c4/train"
+    dataset_split: train
+    dataset_type: c4
+    num_workers: 16
+    seed: 27
+    sequence_length: ${model.common.sequence_length}
+    shuffle: true
+    total_batch_size: 512
+    use_new_sampling_method: true
+    world_size_independent: false
+
+  eval_dataloader:
+    _target_: src.core.datasets.get_dataloader
+    dataset_path: "/storage_nvme_1/llm-random/datasets/c4/validation"
+    dataset_split: validation
+    dataset_type: c4
+    num_workers: 16
+    seed: 327
+    sequence_length: ${model.common.sequence_length}
+    shuffle: true
+    total_batch_size: 32 
+    use_new_sampling_method: true
+    world_size_independent: false
+
+
+  distributed:
+    fsdp:
+      mixed_precision:
+        dtype: bfloat16
+        ignored_classes:
+        - LayerNorm
+        - AttentionMechanism
+      modules_to_wrap:
+      - TransformerBlock
+      - EmbeddingLayer
+      - PredictionHead
+
+
+infrastructure:
+  slurm:
+    cpus-per-task: 20
+    gres: gpu:4
+    job-name: ${infrastructure.metric_logger.name}
+    mem_per_gpu: 125G
+    nodes: 1
+    partition: h100
+    time: "0-5:00:00"
+    ntasks-per-node: 4
+  
+  # venv_path: $HOME/nano/.venv/bin/activate # Change me!
+  venv_path: /dev/null
+  experiment_prepare_venv_path: ${infrastructure.venv_path}
+  
+  cemetery_experiments_dir: ~/llmrandom_cemetery
+
+  metric_logger:
+    _target_: src.definitions.MetricLoggerConfig
+    heavy_metrics_calculation_interval: 100
+    name: test_200M
+    new_neptune_job: false
+    project_name: pmtest/llm-random
+    tags:
+    - mas
+    - dm1024
+    - test
+    type: neptune
+
+  git:
+    remote_name: cemetery
+    remote_url: git@github.com:llm-random/llm-random-cemetery.git
+
+  server: entropy
+
+  generated_configs_path: generated_configs

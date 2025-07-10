@@ -52,6 +52,10 @@ class Common(BaseModel):
     vocab_size: int
     head_norm: bool
 
+class CommonCompression(Common):
+    mode: str
+    base_dmodel: int
+    base_dff: int
 
 class SchedulerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
