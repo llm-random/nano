@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import math
 import os
 import re
 import sys
@@ -18,10 +19,54 @@ from torch.nn import (
 from torch.nn.modules.normalization import RMSNorm as RMSNorm
 from torchtune.modules.position_embeddings import RotaryPositionalEmbeddings as RotaryPositionalEmbeddings
 from torch.nn.parallel import DistributedDataParallel as DDP
+
 import logging
 
 logger = logging.getLogger(__name__)
 
+
+class LlamaRoPE(nn.Module):
+    # features are paired x_i, x_{i + d_head/2}
+    def __init__(self, dhead, length, base=10000):
+        super().__init__()
+        self.dhead = dhead
+        self.length = length
+        angle_exponents = torch.arange(0, dhead, 2, dtype=torch.int64).float() / dhead
+        angles = 1.0 / torch.pow(base, angle_exponents).reshape(1, -1)
+        angles = self.scale_freqs(angles)
+
+        angle_per_token = angles * torch.arange(0, length).reshape(-1, 1)
+        self.register_buffer("sin", torch.sin(angle_per_token).repeat(1, 2))
+        self.register_buffer("cos", torch.cos(angle_per_token).repeat(1, 2))
+
+    def scale_freqs(self, freqs, factor=32):
+        # factor = `8` in the original implementation according to HuggingFace 
+        low_freq_factor = 1  # `1` in the original implementation
+        high_freq_factor = 4  # `4` in the original implementation
+        old_context_len = 8192  # `8192` in the original implementation
+
+        low_freq_wavelen = old_context_len / low_freq_factor
+        high_freq_wavelen = old_context_len / high_freq_factor
+
+        wavelen = 2 * math.pi / freqs
+        # wavelen < high_freq_wavelen: do nothing
+        # wavelen > low_freq_wavelen: divide by factor
+        inv_freq_llama = torch.where(wavelen > low_freq_wavelen, freqs / factor, freqs)
+        # otherwise: interpolate between the two, using a smooth factor
+        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
+        smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
+        is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
+        inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
+        return inv_freq_llama
+
+
+    def forward(self, x):
+        # x shape (batch, n_heads, seq_len, dhead)
+        [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
+        x_rotated = torch.cat([-y2, y1], dim=-1)
+        cos_scaler = self.cos[: x.shape[-2], :].to(x.device)
+        sin_scaler = self.sin[: x.shape[-2], :].to(x.device)
+        return x * cos_scaler + x_rotated * sin_scaler
 
 class Residual(nn.Module):
     def __init__(self, layer):
@@ -356,6 +401,34 @@ def FeedForward(
         )
     )
 
+class LLamaFeedForward(nn.Module):
+    def __init__(
+        self,
+        dmodel,
+        dff,
+        init_type: str,
+        init_scale: float,
+    ):
+        super().__init__()
+        self.ff_pre_act = Linear(
+            dmodel, dff, bias=False, init_type=init_type, init_scale=init_scale
+        )
+        self.silu = nn.SiLU()
+        self.ff_post_act = Linear(
+            dff, dmodel, bias=False, init_type=init_type, init_scale=init_scale
+        )
+        self.gate = Linear(
+            dmodel, dff, bias=False, init_type=init_type, init_scale=init_scale
+        )
+
+    def forward(self, x):
+        gated = self.gate(x)
+        gated = self.silu(gated)
+        x = self.ff_pre_act(x)
+        x = x * gated
+        x = self.ff_post_act(x)
+        return x
+
 def attention_mechanism(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -440,6 +513,82 @@ class Attention(nn.Module):
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
 
         return output
+
+
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
+    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)
+    """
+    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
+
+class LlamaAttention(nn.Module):
+    def __init__(
+        self,
+        dmodel,
+        q_heads,
+        kv_heads,
+        seq_len,
+        causal,
+        init_type: str,
+        init_scale: float,
+    ):
+        super().__init__()
+        self.q_heads = q_heads
+        self.kv_heads = kv_heads
+        self.causal = causal
+        self.head_dim = dmodel // self.q_heads
+
+        self.q_proj = Linear(dmodel, dmodel, bias=False, init_type=init_type, init_scale=init_scale)
+        self.k_proj = Linear(dmodel, self.kv_heads * self.head_dim, bias=False, init_type=init_type, init_scale=init_scale)
+        self.v_proj = Linear(dmodel, self.kv_heads * self.head_dim, bias=False, init_type=init_type, init_scale=init_scale)
+
+        self.output_projection = Linear(
+            dmodel,
+            dmodel,
+            bias=False,
+            init_type=init_type,
+            init_scale=init_scale,
+        )
+        self.attention_mechanism = AttentionMechanism()
+        self.rope = LlamaRoPE(
+            dhead=self.head_dim,
+            length=seq_len,
+            base=500000
+        )
+
+
+    def forward(self, x):
+        query_states = self.q_proj(x)
+        key_states = self.k_proj(x)
+        value_states = self.v_proj(x)
+
+        batch, seq_len = x.shape[:-1]
+        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        q = self.rope(q)
+        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        k = self.rope(k)
+
+        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+
+        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        v = repeat_kv(v, self.q_heads // self.kv_heads)
+
+        attention_output = self.attention_mechanism(
+            query=q, key=k, value=v, causal=self.causal
+        )
+
+
+        output = self.output_projection(attention_output.transpose(1, 2).contiguous().flatten(-2))
+
+        return output
+    
+    
 
 def init_kaiming_uniform(shape, fan_in, scale, dtype=torch.float32):
     range_ = scale * (3 / fan_in) ** 0.5
