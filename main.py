@@ -126,6 +126,36 @@ def run(cfg, metric_logger=None):
 
     model = instantiate(cfg.model, _convert_="all").to(device)
 
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+    hf_model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B").to(device)
+
+    print("Loaded models!")
+
+    model.embedding_layer.load_state_dict(hf_model.model.embed_tokens.state_dict())
+
+    for i in range(len(model.encoder.blocks)):
+        model.encoder.blocks[i].block.residual_attention.layer.pre_norm.weight.data.copy_(hf_model.model.layers[i].input_layernorm.weight)
+        model.encoder.blocks[i].block.residual_attention.layer.attention.q_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.q_proj.weight)
+        model.encoder.blocks[i].block.residual_attention.layer.attention.k_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.k_proj.weight)
+        model.encoder.blocks[i].block.residual_attention.layer.attention.v_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.v_proj.weight)
+        model.encoder.blocks[i].block.residual_attention.layer.attention.output_projection.weight.data.copy_(hf_model.model.layers[i].self_attn.o_proj.weight)
+
+        model.encoder.blocks[i].block.residual_feedforward.layer.pre_norm.weight.data.copy_(hf_model.model.layers[i].post_attention_layernorm.weight)
+        model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.ff_pre_act.weight.data.copy_(hf_model.model.layers[i].mlp.up_proj.weight)
+        model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.ff_post_act.weight.data.copy_(hf_model.model.layers[i].mlp.down_proj.weight)
+        model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.gate.weight.data.copy_(hf_model.model.layers[i].mlp.gate_proj.weight)
+
+    model.head.unembedding.head_norm.weight.data.copy_(hf_model.model.norm.weight)
+    model.head.unembedding.head.weight.data.copy_(hf_model.lm_head.weight)
+
+
+    input_ids = hf_model.dummy_inputs['input_ids'].to(device)
+    out_1  = hf_model(input_ids)
+    out_2 = model(input_ids)
+
+
     # Residual layers needs metric_logger for logging update norms
     for _, module in model.named_modules():
         if isinstance(module, Residual):
