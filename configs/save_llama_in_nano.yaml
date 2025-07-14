@@ -37,7 +37,7 @@ model:
           eps: 1e-5
 
       attention_fn:
-        _target_: src.core.model.LlamaAttention
+        _target_: src.core.llama.LlamaAttention
         _partial_: true
         dmodel: ${common.dmodel}
         q_heads: 32
@@ -48,7 +48,7 @@ model:
         init_type: ${common.init_type}
 
       ff_layer_fn:
-        _target_: src.core.model.LLamaFeedForward
+        _target_: src.core.llama.LLamaFeedForward
         _partial_: true
         dmodel: ${common.dmodel}
         dff: ${common.dff}
@@ -68,19 +68,22 @@ trainer:
   _target_: src.core.trainer.Trainer
 
   checkpoint:
+   save:
     interval: 12500
-    load_path: null
     model_checkpoint_filename: __model_optim_scheduler__.pt
-    path: checkpoints
-    save_path: checkpoints
     training_state_filename: __training_state__.pt
+    path: checkpoints # Change me!
+
+   load:
+    type: huggingface
+    path: "meta-llama/Llama-3.2-1B"
 
   eval_interval: 100
   n_eval_steps: 5
 
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
-  n_steps: 100
+  n_steps: 0
 
   learning_rate: 0.001
   scheduler:

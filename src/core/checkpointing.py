@@ -39,13 +39,13 @@ class TrainingState(Stateful):
 
 
 
-def step_checkpoint_path(checkpoint_config, step):
-    full_config_path = get_full_checkpoint_save_path(checkpoint_config.save_path)
+def step_checkpoint_path(path, step):
+    full_config_path = get_full_checkpoint_path(path)
     return f"{full_config_path}/step_{step}"
 
 
 def save_training_state(
-    checkpoint_config,
+    save_config,
     step,
     processed_tokens,
     metric_logger=None,
@@ -56,48 +56,43 @@ def save_training_state(
         else None
     )
 
-    directory = step_checkpoint_path(checkpoint_config, step)
+    path = step_checkpoint_path(save_config.path, step)
     torch.save(
         {"next_step": step + 1, "run_id": run_id, "processed_tokens": processed_tokens},
-        f"{directory}/{checkpoint_config.training_state_filename}",
+        f"{path}/{save_config.training_state_filename}",
     )
 
     logger.info(
-        f"Saved training state in '{checkpoint_config.save_path}/{checkpoint_config.training_state_filename}'"
+        f"Saved training state in '{save_config.path}/{save_config.training_state_filename}'"
     )
 
 
-def get_full_checkpoint_save_path(save_path):
+def get_full_checkpoint_path(path):
     slurm_array_task_id = os.getenv("SLURM_ARRAY_TASK_ID")
     return (
-        f"{save_path}/{slurm_array_task_id}"
+        f"{path}/{slurm_array_task_id}"
         if slurm_array_task_id is not None
-        else save_path
+        else path
     )
 
 
-def load_training_state(checkpoint_config):
+def load_training_state(load_config):
     training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
 
-    checkpoint_folder = checkpoint_config.get("load_path", None)
-    if checkpoint_folder is None:
-        checkpoint_path = checkpoint_config.get("save_path", None)
-        if checkpoint_path is None:
-            logger.warning(
-                "Checkpoint save path is not set. Starting training from scratch."
-            )
-            return training_start_config
-        full_checkpoint_path = get_full_checkpoint_save_path(
-            checkpoint_config.save_path
+    load_path = load_config.path
+    if load_path is None:
+        logger.warning(
+            "Checkpoint save path is not set. Starting training from scratch."
         )
-        os.makedirs(full_checkpoint_path, exist_ok=True)
-        checkpoint_folder = _find_latest_checkpoint(full_checkpoint_path)
-
-    if checkpoint_folder is None:
         return training_start_config
+    load_path = get_full_checkpoint_path(
+        load_path
+    )
+    os.makedirs(load_path, exist_ok=True)
+    load_path = _find_latest_checkpoint(load_path)
 
     training_state_path = (
-        f"{checkpoint_folder}/{checkpoint_config.training_state_filename}"
+        f"{load_path}/{load_config.training_state_filename}"
     )
     if os.path.isfile(training_state_path):
         return torch.load(training_state_path)
@@ -119,36 +114,35 @@ def _find_latest_checkpoint(path: str) -> str:
     return max(files, key=os.path.getmtime)
 
 
-def load_checkpoint(checkpoint_config, model, optimizer, scheduler):
-    checkpoint_folder = checkpoint_config.get("load_path", None)
-    if checkpoint_folder is None:
-        checkpoint_path = checkpoint_config.get("save_path", None)
-        if checkpoint_path is None:
-            return
-        full_checkpoint_path = get_full_checkpoint_save_path(
-            checkpoint_config.save_path
-        )
-        checkpoint_folder = _find_latest_checkpoint(full_checkpoint_path)
+def load_checkpoint_from_file(load_config, model, optimizer, scheduler):    
+    checkpoint_path = load_config.path
+    if checkpoint_path is None:
+        return 
 
-    if checkpoint_folder is not None:
+    checkpoint_path = get_full_checkpoint_path(
+        load_config.path
+    )
+    checkpoint_path = _find_latest_checkpoint(checkpoint_path)
+
+    if checkpoint_path is not None:
         if isinstance(model, FSDP):
             # Sharded load
             state_dict = {"app": TrainingState(model, optimizer, scheduler)}
-            dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_folder)
-            logger.debug(f"Loaded sharded checkpoint from '{checkpoint_folder}'")
+            dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_path)
+            logger.debug(f"Loaded sharded checkpoint from '{checkpoint_path}'")
         else:
             # Non-sharded load
             checkpoint_model = (
-                f"{checkpoint_folder}/{checkpoint_config.model_checkpoint_filename}"
+                f"{checkpoint_path}/{load_config.model_checkpoint_filename}"
             )
             checkpoint = torch.load(checkpoint_model)
             if type(model) is DDP:
-                logger.info(f"Loading DDP model from '{checkpoint_folder}'")
+                logger.info(f"Loading DDP model from '{checkpoint_path}'")
                 model.module.load_state_dict(checkpoint["model"])
             else:
-                logger.info(f"Loading non-DDP model from '{checkpoint_folder}'")
+                logger.info(f"Loading non-DDP model from '{checkpoint_path}'")
                 model.load_state_dict(checkpoint["model"])
             optimizer.load_state_dict(checkpoint["optim"])
             scheduler.load_state_dict(checkpoint["scheduler"])
-            logger.info(f"Loaded non-sharded sheduler from '{checkpoint_folder}'")
-            logger.debug(f"Loaded non-sharded checkpoint from '{checkpoint_folder}'")
+            logger.info(f"Loaded non-sharded sheduler from '{checkpoint_path}'")
+            logger.debug(f"Loaded non-sharded checkpoint from '{checkpoint_path}'")

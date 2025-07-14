@@ -1,6 +1,7 @@
 import os
 import hydra
 import yaml
+from src.core.llama import copy_llama_model_weights_from_HF
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
 import resolver as _  # I should be able to ignore this line by linter, but ~ things like # ignore did not work
@@ -12,12 +13,11 @@ import torch
 import torch.distributed as dist
 import logging
 from hydra.utils import instantiate
-from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
-from src.core.checkpointing import load_checkpoint, load_training_state
+from src.core.checkpointing import load_checkpoint_from_file, load_training_state
 from src.core.metric_loggers import NeptuneLogger, get_metric_logger
-from src.core.model import Residual, wrap_model
+from src.core.model import Residual, wrap_model_distributed
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ def run(cfg, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
-    training_state = load_training_state(cfg.trainer.checkpoint)
+    training_state = load_training_state(cfg.trainer.checkpoint.load)
 
     if metric_logger is None:
         metric_logger = get_metric_logger(
@@ -116,7 +116,7 @@ def run(cfg, metric_logger=None):
             neptune_run_id=training_state["run_id"],
         )
 
-    if isinstance(metric_logger, NeptuneLogger):
+    if isinstance(metric_logger, NeptuneLogger) and training_state["run_id"] is None:
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
 
@@ -124,59 +124,34 @@ def run(cfg, metric_logger=None):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    logger.info(f"Creating model...")
     model = instantiate(cfg.model, _convert_="all").to(device)
-
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
-    hf_model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B").to(device)
-
-    print("Loaded models!")
-
-    model.embedding_layer.load_state_dict(hf_model.model.embed_tokens.state_dict())
-
-    for i in range(len(model.encoder.blocks)):
-        model.encoder.blocks[i].block.residual_attention.layer.pre_norm.weight.data.copy_(hf_model.model.layers[i].input_layernorm.weight)
-        model.encoder.blocks[i].block.residual_attention.layer.attention.q_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.q_proj.weight)
-        model.encoder.blocks[i].block.residual_attention.layer.attention.k_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.k_proj.weight)
-        model.encoder.blocks[i].block.residual_attention.layer.attention.v_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.v_proj.weight)
-        model.encoder.blocks[i].block.residual_attention.layer.attention.output_projection.weight.data.copy_(hf_model.model.layers[i].self_attn.o_proj.weight)
-
-        model.encoder.blocks[i].block.residual_feedforward.layer.pre_norm.weight.data.copy_(hf_model.model.layers[i].post_attention_layernorm.weight)
-        model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.ff_pre_act.weight.data.copy_(hf_model.model.layers[i].mlp.up_proj.weight)
-        model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.ff_post_act.weight.data.copy_(hf_model.model.layers[i].mlp.down_proj.weight)
-        model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.gate.weight.data.copy_(hf_model.model.layers[i].mlp.gate_proj.weight)
-
-    model.head.unembedding.head_norm.weight.data.copy_(hf_model.model.norm.weight)
-    model.head.unembedding.head.weight.data.copy_(hf_model.lm_head.weight)
-
-
-    input_ids = hf_model.dummy_inputs['input_ids'].to(device)
-    out_1  = hf_model(input_ids)
-    out_2 = model(input_ids)
-
+    logger.info(f"Model {model.__class__.__name__} created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
     # Residual layers needs metric_logger for logging update norms
     for _, module in model.named_modules():
         if isinstance(module, Residual):
             module.set_metric_logger(metric_logger)
 
-    if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
-        if torch.cuda.is_available():
-            model = wrap_model(model, cfg.trainer.distributed.fsdp)
-        else:
-            logger.info("FSDP is not supported with CPU. Running DDP instead")
-            model = DDP(model)
+    if cfg.trainer.checkpoint.load.type == "huggingface":
+        copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
+        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=cfg.trainer.learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
+        )
+        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+    else:
+        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=cfg.trainer.learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
+        )
+        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+        load_checkpoint_from_file(cfg.trainer.checkpoint.load, model, optimizer, scheduler)
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=cfg.trainer.learning_rate,
-        weight_decay=cfg.trainer.weight_decay,
-    )
-
-    scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
-
-    load_checkpoint(cfg.trainer.checkpoint, model, optimizer, scheduler)
     trainer = instantiate(cfg.trainer)
     trainer(
         model=model,
