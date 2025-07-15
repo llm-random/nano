@@ -2,29 +2,28 @@
 
 common:
   _target_: src.definitions.Common
-  dff: 256
-  dmodel: 64
+  dff: 8192
+  dmodel: 2048
   head_norm: true
   init_scale: 0.1
   init_type: truncated_normal_fixed
   model_type: gpt
   sequence_length: 32
-  vocab_size: 50257
+  vocab_size: 128256
   
 model:
   _target_: src.core.model.LLM
 
   embedding:
-    _target_: src.core.model.get_vanilla_embedding
+    _target_: src.core.model.TokenEmbedding
     vocab_size: ${common.vocab_size}
-    dmodel: ${common.dmodel}
+    embedding_dim: ${common.dmodel}
     init_type: ${common.init_type}
     init_scale: ${common.init_scale}
-    sequence_length: ${common.sequence_length}
 
   tower:
     _target_: src.core.model.TransformerTower
-    n_blocks: 2
+    n_blocks: 16
     block_fn:
       _target_: src.core.model.TransformerBlock
       _partial_: true
@@ -33,20 +32,23 @@ model:
         _partial_: true
         dmodel: ${common.dmodel}
         norm_class:
-          _target_: src.core.model.LayerNorm
+          _target_: src.core.model.RMSNorm
           _partial_: true
+          eps: 1e-5
 
       attention_fn:
-        _target_: src.core.model.Attention
+        _target_: src.core.llama.LlamaAttention
         _partial_: true
         dmodel: ${common.dmodel}
-        heads: 2
+        q_heads: 32
+        kv_heads: 8
+        seq_len: ${common.sequence_length}
         causal: true
         init_scale: ${common.init_scale}
         init_type: ${common.init_type}
 
       ff_layer_fn:
-        _target_: src.core.model.FeedForward
+        _target_: src.core.llama.LLamaFeedForward
         _partial_: true
         dmodel: ${common.dmodel}
         dff: ${common.dff}
@@ -73,18 +75,15 @@ trainer:
     path: checkpoints # Change me!
 
    load:
-    type: "normal"
-    path:  ${trainer.checkpoint.save.path}
-    model_checkpoint_filename: ${trainer.checkpoint.save.model_checkpoint_filename}
-    training_state_filename: ${trainer.checkpoint.save.training_state_filename}
-
+    type: huggingface
+    path: "meta-llama/Llama-3.2-1B"
 
   eval_interval: 100
   n_eval_steps: 5
 
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
-  n_steps: 100
+  n_steps: 0
 
   learning_rate: 0.001
   scheduler:

@@ -1,6 +1,7 @@
 import os
 import hydra
 import yaml
+from src.core.llama import copy_llama_model_weights_from_HF
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
 import resolver as _  # I should be able to ignore this line by linter, but ~ things like # ignore did not work
@@ -12,12 +13,11 @@ import torch
 import torch.distributed as dist
 import logging
 from hydra.utils import instantiate
-from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
-from src.core.checkpointing import load_checkpoint, load_training_state
+from src.core.checkpointing import load_checkpoint_from_file, load_training_state
 from src.core.metric_loggers import NeptuneLogger, get_metric_logger
-from src.core.model import Residual, wrap_model
+from src.core.model import Residual, wrap_model_distributed
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ def run(cfg, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
-    training_state = load_training_state(cfg.trainer.checkpoint)
+    training_state = load_training_state(cfg.trainer.checkpoint.load)
 
     if metric_logger is None:
         metric_logger = get_metric_logger(
@@ -116,7 +116,7 @@ def run(cfg, metric_logger=None):
             neptune_run_id=training_state["run_id"],
         )
 
-    if isinstance(metric_logger, NeptuneLogger):
+    if isinstance(metric_logger, NeptuneLogger) and training_state["run_id"] is None:
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
 
@@ -124,29 +124,34 @@ def run(cfg, metric_logger=None):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    logger.info(f"Creating model...")
     model = instantiate(cfg.model, _convert_="all").to(device)
+    logger.info(f"Model {model.__class__.__name__} created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
     # Residual layers needs metric_logger for logging update norms
     for _, module in model.named_modules():
         if isinstance(module, Residual):
             module.set_metric_logger(metric_logger)
 
-    if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
-        if torch.cuda.is_available():
-            model = wrap_model(model, cfg.trainer.distributed.fsdp)
-        else:
-            logger.info("FSDP is not supported with CPU. Running DDP instead")
-            model = DDP(model)
+    if cfg.trainer.checkpoint.load.type == "huggingface":
+        copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
+        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=cfg.trainer.learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
+        )
+        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+    else:
+        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=cfg.trainer.learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
+        )
+        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+        load_checkpoint_from_file(cfg.trainer.checkpoint.load, model, optimizer, scheduler)
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=cfg.trainer.learning_rate,
-        weight_decay=cfg.trainer.weight_decay,
-    )
-
-    scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
-
-    load_checkpoint(cfg.trainer.checkpoint, model, optimizer, scheduler)
     trainer = instantiate(cfg.trainer)
     trainer(
         model=model,

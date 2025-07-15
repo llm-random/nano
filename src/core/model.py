@@ -14,22 +14,13 @@ from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.nn import (
     LayerNorm as LayerNorm,
 )  # used by FSDP, but it keeps getting removed during file formatting
+
+from torch.nn.modules.normalization import RMSNorm as RMSNorm
+from torchtune.modules.position_embeddings import RotaryPositionalEmbeddings as RotaryPositionalEmbeddings
+from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
 logger = logging.getLogger(__name__)
-
-class RMSNorm(nn.Module):
-    def __init__(self, dmodel, eps=1e-5):
-        super().__init__()
-        self.eps = eps
-
-        self.g = nn.Parameter(torch.ones(dmodel))
-        self.b = nn.Parameter(torch.zeros(dmodel))
-
-    def forward(self, x):
-        norm = torch.mean(x**2, dim=-1, keepdim=True)
-        x = x * torch.rsqrt(norm + self.eps)
-        return x * self.g + self.b
 
 
 class Residual(nn.Module):
@@ -284,7 +275,7 @@ class PredictionHead(nn.Module):
 
         layers = OrderedDict()
         if use_layer_norm:
-            layers["head_norm"] = nn.LayerNorm(embedding_dim)
+            layers["head_norm"] = RMSNorm(embedding_dim)
         layers["head"] = Linear(
             embedding_dim, output_size, init_type=init_type, init_scale=init_scale
         )
@@ -364,7 +355,6 @@ def FeedForward(
             ]
         )
     )
-
 
 def attention_mechanism(
     query: torch.Tensor,
@@ -450,7 +440,6 @@ class Attention(nn.Module):
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
 
         return output
-    
 
 def init_kaiming_uniform(shape, fan_in, scale, dtype=torch.float32):
     range_ = scale * (3 / fan_in) ** 0.5
@@ -506,7 +495,7 @@ def get_classes_from_globals(names):
     return [globals().get(name) for name in names]
 
 
-def wrap_model(model, fsdp_config):
+def wrap_model_fsdp(model, fsdp_config):
 
     classes_to_wrap = get_classes_from_globals(fsdp_config.modules_to_wrap)
     print(f"Wrapping model with classes: {classes_to_wrap}")
@@ -530,3 +519,13 @@ def wrap_model(model, fsdp_config):
         auto_wrap_policy=ModuleWrapPolicy(classes_to_wrap),
     )
     return wrapped_model
+
+
+def wrap_model_distributed(model, distributed_config):
+    if distributed_config is not None:
+        if torch.cuda.is_available():
+            model = wrap_model_fsdp(model, distributed_config.fsdp)
+        else:
+            logger.info("FSDP is not supported with CPU. Running DDP instead")
+            model = DDP(model)
+    return model

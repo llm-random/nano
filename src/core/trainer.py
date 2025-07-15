@@ -42,6 +42,7 @@ class Trainer:
         self.device = next(self.model.parameters()).device
         self.loss_interval_100 = 0.0
         self.eval_iterator = iter(self.eval_dataloader)
+        self.step = self.start_step - 1
 
         if self.start_step > 0:
             n_skip_eval_batches = (
@@ -66,10 +67,18 @@ class Trainer:
     @property
     def _should_save_checkpoint(self) -> bool:
         return (
-            self.checkpoint.interval > 0
-            and (self.step) % self.checkpoint.interval == 0
+            self.checkpoint.save.interval > 0
+            and (self.step) % self.checkpoint.save.interval == 0
             and self.step != 0
-            and self.checkpoint.save_path is not None
+            and self.checkpoint.save.path is not None
+        )
+    
+    @property
+    def _should_save_final_checkpoint(self) -> bool:
+        return (
+            not self._should_save_checkpoint # checkpoint was already saved
+            and self.step >= self.n_steps - 1
+            and self.checkpoint.save.path is not None
         )
 
     def train(self):
@@ -94,6 +103,9 @@ class Trainer:
 
             if self._should_evaluate:
                 self.eval()
+
+        if self._should_save_final_checkpoint:
+            self.save_checkpoint()
 
     def _preprocess_input(self, batch):  # TODO test it
         input_ids = batch[:, :-1].contiguous()
@@ -161,6 +173,7 @@ class Trainer:
 
     def eval(self):
         self.model.eval()
+        saved_step = self.step
         self.metric_logger.set_step(None)  # disables heavy logging
         losses = []
         eval_fingerprint = []
@@ -183,6 +196,8 @@ class Trainer:
             self.metric_logger.log(
                 f"steps/eval/batch", self.step, str(eval_fingerprint)
             )
+        
+        self.step = saved_step  # Restore step
 
     def clip_gradient(self):
         if self.gradient_clipping is not None:
@@ -219,7 +234,7 @@ class Trainer:
     def save_checkpoint(self):
         if isinstance(self.model, FSDP):
             # Sharded save
-            checkpoint_folder = step_checkpoint_path(self.checkpoint_config, self.step)
+            checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
             state_dict = {
                 "app": TrainingState(self.model, self.optimizer, self.scheduler)
             }
@@ -229,10 +244,10 @@ class Trainer:
             # Non-sharded save
             if os.environ["RANK"] == "0":
                 checkpoint_folder = step_checkpoint_path(
-                    self.checkpoint_config, self.step
+                    self.checkpoint.save.path, self.step
                 )
                 os.makedirs(checkpoint_folder, exist_ok=True)
-                checkpoint_path = f"{checkpoint_folder}/{self.checkpoint_config.model_checkpoint_filename}"
+                checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
                 state_to_save = {
                     "model": (
                         self.model.module.state_dict()
@@ -249,7 +264,7 @@ class Trainer:
 
         if os.environ["RANK"] == "0":
             save_training_state(
-                checkpoint_config=self.checkpoint_config,
+                save_config=self.checkpoint.save,
                 step=self.step,
                 processed_tokens=self.processed_tokens,
                 metric_logger=self.metric_logger,
