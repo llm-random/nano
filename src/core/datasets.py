@@ -11,6 +11,7 @@ from transformers import GPT2TokenizerFast, PreTrainedTokenizerBase
 from datasets import load_dataset
 from datasets.distributed import split_dataset_by_node
 import logging
+from transformers import AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,9 @@ class C4Dataset(IterableDataset):
         self.use_new_sampling_method = use_new_sampling_method
         self.world_size_independent = world_size_independent
         if tokenizer is None:
-            tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+            # tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+            tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B")
+            # tokenizer.pad_token = tokenizer.eos_token
         self._load_dataset(path, split, seed, tokenizer, eot_str, shuffle)
         self.sequence_length = sequence_length
         self.seed = seed

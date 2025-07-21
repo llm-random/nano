@@ -1,6 +1,9 @@
 import os
 import hydra
 import yaml
+import lm_eval
+from src.core.lm_eval import HarnessLM
+from transformers import AutoTokenizer
 from src.core.llama import copy_llama_model_weights_from_HF
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
@@ -151,6 +154,40 @@ def run(cfg, metric_logger=None):
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
         load_checkpoint_from_file(cfg.trainer.checkpoint.load, model, optimizer, scheduler)
+
+
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B")
+    harness_wrapper = HarnessLM(
+        model,
+        batch_size=16,
+        tokenizer=tokenizer,
+        # max_length=args.cutoff,
+        device=device,
+        # dataset=train_dataloader,
+    )
+    task_manager = lm_eval.tasks.TaskManager()
+    with torch.autocast(
+        device_type="cuda",
+        enabled=True,
+        dtype=torch.bfloat16,
+    ):
+        results = lm_eval.simple_evaluate(  # call simple_evaluate
+            model=harness_wrapper,
+            tasks= ["winogrande"], #args.harness_tasks.split(","),
+            num_fewshot=1, # TODO
+            task_manager=task_manager,
+            limit=0.1, # TODO
+        )
+        
+
+    for benchmark_name in results["results"].keys():
+        for key in results["results"][benchmark_name].keys():
+            logger.report_generic_info(
+                title=f"harness_results/{benchmark_name}/{key}",
+                iteration=0,
+                data=results["results"][benchmark_name][key],
+            )
+
 
     trainer = instantiate(cfg.trainer)
     trainer(
