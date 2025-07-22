@@ -12,71 +12,94 @@ common:
   vocab_size: 50257
   
 model:
-  _target_: src.core.model.LLM
+  _target_: src.projected_compression.model.LLM
 
   embedding:
-    _target_: src.core.model.get_vanilla_embedding
+    _target_: src.projected_compression.model.TransformerEmbedding
     vocab_size: ${common.vocab_size}
     dmodel: ${common.dmodel}
-    init_type: ${common.init_type}
-    init_scale: ${common.init_scale}
-    sequence_length: ${common.sequence_length}
+    init_fn:
+      _target_: src.projected_compression.model.trunc_normal_
+      _partial_: true
 
-  tower:
-    _target_: src.core.model.TransformerTower
+  encoder:
+    _target_: src.projected_compression.model.TransformerEncoder
     n_blocks: 2
     block_fn:
-      _target_: src.core.model.TransformerBlock
+      _target_: src.projected_compression.model.TransformerBlock
       _partial_: true
-      residual_fn:
-        _target_: src.core.model.PreNormBlock
+      norm_fn: 
+        _target_: src.core.model.RMSNorm
         _partial_: true
-        dmodel: ${common.dmodel}
-        norm_class:
-          _target_: src.core.model.LayerNorm
-          _partial_: true
-
+        eps: 1e-5
+        normalized_shape: ${common.dmodel}
+      
       attention_fn:
-        _target_: src.core.model.Attention
+        _target_: src.projected_compression.model.LlamaAttention
         _partial_: true
         dmodel: ${common.dmodel}
-        heads: 2
-        causal: true
-        init_scale: ${common.init_scale}
-        init_type: ${common.init_type}
+        q_heads: 4
+        kv_heads: 2
+        seq_len: ${common.sequence_length}
+        linear_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: 1
 
       ff_layer_fn:
-        _target_: src.core.model.FeedForward
+        _target_: src.projected_compression.model.LlamaFeedForward
         _partial_: true
         dmodel: ${common.dmodel}
         dff: ${common.dff}
-        init_scale: ${common.init_scale}
-        init_type: ${common.init_type}
+        linear_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: 1
 
   head:
-    _target_: src.core.model.PredictionHead
-    embedding_dim: ${common.dmodel}
-    output_size: ${common.vocab_size}
-    init_type: ${common.init_type}
-    init_scale: ${common.init_scale}
-    use_layer_norm: ${common.head_norm}
+    _target_: src.projected_compression.model.TransformerHead
+    dmodel: ${common.dmodel}
+    vocab_size: ${common.vocab_size}
+    linear_fn:
+      _target_: src.projected_compression.model.Linear
+      _partial_: true
+      partial_init_fn:
+        _target_: src.projected_compression.model.dummy_weight_init
+        _partial_: true
+    norm_fn: 
+      _target_: src.core.model.RMSNorm
+      _partial_: true
+      eps: 1e-5
+      normalized_shape: ${common.dmodel}
+    
 
 trainer:
   _partial_: true
   _target_: src.core.trainer.Trainer
 
   checkpoint:
-   save:
-    interval: 12500
-    model_checkpoint_filename: __model_optim_scheduler__.pt
-    training_state_filename: __training_state__.pt
-    path: checkpoints # Change me!
+    save:
+      interval: 12500
+      model_checkpoint_filename: __model_optim_scheduler__.pt
+      training_state_filename: __training_state__.pt
+      path: checkpoints # Change me!
 
-   load:
-    type: "normal"
-    path:  ${trainer.checkpoint.save.path}
-    model_checkpoint_filename: ${trainer.checkpoint.save.model_checkpoint_filename}
-    training_state_filename: ${trainer.checkpoint.save.training_state_filename}
+  #  load:
+    # type: "normal"
+    # path:  ${trainer.checkpoint.save.path}
+    # model_checkpoint_filename: ${trainer.checkpoint.save.model_checkpoint_filename}
+    # training_state_filename: ${trainer.checkpoint.save.training_state_filename}
+
+    load:
+      type: huggingface
+      path: "meta-llama/Llama-3.2-3B"
+
 
   eval_interval: 100
   n_eval_steps: 5

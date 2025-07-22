@@ -79,6 +79,9 @@ def get_full_checkpoint_path(path):
 def load_training_state(load_config):
     training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
 
+    if load_config.type == "huggingface":
+        return training_start_config
+
     load_path = load_config.path
     if load_path is None:
         logger.warning(

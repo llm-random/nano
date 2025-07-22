@@ -20,6 +20,9 @@ from torchtune.modules.position_embeddings import RotaryPositionalEmbeddings as 
 from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
+from src.core.utils import find_layers
+from src.projected_compression.pruning import generate_structured_prune_mask, generate_unstructured_prune_mask
+
 logger = logging.getLogger(__name__)
 
 
@@ -261,6 +264,14 @@ class Linear(nn.Linear):
             dtype=self.weight.dtype,
         )
 
+    def prune_weights_structured(self, prune_n: int, prune_m: int):
+        pruning_mask = generate_structured_prune_mask(self.weight, prune_n, prune_m)
+        self.weight[pruning_mask] = 0
+
+    def prune_weights_unstructured(self, sparsity_ratio: float):
+        pruning_mask = generate_unstructured_prune_mask(self.weight, sparsity_ratio)
+        self.weight[pruning_mask] = 0            
+
 
 class EmbeddingLayer(Aggregate):
     def __init__(self, *layers):
@@ -320,6 +331,15 @@ class LLM(nn.Module):
         x = self.encoder(x)
         x = self.head(x)
         return x
+    
+
+    def prune(self):
+        hehe = find_layers(self, layers=[Linear])
+        print(hehe)
+        for name, layer in hehe:
+            print(f"Pruning {name}")
+            layer.prune_weights_structured(1, 2)
+
 
 
 def FeedForward(
