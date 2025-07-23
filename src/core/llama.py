@@ -174,3 +174,41 @@ def copy_llama_model_weights_from_HF(model: nn.Module, path: str):
 
     model.head.unembedding.head_norm.weight.data.copy_(hf_model.model.norm.weight)
     model.head.unembedding.head.weight.data.copy_(hf_model.lm_head.weight)
+def remap_llama_to_llm_random_state_dict(llama_state_dict):
+    remapped = {}
+    for key, value in llama_state_dict.items():
+        new_key = key
+
+        # Embedding
+        new_key = new_key.replace("model.embed_tokens.weight", "embedding_layer.embedding.weight")
+
+        # Final norm and lm head
+        new_key = new_key.replace("model.norm.weight", "head.norm.weight")
+        new_key = new_key.replace("lm_head.weight", "head.linear.weight")
+
+        # Layers
+        layer_match = re.match(r"model\.layers\.(\d+)\.(.*)", new_key)
+        if layer_match:
+            layer_num = layer_match.group(1)
+            sub_key = layer_match.group(2)
+
+            # Attention projections
+            sub_key = sub_key.replace("self_attn.q_proj.weight", f"attention_layer.layer.q_proj.weight")
+            sub_key = sub_key.replace("self_attn.k_proj.weight", f"attention_layer.layer.k_proj.weight")
+            sub_key = sub_key.replace("self_attn.v_proj.weight", f"attention_layer.layer.v_proj.weight")
+            sub_key = sub_key.replace("self_attn.o_proj.weight", f"attention_layer.layer.output_projection.weight")
+
+            # Attention norms
+            sub_key = sub_key.replace("input_layernorm.weight", "attention_layer.norm.weight")
+            sub_key = sub_key.replace("post_attention_layernorm.weight", "ff_layer.norm.weight")
+
+            # MLP
+            sub_key = sub_key.replace("mlp.up_proj.weight", "ff_layer.layer.ff_pre_act.weight")
+            sub_key = sub_key.replace("mlp.gate_proj.weight", "ff_layer.layer.gate.weight")
+            sub_key = sub_key.replace("mlp.down_proj.weight", "ff_layer.layer.ff_post_act.weight")
+
+            new_key = f"encoder.blocks.{layer_num}.{sub_key}"
+
+        remapped[new_key] = value
+
+    return OrderedDict(remapped)
