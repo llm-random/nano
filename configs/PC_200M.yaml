@@ -1,9 +1,9 @@
-# _run_: true
+_run_: true
 
 model:
   _target_: src.utils.LLM
   common:
-    _target_: src.definitions.Common
+    _target_: src.definitions.CommonCompression
     base_dmodel: 1024
     base_dff: 4096
     dff: 2048
@@ -11,14 +11,14 @@ model:
     head_norm: true
     init_scale: null
     init_type: zeros
-    model_type: gpt # dev TODO new type PC Compressor
+    model_type: gpt
     sequence_length: 512
     vocab_size: 50257
-  head:
-    _target_: src.core.projected_compression.model.get_projected_head
-    common: ${model.common}
   embedding:
-    _target_: src.core.projected_compression.model.get_projected_embedding
+    _target_: src.projected_compression.model.get_projected_embedding
+    common: ${model.common}
+  head:
+    _target_: src.projected_compression.model.get_projected_head
     common: ${model.common}
   tower_config:
     _target_: src.definitions.TowerConfig
@@ -33,7 +33,7 @@ model:
         mode: pc_vanilla
       norm_class_mode: layer_norm
       residual_mode: pre_norm
-    mode: sameTODO?
+    mode: same
     n_blocks: 16
 
 trainer:

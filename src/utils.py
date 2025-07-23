@@ -12,9 +12,9 @@ import torch.nn as nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 
-from core.model import Attention, FeedForward, PostNormBlock, PreNormBlock, PredictionHead, RMSNorm
-from definitions import AttentionConfig, Common, CommonCompression, TowerConfig
-from projected_compression.model import ProjectedAttention, ProjectedFeedForward
+from src.core.model import Attention, FeedForward, PostNormBlock, PreNormBlock, PredictionHead, RMSNorm
+from src.definitions import AttentionConfig, Common, CommonCompression, TowerConfig
+from src.projected_compression.model import ProjectedAttention, ProjectedFeedForward
 
 
 def get_norm_class_function(norm_class_mode: str):

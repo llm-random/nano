@@ -17,7 +17,8 @@ import logging
 
 from src.core.checkpointing import load_checkpoint, load_training_state
 from src.core.metric_loggers import NeptuneLogger, get_metric_logger
-from src.core.model import Residual, wrap_model
+from src.core.model import Residual
+from src.utils import wrap_model
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,7 @@ def run(cfg, metric_logger=None):
     cleanup()
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="exp")
+@hydra.main(version_base=None, config_path="configs", config_name="PC_200M")
 def main(config):
 
     if config.get("_run_"):

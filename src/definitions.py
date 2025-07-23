@@ -48,12 +48,11 @@ class Common(BaseModel):
     dmodel: int
     dff: int
     init_type: str
-    init_scale: float
+    init_scale: Optional[float]
     vocab_size: int
     head_norm: bool
 
 class CommonCompression(Common):
-    mode: str
     base_dmodel: int
     base_dff: int
 

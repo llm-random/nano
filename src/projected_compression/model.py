@@ -15,7 +15,7 @@ from torch import Tensor
 import torch.nn as nn
 from torch.nn import functional as F
 
-from core.model import AttentionMechanism, EmbeddingLayer, Linear, PositionalEmbedding, get_init_weight
+from src.core.model import AttentionMechanism, EmbeddingLayer, Linear, PositionalEmbedding, get_init_weight
 
 
 

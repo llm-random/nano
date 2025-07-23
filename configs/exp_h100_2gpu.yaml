@@ -1,7 +1,7 @@
 # _run_: true
 
 model:
-  _target_: src.core.model.LLM
+  _target_: src.utils.LLM
   common:
     _target_: src.definitions.Common
     dff: 256
@@ -111,6 +111,7 @@ infrastructure:
     ntasks-per-node: 2
   
   # venv_path: $HOME/nano/.venv/bin/activate # Change me!
+  venv_path: /dev/null
   experiment_prepare_venv_path: ${infrastructure.venv_path}
   
   cemetery_experiments_dir: ~/llmrandom_cemetery
@@ -132,6 +133,6 @@ infrastructure:
     remote_name: cemetery
     remote_url: git@github.com:llm-random/llm-random-cemetery.git
 
-  server: entropia
+  server: entropy
 
   generated_configs_path: generated_configs

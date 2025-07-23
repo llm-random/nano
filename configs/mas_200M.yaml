@@ -1,7 +1,7 @@
 # _run_: true
 
 model:
-  _target_: src.core.model.LLM
+  _target_: src.utils.LLM
   common:
     _target_: src.definitions.Common
     dff: 4096
@@ -64,7 +64,7 @@ trainer:
     dataset_path: "/storage_nvme_1/llm-random/datasets/c4/train"
     dataset_split: train
     dataset_type: c4
-    num_workers: 16 # Change me!
+    num_workers: 0 # Change me!
     seed: 27
     sequence_length: ${model.common.sequence_length}
     shuffle: true

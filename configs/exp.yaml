@@ -1,7 +1,7 @@
-# _run_: true
+_run_: true
 
 model:
-  _target_: src.core.model.LLM
+  _target_: src.utils.LLM
   common:
     _target_: src.definitions.Common
     dff: 256
