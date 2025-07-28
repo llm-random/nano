@@ -89,7 +89,6 @@ def load_training_state(load_config):
         load_path
     )
     os.makedirs(load_path, exist_ok=True)
-    load_path = _find_latest_checkpoint(load_path)
 
     training_state_path = (
         f"{load_path}/{load_config.training_state_filename}"
@@ -114,15 +113,10 @@ def _find_latest_checkpoint(path: str) -> str:
     return max(files, key=os.path.getmtime)
 
 
-def load_checkpoint_from_file(load_config, model, optimizer, scheduler):    
+def load_checkpoint_from_file(load_config, model, optimizer, scheduler): #dev TODO remove or refactor for checkpoint manager*
     checkpoint_path = load_config.path
     if checkpoint_path is None:
         return 
-
-    checkpoint_path = get_full_checkpoint_path(
-        load_config.path
-    )
-    checkpoint_path = _find_latest_checkpoint(checkpoint_path)
 
     if checkpoint_path is not None:
         if isinstance(model, FSDP):
