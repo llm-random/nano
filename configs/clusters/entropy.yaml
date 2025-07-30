@@ -1,0 +1,15 @@
+# @package _global_
+cluster_name: "entropy"
+
+
+trainer_factory:
+  train_dataloader:
+    dataset_path: "/storage_nvme_1/llm-random/datasets/c4/train"
+
+  eval_dataloader:
+    dataset_path: "/storage_nvme_1/llm-random/datasets/c4/validation"
+
+slurm:
+  partition: "h100" # TODO infrastructure/slurm/partition ?
+
+cemetery_experiments_dir: "~/llmrandom_cemetery"
