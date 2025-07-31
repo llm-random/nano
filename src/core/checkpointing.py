@@ -80,9 +80,14 @@ def load_training_state(load_config):
     training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
 
     load_path = load_config.path
-    if load_path is None or load_config.get("training_state_filename") is None:
+    if load_config.type == "huggingface":
+        logger.info(
+            "Training state not loaded - HuggingFace model"
+        )
+        return training_start_config
+    if load_path is None:
         logger.warning(
-            "Save path training_state_filename  is not set. Starting training from scratch."
+            "Checkpoint load_path is not set. Starting training from scratch."
         )
         return training_start_config
     load_path = get_full_checkpoint_path(
