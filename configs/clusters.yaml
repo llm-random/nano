@@ -3,7 +3,7 @@
 #     - "^login01$"
 #     - "gpu01"
 
-- name: "entropia"
+- name: "entropy"
   hosts: 
     - "asusgpu0"
     - "a100a"

@@ -66,12 +66,17 @@ trainer:
   _target_: src.core.trainer.Trainer
 
   checkpoint:
+   save:
     interval: 12500
-    load_path: null
     model_checkpoint_filename: __model_optim_scheduler__.pt
-    path: checkpoints
-    save_path: checkpoints
     training_state_filename: __training_state__.pt
+    path: checkpoints # Change me!
+
+   load:
+    type: "normal"
+    path:  ${trainer.checkpoint.save.path}
+    model_checkpoint_filename: ${trainer.checkpoint.save.model_checkpoint_filename}
+    training_state_filename: ${trainer.checkpoint.save.training_state_filename}
 
   eval_interval: 100
   n_eval_steps: 5
@@ -158,6 +163,6 @@ infrastructure:
     remote_name: cemetery
     remote_url: git@github.com:llm-random/llm-random-cemetery.git
 
-  server: entropia
+  server: entropy
 
   generated_configs_path: generated_configs

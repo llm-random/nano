@@ -1,5 +1,5 @@
 # @package _global_
-cluster_name: "entropia"
+cluster_name: "entropy"
 
 
 trainer_factory:

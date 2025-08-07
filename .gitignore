@@ -185,3 +185,6 @@ generated_configs
 exp.job
 
 checkpoints
+
+# MAS (madragonse)
+*mastest*
