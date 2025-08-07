@@ -10,6 +10,6 @@ trainer_factory:
     dataset_path: "/storage_nvme_1/llm-random/datasets/c4/validation"
 
 slurm:
-  partition: "h100" # TODO infrastructure/slurm/partition ?
+  partition: "h100"
 
 cemetery_experiments_dir: "~/llmrandom_cemetery"

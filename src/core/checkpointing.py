@@ -118,7 +118,7 @@ def _find_latest_checkpoint(path: str) -> str:
     return max(files, key=os.path.getmtime)
 
 
-def load_checkpoint_from_file(load_config, model, optimizer, scheduler): #dev TODO remove or refactor for checkpoint manager*
+def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
     checkpoint_path = load_config.path
     if checkpoint_path is None:
         return 
