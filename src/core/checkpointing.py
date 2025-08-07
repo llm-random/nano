@@ -80,14 +80,12 @@ def load_training_state(load_config):
     training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
 
     if load_config.type == "huggingface" or load_config.type == "llm-random":
+        logger.info(
+            f"Checkpoint type: '{load_config.type}'. Starting training from step 0."
+        )
         return training_start_config
     
     load_path = load_config.path
-    if load_config.type == "huggingface":
-        logger.info(
-            "Training state not loaded - HuggingFace model"
-        )
-        return training_start_config
     if load_path is None:
         logger.warning(
             "Checkpoint load_path is not set. Starting training from scratch."
