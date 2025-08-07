@@ -1,157 +1,129 @@
-from collections import OrderedDict
-from typing import Optional
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-class ProjectedLinear(nn.Module):
-    __constants__ = ["in_features", "out_features", "base_in_features", "base_out_features"]
-    base_in_features: int
-    base_out_features: int
-    projected_in_features: Optional[int]
-    projected_out_features: Optional[int]
 
 
-    def __init__(
-        self,
-        base_in_features: int,
-        base_out_features: int,
-        projected_in_features: Optional[int],
-        projected_out_features: Optional[int],
-        device=None,
-        dtype=None,
-    ) -> nn.Module:
-
-        factory_kwargs = {"device": device, "dtype": dtype}
-        super().__init__()
-        self.base_in_features = base_in_features
-        self.base_out_features = base_out_features
-        self.projected_in_features = projected_in_features
-        self.projected_out_features = projected_out_features
-        self.finalized_projections = False
-
-        if self.projected_in_features is not None: 
-            self.projection_in_weight = nn.Parameter(
-                torch.zeros((projected_in_features, base_in_features), **factory_kwargs)
-            )
-
-        self.base_weight = nn.Parameter(
-            torch.rand((base_in_features, base_out_features), **factory_kwargs)
-        )
-
-        if self.projected_out_features is not None:
-            self.projection_out_weight = nn.Parameter(
-                torch.zeros((base_out_features, projected_out_features), **factory_kwargs)
-            )    
-
-        self.final_weight = nn.Parameter(
-            torch.empty((projected_out_features, projected_in_features), **factory_kwargs)
-        )
-    
-    def init_projections(self):
-        with torch.no_grad():
-            if self.projected_in_features is not None: 
-                l2_norms = torch.norm(self.base_weight, dim=1)
-                top_indices = torch.topk(l2_norms, self.projected_in_features).indices
-                self.projection_in_weight[torch.arange(self.projected_in_features), top_indices] = 1
-
-            if self.projected_out_features is not None: 
-                l2_norms = torch.norm(self.base_weight, dim=0)
-                top_indices = torch.topk(l2_norms, self.projected_out_features).indices
-                self.projection_out_weight[top_indices, torch.arange(self.projected_out_features)] = 1
-
-
-    def finalize_projections(self):
-        projected_base_weight = self.base_weight
-
-        if self.projected_in_features is not None:
-            projected_base_weight = self.projection_in_weight @ self.base_weight
-
-        if self.projected_out_features is not None:
-            projected_base_weight = projected_base_weight @ self.projection_out_weight
-
-        self.final_weight.data.copy_(projected_base_weight.T)
-        self.finalized_projections = True
-
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        # gradient magic happens here - PC optimization
-        # TODO maybe order of projections matter for speed
-        if self.finalized_projections:
-            return F.linear(input, self.final_weight, bias = None)
-
-        projected_base_weight = self.base_weight
-
-        if self.projected_in_features is not None:
-            projected_base_weight = self.projection_in_weight @ self.base_weight
-
-        if self.projected_out_features is not None:
-            projected_base_weight = projected_base_weight @ self.projection_out_weight
-
-        return F.linear(input, projected_base_weight.T, bias = None)
+def get_nested_attr(module, attr_path):
+    attrs = attr_path.split(".")
+    for attr in attrs:
+        module = getattr(module, attr)
+    return module
         
-
-    def extra_repr(self) -> str:
-        return f"in_features={self.in_features}, out_features={self.out_features}, base_in_features = {self.__project_in}, {self.base_in_features}, base_out_features = {self.__project_out}, {self.base_out_features}" # no bias
+def determine_dmodel_magnitudes(block_state_dict):
+    magnitudes = []
+    # left_multipliers = [ 
+    #     "attention_layer.layer.q_proj.weight",
+    #     "attention_layer.layer.k_proj.weight",
+    #     "attention_layer.layer.v_proj.weight",
+    #     "ff_layer.layer.ff_pre_act.weight",
+    #     # "ff_layer.layer.gate.weight" # missing in LLM-Random, but present in Nano TODO
+    #     ] 
+    # right_multipliers = [ 
+    #     "attention_layer.layer.o_proj.weight",
+    #     "ff_layer.layer.ff_post_act.weight"
+    #     ]
     
 
-    def state_dict(self, *args, **kwargs):
-        full_state = super().state_dict(*args, **kwargs)
-        if self.finalized_projections:
-            full_state = super().state_dict(*args, **kwargs)
-            return {"final_weight": full_state["final_weight"]}
+    left_multipliers = [ 
+        "attention_layer.layer.q_proj.weight",
+        "attention_layer.layer.k_proj.weight",
+        "attention_layer.layer.v_proj.weight",
+        # "ff_layer.layer.gate.weight" # missing in LLM-Random, but present in Nano TODO
+        "ff_layer.layer.ff_pre_act.weight",
+        
+        ] 
+    right_multipliers = [ 
+        "attention_layer.layer.o_proj.weight",
+        "ff_layer.layer.ff_post_act.weight"
+        ]
 
-        return full_state
+    for layer_name in left_multipliers:
+        weight = block_state_dict[layer_name]
+        magnitudes.append(torch.norm(weight, dim=0))
+
+    for layer_name in right_multipliers:
+        weight = block_state_dict[layer_name]
+        magnitudes.append(torch.norm(weight, dim=1))
+
+    return magnitudes
+
+def determine_dff_magnitudes(block_state_dict):
+    weight = block_state_dict["ff_layer.layer.ff_post_act.weight"]
+    dff_magnitude = torch.norm(weight, dim=0)
+
+    for layer_name in ["ff_layer.layer.ff_pre_act.weight"]: # , "ff_layer.layer.gate.weight"]: # missing in LLM-Random, but present in Nano TODO
+        weight = block_state_dict[layer_name]
+        dff_magnitude += torch.norm(weight, dim=1)
+
+    return dff_magnitude
+
+
+def calculate_dimension_importances(model: nn.Module, topk_dmodel, topk_dff):
+    dmodel_magnitudes = []
+    dff_magnitudes = []
+
+    # Embedding
+    embedding_weight = model.embedding.embedding.embedding.weight.data
+    dmodel_magnitudes.append(torch.norm(embedding_weight, dim=0))
     
-    # def _training_key_params(self) -> set:
-    #     training_params = {"base_weight"}
-    #     if self.projected_in_features is not None:
-    #         training_params.add("projection_in_weight")
-        
-    #     if self.projected_out_features is not None:
-    #         training_params.add("projection_out_weight")
+    # Head
+    head_weight = model.head.linear.weight.data
+    dmodel_magnitudes.append(torch.norm(head_weight, dim=0))
 
-    def load_state_dict(self, state_dict, strict: bool = True, assign=False):
-        if self.finalized_projections:
-            if {"final_weight"} == state_dict.keys():
-                self.final_weight.data.copy_(state_dict["final_weight"])
-            elif strict:
-                raise RuntimeError("Missing 'final_weight' in state_dict")
-        
-        else:
-            super().load_state_dict(state_dict, assign)
-            
+    for block in model.encoder.blocks:
+        block_state_dict = block.state_dict()
+        dmodel_magnitudes.extend(determine_dmodel_magnitudes(block_state_dict))
+        dff_magnitudes.append(determine_dff_magnitudes(block_state_dict))
 
-        # training_key_params = self._training_key_params()
-        # if strict:
-        #     assert state_dict.keys() ==  training_key_params, "LinearProjection state keys does not match!"
+    mean_dmodel_magnitudes = torch.stack(dmodel_magnitudes, dim=1).mean(dim=1)
+    dmodel_top_indices = torch.topk(mean_dmodel_magnitudes, topk_dmodel).indices
+    dmodel_top_indices = dmodel_top_indices.sort().values
 
-        # for key in training_key_params:
-        #     self[key].data.copy_(state_dict[key])
+    dff_magnitudes = torch.stack(dff_magnitudes)
+    dff_top_indices = torch.topk(dff_magnitudes, dim=1, k=topk_dff).indices
+
+    # sort indices
+    dmodel_top_indices = dmodel_top_indices.sort().values
+    for indices in dff_top_indices:
+        indices.copy_(indices.sort().values)
+    
+    return dmodel_top_indices, dff_top_indices
+
+def initialize_projection_weights(model: nn.Module, dmodel_top_indices, dff_top_indices):
+    model.head.linear.init_projections(dmodel_top_indices, None)
+    model.embedding.init_projection(dmodel_top_indices)
+
+    cloned_data = model.head.norm.weight.data.clone() 
+    model.head.norm.weight = torch.nn.Parameter(cloned_data[dmodel_top_indices])
+    model.head.norm.normalized_shape = tuple(model.head.norm.weight.shape) 
+
+    for i, block in enumerate(model.encoder.blocks):
+        layers_to_init_projections = [ 
+            ("attention_layer.layer.q_proj", dmodel_top_indices, None),
+            ("attention_layer.layer.k_proj", dmodel_top_indices, None),
+            ("attention_layer.layer.v_proj", dmodel_top_indices, None),
+            ("ff_layer.layer.ff_pre_act", dmodel_top_indices, dff_top_indices[i]),
+            ("attention_layer.layer.o_proj", None, dmodel_top_indices),
+            ("ff_layer.layer.ff_post_act", dff_top_indices[i], dmodel_top_indices)
+        ]
+
+        for layer_name, in_topk_indices, out_topk_indices in layers_to_init_projections:
+            get_nested_attr(block, layer_name).init_projections(in_topk_indices, out_topk_indices)
 
 
-# TODO remove this TEST
-input_data = torch.rand((6,2))
+        cloned_data =  block.attention_layer.norm.weight.data.clone() 
+        block.attention_layer.norm.weight = torch.nn.Parameter(cloned_data[dmodel_top_indices])
+        block.attention_layer.norm.normalized_shape = tuple(block.attention_layer.norm.weight.shape)    
 
-proj_linear = ProjectedLinear(6, 8, 2, 4)
-proj_linear.init_projections()
+        cloned_data = block.ff_layer.norm.weight.data.clone()
+        block.ff_layer.norm.weight = torch.nn.Parameter(cloned_data[dmodel_top_indices])
+        block.ff_layer.norm.normalized_shape = tuple(block.ff_layer.norm.weight.shape)
 
-output1 = proj_linear(input_data)
-print(output1)
 
-state = proj_linear.state_dict()
-print(state)
+def init_compression(model: nn.Module, dmodel, dff):
+    for param in model.parameters():
+        param.requires_grad = False
 
-proj_linear.load_state_dict(state)
+    dmodel_top_indices, dff_top_indices = calculate_dimension_importances(model, dmodel, dff)
+    initialize_projection_weights(model, dmodel_top_indices, dff_top_indices)
 
-proj_linear.finalize_projections()
 
-output2 = proj_linear(input_data)
-print(output2)
-
-print(output1 == output2)
-
-state = proj_linear.state_dict()
-print(state)
-
-proj_linear.load_state_dict(state)

@@ -14,7 +14,9 @@ from torchtune.modules.position_embeddings import RotaryPositionalEmbeddings as 
 from src.core.llama import repeat_kv
 from src.core.model import AttentionMechanism, Residual
 from torch.nn.init import trunc_normal_
+from torch import zeros as zeros
 import torch.distributed as dist
+import torch.nn.functional as F
 
 def llm_random_weight_init(fan_in, scale):
     std = scale * (1 / fan_in) ** 0.5
@@ -23,7 +25,8 @@ def llm_random_weight_init(fan_in, scale):
     return partial(trunc_normal_, mean=0.0, std=std, a=low, b=high)
 
 # linear takes partial function which returns init_fn upon giving fan_in as an input, but sometimes it does not depend on fan_in 
-dummy_weight_init = lambda _: trunc_normal_ 
+dummy_weight_init = lambda _: trunc_normal_
+dummy_zeros = lambda _: zeros  
 
 class TransformerEmbedding(nn.Module):
     def __init__(
@@ -140,15 +143,21 @@ class Residual(nn.Module):
 
 class LlamaRoPE(nn.Module):
     # features are paired x_i, x_{i + d_head/2}
-    def __init__(self, dhead, length, base=10000):
+    def __init__(self, dhead, length, base, scale_freqs):
         super().__init__()
         self.dhead = dhead
         self.length = length
-        angle_exponents = torch.arange(0, dhead, 2, dtype=torch.int64).float() / dhead
-        angles = 1.0 / torch.pow(base, angle_exponents).reshape(1, -1)
-        angles = self.scale_freqs(angles)
+        self.base = base
+        self.scale_freqs = scale_freqs
+        self.register_freqs()
 
-        angle_per_token = angles * torch.arange(0, length).reshape(-1, 1)
+    def register_freqs(self):
+        angle_exponents = torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
+        angles = 1.0 / torch.pow(self.base, angle_exponents).reshape(1, -1)
+        if self.scale_freqs:
+            angles = self.scale_freqs(angles)
+
+        angle_per_token = angles * torch.arange(0, self.length).reshape(-1, 1)
         self.register_buffer("sin", torch.sin(angle_per_token).repeat(1, 2), persistent=False)
         self.register_buffer("cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False)
 
@@ -172,6 +181,12 @@ class LlamaRoPE(nn.Module):
         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
         return inv_freq_llama
 
+    def forward(self, x):
+        [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
+        x_rotated = torch.cat([-y2, y1], dim=-1)
+        cos_scaler = self.cos[: x.shape[-2], :].to(x.device)
+        sin_scaler = self.sin[: x.shape[-2], :].to(x.device)
+        return x * cos_scaler + x_rotated * sin_scaler
 
 class LlamaAttention(nn.Module):
     def __init__(
@@ -180,7 +195,9 @@ class LlamaAttention(nn.Module):
         q_heads,
         kv_heads,
         seq_len,
-        linear_fn
+        linear_fn,
+        rope_base,
+        rope_scale_freqs
     ):
         super().__init__()
         self.q_heads = q_heads
@@ -190,13 +207,14 @@ class LlamaAttention(nn.Module):
         self.q_proj = linear_fn(dmodel, dmodel)
         self.k_proj = linear_fn(dmodel, self.kv_heads * self.head_dim)
         self.v_proj = linear_fn(dmodel, self.kv_heads * self.head_dim)
-        self.output_projection = linear_fn(dmodel, dmodel)
+        self.o_proj = linear_fn(dmodel, dmodel)
         self.attention_mechanism = AttentionMechanism()
 
         self.rope = LlamaRoPE(
             dhead=self.head_dim,
             length=seq_len,
-            base=500000
+            base=rope_base,
+            scale_freqs=rope_scale_freqs
         )
 
 
@@ -220,10 +238,80 @@ class LlamaAttention(nn.Module):
             query=q, key=k, value=v, causal=True
         )
 
-        output = self.output_projection(attention_output.transpose(1, 2).contiguous().flatten(-2))
+        output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
 
         return output
 
+class ProjectedLlamaAttention(nn.Module):
+    def __init__(
+        self,
+        q_proj_fn,
+        k_proj_fn,
+        v_proj_fn,
+        o_proj_fn,
+        dmodel,
+        q_heads,
+        kv_heads,
+        seq_len,
+        rope_base,
+        rope_scale_freqs: bool
+    ):
+        super().__init__()
+        self.q_proj = q_proj_fn()
+        self.k_proj = k_proj_fn()
+        self.v_proj = v_proj_fn()
+        self.o_proj= o_proj_fn()
+        self.attention_mechanism = AttentionMechanism()
+
+        self.q_heads = q_heads
+        self.kv_heads = kv_heads
+        self.dhead = dmodel // self.q_heads
+        self.dmodel = dmodel
+
+        self.rope = LlamaRoPE(
+            dhead=self.dhead,
+            length=seq_len,
+            base=rope_base,
+            scale_freqs=rope_scale_freqs
+        )
+
+
+    def forward(self, x):
+        query_states = self.q_proj(x)
+        key_states = self.k_proj(x)
+        value_states = self.v_proj(x)
+
+        batch, seq_len = x.shape[:-1]
+        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        q = self.rope(q)
+        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        k = self.rope(k)
+
+        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+
+        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        v = repeat_kv(v, self.q_heads // self.kv_heads)
+        attention_output = self.attention_mechanism(
+            query=q, key=k, value=v, causal=True
+        )
+
+        output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
+
+        return output
+
+
+class FeedForward(nn.Module):
+    def __init__(self, ff_pre_act_fn, ff_post_act_fn):
+        super().__init__()
+        self.relu = nn.ReLU()
+        self.ff_pre_act = ff_pre_act_fn()
+        self.ff_post_act = ff_post_act_fn()
+
+    def forward(self, x):
+        x = self.ff_pre_act(x)
+        x = self.relu(x)
+        x = self.ff_post_act(x)
+        return x
 
 
 class LlamaFeedForward(nn.Module):
@@ -233,6 +321,23 @@ class LlamaFeedForward(nn.Module):
         self.gate = linear_fn(dmodel, dff)
         self.silu = nn.SiLU()
         self.ff_post_act = linear_fn(dff, dmodel)
+
+    def forward(self, x):
+        gated = self.gate(x)
+        gated = self.silu(gated)
+        x = self.ff_pre_act(x)
+        x = x * gated
+        x = self.ff_post_act(x)
+        return x
+    
+
+class ProjectedLlamaFeedForward(nn.Module):
+    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn):
+        super().__init__()
+        self.silu = nn.SiLU()
+        self.ff_pre_act = ff_pre_act_fn()
+        self.ff_post_act = ff_post_act_fn()
+        self.gate = gate_fn()
 
     def forward(self, x):
         gated = self.gate(x)
@@ -283,16 +388,18 @@ class TransformerEncoder(nn.Module):
         ])
 
     def forward(self, x):
-        return self.blocks(x)
+        for block in self.blocks:
+            x = block(x)
+        return x
 
 
 class TransformerHead(nn.Module):
     def __init__(
-        self, dmodel, vocab_size, linear_fn: Callable, norm_fn: Callable
+        self, linear_fn: Callable, norm_fn: Callable
     ):
         super().__init__()
         self.norm = norm_fn()
-        self.linear = linear_fn(dmodel, vocab_size)
+        self.linear = linear_fn()
     def forward(self, x):
         x = self.norm(x)
         x = self.linear(x)
@@ -307,12 +414,135 @@ class LLM(nn.Module):
         head: nn.Module,
     ):
         super().__init__()
-        self.embedding_layer = embedding
+        self.embedding = embedding
         self.encoder = encoder
         self.head = head
 
     def forward(self, *args, **kwargs):
-        x = self.embedding_layer(*args, **kwargs)
+        x = self.embedding(*args, **kwargs)
         x = self.encoder(x)
         x = self.head(x)
         return x
+
+
+class ProjectedLinear(nn.Module):
+    __constants__ = ["result_in_features", "result_out_features", "base_in_features", "base_out_features"]
+    result_in_features: Optional[int]
+    result_out_features: Optional[int]
+    base_in_features: int
+    base_out_features: int
+
+
+    def __init__(
+        self,
+        result_in_features: Optional[int],
+        result_out_features: Optional[int],
+        base_in_features: int,
+        base_out_features: int,
+        device=None,
+        dtype=None,
+    ) -> nn.Module:
+
+        factory_kwargs = {"device": device, "dtype": dtype}
+        super().__init__()
+        self.result_in_features = result_in_features
+        self.result_out_features = result_out_features
+        self.base_in_features = base_in_features
+        self.base_out_features = base_out_features
+        self.initialized_compression = False
+
+        self.weight = nn.Parameter(
+            torch.rand((base_out_features, base_in_features), **factory_kwargs)
+        )
+        self.projection_in_weight = None
+        self.projection_out_weight = None
+        self.auxiliary_weight = None
+    
+    def init_projections(self, proj_in_topk_indices: Optional[torch.Tensor], proj_out_topk_indices:Optional[torch.Tensor],  factory_kwargs={}):
+        if proj_in_topk_indices is None:
+            assert self.projection_in_weight is None, "Projection 'in' is decalred, but not passed."
+        else:
+            assert len(proj_in_topk_indices) == self.result_in_features, "projection 'in' dimension mismatch."
+
+        if proj_out_topk_indices is None:
+            assert self.projection_out_weight is None, "Projection 'out' is decalred, but not passed."
+        else:
+            assert len(proj_out_topk_indices) == self.result_out_features, "projection 'out' dimension mismatch."
+
+        if self.result_in_features is not None:
+            weight = torch.zeros(self.base_in_features, self.result_in_features, **factory_kwargs)
+            weight[proj_in_topk_indices, torch.arange(self.result_in_features)] = 1
+            self.projection_in_weight = nn.Parameter(weight)
+
+        if self.result_out_features is not None:
+            weight = torch.zeros(self.result_out_features, self.base_out_features, **factory_kwargs)
+            weight[torch.arange(self.result_out_features), proj_out_topk_indices] = 1
+            self.projection_out_weight = nn.Parameter(weight)
+
+        if self.result_in_features is not None or self.result_out_features is not None:
+            final_in_features = self.result_in_features if self.result_in_features is not None else self.base_in_features
+            final_out_features = self.result_out_features if self.result_out_features is not None else self.base_out_features
+            weight = torch.zeros(final_out_features, final_in_features, **factory_kwargs)
+            self.auxiliary_weight = nn.Parameter(weight)
+
+        self.initialized_compression = True
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        # gradient magic happens here - PC optimization
+        # TODO maybe order of projections matter for speed
+        if self.initialized_compression:
+            weight = self.weight
+
+            if self.result_in_features is not None: 
+                weight = weight @ self.projection_in_weight
+
+            if self.result_out_features is not None:
+                weight =  self.projection_out_weight @ weight
+
+            if self.result_in_features is not None or self.result_out_features is not None:
+                weight += self.auxiliary_weight
+
+            return F.linear(input, weight, bias=None) 
+
+        return F.linear(input, self.weight, bias = None)
+
+    def extra_repr(self) -> str:
+        if self.result_in_features is not None:
+            result = f"(projection_in_weight) ({self.base_in_features}, {self.result_in_features})\n"
+        else:
+            result = ""
+        result += f"(weight) ({self.base_out_features}, {self.base_in_features})"
+        if self.result_out_features is not None:
+            result += f"\n(projection_out_weight) ({self.result_out_features}, {self.base_out_features})"
+        return result
+
+
+class ProjectedEmbedding(nn.Module):
+    def __init__(
+        self,
+        embedding_fn: Callable,
+        result_out_features: int,
+    ):
+        super().__init__()
+        self.embedding = embedding_fn()
+        self.projection = None
+        self.result_out_features = result_out_features
+        self.initialized_compression = False
+
+    def forward(self, x):
+        result = self.embedding(x)
+        if self.initialized_compression:
+            result = F.linear(result, self.projection,bias=None)
+            result += self.auxiliary_weight(x)
+        return result
+    
+    def init_projection(self, topk_dmodel_indices, **factory_kwargs):
+        assert len(topk_dmodel_indices) == self.result_out_features
+        vocab_size, dmodel = self.embedding.embedding.weight.shape
+        weight = torch.zeros(self.result_out_features, dmodel, **factory_kwargs)
+        weight[torch.arange(self.result_out_features), topk_dmodel_indices] = 1
+        self.projection = nn.Parameter(weight)
+        self.initialized_compression = True
+
+        zeros = torch.zeros(vocab_size, self.result_out_features, **factory_kwargs)
+        self.auxiliary_weight = nn.Embedding(vocab_size, self.result_out_features, _weight=zeros)
