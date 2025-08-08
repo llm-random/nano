@@ -42,7 +42,7 @@ model:
         bias: false
       
       attention_fn:
-        _target_: src.projected_compression.model.ProjectedLlamaAttention
+        _target_: src.projected_compression.model.RoPEAttention
         _partial_: true
         dmodel: ${common.base_dmodel}
         q_heads: 4
