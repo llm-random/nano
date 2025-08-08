@@ -415,7 +415,7 @@ class Attention(nn.Module):
             init_type=init_type,
             init_scale=init_scale,
         )
-        self.output_projection = Linear(
+        self.o_proj = Linear(
             dmodel,
             dmodel,
             bias=False,
@@ -437,7 +437,7 @@ class Attention(nn.Module):
             query=q, key=k, value=v, causal=self.causal
         )
 
-        output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
+        output = self.o_proj(attention_output.transpose(1, 2).flatten(-2))
 
         return output
 
