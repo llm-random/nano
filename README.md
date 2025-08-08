@@ -11,5 +11,5 @@ Set following fields in a config:
    load:
     type: huggingface
     path: "meta-llama/Llama-3.2-1B"
-  n_steps: 0```
-
+  n_steps: 0
+```
