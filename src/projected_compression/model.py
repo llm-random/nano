@@ -141,7 +141,13 @@ class Residual(nn.Module):
             }
 
 
-class LlamaRoPE(nn.Module):
+class RoPE(nn.Module):
+    """
+    This code is mostly taken from HF for Llama #TODO (add url)
+    Standard setup for models:
+    - Llama base=500000, scale_freqs=True
+    - llm-random base=10000, scale_freqs=False
+    """
     # features are paired x_i, x_{i + d_head/2}
     def __init__(self, dhead, length, base, scale_freqs):
         super().__init__()
@@ -188,61 +194,7 @@ class LlamaRoPE(nn.Module):
         sin_scaler = self.sin[: x.shape[-2], :].to(x.device)
         return x * cos_scaler + x_rotated * sin_scaler
 
-class LlamaAttention(nn.Module):
-    def __init__(
-        self,
-        dmodel,
-        q_heads,
-        kv_heads,
-        seq_len,
-        linear_fn,
-        rope_base,
-        rope_scale_freqs
-    ):
-        super().__init__()
-        self.q_heads = q_heads
-        self.kv_heads = kv_heads
-        self.head_dim = dmodel // self.q_heads
-
-        self.q_proj = linear_fn(dmodel, dmodel)
-        self.k_proj = linear_fn(dmodel, self.kv_heads * self.head_dim)
-        self.v_proj = linear_fn(dmodel, self.kv_heads * self.head_dim)
-        self.o_proj = linear_fn(dmodel, dmodel)
-        self.attention_mechanism = AttentionMechanism()
-
-        self.rope = LlamaRoPE(
-            dhead=self.head_dim,
-            length=seq_len,
-            base=rope_base,
-            scale_freqs=rope_scale_freqs
-        )
-
-
-    def forward(self, x):
-        query_states = self.q_proj(x)
-        key_states = self.k_proj(x)
-        value_states = self.v_proj(x)
-
-        batch, seq_len = x.shape[:-1]
-        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
-        q = self.rope(q)
-        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
-        k = self.rope(k)
-
-        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
-
-        k = repeat_kv(k, self.q_heads // self.kv_heads)
-        v = repeat_kv(v, self.q_heads // self.kv_heads)
-
-        attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=True
-        )
-
-        output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
-
-        return output
-
-class ProjectedLlamaAttention(nn.Module):
+class RoPEAttention(nn.Module):
     def __init__(
         self,
         q_proj_fn,
@@ -268,7 +220,7 @@ class ProjectedLlamaAttention(nn.Module):
         self.dhead = dmodel // self.q_heads
         self.dmodel = dmodel
 
-        self.rope = LlamaRoPE(
+        self.rope = RoPE(
             dhead=self.dhead,
             length=seq_len,
             base=rope_base,
