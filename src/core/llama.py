@@ -113,7 +113,7 @@ class LlamaAttention(nn.Module):
         self.k_proj = Linear(dmodel, self.kv_heads * self.head_dim, bias=False, init_type=init_type, init_scale=init_scale)
         self.v_proj = Linear(dmodel, self.kv_heads * self.head_dim, bias=False, init_type=init_type, init_scale=init_scale)
 
-        self.output_projection = Linear(
+        self.o_proj = Linear(
             dmodel,
             dmodel,
             bias=False,
@@ -148,8 +148,7 @@ class LlamaAttention(nn.Module):
             query=q, key=k, value=v, causal=self.causal
         )
 
-
-        output = self.output_projection(attention_output.transpose(1, 2).contiguous().flatten(-2))
+        output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
 
         return output
 
@@ -165,7 +164,7 @@ def copy_llama_model_weights_from_HF(model: nn.Module, path: str):
         model.encoder.blocks[i].block.residual_attention.layer.attention.q_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.q_proj.weight)
         model.encoder.blocks[i].block.residual_attention.layer.attention.k_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.k_proj.weight)
         model.encoder.blocks[i].block.residual_attention.layer.attention.v_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.v_proj.weight)
-        model.encoder.blocks[i].block.residual_attention.layer.attention.output_projection.weight.data.copy_(hf_model.model.layers[i].self_attn.o_proj.weight)
+        model.encoder.blocks[i].block.residual_attention.layer.attention.o_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.o_proj.weight)
 
         model.encoder.blocks[i].block.residual_feedforward.layer.pre_norm.weight.data.copy_(hf_model.model.layers[i].post_attention_layernorm.weight)
         model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.ff_pre_act.weight.data.copy_(hf_model.model.layers[i].mlp.up_proj.weight)
