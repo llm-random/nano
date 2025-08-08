@@ -9,7 +9,9 @@ from torch.nn import (
 )  # used by FSDP, but it keeps getting removed during file formatting
 
 from torch.nn.modules.normalization import RMSNorm as RMSNorm
-from torchtune.modules.position_embeddings import RotaryPositionalEmbeddings as RotaryPositionalEmbeddings
+from torchtune.modules.position_embeddings import (
+    RotaryPositionalEmbeddings as RotaryPositionalEmbeddings,
+)
 
 from src.core.llama import repeat_kv
 from src.core.model import AttentionMechanism, Residual
@@ -18,34 +20,28 @@ from torch import zeros as zeros
 import torch.distributed as dist
 import torch.nn.functional as F
 
+
 def llm_random_weight_init(fan_in, scale):
     std = scale * (1 / fan_in) ** 0.5
     low = -2 * std
     high = 2 * std
     return partial(trunc_normal_, mean=0.0, std=std, a=low, b=high)
 
-# linear takes partial function which returns init_fn upon giving fan_in as an input, but sometimes it does not depend on fan_in 
+
+# linear takes partial function which returns init_fn upon giving fan_in as an input, but sometimes it does not depend on fan_in
 dummy_weight_init = lambda _: trunc_normal_
-dummy_zeros = lambda _: zeros  
+dummy_zeros = lambda _: zeros
+
 
 class TransformerEmbedding(nn.Module):
-    def __init__(
-        self,
-        vocab_size: int, 
-        dmodel: int, 
-        init_fn: Optional[Callable]
-    ):
+    def __init__(self, vocab_size: int, dmodel: int, init_fn: Optional[Callable]):
         super().__init__()
-        weight = torch.empty(
-                vocab_size, 
-                dmodel,
-                dtype=torch.float32
-            )
+        weight = torch.empty(vocab_size, dmodel, dtype=torch.float32)
         init_fn(weight)
         self.embedding = nn.Embedding(vocab_size, dmodel, _weight=weight)
-        
+
     def forward(self, x):
-        return self.embedding(x) 
+        return self.embedding(x)
 
 
 class Linear(nn.Linear):
@@ -148,6 +144,7 @@ class RoPE(nn.Module):
     - Llama base=500000, scale_freqs=True
     - llm-random base=10000, scale_freqs=False
     """
+
     # features are paired x_i, x_{i + d_head/2}
     def __init__(self, dhead, length, base, scale_freqs):
         super().__init__()
@@ -158,17 +155,23 @@ class RoPE(nn.Module):
         self.register_freqs()
 
     def register_freqs(self):
-        angle_exponents = torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
+        angle_exponents = (
+            torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
+        )
         angles = 1.0 / torch.pow(self.base, angle_exponents).reshape(1, -1)
         if self.scale_freqs:
             angles = self.scale_freqs(angles)
 
         angle_per_token = angles * torch.arange(0, self.length).reshape(-1, 1)
-        self.register_buffer("sin", torch.sin(angle_per_token).repeat(1, 2), persistent=False)
-        self.register_buffer("cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False)
+        self.register_buffer(
+            "sin", torch.sin(angle_per_token).repeat(1, 2), persistent=False
+        )
+        self.register_buffer(
+            "cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False
+        )
 
     def scale_freqs(self, freqs, factor=32):
-        # factor = `8` in the original implementation according to HuggingFace 
+        # factor = `8` in the original implementation according to HuggingFace
         low_freq_factor = 1  # `1` in the original implementation
         high_freq_factor = 4  # `4` in the original implementation
         old_context_len = 8192  # `8192` in the original implementation
@@ -181,8 +184,12 @@ class RoPE(nn.Module):
         # wavelen > low_freq_wavelen: divide by factor
         inv_freq_llama = torch.where(wavelen > low_freq_wavelen, freqs / factor, freqs)
         # otherwise: interpolate between the two, using a smooth factor
-        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
-        smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
+        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (
+            high_freq_factor - low_freq_factor
+        )
+        smoothed_inv_freq = (
+            1 - smooth_factor
+        ) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
         return inv_freq_llama
@@ -193,6 +200,7 @@ class RoPE(nn.Module):
         cos_scaler = self.cos[: x.shape[-2], :].to(x.device)
         sin_scaler = self.sin[: x.shape[-2], :].to(x.device)
         return x * cos_scaler + x_rotated * sin_scaler
+
 
 class RoPEAttention(nn.Module):
     def __init__(
@@ -206,13 +214,13 @@ class RoPEAttention(nn.Module):
         kv_heads,
         seq_len,
         rope_base,
-        rope_scale_freqs: bool
+        rope_scale_freqs: bool,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
         self.k_proj = k_proj_fn()
         self.v_proj = v_proj_fn()
-        self.o_proj= o_proj_fn()
+        self.o_proj = o_proj_fn()
         self.attention_mechanism = AttentionMechanism()
 
         self.q_heads = q_heads
@@ -224,9 +232,8 @@ class RoPEAttention(nn.Module):
             dhead=self.dhead,
             length=seq_len,
             base=rope_base,
-            scale_freqs=rope_scale_freqs
+            scale_freqs=rope_scale_freqs,
         )
-
 
     def forward(self, x):
         query_states = self.q_proj(x)
@@ -281,7 +288,7 @@ class LlamaFeedForward(nn.Module):
         x = x * gated
         x = self.ff_post_act(x)
         return x
-    
+
 
 class ProjectedLlamaFeedForward(nn.Module):
     def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn):
@@ -316,7 +323,7 @@ class TransformerBlock(nn.Module):
             layer=attention_fn(),
             log_name=f"{self.log_name}/residual_attention",
         )
-        self.ff_layer =  Residual(
+        self.ff_layer = Residual(
             norm=norm_fn(),
             layer=ff_layer_fn(),
             log_name=f"{self.log_name}/residual_feedforward",
@@ -335,9 +342,7 @@ class TransformerEncoder(nn.Module):
         n_blocks: int,
     ):
         super().__init__()
-        self.blocks = nn.ModuleList([ block_fn(i)
-            for i in range(n_blocks)
-        ])
+        self.blocks = nn.ModuleList([block_fn(i) for i in range(n_blocks)])
 
     def forward(self, x):
         for block in self.blocks:
@@ -346,12 +351,11 @@ class TransformerEncoder(nn.Module):
 
 
 class TransformerHead(nn.Module):
-    def __init__(
-        self, linear_fn: Callable, norm_fn: Callable
-    ):
+    def __init__(self, linear_fn: Callable, norm_fn: Callable):
         super().__init__()
         self.norm = norm_fn()
         self.linear = linear_fn()
+
     def forward(self, x):
         x = self.norm(x)
         x = self.linear(x)
@@ -378,12 +382,16 @@ class LLM(nn.Module):
 
 
 class ProjectedLinear(nn.Module):
-    __constants__ = ["result_in_features", "result_out_features", "base_in_features", "base_out_features"]
+    __constants__ = [
+        "result_in_features",
+        "result_out_features",
+        "base_in_features",
+        "base_out_features",
+    ]
     result_in_features: Optional[int]
     result_out_features: Optional[int]
     base_in_features: int
     base_out_features: int
-
 
     def __init__(
         self,
@@ -409,32 +417,59 @@ class ProjectedLinear(nn.Module):
         self.projection_in_weight = None
         self.projection_out_weight = None
         self.auxiliary_weight = None
-    
-    def init_projections(self, proj_in_topk_indices: Optional[torch.Tensor], proj_out_topk_indices:Optional[torch.Tensor],  factory_kwargs={}):
+
+    def init_projections(
+        self,
+        proj_in_topk_indices: Optional[torch.Tensor],
+        proj_out_topk_indices: Optional[torch.Tensor],
+        factory_kwargs={},
+    ):
         if proj_in_topk_indices is None:
-            assert self.projection_in_weight is None, "Projection 'in' is decalred, but not passed."
+            assert (
+                self.projection_in_weight is None
+            ), "Projection 'in' is decalred, but not passed."
         else:
-            assert len(proj_in_topk_indices) == self.result_in_features, "projection 'in' dimension mismatch."
+            assert (
+                len(proj_in_topk_indices) == self.result_in_features
+            ), "projection 'in' dimension mismatch."
 
         if proj_out_topk_indices is None:
-            assert self.projection_out_weight is None, "Projection 'out' is decalred, but not passed."
+            assert (
+                self.projection_out_weight is None
+            ), "Projection 'out' is decalred, but not passed."
         else:
-            assert len(proj_out_topk_indices) == self.result_out_features, "projection 'out' dimension mismatch."
+            assert (
+                len(proj_out_topk_indices) == self.result_out_features
+            ), "projection 'out' dimension mismatch."
 
         if self.result_in_features is not None:
-            weight = torch.zeros(self.base_in_features, self.result_in_features, **factory_kwargs)
+            weight = torch.zeros(
+                self.base_in_features, self.result_in_features, **factory_kwargs
+            )
             weight[proj_in_topk_indices, torch.arange(self.result_in_features)] = 1
             self.projection_in_weight = nn.Parameter(weight)
 
         if self.result_out_features is not None:
-            weight = torch.zeros(self.result_out_features, self.base_out_features, **factory_kwargs)
+            weight = torch.zeros(
+                self.result_out_features, self.base_out_features, **factory_kwargs
+            )
             weight[torch.arange(self.result_out_features), proj_out_topk_indices] = 1
             self.projection_out_weight = nn.Parameter(weight)
 
         if self.result_in_features is not None or self.result_out_features is not None:
-            final_in_features = self.result_in_features if self.result_in_features is not None else self.base_in_features
-            final_out_features = self.result_out_features if self.result_out_features is not None else self.base_out_features
-            weight = torch.zeros(final_out_features, final_in_features, **factory_kwargs)
+            final_in_features = (
+                self.result_in_features
+                if self.result_in_features is not None
+                else self.base_in_features
+            )
+            final_out_features = (
+                self.result_out_features
+                if self.result_out_features is not None
+                else self.base_out_features
+            )
+            weight = torch.zeros(
+                final_out_features, final_in_features, **factory_kwargs
+            )
             self.auxiliary_weight = nn.Parameter(weight)
 
         self.initialized_compression = True
@@ -445,18 +480,21 @@ class ProjectedLinear(nn.Module):
         if self.initialized_compression:
             weight = self.weight
 
-            if self.result_in_features is not None: 
+            if self.result_in_features is not None:
                 weight = weight @ self.projection_in_weight
 
             if self.result_out_features is not None:
-                weight =  self.projection_out_weight @ weight
+                weight = self.projection_out_weight @ weight
 
-            if self.result_in_features is not None or self.result_out_features is not None:
+            if (
+                self.result_in_features is not None
+                or self.result_out_features is not None
+            ):
                 weight += self.auxiliary_weight
 
-            return F.linear(input, weight, bias=None) 
+            return F.linear(input, weight, bias=None)
 
-        return F.linear(input, self.weight, bias = None)
+        return F.linear(input, self.weight, bias=None)
 
     def extra_repr(self) -> str:
         if self.result_in_features is not None:
@@ -484,10 +522,10 @@ class ProjectedEmbedding(nn.Module):
     def forward(self, x):
         result = self.embedding(x)
         if self.initialized_compression:
-            result = F.linear(result, self.projection,bias=None)
+            result = F.linear(result, self.projection, bias=None)
             result += self.auxiliary_weight(x)
         return result
-    
+
     def init_projection(self, topk_dmodel_indices, **factory_kwargs):
         assert len(topk_dmodel_indices) == self.result_out_features
         vocab_size, dmodel = self.embedding.embedding.weight.shape
@@ -497,4 +535,6 @@ class ProjectedEmbedding(nn.Module):
         self.initialized_compression = True
 
         zeros = torch.zeros(vocab_size, self.result_out_features, **factory_kwargs)
-        self.auxiliary_weight = nn.Embedding(vocab_size, self.result_out_features, _weight=zeros)
+        self.auxiliary_weight = nn.Embedding(
+            vocab_size, self.result_out_features, _weight=zeros
+        )
