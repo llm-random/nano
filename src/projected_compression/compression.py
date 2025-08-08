@@ -10,37 +10,24 @@ def get_nested_attr(module, attr_path):
         
 def determine_dmodel_magnitudes(block_state_dict):
     magnitudes = []
-    # left_multipliers = [ 
-    #     "attention_layer.layer.q_proj.weight",
-    #     "attention_layer.layer.k_proj.weight",
-    #     "attention_layer.layer.v_proj.weight",
-    #     "ff_layer.layer.ff_pre_act.weight",
-    #     # "ff_layer.layer.gate.weight" # missing in LLM-Random, but present in Nano TODO
-    #     ] 
-    # right_multipliers = [ 
-    #     "attention_layer.layer.o_proj.weight",
-    #     "ff_layer.layer.ff_post_act.weight"
-    #     ]
-    
 
-    left_multipliers = [ 
+    leftside_projections = [ 
         "attention_layer.layer.q_proj.weight",
         "attention_layer.layer.k_proj.weight",
         "attention_layer.layer.v_proj.weight",
-        # "ff_layer.layer.gate.weight" # missing in LLM-Random, but present in Nano TODO
         "ff_layer.layer.ff_pre_act.weight",
-        
-        ] 
-    right_multipliers = [ 
+        ]
+
+    rightside_projections = [ 
         "attention_layer.layer.o_proj.weight",
         "ff_layer.layer.ff_post_act.weight"
         ]
 
-    for layer_name in left_multipliers:
+    for layer_name in leftside_projections:
         weight = block_state_dict[layer_name]
         magnitudes.append(torch.norm(weight, dim=0))
 
-    for layer_name in right_multipliers:
+    for layer_name in rightside_projections:
         weight = block_state_dict[layer_name]
         magnitudes.append(torch.norm(weight, dim=1))
 
@@ -50,7 +37,8 @@ def determine_dff_magnitudes(block_state_dict):
     weight = block_state_dict["ff_layer.layer.ff_post_act.weight"]
     dff_magnitude = torch.norm(weight, dim=0)
 
-    for layer_name in ["ff_layer.layer.ff_pre_act.weight"]: # , "ff_layer.layer.gate.weight"]: # missing in LLM-Random, but present in Nano TODO
+    rightside_projections = [ "ff_layer.layer.ff_pre_act.weight" ]
+    for layer_name in rightside_projections: 
         weight = block_state_dict[layer_name]
         dff_magnitude += torch.norm(weight, dim=1)
 
@@ -120,6 +108,7 @@ def initialize_projection_weights(model: nn.Module, dmodel_top_indices, dff_top_
 
 
 def init_compression(model: nn.Module, dmodel, dff):
+    # Freeze all parameters
     for param in model.parameters():
         param.requires_grad = False
 
