@@ -15,7 +15,7 @@ from torch.nn import (
     LayerNorm as LayerNorm,
 )  # used by FSDP, but it keeps getting removed during file formatting
 
-from torch.nn.modules.normalization import RMSNorm as RMSNorm
+from torch.nn.modules.normalization import RMSNorm as RMSNorm, LayerNorm as LayerNorm
 from torchtune.modules.position_embeddings import RotaryPositionalEmbeddings as RotaryPositionalEmbeddings
 from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
