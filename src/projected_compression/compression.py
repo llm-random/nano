@@ -19,6 +19,10 @@ def determine_dmodel_magnitudes(block_state_dict):
         "ff_layer.layer.ff_pre_act.weight",
     ]
 
+    # For models with SiLU (e.g. LLama) 
+    if "ff_layer.layer.gate.weight" in block_state_dict.keys(): 
+        leftside_projections.append("ff_layer.layer.gate.weight")
+
     rightside_projections = [
         "attention_layer.layer.o_proj.weight",
         "ff_layer.layer.ff_post_act.weight",
@@ -40,6 +44,10 @@ def determine_dff_magnitudes(block_state_dict):
     dff_magnitude = torch.norm(weight, dim=0)
 
     rightside_projections = ["ff_layer.layer.ff_pre_act.weight"]
+    # For models with SiLU (e.g. LLama) 
+    if "ff_layer.layer.gate.weight" in block_state_dict.keys():
+        rightside_projections.append("ff_layer.layer.gate.weight")
+
     for layer_name in rightside_projections:
         weight = block_state_dict[layer_name]
         dff_magnitude += torch.norm(weight, dim=1)
@@ -96,9 +104,12 @@ def initialize_projection_weights(
             ("attention_layer.layer.v_proj", dmodel_top_indices, None),
             ("ff_layer.layer.ff_pre_act", dmodel_top_indices, dff_top_indices[i]),
             ("attention_layer.layer.o_proj", None, dmodel_top_indices),
-            ("ff_layer.layer.ff_post_act", dff_top_indices[i], dmodel_top_indices),
+            ("ff_layer.layer.ff_post_act", dff_top_indices[i], dmodel_top_indices)
         ]
-
+        # For models with SiLU (e.g. LLama) 
+        if "ff_layer.layer.gate.weight" in block.state_dict().keys():
+            layers_to_init_projections.append(("ff_layer.layer.gate", dmodel_top_indices, dff_top_indices[i]))
+        
         for layer_name, in_topk_indices, out_topk_indices in layers_to_init_projections:
             get_nested_attr(block, layer_name).init_projections(
                 in_topk_indices, out_topk_indices

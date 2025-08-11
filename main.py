@@ -136,6 +136,9 @@ def run(cfg, metric_logger=None):
 
     if cfg.trainer.checkpoint.load.type == "huggingface":
         copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
+        if "apply_functions" in cfg and cfg.apply_functions is not None:
+            for fn in instantiate(cfg.apply_functions):
+                fn(model)
         model = wrap_model_distributed(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
