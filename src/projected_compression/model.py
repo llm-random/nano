@@ -447,14 +447,14 @@ class ProjectedLinear(nn.Module):
                 self.base_in_features, self.result_in_features, **factory_kwargs
             )
             weight[proj_in_topk_indices, torch.arange(self.result_in_features)] = 1
-            self.projection_in_weight = nn.Parameter(weight)
+            self.projection_in_weight = nn.Parameter(weight, requires_grad=True)
 
         if self.result_out_features is not None:
             weight = torch.zeros(
                 self.result_out_features, self.base_out_features, **factory_kwargs
             )
             weight[torch.arange(self.result_out_features), proj_out_topk_indices] = 1
-            self.projection_out_weight = nn.Parameter(weight)
+            self.projection_out_weight = nn.Parameter(weight, requires_grad=True)
 
         if self.result_in_features is not None or self.result_out_features is not None:
             final_in_features = (
@@ -470,29 +470,28 @@ class ProjectedLinear(nn.Module):
             weight = torch.zeros(
                 final_out_features, final_in_features, **factory_kwargs
             )
-            self.auxiliary_weight = nn.Parameter(weight)
+            self.auxiliary_weight = nn.Parameter(weight, requires_grad=True)
 
         self.initialized_compression = True
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         # gradient magic happens here - PC optimization
         # TODO maybe order of projections matter for speed
-        if self.initialized_compression:
-            weight = self.weight
+        weight = self.weight
 
-            if self.result_in_features is not None:
-                weight = weight @ self.projection_in_weight
+        if self.result_in_features is not None:
+            weight = weight @ self.projection_in_weight
 
-            if self.result_out_features is not None:
-                weight = self.projection_out_weight @ weight
+        if self.result_out_features is not None:
+            weight = self.projection_out_weight @ weight
 
-            if (
-                self.result_in_features is not None
-                or self.result_out_features is not None
-            ):
-                weight += self.auxiliary_weight
+        if (
+            self.result_in_features is not None
+            or self.result_out_features is not None
+        ):
+            weight += self.auxiliary_weight
 
-            return F.linear(input, weight, bias=None)
+        return F.linear(input, weight, bias=None)
 
         return F.linear(input, self.weight, bias=None)
 
@@ -531,7 +530,7 @@ class ProjectedEmbedding(nn.Module):
         vocab_size, dmodel = self.embedding.embedding.weight.shape
         weight = torch.zeros(self.result_out_features, dmodel, **factory_kwargs)
         weight[torch.arange(self.result_out_features), topk_dmodel_indices] = 1
-        self.projection = nn.Parameter(weight)
+        self.projection = nn.Parameter(weight, requires_grad=True)
         self.initialized_compression = True
 
         zeros = torch.zeros(vocab_size, self.result_out_features, **factory_kwargs)
