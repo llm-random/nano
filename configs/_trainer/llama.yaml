@@ -22,7 +22,7 @@ trainer:
         dtype: bfloat16
         ignored_classes:
           - LayerNorm
-          - AttentionMechanism
+          - LlamaAttention
       modules_to_wrap:
         - TransformerBlock
         - EmbeddingLayer
