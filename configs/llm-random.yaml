@@ -150,6 +150,8 @@ trainer:
     dataset_path: data
     dataset_split: train
     dataset_type: c4
+    tokenize_fn: 
+      _target_: src.core.datasets.gpt2_tokenize_fn
     num_workers: 0 # Change me!
     seed: 20001
     sequence_length: 32
@@ -163,6 +165,8 @@ trainer:
     dataset_path: data_eval
     dataset_split: validation
     dataset_type: c4
+    tokenize_fn: 
+      _target_: src.core.datasets.gpt2_tokenize_fn
     num_workers: 0 # Change me!
     seed: 123
     sequence_length: 32
