@@ -1,0 +1,26 @@
+# _run_: true
+
+# TODO missing llama tokenizer
+
+defaults:
+  - _cluster@_here_: entropy_4
+  - _model@_here_: llama_3_1
+  - _trainer@_here_: default
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: mas/hf_llama_3_1.yaml
+  - _misc@_here_: default
+
+trainer:
+  n_steps: 2000
+  learning_rate: 0.00005
+  gradient_accumulation_steps: 4
+
+infrastructure:
+  metric_logger:
+    name: test
+    project_name: pmtest/llm-random
+    tags:
+      - pc
+      - nano
+      - test_configs
+      - final
