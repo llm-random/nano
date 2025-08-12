@@ -18,3 +18,10 @@ infrastructure:
   git:
     remote_name: cemetery
     remote_url: git@github.com:llm-random/llm-random-cemetery.git
+
+switch:
+  trainer:
+    train_dataloader:
+      dataset_path_c4: "/storage_nvme_1/llm-random/datasets/c4/train" # entropy
+    eval_dataloader:
+      dataset_path_c4: "/storage_nvme_1/llm-random/datasets/c4/validation" # entropy
