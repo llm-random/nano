@@ -1,0 +1,13 @@
+trainer:
+  checkpoint:
+   save:
+    interval: -1
+    path: null
+    model_checkpoint_filename: null
+    training_state_filename: null
+
+   load:
+    type: null
+    path: null
+    model_checkpoint_filename: null
+    training_state_filename: null

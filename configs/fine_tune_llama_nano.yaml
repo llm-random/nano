@@ -1,5 +1,7 @@
 # _run_: true
 
+# TODO WIP
+
 common:
   _target_: src.definitions.Common
   dff: 8192
@@ -8,7 +10,7 @@ common:
   init_scale: 0.1
   init_type: truncated_normal_fixed
   model_type: gpt
-  sequence_length: 32
+  sequence_length: 512
   vocab_size: 128256
   
 model:
@@ -69,28 +71,29 @@ trainer:
 
   checkpoint:
    save:
-    interval: 12500
+    interval: 1000000
     model_checkpoint_filename: __model_optim_scheduler__.pt
     training_state_filename: __training_state__.pt
     path: checkpoints # Change me!
 
    load:
-    type: huggingface
-    path: "meta-llama/Llama-3.2-1B"
+    type: nano
+    path: "/home/mstefaniak/llmrandom_cemetery/run_exp_2025-07-28_11-00-53/checkpoints/0/step_-1"
+    model_checkpoint_filename: "__training_state__.pt"
 
-  eval_interval: 100
-  n_eval_steps: 5
+  eval_interval: 500
+  n_eval_steps: 20
 
-  gradient_accumulation_steps: 1
+  gradient_accumulation_steps: 4
   gradient_clipping: 1.0
-  n_steps: 0
+  n_steps: 2000
 
-  learning_rate: 0.001
+  learning_rate: 0.00005
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
-    final_lr_fraction: 0.1
-    warmup_steps: 500
+    final_lr_fraction: 0.01
+    warmup_steps: 100
 
   weight_decay: 0.1
 
@@ -100,10 +103,10 @@ trainer:
     dataset_split: train
     dataset_type: c4
     num_workers: 0 # Change me!
-    seed: 20001
-    sequence_length: 32
+    seed: 27
+    sequence_length: ${common.sequence_length}
     shuffle: true
-    total_batch_size: 32
+    total_batch_size: ${common.sequence_length}
     use_new_sampling_method: true
     world_size_independent: false
 
@@ -114,19 +117,20 @@ trainer:
     dataset_type: c4
     num_workers: 0 # Change me!
     seed: 123
-    sequence_length: 32
+    sequence_length: ${common.sequence_length}
     shuffle: true
-    total_batch_size: 32
+    total_batch_size: ${common.sequence_length}
     use_new_sampling_method: true
     world_size_independent: false
 
-  distributed:
+    distributed:
     fsdp:
       mixed_precision:
         dtype: bfloat16
         ignored_classes:
           - LayerNorm
-          - AttentionMechanism
+          # - AttentionMechanism
+          - LlamaAttention
       modules_to_wrap:
         - TransformerBlock
         - EmbeddingLayer
@@ -134,16 +138,18 @@ trainer:
 
 infrastructure:
   slurm:
-    cpus-per-task: 32
-    gres: gpu:2
+    cpus-per-task: 16
+    gres: gpu:4
     job-name: test
-    mem_per_gpu: 125G
+    mem_per_gpu: 90G
     nodes: 1
-    partition: h100
-    time: "0-1:00:00"
-    ntasks-per-node: 2
+    partition: h100 # entropy
+    # partition: plgrid-gpu-gh200 # helios
+    time: "2-00:00:00"
+    ntasks-per-node: 4
 
-  venv_path: $HOME/nano/.venv/bin/activate # Change me!
+  # venv_path: $HOME/nano/.venv/bin/activate # Change me!
+  venv_path: /dev/null
   experiment_prepare_venv_path: ${infrastructure.venv_path}
 
   cemetery_experiments_dir: ~/llmrandom_cemetery
@@ -152,7 +158,7 @@ infrastructure:
     _target_: src.definitions.MetricLoggerConfig
     heavy_metrics_calculation_interval: 100
     name: test
-    new_neptune_job: false
+    new_neptune_job: true
     project_name: pmtest/llm-random
     tags:
       - test
@@ -162,6 +168,8 @@ infrastructure:
     remote_name: cemetery
     remote_url: git@github.com:llm-random/llm-random-cemetery.git
 
-  server: entropia
+  # server: helios
+  server: entropy
+  # server: entropy_c
 
   generated_configs_path: generated_configs

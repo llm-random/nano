@@ -1,0 +1,13 @@
+
+infrastructure:
+  metric_logger:
+    _target_: src.definitions.MetricLoggerConfig
+    heavy_metrics_calculation_interval: 100
+    new_neptune_job: true
+    type: neptune
+
+  git:
+    remote_name: cemetery
+    remote_url: git@github.com:llm-random/llm-random-cemetery.git
+
+  generated_configs_path: generated_configs
