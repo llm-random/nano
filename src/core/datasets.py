@@ -7,7 +7,7 @@ import itertools
 import numpy as np
 import random
 from torch.utils.data import IterableDataset, DataLoader
-from transformers import GPT2TokenizerFast, PreTrainedTokenizerBase
+from transformers import GPT2TokenizerFast, LlamaTokenizerFast
 from datasets import load_dataset
 from datasets.distributed import split_dataset_by_node
 import logging
@@ -19,18 +19,28 @@ def take_circular(iterable, start, stop):
     return itertools.islice(cycle, start, stop)
 
 
-def _process_document(document, encode_fn, eot_str):
-    """
-    Used for processing the dataset in the C4Dataset class.
-    It should be lambda inside a map function, but apparently it is not possible to pickle it.
-    """
-    return {
-        "tokens": encode_fn(
-            document["text"] + eot_str,
+def gpt2_tokenize_fn():
+    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    def tokenize_function(examples):
+        texts = [text + tokenizer.eos_token for text in examples["text"]]
+        batch_encodings = tokenizer(
+            texts,
             truncation=False,
             max_length=int(1e10),
         )
-    }
+        return batch_encodings
+    return tokenize_function
+
+def llama_tokenize_fn():
+    tokenizer = LlamaTokenizerFast.from_pretrained("meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False)
+    def tokenize_function(examples):
+        batch_encodings = tokenizer(
+            examples["text"],
+            truncation=False,
+            max_length=int(1e10),
+        )
+        return batch_encodings
+    return tokenize_function
 
 
 class C4Dataset(IterableDataset):
@@ -48,11 +58,10 @@ class C4Dataset(IterableDataset):
     def __init__(
         self,
         sequence_length,
+        tokenize_fn: Callable,
         path: Optional[str] = None,
         split: Optional[str] = None,
-        tokenizer: Optional[PreTrainedTokenizerBase] = None,
         seed: Optional[int] = None,
-        eot_str: str = "<|endoftext|>",
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
         world_size_independent: bool = False,
@@ -61,14 +70,12 @@ class C4Dataset(IterableDataset):
         self.rank = int(os.environ.get("RANK"))
         self.use_new_sampling_method = use_new_sampling_method
         self.world_size_independent = world_size_independent
-        if tokenizer is None:
-            tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-        self._load_dataset(path, split, seed, tokenizer, eot_str, shuffle)
+        self._load_dataset(path, split, seed, tokenize_fn, shuffle)
         self.sequence_length = sequence_length
         self.seed = seed
         self.rng = random.Random(seed)
 
-    def _load_dataset(self, path, split, seed, tokenizer, eot_str, shuffle: bool):
+    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
         if path is None:
             logger.debug(
                 f"Loading 'allenai/c4' dataset from HuggingFace with split={split}"
@@ -94,8 +101,8 @@ class C4Dataset(IterableDataset):
             hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
 
         self.data_generator = hf_dataset.map(
-            _process_document,
-            fn_kwargs={"encode_fn": tokenizer.encode, "eot_str": eot_str},
+            tokenize_fn,
+            batched=True
         )
 
     def get_infinite_sampler(self):
@@ -112,7 +119,7 @@ class C4Dataset(IterableDataset):
         if self.use_new_sampling_method:
 
             while True:
-                sample = next(sampler)["tokens"]
+                sample = next(sampler)["input_ids"]
 
                 if len(buffer) == 0:
                     rand_num = self.rng.randint(0, len(sample) - 1)
@@ -126,7 +133,7 @@ class C4Dataset(IterableDataset):
         else:
             document_lengths: List[int] = []
             while True:
-                tokens = next(sampler)["tokens"]
+                tokens = next(sampler)["input_ids"]
                 buffer.extend(tokens)
 
                 document_lengths.append(len(tokens))
@@ -157,6 +164,7 @@ def get_dataloader(
     dataset_type: str,
     dataset_path: str,
     dataset_split: str,
+    tokenize_fn: str,
     total_batch_size: int,
     sequence_length: int,
     num_workers: int,
@@ -174,6 +182,7 @@ def get_dataloader(
         dataset = C4Dataset(
             sequence_length=sequence_length + 1,
             split=dataset_split,
+            tokenize_fn=tokenize_fn,
             path=dataset_path,
             seed=seed,
             use_new_sampling_method=use_new_sampling_method,
