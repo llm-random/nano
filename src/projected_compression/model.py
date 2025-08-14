@@ -13,6 +13,8 @@ from torchtune.modules.position_embeddings import (
     RotaryPositionalEmbeddings as RotaryPositionalEmbeddings,
 )
 
+from torch.nn import Embedding as Embedding
+
 from src.core.llama import repeat_kv
 from src.core.model import AttentionMechanism, Residual
 from torch.nn.init import trunc_normal_
@@ -146,12 +148,12 @@ class RoPE(nn.Module):
     """
 
     # features are paired x_i, x_{i + d_head/2}
-    def __init__(self, dhead, length, base, scale_freqs):
+    def __init__(self, dhead, length, base, apply_freq_scaling):
         super().__init__()
         self.dhead = dhead
         self.length = length
         self.base = base
-        self.scale_freqs = scale_freqs
+        self.apply_freq_scaling = apply_freq_scaling
         self.register_freqs()
 
     def register_freqs(self):
@@ -159,7 +161,7 @@ class RoPE(nn.Module):
             torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
         )
         angles = 1.0 / torch.pow(self.base, angle_exponents).reshape(1, -1)
-        if self.scale_freqs:
+        if self.apply_freq_scaling:
             angles = self.scale_freqs(angles)
 
         angle_per_token = angles * torch.arange(0, self.length).reshape(-1, 1)
@@ -197,8 +199,8 @@ class RoPE(nn.Module):
     def forward(self, x):
         [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
         x_rotated = torch.cat([-y2, y1], dim=-1)
-        cos_scaler = self.cos[: x.shape[-2], :].to(x.device)
-        sin_scaler = self.sin[: x.shape[-2], :].to(x.device)
+        cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
+        sin_scaler = self.sin[: x.shape[-2], :].to(x.device, dtype=x.dtype)
         return x * cos_scaler + x_rotated * sin_scaler
 
 
@@ -225,14 +227,14 @@ class RoPEAttention(nn.Module):
 
         self.q_heads = q_heads
         self.kv_heads = kv_heads
-        self.dhead = dmodel // self.q_heads
+        self.dhead = self.q_proj.weight.shape[0] // self.q_heads
         self.dmodel = dmodel
 
         self.rope = RoPE(
             dhead=self.dhead,
             length=seq_len,
             base=rope_base,
-            scale_freqs=rope_scale_freqs,
+            apply_freq_scaling=rope_scale_freqs,
         )
 
     def forward(self, x):
@@ -493,8 +495,6 @@ class ProjectedLinear(nn.Module):
 
         return F.linear(input, weight, bias=None)
 
-        return F.linear(input, self.weight, bias=None)
-
     def extra_repr(self) -> str:
         if self.result_in_features is not None:
             result = f"(projection_in_weight) ({self.base_in_features}, {self.result_in_features})\n"
@@ -505,15 +505,14 @@ class ProjectedLinear(nn.Module):
             result += f"\n(projection_out_weight) ({self.result_out_features}, {self.base_out_features})"
         return result
 
-
 class ProjectedEmbedding(nn.Module):
     def __init__(
         self,
-        embedding_fn: Callable,
+        embedding: nn.Module,
         result_out_features: int,
     ):
         super().__init__()
-        self.embedding = embedding_fn()
+        self.embedding = embedding
         self.projection = None
         self.result_out_features = result_out_features
         self.initialized_compression = False
@@ -527,7 +526,7 @@ class ProjectedEmbedding(nn.Module):
 
     def init_projection(self, topk_dmodel_indices, **factory_kwargs):
         assert len(topk_dmodel_indices) == self.result_out_features
-        vocab_size, dmodel = self.embedding.embedding.weight.shape
+        vocab_size, dmodel = self.embedding.weight.shape
         weight = torch.zeros(self.result_out_features, dmodel, **factory_kwargs)
         weight[torch.arange(self.result_out_features), topk_dmodel_indices] = 1
         self.projection = nn.Parameter(weight, requires_grad=True)

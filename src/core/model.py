@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import importlib
 import os
 import re
 import sys
@@ -492,8 +493,15 @@ def get_vanilla_embedding(vocab_size, dmodel, init_type, init_scale, sequence_le
 
 
 def get_classes_from_globals(names):
-    return [globals().get(name) for name in names]
+    return [dynamic_import(name) for name in names]
 
+def dynamic_import(full_name):
+    module_path, _, obj_name = full_name.rpartition('.')
+    if not module_path or not obj_name:
+        raise ValueError(f"Invalid path: {full_name}")
+    module = importlib.import_module(module_path)
+
+    return getattr(module, obj_name)
 
 def wrap_model_fsdp(model, fsdp_config):
 

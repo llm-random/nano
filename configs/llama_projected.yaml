@@ -16,14 +16,10 @@ model:
 
   embedding:
     _target_: src.projected_compression.model.ProjectedEmbedding
-    embedding_fn:
-      _target_: src.projected_compression.model.TransformerEmbedding
-      _partial_: true
-      vocab_size: ${common.vocab_size}
-      dmodel: ${common.base_dmodel}
-      init_fn:
-        _target_: src.projected_compression.model.trunc_normal_
-        _partial_: true
+    embedding:
+      _target_: src.projected_compression.model.Embedding
+      num_embeddings: ${common.vocab_size}
+      embedding_dim: ${common.base_dmodel}
 
     result_out_features: ${common.dmodel} 
     
@@ -208,7 +204,7 @@ infrastructure:
     _target_: src.definitions.MetricLoggerConfig
     heavy_metrics_calculation_interval: 100
     name: test
-    # new_neptune_job: false
+    new_neptune_job: true
     project_name: pmtest/llm-random
     tags:
       - test
