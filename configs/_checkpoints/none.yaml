@@ -3,11 +3,11 @@ trainer:
    save:
     interval: -1
     path: null
-    model_checkpoint_filename: null
-    training_state_filename: null
+    model_checkpoint_filename: __model_checkpoint_filename.pt
+    training_state_filename: __training_state_filename.pt
 
    load:
     type: null
     path: null
-    model_checkpoint_filename: null
-    training_state_filename: null
+    model_checkpoint_filename: __model_checkpoint_filename.pt
+    training_state_filename: __training_state_filename.pt

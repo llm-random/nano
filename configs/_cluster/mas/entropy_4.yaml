@@ -11,7 +11,7 @@ infrastructure:
     time: "0-05:00:00"
     ntasks-per-node: 4
 
-  venv_path: ???
+  venv_path: /dev/null
   experiment_prepare_venv_path: ${infrastructure.venv_path}
   cemetery_experiments_dir: ~/llmrandom_cemetery
 

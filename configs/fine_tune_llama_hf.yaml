@@ -18,9 +18,8 @@ trainer:
 infrastructure:
   metric_logger:
     name: test
-    project_name: pmtest/llm-random
     tags:
       - pc
       - nano
       - test_configs
-      - final
+      - fine_tune_hf
