@@ -1,4 +1,6 @@
 
+from collections import OrderedDict
+import re
 import math
 import torch.nn as nn
 import torch
@@ -152,24 +154,52 @@ class LlamaAttention(nn.Module):
 
         return output
 
+def remap_llamahf_state_dict_to_nano(llama_state_dict):
+    remapped = {}
+    for key, value in llama_state_dict.items():
+        new_key = key
+
+        # Embedding
+        new_key = new_key.replace("model.embed_tokens.weight", "embedding.embedding.weight")
+
+        # Final norm and lm head
+        new_key = new_key.replace("model.norm.weight", "head.norm.weight")
+        new_key = new_key.replace("lm_head.weight", "head.linear.weight")
+
+        # Layers
+        layer_match = re.match(r"model\.layers\.(\d+)\.(.*)", new_key)
+        if layer_match:
+            layer_num = layer_match.group(1)
+            sub_key = layer_match.group(2)
+
+            # Attention projections
+            sub_key = sub_key.replace("self_attn.q_proj.weight", f"attention_layer.layer.q_proj.weight")
+            sub_key = sub_key.replace("self_attn.k_proj.weight", f"attention_layer.layer.k_proj.weight")
+            sub_key = sub_key.replace("self_attn.v_proj.weight", f"attention_layer.layer.v_proj.weight")
+            sub_key = sub_key.replace("self_attn.o_proj.weight", f"attention_layer.layer.o_proj.weight")
+
+            # Attention norms
+            sub_key = sub_key.replace("input_layernorm.weight", "attention_layer.norm.weight")
+            sub_key = sub_key.replace("post_attention_layernorm.weight", "ff_layer.norm.weight")
+
+            # MLP
+            sub_key = sub_key.replace("mlp.up_proj.weight", "ff_layer.layer.ff_pre_act.weight")
+            sub_key = sub_key.replace("mlp.gate_proj.weight", "ff_layer.layer.gate.weight")
+            sub_key = sub_key.replace("mlp.down_proj.weight", "ff_layer.layer.ff_post_act.weight")
+
+            new_key = f"encoder.blocks.{layer_num}.{sub_key}"
+
+        remapped[new_key] = value
+
+    return OrderedDict(remapped)
+
 
 def copy_llama_model_weights_from_HF(model: nn.Module, path: str):
 
     hf_model = AutoModelForCausalLM.from_pretrained(path)
 
-    model.embedding_layer.load_state_dict(hf_model.model.embed_tokens.state_dict())
+    llama_state_dict = hf_model.state_dict()
 
-    for i in range(len(model.encoder.blocks)):
-        model.encoder.blocks[i].block.residual_attention.layer.pre_norm.weight.data.copy_(hf_model.model.layers[i].input_layernorm.weight)
-        model.encoder.blocks[i].block.residual_attention.layer.attention.q_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.q_proj.weight)
-        model.encoder.blocks[i].block.residual_attention.layer.attention.k_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.k_proj.weight)
-        model.encoder.blocks[i].block.residual_attention.layer.attention.v_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.v_proj.weight)
-        model.encoder.blocks[i].block.residual_attention.layer.attention.o_proj.weight.data.copy_(hf_model.model.layers[i].self_attn.o_proj.weight)
+    remapped_state_dict = remap_llamahf_state_dict_to_nano(llama_state_dict)
 
-        model.encoder.blocks[i].block.residual_feedforward.layer.pre_norm.weight.data.copy_(hf_model.model.layers[i].post_attention_layernorm.weight)
-        model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.ff_pre_act.weight.data.copy_(hf_model.model.layers[i].mlp.up_proj.weight)
-        model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.ff_post_act.weight.data.copy_(hf_model.model.layers[i].mlp.down_proj.weight)
-        model.encoder.blocks[i].block.residual_feedforward.layer.feedforward.gate.weight.data.copy_(hf_model.model.layers[i].mlp.gate_proj.weight)
-
-    model.head.unembedding.head_norm.weight.data.copy_(hf_model.model.norm.weight)
-    model.head.unembedding.head.weight.data.copy_(hf_model.lm_head.weight)
+    model.load_state_dict(remapped_state_dict)

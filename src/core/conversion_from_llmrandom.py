@@ -7,7 +7,7 @@ def remap_llmrandom_state_dict_to_nano(llmrandom_dict):
 
     replacement_mappings = [
         # Embedding
-        (r"embedding_layer\.layers\.0\.weight", "embedding.embedding.embedding.weight"),
+        (r"embedding_layer\.layers\.0\.weight", "embedding.embedding.weight"),
         # Attention projections
         (
             r"encoder\.blocks\.block_(\d+)\.block\.residual_attention\.layer\.pre_norm\.weight",
