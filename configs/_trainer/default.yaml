@@ -13,7 +13,7 @@ trainer:
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
-    final_lr_fraction: 0.1 #TODO find best default 0.03?
+    final_lr_fraction: 0.1
     warmup_steps: 500
 
   distributed:

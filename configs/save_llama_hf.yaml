@@ -1,5 +1,3 @@
-# _run_: true
-
 defaults:
   - _cluster@_here_: entropy_4
   - _model@_here_: llama_3_1
