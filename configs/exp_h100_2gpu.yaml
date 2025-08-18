@@ -1,3 +1,4 @@
+# _run_: true
 
 common:
   _target_: src.definitions.Common
@@ -162,6 +163,6 @@ infrastructure:
     remote_name: cemetery
     remote_url: git@github.com:llm-random/llm-random-cemetery.git
 
-  server: entropy
+  server: entropia
 
   generated_configs_path: generated_configs

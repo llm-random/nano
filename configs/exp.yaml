@@ -1,3 +1,5 @@
+# _run_: true
+
 common:
   _target_: src.definitions.Common
   dff: 256
