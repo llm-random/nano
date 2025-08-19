@@ -11,6 +11,7 @@ import torch.distributed as dist
 from torch.nn.attention import SDPBackend
 from torch.nn.init import trunc_normal_
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
+from torch.distributed.fsdp import MixedPrecisionPolicy
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.nn import (
     LayerNorm as LayerNorm,
@@ -20,6 +21,7 @@ from torch.nn.modules.normalization import RMSNorm as RMSNorm, LayerNorm as Laye
 from torchtune.modules.position_embeddings import RotaryPositionalEmbeddings as RotaryPositionalEmbeddings
 from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
+from torch.distributed.fsdp import fully_shard
 
 logger = logging.getLogger(__name__)
 
@@ -516,17 +518,36 @@ def wrap_model_fsdp(model, fsdp_config):
     )
     print(f"Using mixed precision dtype: {mixed_precision_dtype}")
 
-    wrapped_model = FSDP(
-        model,
-        device_id=int(os.environ["RANK"]),
-        mixed_precision=MixedPrecision(
-            param_dtype=mixed_precision_dtype,
-            cast_forward_inputs=True,
-            _module_classes_to_ignore=igonore_mixed_precision_classes,
-        ),
-        auto_wrap_policy=ModuleWrapPolicy(classes_to_wrap),
-    )
-    return wrapped_model
+
+    fsdp_kwargs = {
+        "mp_policy": MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16,
+            reduce_dtype=torch.float32,
+        )
+    }
+
+    # for class_to_wrap in classes_to_wrap:
+    for module in model.modules():
+        if isinstance(module, tuple(classes_to_wrap)):
+            fully_shard(module, **fsdp_kwargs)
+     
+    fully_shard(model, **fsdp_kwargs)
+    
+    
+    
+
+    # wrapped_model = FSDP(
+    #     model,
+    #     device_id=int(os.environ["RANK"]),
+    #     mixed_precision=MixedPrecision(
+    #         param_dtype=mixed_precision_dtype,
+    #         cast_forward_inputs=True,
+    #         _module_classes_to_ignore=igonore_mixed_precision_classes,
+    #     ),
+    #     auto_wrap_policy=ModuleWrapPolicy(classes_to_wrap),
+    #     use_orig_params=True,
+    # )
+    # return wrapped_model
 
 
 def wrap_model_distributed(model, distributed_config):

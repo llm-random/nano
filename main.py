@@ -139,7 +139,8 @@ def run(cfg, metric_logger=None):
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 fn(model)
-        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        wrap_model_distributed(model, cfg.trainer.distributed)   
+        # model = wrap_model_distributed(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=cfg.trainer.learning_rate,
