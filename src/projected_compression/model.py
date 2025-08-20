@@ -14,7 +14,7 @@ from torchtune.modules.position_embeddings import (
 )
 
 from src.core.llama import repeat_kv
-from src.core.model import AttentionMechanism, Residual
+from src.core.model import AttentionMechanism #, Residual
 from torch.nn.init import trunc_normal_
 from torch import zeros as zeros
 import torch.distributed as dist
@@ -236,20 +236,39 @@ class RoPEAttention(nn.Module):
         )
 
     def forward(self, x):
-        query_states = self.q_proj(x)
-        key_states = self.k_proj(x)
-        value_states = self.v_proj(x)
+        # query_states = self.q_proj(x)
+        # key_states = self.k_proj(x)
+        # value_states = self.v_proj(x)
+
+        # batch, seq_len = x.shape[:-1]
+        # q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        # q = self.rope(q)
+        # k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        # k = self.rope(k)
+
+        # v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+
+        # k = repeat_kv(k, self.q_heads // self.kv_heads)
+        # v = repeat_kv(v, self.q_heads // self.kv_heads)
+
+        q  = self.q_proj(x)
+        k  = self.k_proj(x)
+        v  = self.v_proj(x)
+
+        projected = torch.concat((q,k,v), dim=-1)
 
         batch, seq_len = x.shape[:-1]
-        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        projected = projected.view(
+            batch, seq_len, self.q_heads, 3 * self.dhead
+        ).transpose(1, 2)
+        q, k, v = torch.chunk(projected, chunks=3, dim=-1)
         q = self.rope(q)
-        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
         k = self.rope(k)
+        
+        q = q.contiguous()
+        k = k.contiguous()
+        v = v.contiguous()
 
-        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
-
-        k = repeat_kv(k, self.q_heads // self.kv_heads)
-        v = repeat_kv(v, self.q_heads // self.kv_heads)
         attention_output = self.attention_mechanism(
             query=q, key=k, value=v, causal=True
         )

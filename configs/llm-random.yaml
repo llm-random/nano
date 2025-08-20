@@ -127,7 +127,7 @@ trainer:
 
     load:
       type: "llm-random"
-      path: "path_to_ckpt" # Change me!
+      path: "/Users/crewtool/testms/llm-random/tosciezka2/0.pt" # Change me!
 
   eval_interval: 100
   n_eval_steps: 5

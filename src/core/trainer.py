@@ -11,6 +11,7 @@ import torch.distributed.checkpoint as dcp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
+from src.projected_compression.compression import ModelTracer
 from src.core.checkpointing import TrainingState, save_training_state, step_checkpoint_path
 from src.core.metric_loggers import MetricLogger
 from src.core.utils import create_batch_fingerprint
@@ -82,14 +83,20 @@ class Trainer:
         )
 
     def train(self):
+        model_tracer = ModelTracer(self.model, "nano", "embedding", "shared_inputs")
+
         for step, batch in zip(
             range(self.start_step, self.n_steps), self.train_dataloader
         ):
             self.step = step
             self.metric_logger.set_step(step)
             self.model.train()
-            loss = self.calculate_loss(batch)
 
+            # loss = self.calculate_loss(batch)
+            x, y = model_tracer.get_batch_for_step(step)
+            loss = self.calculate_loss(torch.cat((x, y[:, -1:]), dim=1))
+
+            # model_tracer.export(f"itsgood/after_step_{step}")
             grad_norm = self.clip_gradient()
 
             self.log_metrics(loss, grad_norm)

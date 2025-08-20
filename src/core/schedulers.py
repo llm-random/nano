@@ -57,31 +57,37 @@ class TrapezoidalLR(SequentialLR):
         while loaded_state["last_epoch"] > self.last_epoch:
             self.step()
 
+# def get_cosine_scheduler_with_warmup(optimizer, warmup_steps: int, n_steps: int, final_lr_fraction: float):
+#     assert (
+#         len(optimizer.param_groups) == 1
+#     ), "Cosine scheduler only supports one param group"
+#     optimizer_lr = optimizer.param_groups[0][
+#         "lr"
+#     ]  # param_groups changes when applying scheduler
+#     warmup = torch.optim.lr_scheduler.LinearLR(
+#         optimizer,
+#         start_factor=0.1,
+#         end_factor=1.0,
+#         total_iters=warmup_steps,
+#     )
+#     after_warmup_steps = n_steps - warmup_steps - 1
+#     constant_scheduler = torch.optim.lr_scheduler.ConstantLR(
+#         optimizer, factor=1.0
+#     )  # TODO this is only because of a bug in llm-random
+#     cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+#         optimizer,
+#         T_max=after_warmup_steps,
+#         eta_min=final_lr_fraction * optimizer_lr,
+#     )
+#     training_scheduler = torch.optim.lr_scheduler.SequentialLR(
+#         optimizer,
+#         schedulers=[warmup, constant_scheduler, cosine_scheduler],
+#         milestones=[warmup_steps, warmup_steps + 1],
+#     )
+#     return training_scheduler
+
+
 def get_cosine_scheduler_with_warmup(optimizer, warmup_steps: int, n_steps: int, final_lr_fraction: float):
-    assert (
-        len(optimizer.param_groups) == 1
-    ), "Cosine scheduler only supports one param group"
-    optimizer_lr = optimizer.param_groups[0][
-        "lr"
-    ]  # param_groups changes when applying scheduler
-    warmup = torch.optim.lr_scheduler.LinearLR(
-        optimizer,
-        start_factor=0.1,
-        end_factor=1.0,
-        total_iters=warmup_steps,
-    )
-    after_warmup_steps = n_steps - warmup_steps - 1
-    constant_scheduler = torch.optim.lr_scheduler.ConstantLR(
+    return torch.optim.lr_scheduler.ConstantLR(
         optimizer, factor=1.0
-    )  # TODO this is only because of a bug in llm-random
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=after_warmup_steps,
-        eta_min=final_lr_fraction * optimizer_lr,
     )
-    training_scheduler = torch.optim.lr_scheduler.SequentialLR(
-        optimizer,
-        schedulers=[warmup, constant_scheduler, cosine_scheduler],
-        milestones=[warmup_steps, warmup_steps + 1],
-    )
-    return training_scheduler

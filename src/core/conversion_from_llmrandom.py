@@ -108,5 +108,5 @@ def fix_qkv_from_llmrandom(model, remapped_state_dict):
 def load_llmrandom_checkpoint(load_config, model):
     checkpoint = torch.load(load_config.path)
     remapped_state_dict = remap_llmrandom_state_dict_to_nano(checkpoint["model"])
-    fix_qkv_from_llmrandom(model, remapped_state_dict)
+    # fix_qkv_from_llmrandom(model, remapped_state_dict)
     model.load_state_dict(remapped_state_dict)
