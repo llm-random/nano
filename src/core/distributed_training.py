@@ -73,10 +73,10 @@ def setup_fsdp2_model(model, fsdp_config):
 def setup_distributed_training(model, distributed_config):
     if distributed_config is not None:
         if torch.cuda.is_available():
-            if distributed_config.get("fsdp2") is not None:
-                model = setup_fsdp1_model(model, distributed_config.fsdp2)
+            if distributed_config.get("fsdp2"):
+                model = setup_fsdp2_model(model, distributed_config.fsdp2)
             elif distributed_config.get("fsdp"):
-                model = setup_fsdp2_model(model, distributed_config.fsdp)
+                model = setup_fsdp1_model(model, distributed_config.fsdp)
             else:
                 raise ValueError(f"Unknown distributed config.")
         else:
