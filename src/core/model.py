@@ -1,8 +1,6 @@
 from collections import OrderedDict
-import importlib
 import os
 import re
-import sys
 import torch.nn as nn
 from typing import Callable
 import torch
@@ -10,15 +8,12 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from torch.nn.attention import SDPBackend
 from torch.nn.init import trunc_normal_
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
-from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.nn import (
     LayerNorm as LayerNorm,
 )  # used by FSDP, but it keeps getting removed during file formatting
 
 from torch.nn.modules.normalization import RMSNorm as RMSNorm, LayerNorm as LayerNorm
 from torchtune.modules.position_embeddings import RotaryPositionalEmbeddings as RotaryPositionalEmbeddings
-from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
 logger = logging.getLogger(__name__)
@@ -490,50 +485,3 @@ def get_vanilla_embedding(vocab_size, dmodel, init_type, init_scale, sequence_le
             init_scale=init_scale,
         ),
     )
-
-
-def get_classes_from_globals(names):
-    return [dynamic_import(name) for name in names]
-
-def dynamic_import(full_name):
-    module_path, _, obj_name = full_name.rpartition('.')
-    if not module_path or not obj_name:
-        raise ValueError(f"Invalid path: {full_name}")
-    module = importlib.import_module(module_path)
-
-    return getattr(module, obj_name)
-
-def wrap_model_fsdp(model, fsdp_config):
-
-    classes_to_wrap = get_classes_from_globals(fsdp_config.modules_to_wrap)
-    print(f"Wrapping model with classes: {classes_to_wrap}")
-    igonore_mixed_precision_classes = get_classes_from_globals(
-        fsdp_config.mixed_precision.ignored_classes
-    )
-    print(f"Ignoring mixed precision for classes: {igonore_mixed_precision_classes}")
-    mixed_precision_dtype = getattr(
-        sys.modules["torch"], fsdp_config.mixed_precision.dtype
-    )
-    print(f"Using mixed precision dtype: {mixed_precision_dtype}")
-
-    wrapped_model = FSDP(
-        model,
-        device_id=int(os.environ["RANK"]),
-        mixed_precision=MixedPrecision(
-            param_dtype=mixed_precision_dtype,
-            cast_forward_inputs=True,
-            _module_classes_to_ignore=igonore_mixed_precision_classes,
-        ),
-        auto_wrap_policy=ModuleWrapPolicy(classes_to_wrap),
-    )
-    return wrapped_model
-
-
-def wrap_model_distributed(model, distributed_config):
-    if distributed_config is not None:
-        if torch.cuda.is_available():
-            model = wrap_model_fsdp(model, distributed_config.fsdp)
-        else:
-            logger.info("FSDP is not supported with CPU. Running DDP instead")
-            model = DDP(model)
-    return model
