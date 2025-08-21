@@ -13,6 +13,8 @@ trainer:
     total_batch_size: ${common.sequence_length}
     use_new_sampling_method: true
     world_size_independent: false
+    tokenize_fn:
+      _target_: src.core.datasets.llama_tokenize_fn
 
   eval_dataloader:
     _target_: src.core.datasets.get_dataloader
@@ -26,3 +28,5 @@ trainer:
     total_batch_size: ${common.sequence_length}
     use_new_sampling_method: true
     world_size_independent: false
+    tokenize_fn:
+      _target_: src.core.datasets.llama_tokenize_fn
