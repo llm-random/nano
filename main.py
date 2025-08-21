@@ -1,6 +1,7 @@
 import os
 import hydra
 import yaml
+from src.core.distributed_training import setup_distributed_training
 from src.core.conversion_from_llmrandom import load_llmrandom_checkpoint
 from src.core.llama import copy_llama_model_weights_from_HF
 from grid_generator.generate_configs import create_grid_config
@@ -18,7 +19,7 @@ import logging
 
 from src.core.checkpointing import load_checkpoint_from_file, load_training_state
 from src.core.metric_loggers import NeptuneLogger, get_metric_logger
-from src.core.model import Residual, wrap_model_distributed
+from src.core.model import Residual
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ def run(cfg, metric_logger=None):
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 fn(model)
-        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        model = setup_distributed_training(model, cfg.trainer.distributed)   
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=cfg.trainer.learning_rate,
@@ -151,7 +152,7 @@ def run(cfg, metric_logger=None):
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 fn(model)
-        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=cfg.trainer.learning_rate,
@@ -159,7 +160,7 @@ def run(cfg, metric_logger=None):
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
     else:
-        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=cfg.trainer.learning_rate,
