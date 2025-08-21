@@ -1,0 +1,29 @@
+
+trainer:
+  _partial_: true
+  _target_: src.core.trainer.Trainer
+  eval_interval: 1000
+  n_eval_steps: 10 
+  gradient_accumulation_steps: 1
+  gradient_clipping: 1.0
+  n_steps: null
+  learning_rate: null
+  weight_decay: 0.1
+
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    warmup_steps: 500
+
+  distributed:
+    fsdp:
+      mixed_precision:
+        dtype: bfloat16
+        ignored_classes:
+          - LayerNorm
+          - AttentionMechanism
+      modules_to_wrap:
+        - TransformerBlock
+        - EmbeddingLayer
+        - PredictionHead

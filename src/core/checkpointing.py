@@ -85,6 +85,12 @@ def load_training_state(load_config):
         )
         return training_start_config
     
+    if load_config.training_state_filename == None:
+        logger.info(
+            "No training_state_filename. Starting training from step 0."
+        )
+        return training_start_config
+    
     load_path = load_config.path
     if load_path is None:
         logger.warning(
