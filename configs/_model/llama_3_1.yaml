@@ -3,12 +3,16 @@ common:
   _target_: src.definitions.Common
   dff: 8192
   dmodel: 2048
+  datt: 2048
+  q_heads: 32
+  kv_heads: 8
+  n_blocks: 16
+  vocab_size: 128256
+  sequence_length: 512
   head_norm: true
   init_scale: 0.1
   init_type: truncated_normal_fixed
   model_type: gpt
-  sequence_length: 512
-  vocab_size: 128256
   
 model:
   _target_: src.core.model.LLM
@@ -18,11 +22,11 @@ model:
     vocab_size: ${common.vocab_size}
     embedding_dim: ${common.dmodel}
     init_type: ${common.init_type}
-    init_scale: ${common.init_scale}
+    init_scale: ${common.init_scale} #/storage_nvme_3/mstefaniak/llama_8_half_compression
 
   tower:
     _target_: src.core.model.TransformerTower
-    n_blocks: 16
+    n_blocks: ${common.n_blocks}
     block_fn:
       _target_: src.core.model.TransformerBlock
       _partial_: true
@@ -39,8 +43,9 @@ model:
         _target_: src.core.llama.LlamaAttention
         _partial_: true
         dmodel: ${common.dmodel}
-        q_heads: 32
-        kv_heads: 8
+        datt: ${common.datt}
+        q_heads: ${common.q_heads}
+        kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
         causal: true
         init_scale: ${common.init_scale}

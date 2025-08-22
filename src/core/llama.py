@@ -98,6 +98,7 @@ class LlamaAttention(nn.Module):
     def __init__(
         self,
         dmodel,
+        datt,
         q_heads,
         kv_heads,
         seq_len,
@@ -109,14 +110,14 @@ class LlamaAttention(nn.Module):
         self.q_heads = q_heads
         self.kv_heads = kv_heads
         self.causal = causal
-        self.head_dim = dmodel // self.q_heads
+        self.head_dim = datt // self.q_heads
 
-        self.q_proj = Linear(dmodel, dmodel, bias=False, init_type=init_type, init_scale=init_scale)
+        self.q_proj = Linear(dmodel, datt, bias=False, init_type=init_type, init_scale=init_scale)
         self.k_proj = Linear(dmodel, self.kv_heads * self.head_dim, bias=False, init_type=init_type, init_scale=init_scale)
         self.v_proj = Linear(dmodel, self.kv_heads * self.head_dim, bias=False, init_type=init_type, init_scale=init_scale)
 
         self.o_proj = Linear(
-            dmodel,
+            datt,
             dmodel,
             bias=False,
             init_type=init_type,
