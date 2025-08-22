@@ -41,6 +41,7 @@ model:
         _target_: src.projected_compression.model.RoPEAttention
         _partial_: true
         dmodel: ${common.dmodel}
+        datt: ${common.datt}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
@@ -48,7 +49,7 @@ model:
           _target_: src.projected_compression.model.Linear
           _partial_: true
           in_features: ${common.dmodel}
-          out_features: ${common.dmodel}
+          out_features: ${common.datt}
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
@@ -58,7 +59,7 @@ model:
           _target_: src.projected_compression.model.Linear
           _partial_: true
           in_features: ${common.dmodel}
-          out_features: ${eval:'(${common.dmodel} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
+          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
@@ -66,7 +67,16 @@ model:
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
-        o_proj_fn: ${model.encoder.block_fn.attention_fn.q_proj_fn}
+        # o_proj_fn: ${model.encoder.block_fn.attention_fn.q_proj_fn} # TODO check have I done it right pls
+        o_proj_fn: 
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.datt}
+          out_features: ${common.dmodel}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: 1
 
         rope_base: 500000
         rope_scale_freqs: true

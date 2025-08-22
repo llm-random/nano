@@ -58,7 +58,7 @@ def save_training_state(
 
     path = step_checkpoint_path(save_config.path, step)
     torch.save(
-        {"next_step": step + 1, "run_id": run_id, "processed_tokens": processed_tokens},
+        {"next_step": step + 1, "run_id": run_id, "processed_tokens": processed_tokens}, # TODO wouldnt it break continuation this +1 step?
         f"{path}/{save_config.training_state_filename}",
     )
 
