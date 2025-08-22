@@ -31,10 +31,17 @@ def create_master_node_configuration() -> list[str]:
     ]
 
 
-def create_distributed_variables() -> list[str]:
+def create_program_call(config_folder):
     return [
-        "export WORLD_SIZE=$((${SLURM_NNODES} * ${SLURM_NTASKS_PER_NODE}))",
-        'echo "Running on ${WORLD_SIZE} nodes"',
+        "srun torchrun --nnodes=${SLURM_NNODES}\\",
+        "  --nproc-per-node=\"auto\" \\",
+        "  --rdzv-id=${SLURM_JOBID} \\",
+        "  --rdzv-backend=c10d \\",
+        "  --rdzv-endpoint=${MASTER_ADDR}:${MASTER_PORT} \\",
+        "  main.py \\",
+        f"    --config-path={config_folder} \\",
+        "    --config-name=config_${SLURM_ARRAY_TASK_ID}.yaml \\",
+        "    +checkpoint_config.slurm_array_task_id=${SLURM_ARRAY_TASK_ID}"
     ]
 
 
@@ -49,16 +56,13 @@ def generate_sbatch_script(
     lines.extend(slurm_parameters)
 
     lines.extend(create_master_node_configuration())
-    lines.extend(create_distributed_variables())
 
     if modules_to_add is not None:
         for module in modules_to_add:
             lines.append(f"module load {module}")
 
     lines.append(f"source {venv_path}")
-    lines.append(
-        f"srun python -u main.py --config-path={config_folder} --config-name=config_${{SLURM_ARRAY_TASK_ID}}.yaml +checkpoint_config.slurm_array_task_id=${{SLURM_ARRAY_TASK_ID}}"
-    )
+    lines.extend(create_program_call(config_folder))
 
     with open("exp.job", "w") as f:
         f.write("\n".join(lines))
