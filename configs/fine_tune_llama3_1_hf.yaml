@@ -1,4 +1,4 @@
-# TODO missing llama tokenizer
+# working 22.08
 
 defaults:
   - _cluster@_here_: entropy_4
@@ -12,16 +12,22 @@ defaults:
 common: 
   batch_size: 512
 
+# [0.0078125, 0.00390625, 0.001953125, 0.0009765625, 0.00048828125, 0.000244140625, 0.0001220703125, 6.103515625e-05, 3.0517578125e-05, 1.52587890625e-05, 7.62939453125e-06, 3.814697265625e-06, 1.9073486328125e-06, 9.5367431640625e-07, 4.76837158203125e-07, 2.384185791015625e-07]
+
 trainer:
-  # n_steps: 101
-  n_steps: 0
-  learning_rate: 2e-5
+  n_steps: 1001
+  # n_steps: 0
+  ^learning_rate: 
+    - 3.0517578125e-05
+    - 1.52587890625e-05
+    - 6.103515625e-05
+    - 7.62939453125e-06
   gradient_accumulation_steps: 8
 
   checkpoint:
    save:
-    # path: null
-    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama3_1_nano
+    path: null
+    # path: /storage_nvme_3/mstefaniak/nano_checkpoints/llaama3_1_nano
 
   train_dataloader:
     num_workers: 12
