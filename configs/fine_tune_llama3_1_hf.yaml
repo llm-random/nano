@@ -10,16 +10,18 @@ defaults:
   - _mas@_here_: default
 
 common: 
-  batch_size: 64
+  batch_size: 512
 
 trainer:
-  n_steps: 10
-  learning_rate: 0.00005
-  gradient_accumulation_steps: 1
+  # n_steps: 101
+  n_steps: 0
+  learning_rate: 2e-5
+  gradient_accumulation_steps: 8
 
   checkpoint:
    save:
-    path: /storage_nvme_3/mstefaniak/nano_checkpoints
+    # path: null
+    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama3_1_nano
 
   train_dataloader:
     num_workers: 12
@@ -28,7 +30,7 @@ trainer:
 
   eval_dataloader:
     num_workers: 12
-    seed: 123
+    seed: 20001
     total_batch_size: ${common.batch_size}
 
 infrastructure:
@@ -37,5 +39,5 @@ infrastructure:
     tags:
       - pc
       - nano
-      - test_save
+      - ft_llama3_1
 
