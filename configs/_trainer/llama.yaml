@@ -17,13 +17,21 @@ trainer:
     warmup_steps: 500
 
   distributed:
-    fsdp:
-      mixed_precision:
-        dtype: bfloat16
-        ignored_classes:
-          - LayerNorm
-          - LlamaAttention
-      modules_to_wrap:
-        - TransformerBlock
-        - EmbeddingLayer
-        - PredictionHead
+    # fsdp: # old V and old nomenclature
+    #   mixed_precision:
+    #     dtype: bfloat16
+    #     ignored_classes:
+    #       - LayerNorm
+    #       - LlamaAttention
+    #   modules_to_wrap:
+    #     - TransformerBlock
+    #     - EmbeddingLayer
+    #     - PredictionHead
+    fsdp2:
+      modules_to_shard: 
+        # - src.projected_compression.model.ProjectedEmbedding
+        # - src.projected_compression.model.TransformerBlock
+        # - src.projected_compression.model.TransformerHead
+        - ${model.embedding._target_}
+        - ${model.encoder.block_fn._target_}
+        - ${model.head._target_}

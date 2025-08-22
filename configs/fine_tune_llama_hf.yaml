@@ -7,11 +7,29 @@ defaults:
   - _dataset@_here_: c4
   - _checkpoints@_here_: mas/hf_llama_3_1.yaml
   - _misc@_here_: default
+  - _mas@_here_: default
+
+common: 
+  batch_size: 64
 
 trainer:
-  n_steps: 2000
+  n_steps: 10
   learning_rate: 0.00005
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 1
+
+  checkpoint:
+   save:
+    path: /storage_nvme_3/mstefaniak/nano_checkpoints
+
+  train_dataloader:
+    num_workers: 12
+    seed: 20001
+    total_batch_size: ${common.batch_size}
+
+  eval_dataloader:
+    num_workers: 12
+    seed: 123
+    total_batch_size: ${common.batch_size}
 
 infrastructure:
   metric_logger:
@@ -19,5 +37,5 @@ infrastructure:
     tags:
       - pc
       - nano
-      - test_configs
-      - fine_tune_hf
+      - test_save
+

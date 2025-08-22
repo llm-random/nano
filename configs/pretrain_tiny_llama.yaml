@@ -8,7 +8,11 @@ defaults:
 
 trainer:
   n_steps: 5
-  learning_rate: 0.00005
+  learning_rate: 0.0005
+
+  checkpoint:
+   save:
+    path: mastest_tiny_llama
 
 infrastructure:
   metric_logger:
@@ -19,7 +23,6 @@ infrastructure:
       - tiny_llama
       - pretrain_llama
 
-
 common:
   dff: 1024
   dmodel: 256
@@ -29,8 +32,4 @@ common:
   n_blocks: 4
   vocab_size: 128256
   sequence_length: 128
-  head_norm: true
-  init_scale: 0.1
-  init_type: truncated_normal_fixed
-  model_type: gpt
-  
+

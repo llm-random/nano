@@ -1,19 +1,28 @@
 
+# common:
+#   _target_: src.definitions.Common
+#   dff: 8192
+#   dmodel: 2048
+#   datt: 2048
+#   q_heads: 32
+#   kv_heads: 8
+#   n_blocks: 16
+#   vocab_size: 128256
+#   sequence_length: 512
+#   head_norm: true
+#   init_scale: 0.1
+#   init_type: truncated_normal_fixed
+#   model_type: gpt
+  
 common:
   _target_: src.definitions.Common
-  dff: 8192
-  dmodel: 2048
-  datt: 2048
-  q_heads: 32
-  kv_heads: 8
-  n_blocks: 16
-  vocab_size: 128256
-  sequence_length: 512
+  dff: 14336
+  dmodel: 4096
   head_norm: true
-  init_scale: 0.1
-  init_type: truncated_normal_fixed
   model_type: gpt
-  
+  sequence_length: 1024
+  vocab_size: 128256
+
 model:
   _target_: src.projected_compression.model.LLM
 
@@ -27,7 +36,7 @@ model:
 
   encoder:
     _target_: src.projected_compression.model.TransformerEncoder
-    n_blocks: ${common.n_blocks}
+    n_blocks: 32
     block_fn:
       _target_: src.projected_compression.model.TransformerBlock
       _partial_: true
@@ -41,8 +50,8 @@ model:
         _target_: src.projected_compression.model.RoPEAttention
         _partial_: true
         dmodel: ${common.dmodel}
-        q_heads: ${common.q_heads}
-        kv_heads: ${common.kv_heads}
+        q_heads: 32
+        kv_heads: 8
         seq_len: ${common.sequence_length}
         q_proj_fn:
           _target_: src.projected_compression.model.Linear
