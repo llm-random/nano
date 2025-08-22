@@ -9,7 +9,6 @@ infrastructure:
     nodes: 1
     partition: plgrid-gpu-gh200
     time: "0-05:00:00"
-    ntasks-per-node: 4
 
   venv_path: $HOME/nano/.venv/bin/activate
   experiment_prepare_venv_path: ${infrastructure.venv_path}

@@ -186,7 +186,6 @@ infrastructure:
     nodes: 1
     partition: h100
     time: "0-1:00:00"
-    ntasks-per-node: 4
     export: "ALL,HF_HUB_CACHE=/storage_nvme_3/crewtool/huggingface/hub"
 
   venv_path: $HOME/nano/.venv/bin/activate # Change me!

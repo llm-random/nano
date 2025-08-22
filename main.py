@@ -16,13 +16,21 @@ import torch.distributed as dist
 import logging
 from hydra.utils import instantiate
 import logging
-
+from neptune.integrations.python_logger import NeptuneHandler
 from src.core.checkpointing import load_checkpoint_from_file, load_training_state
 from src.core.metric_loggers import NeptuneLogger, get_metric_logger
 from src.core.model import Residual
+import platform
 
 logger = logging.getLogger(__name__)
-
+logger.propagate = False
+ch = logging.StreamHandler()
+formatter = logging.Formatter(
+    fmt=f"[%(levelname)s][host:{platform.node()}][local_rank:{os.environ.get("LOCAL_RANK")}] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 def dump_grid_configs(configs_grid, output_folder):
     os.makedirs(output_folder, exist_ok=True)
@@ -117,6 +125,8 @@ def run(cfg, metric_logger=None):
             metric_logger_config=instantiate(cfg.infrastructure.metric_logger, _convert_="all"),
             neptune_run_id=training_state["run_id"],
         )
+        npt_handler = NeptuneHandler(run=metric_logger.run)
+        logger.addHandler(npt_handler)
 
     if isinstance(metric_logger, NeptuneLogger) and training_state["run_id"] is None:
         metric_logger.run["job_config"] = cfg
