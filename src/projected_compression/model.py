@@ -212,7 +212,6 @@ class RoPEAttention(nn.Module):
         v_proj_fn,
         o_proj_fn,
         dmodel,
-        datt,
         q_heads,
         kv_heads,
         seq_len,
@@ -230,7 +229,6 @@ class RoPEAttention(nn.Module):
         self.kv_heads = kv_heads
         self.dhead = self.q_proj.weight.shape[0] // self.q_heads
         self.dmodel = dmodel
-        self.datt = datt
 
         self.rope = RoPE(
             dhead=self.dhead,
