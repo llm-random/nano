@@ -9,7 +9,6 @@ infrastructure:
     nodes: 1
     partition: h100
     time: "0-05:00:00"
-    ntasks-per-node: 8
 
   venv_path: ???
   experiment_prepare_venv_path: ${infrastructure.venv_path}

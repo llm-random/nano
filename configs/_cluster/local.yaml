@@ -2,11 +2,11 @@ _run_: true
 
 infrastructure:
   server: local
-  slurm: none
+  slurm: null
 
-  venv_path: none
-  experiment_prepare_venv_path: none
-  cemetery_experiments_dir: none
+  venv_path: null
+  experiment_prepare_venv_path: null
+  cemetery_experiments_dir: null
 
   git:
     remote_name: cemetery
