@@ -17,7 +17,7 @@ import logging
 from hydra.utils import instantiate
 import logging
 
-from src.core.checkpointing import get_full_checkpoint_path, load_checkpoint_from_file, load_training_state
+from src.core.checkpointing import load_checkpoint_from_file, load_training_state
 from src.core.metric_loggers import NeptuneLogger, get_metric_logger
 from src.core.model import Residual
 
@@ -119,62 +119,9 @@ def run(cfg, metric_logger=None):
         )
 
     if isinstance(metric_logger, NeptuneLogger) and training_state["run_id"] is None:
-        metric_logger.run["job_config"] = cfg # TODO fix - doesnt work at all
+        metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
-        # metric_logger.run["job/workdir"] = os.getcwd()
-        # scrap usefull environs and log
-        scrap_keys = [
-            "SLURM_MEM_PER_GPU", 
-            "SLURM_JOB_USER", 
-            "SLURM_TASKS_PER_NODE", 
-            "SLURM_JOB_UID", 
-            "SLURM_TASK_PID", 
-            "CONDA_EXE", 
-            "SLURM_ARRAY_TASK_STEP", 
-            "TMUX", 
-            "SLURM_JOB_GPUS", 
-            "SLURM_LOCALID", 
-            "SLURM_SUBMIT_DIR", 
-            "HOSTNAME", 
-            "SLURMD_NODENAME",
-            "SLURM_JOB_START_TIME", 
-            "SLURM_CLUSTER_NAME", 
-            "SLURM_JOB_END_TIME", 
-            "SLURM_CPUS_ON_NODE", 
-            "SLURM_JOB_CPUS_PER_NODE", 
-            "SLURM_GPUS_ON_NODE", 
-            "LOGNAME", 
-            "USER",
-            "SLURM_NODELIST",
-            "SLURM_JOB_PARTITION", 
-            "SLURM_JOB_ACCOUNT",
-            "SLURM_NPROCS",
-            "SLURM_ARRAY_TASK_ID",
-            "SLURM_JOB_ID",
-            "SLURM_JOBID", 
-            "SSH_CLIENT", 
-            "SLURM_CONF", 
-            "SLURM_ARRAY_TASK_COUNT", 
-            "PATH", 
-            "SLURM_ARRAY_JOB_ID", 
-            "SLURM_JOB_NAME", 
-            "SLURM_JOB_GID", 
-            "CUDA_MODULE_LOADING", 
-            "RANK", 
-            "LOCAL_RANK", 
-            "CUDA_DEVICE_ORDER",
-            "SLURM_TOPOLOGY_ADDR",
-            "HOME",
-            ]
-
-        environs = os.environ
-        for ek in scrap_keys:
-            metric_logger.run[f"job/{ek}"] = str(environs.get(ek))
-
-        metric_logger.run[f"job/full_save_checkpoints_path"] = get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)
-        
-
-
+        metric_logger.run["job/workdir"] = os.getcwd()
 
     torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
