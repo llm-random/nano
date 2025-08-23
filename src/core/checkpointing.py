@@ -58,7 +58,7 @@ def save_training_state(
 
     path = step_checkpoint_path(save_config.path, step)
     torch.save(
-        {"next_step": step + 1, "run_id": run_id, "processed_tokens": processed_tokens}, # TODO wouldnt it break continuation this +1 step?
+        {"next_step": step + 1, "run_id": run_id, "processed_tokens": processed_tokens},
         f"{path}/{save_config.training_state_filename}",
     )
 
@@ -68,16 +68,12 @@ def save_training_state(
 
 
 def get_full_checkpoint_path(path):
-    slurm_array_task_id = str(os.getenv("SLURM_ARRAY_TASK_ID"))
-    slurm_job_id = str(os.getenv("SLURM_JOB_ID"))
-
-    
-    return f"{path}/{slurm_job_id}/{slurm_array_task_id}"
-    # return (
-    #     f"{path}/{slurm_job_id}/{slurm_array_task_id}"
-    #     if slurm_array_task_id is not None
-    #     else path
-    # )
+    slurm_array_task_id = os.getenv("SLURM_ARRAY_TASK_ID")
+    return (
+        f"{path}/{slurm_array_task_id}"
+        if slurm_array_task_id is not None
+        else path
+    )
 
 
 def load_training_state(load_config):
@@ -101,10 +97,9 @@ def load_training_state(load_config):
             "Checkpoint load_path is not set. Starting training from scratch."
         )
         return training_start_config
-    # load_path = get_full_checkpoint_path(
-    #     load_path
-    # )
-    load_path = load_path
+    load_path = get_full_checkpoint_path(
+        load_path
+    )
     os.makedirs(load_path, exist_ok=True)
 
     training_state_path = (
