@@ -121,7 +121,6 @@ def run(cfg, metric_logger=None):
     if isinstance(metric_logger, NeptuneLogger) and training_state["run_id"] is None:
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
-        metric_logger.run["job/workdir"] = os.getcwd()
 
     torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
