@@ -200,7 +200,7 @@ def run(cfg, metric_logger=None):
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 fn(model)
-        model = setup_distributed_training(model, cfg.trainer.distributed)   
+        model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=cfg.trainer.learning_rate,
