@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 logger.propagate = False
 ch = logging.StreamHandler()
 formatter = logging.Formatter(
-    fmt=f"[%(levelname)s][host:{platform.node()}][local_rank:{os.environ.get("LOCAL_RANK")}] %(message)s",
+    fmt=f"[%(levelname)s][host:{platform.node()}][local_rank:{os.environ.get('LOCAL_RANK')}] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 ch.setFormatter(formatter)
