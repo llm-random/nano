@@ -42,10 +42,7 @@ def llama_tokenize_fn():
         return batch_encodings
     return tokenize_function
 
-class FineWebEduDataset(IterableDataset):
-
-    BUFFER_SIZE = 10000
-    NUM_SHARDS = 64
+class AbstractDataset(IterableDataset):
 
     def __init__(
         self,
@@ -60,13 +57,77 @@ class FineWebEduDataset(IterableDataset):
     ):
         self.world_size = int(os.environ.get("WORLD_SIZE"))
         self.rank = int(os.environ.get("RANK"))
-        self.use_new_sampling_method = use_new_sampling_method
-        self.world_size_independent = world_size_independent
-        self._load_dataset(path, seed, tokenize_fn, shuffle)
+        self.rng = random.Random(seed)
         self.sequence_length = sequence_length
+        self.tokenize_fn = tokenize_fn
+        self.path = path
         self.split = split
         self.seed = seed
-        self.rng = random.Random(seed)
+        self.use_new_sampling_method = use_new_sampling_method
+        self.shuffle = shuffle
+        self.world_size_independent = world_size_independent
+
+    def sample_packer(self):
+        buffer: List[int] = []
+        sampler = iter(self.get_infinite_sampler())
+        if self.use_new_sampling_method:
+
+            while True:
+                sample = next(sampler)["input_ids"]
+
+                if len(buffer) == 0:
+                    rand_num = self.rng.randint(0, len(sample) - 1)
+                    sample = sample[rand_num:]
+
+                buffer.extend(sample)
+
+                if len(buffer) >= self.sequence_length:
+                    yield buffer[: self.sequence_length]
+                    buffer = []
+        else:
+            document_lengths: List[int] = []
+            while True:
+                tokens = next(sampler)["input_ids"]
+                buffer.extend(tokens)
+
+                document_lengths.append(len(tokens))
+                if (
+                    sum(document_lengths) - max(document_lengths)
+                ) > self.sequence_length:
+                    sample_start = self.rng.randint(0, len(buffer) - 1)
+                    sample_end = sample_start + self.sequence_length
+                    input_ids = list(take_circular(buffer, sample_start, sample_end))
+                    yield input_ids
+                    buffer, document_lengths = [], []
+
+    def __iter__(self):
+        self.rng.seed(self.seed)
+        if self.world_size_independent:
+            return itertools.islice(
+                self.sample_packer(), self.rank, None, self.world_size
+            )
+        else:
+            return self.sample_packer()
+
+class FineWebEduDataset(AbstractDataset):
+
+    BUFFER_SIZE = 10000
+    NUM_SHARDS = 64
+
+    def __init__(
+        self,
+        sequence_length,
+        tokenize_fn: Callable,
+        path: Optional[str] = None,
+        split: Optional[str] = None,
+        seed: Optional[int] = None,
+        use_new_sampling_method: bool = True,
+        shuffle: bool = True,
+        world_size_independent: bool = False
+    ):
+        super().__init__(sequence_length, tokenize_fn, path, split, seed, use_new_sampling_method, shuffle,
+                         world_size_independent)
+        self._load_dataset(path, seed, tokenize_fn, shuffle)
 
     def _load_dataset(self, path, seed, tokenize_fn, shuffle: bool):
         if path is None:
@@ -110,49 +171,7 @@ class FineWebEduDataset(IterableDataset):
 
             epoch += 1
 
-    def sample_packer(self):
-        buffer: List[int] = []
-        sampler = iter(self.get_infinite_sampler())
-        if self.use_new_sampling_method:
-
-            while True:
-                sample = next(sampler)["input_ids"]
-
-                if len(buffer) == 0:
-                    rand_num = self.rng.randint(0, len(sample) - 1)
-                    sample = sample[rand_num:]
-
-                buffer.extend(sample)
-
-                if len(buffer) >= self.sequence_length:
-                    yield buffer[: self.sequence_length]
-                    buffer = []
-        else:
-            document_lengths: List[int] = []
-            while True:
-                tokens = next(sampler)["input_ids"]
-                buffer.extend(tokens)
-
-                document_lengths.append(len(tokens))
-                if (
-                    sum(document_lengths) - max(document_lengths)
-                ) > self.sequence_length:
-                    sample_start = self.rng.randint(0, len(buffer) - 1)
-                    sample_end = sample_start + self.sequence_length
-                    input_ids = list(take_circular(buffer, sample_start, sample_end))
-                    yield input_ids
-                    buffer, document_lengths = [], []
-
-    def __iter__(self):
-        self.rng.seed(self.seed)
-        if self.world_size_independent:
-            return itertools.islice(
-                self.sample_packer(), self.rank, None, self.world_size
-            )
-        else:
-            return self.sample_packer()
-
-class C4Dataset(IterableDataset):
+class C4Dataset(AbstractDataset):
     """
     world_size_independent - if True, we take the whole dataset and take every 'mod rank' element. If world_size == 1 it does not matter.
     shuffle - if True, we shuffle the dataset independently on each rank part (unless world_size_independent is True)
@@ -175,14 +194,9 @@ class C4Dataset(IterableDataset):
         shuffle: bool = True,
         world_size_independent: bool = False,
     ):
-        self.world_size = int(os.environ.get("WORLD_SIZE"))
-        self.rank = int(os.environ.get("RANK"))
-        self.use_new_sampling_method = use_new_sampling_method
-        self.world_size_independent = world_size_independent
+        super().__init__(sequence_length, tokenize_fn, path, split, seed, use_new_sampling_method, shuffle,
+                         world_size_independent)
         self._load_dataset(path, split, seed, tokenize_fn, shuffle)
-        self.sequence_length = sequence_length
-        self.seed = seed
-        self.rng = random.Random(seed)
 
     def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
         if path is None:
@@ -221,48 +235,6 @@ class C4Dataset(IterableDataset):
             for next_sample in self.data_generator:
                 yield next_sample
             epoch += 1
-
-    def sample_packer(self):
-        buffer: List[int] = []
-        sampler = iter(self.get_infinite_sampler())
-        if self.use_new_sampling_method:
-
-            while True:
-                sample = next(sampler)["input_ids"]
-
-                if len(buffer) == 0:
-                    rand_num = self.rng.randint(0, len(sample) - 1)
-                    sample = sample[rand_num:]
-
-                buffer.extend(sample)
-
-                if len(buffer) >= self.sequence_length:
-                    yield buffer[: self.sequence_length]
-                    buffer = []
-        else:
-            document_lengths: List[int] = []
-            while True:
-                tokens = next(sampler)["input_ids"]
-                buffer.extend(tokens)
-
-                document_lengths.append(len(tokens))
-                if (
-                    sum(document_lengths) - max(document_lengths)
-                ) > self.sequence_length:
-                    sample_start = self.rng.randint(0, len(buffer) - 1)
-                    sample_end = sample_start + self.sequence_length
-                    input_ids = list(take_circular(buffer, sample_start, sample_end))
-                    yield input_ids
-                    buffer, document_lengths = [], []
-
-    def __iter__(self):
-        self.rng.seed(self.seed)
-        if self.world_size_independent:
-            return itertools.islice(
-                self.sample_packer(), self.rank, None, self.world_size
-            )
-        else:
-            return self.sample_packer()
 
 
 def collate_wrapper(examples):
