@@ -6,8 +6,6 @@ from typing import Optional
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-# import torch.distributed.tensor. # TODO FSDP2 class, now placeholder solution
-
 from old_datasets import LLMBatch
 import torch.distributed.checkpoint as dcp
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -234,7 +232,7 @@ class Trainer:
         self.metric_logger.flush_accumulated_metrics(self.step)
 
     def save_checkpoint(self):
-        if isinstance(self.model, FSDP) or self.model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard": # TODO temporary if for FSDP2
+        if isinstance(self.model, FSDP):
             # Sharded save
             checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
             state_dict = {
