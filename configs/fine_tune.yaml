@@ -1,4 +1,4 @@
-# TODO old version - doesnt work
+# TODO contains lr scheduler bug
 
 defaults:
   - _cluster@_here_: entropy_4

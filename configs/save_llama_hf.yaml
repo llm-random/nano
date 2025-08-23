@@ -1,4 +1,4 @@
-# TODO old version - doesnt work
+# TODO old version - may not work
 
 defaults:
   - _cluster@_here_: entropy_4
