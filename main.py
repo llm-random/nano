@@ -1,6 +1,7 @@
 import os
 import hydra
 import yaml
+from src.core.distributed_training import setup_distributed_training
 from src.core.conversion_from_llmrandom import load_llmrandom_checkpoint
 from src.core.llama import copy_llama_model_weights_from_HF
 from grid_generator.generate_configs import create_grid_config
@@ -15,13 +16,21 @@ import torch.distributed as dist
 import logging
 from hydra.utils import instantiate
 import logging
-
-from src.core.checkpointing import load_checkpoint_from_file, load_training_state
+from neptune.integrations.python_logger import NeptuneHandler
+from src.core.checkpointing import load_checkpoint_from_file, load_training_state, get_full_checkpoint_path
 from src.core.metric_loggers import NeptuneLogger, get_metric_logger
-from src.core.model import Residual, wrap_model_distributed
+from src.core.model import Residual
+import platform
 
 logger = logging.getLogger(__name__)
-
+logger.propagate = False
+ch = logging.StreamHandler()
+formatter = logging.Formatter(
+    fmt=f"[%(levelname)s][host:{platform.node()}][local_rank:{os.environ.get('LOCAL_RANK')}] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 def dump_grid_configs(configs_grid, output_folder):
     os.makedirs(output_folder, exist_ok=True)
@@ -102,6 +111,54 @@ def cleanup():
     if dist.is_initialized():
         dist.destroy_process_group()
 
+def log_environs(metric_logger):
+    scrap_keys = [
+        "SLURM_MEM_PER_GPU", 
+        "SLURM_JOB_USER", 
+        "SLURM_TASKS_PER_NODE", 
+        "SLURM_JOB_UID", 
+        "SLURM_TASK_PID", 
+        "CONDA_EXE", 
+        "SLURM_ARRAY_TASK_STEP", 
+        "TMUX", 
+        "SLURM_JOB_GPUS", 
+        "SLURM_LOCALID", 
+        "SLURM_SUBMIT_DIR", 
+        "HOSTNAME", 
+        "SLURMD_NODENAME",
+        "SLURM_JOB_START_TIME", 
+        "SLURM_CLUSTER_NAME", 
+        "SLURM_JOB_END_TIME", 
+        "SLURM_CPUS_ON_NODE", 
+        "SLURM_JOB_CPUS_PER_NODE", 
+        "SLURM_GPUS_ON_NODE", 
+        "LOGNAME", 
+        "USER",
+        "SLURM_NODELIST",
+        "SLURM_JOB_PARTITION", 
+        "SLURM_JOB_ACCOUNT",
+        "SLURM_NPROCS",
+        "SLURM_ARRAY_TASK_ID",
+        "SLURM_JOB_ID",
+        "SLURM_JOBID", 
+        "SLURM_CONF", 
+        "SLURM_ARRAY_TASK_COUNT", 
+        "PATH", 
+        "SLURM_ARRAY_JOB_ID", 
+        "SLURM_JOB_NAME", 
+        "SLURM_JOB_GID", 
+        "CUDA_MODULE_LOADING", 
+        "RANK", 
+        "LOCAL_RANK", 
+        "CUDA_DEVICE_ORDER",
+        "SLURM_TOPOLOGY_ADDR",
+        "HOME",
+    ]
+
+    environs = os.environ
+    for environ_key in scrap_keys:
+        metric_logger.run[f"job/{environ_key}"] = str(environs.get(environ_key))
+        
 
 def run(cfg, metric_logger=None):
     setup_enviroment()
@@ -116,11 +173,15 @@ def run(cfg, metric_logger=None):
             metric_logger_config=instantiate(cfg.infrastructure.metric_logger, _convert_="all"),
             neptune_run_id=training_state["run_id"],
         )
+        npt_handler = NeptuneHandler(run=metric_logger.run)
+        logger.addHandler(npt_handler)
 
     if isinstance(metric_logger, NeptuneLogger) and training_state["run_id"] is None:
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
-
+        log_environs(metric_logger)
+        metric_logger.run[f"job/full_save_checkpoints_path"] = get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)
+        
     torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -139,7 +200,7 @@ def run(cfg, metric_logger=None):
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 fn(model)
-        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=cfg.trainer.learning_rate,
@@ -151,15 +212,15 @@ def run(cfg, metric_logger=None):
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 fn(model)
-        model = wrap_model_distributed(model, cfg.trainer.distributed)
+        model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=cfg.trainer.learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
-    else:
-        model = wrap_model_distributed(model, cfg.trainer.distributed)
+    elif cfg.trainer.checkpoint.load.type == "nano":
+        model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=cfg.trainer.learning_rate,
@@ -167,7 +228,9 @@ def run(cfg, metric_logger=None):
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
         load_checkpoint_from_file(cfg.trainer.checkpoint.load, model, optimizer, scheduler)
-
+    else:
+        raise Exception(f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}")
+    
     trainer = instantiate(cfg.trainer)
     trainer(
         model=model,
