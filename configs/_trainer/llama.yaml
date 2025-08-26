@@ -6,24 +6,21 @@ trainer:
   n_eval_steps: 10 
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
-  n_steps: null
-  learning_rate: null
+  n_steps: ???
+  learning_rate: ???
   weight_decay: 0.1
 
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
     final_lr_fraction: 0.1
-    warmup_steps: 500
+    # warmup_steps: 500
+    # warmup_steps: ${eval:'int((${trainer.n_steps} * 0.01)'}
+    warmup_steps: 40
 
   distributed:
-    fsdp:
-      mixed_precision:
-        dtype: bfloat16
-        ignored_classes:
-          - LayerNorm
-          - LlamaAttention
-      modules_to_wrap:
-        - TransformerBlock
-        - EmbeddingLayer
-        - PredictionHead
+    fsdp2:
+      modules_to_shard: 
+        - ${model.embedding._target_}
+        - ${model.encoder.block_fn._target_}
+        - ${model.head._target_}
