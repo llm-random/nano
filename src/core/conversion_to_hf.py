@@ -3,34 +3,7 @@ import re
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM
 import re
-from torch.distributed.tensor import DTensor
 
-
-def print_state_dict_info(state_dict): #dev
-    for name, param in state_dict.items():
-        if isinstance(param, torch.Tensor):
-            print(f"{name:60s} {type(param)}, shape={tuple(param.shape)} "
-            # print(f"{name:60s} {param}, shape={tuple(param.shape)} "
-                f"norm={param.norm().item():.4f}")
-        else:
-            # Sometimes buffers / metadata can be non-tensors
-            print(f"{name:60s} NON-TENSOR {type(param)}")
-
-def cast_state_dict_to_tensors(state_dict, device="cpu"):
-    """
-    Convert all DTensors in a state dict to regular torch.Tensors.
-    By default, gathers them to CPU.
-    """
-    full_state = {}
-    for k, v in state_dict.items():
-        if isinstance(v, DTensor):
-            full_state[k] = v.full_tensor().float().to(device)
-            # full_state[k] = v.to_local().to(device)
-        elif isinstance(v, torch.Tensor):
-            full_state[k] = v.to(device)
-        else:
-            full_state[k] = v
-    return full_state
 
 def remap_nano_to_llama31_hf(nano_dict):
     """
@@ -58,14 +31,6 @@ def remap_nano_to_llama31_hf(nano_dict):
         # Feed-forward norm
         (r"^encoder\.blocks\.(\d+)\.ff_layer\.norm\.weight$",
          r"model.layers.\1.post_attention_layernorm.weight"),
-
-        # # Feed-forward projections
-        # (r"^encoder\.blocks\.(\d+)\.ff_layer\.layer\.ff_pre_act\.weight$",
-        #  r"model.layers.\1.mlp.gate_proj.weight"),
-        # (r"^encoder\.blocks\.(\d+)\.ff_layer\.layer\.ff_post_act\.weight$",
-        #  r"model.layers.\1.mlp.down_proj.weight"),
-        # (r"^encoder\.blocks\.(\d+)\.ff_layer\.layer\.gate\.weight$",
-        #  r"model.layers.\1.mlp.up_proj.weight"),
 
          # Feed-forward projections
         (r"^encoder\.blocks\.(\d+)\.ff_layer\.layer\.ff_pre_act\.weight$",
@@ -163,15 +128,9 @@ def save_to_llama_3_hf(nano_model_state_dict, save_dir:str, dmodel:int, dff:int,
     config.num_hidden_layers = nlayers
 
     hf_model = AutoModelForCausalLM.from_config(config)
-    print(f"HF -----------------")
-    print_state_dict_info(hf_model.state_dict())
-    # print(f"nano_model_state_dict -----------------")
-    # print_state_dict_info(nano_model_state_dict)
     hf_state_dict = remap_nano_to_llama31_hf(nano_model_state_dict)
-    print(f"hf_state_dict from nano -----------------")
-    print_state_dict_info(hf_state_dict)
     hf_model.load_state_dict(hf_state_dict, strict=True)
 
-    print(f"Saving HF model with the following config {config}") #dev
+    print(f"Saving HF model with the following config {config}")
 
     hf_model.save_pretrained(save_dir) 
