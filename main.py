@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 logger.propagate = False
 ch = logging.StreamHandler()
 formatter = logging.Formatter(
-    fmt=f"[%(levelname)s][host:{platform.node()}][local_rank:{os.environ.get("LOCAL_RANK")}] %(message)s",
+    fmt=f"[%(levelname)s][host:{platform.node()}][local_rank:{os.environ.get('LOCAL_RANK')}] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 ch.setFormatter(formatter)
@@ -158,7 +158,6 @@ def log_environs(metric_logger):
     environs = os.environ
     for environ_key in scrap_keys:
         metric_logger.run[f"job/{environ_key}"] = str(environs.get(environ_key))
-        
 
 def run(cfg, metric_logger=None):
     setup_enviroment()
@@ -176,7 +175,8 @@ def run(cfg, metric_logger=None):
         npt_handler = NeptuneHandler(run=metric_logger.run)
         logger.addHandler(npt_handler)
 
-    if isinstance(metric_logger, NeptuneLogger) and training_state["run_id"] is None:
+
+    if isinstance(metric_logger, NeptuneLogger) and (training_state["run_id"] is None or cfg.infrastructure.metric_logger.new_neptune_job):
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
         log_environs(metric_logger)
@@ -189,7 +189,6 @@ def run(cfg, metric_logger=None):
     logger.info(f"Creating model...")
     model = instantiate(cfg.model, _convert_="all").to(device)
     logger.info(f"Model {model.__class__.__name__} created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
-
     # Residual layers needs metric_logger for logging update norms
     for _, module in model.named_modules():
         if isinstance(module, Residual):
