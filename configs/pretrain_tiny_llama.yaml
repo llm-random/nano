@@ -1,0 +1,37 @@
+# creates < 1GB checkpoint
+
+defaults:
+  - _cluster@_here_: local
+  - _model@_here_: llama_3_1
+  - _trainer@_here_: llama
+  - _dataset@_here_: local_dummy
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+
+trainer:
+  n_steps: 5
+  learning_rate: 0.0005
+
+  checkpoint:
+   save:
+    path: checkpoint
+
+infrastructure:
+  metric_logger:
+    name: PC
+    tags:
+      - pc
+      - nano
+      - tiny_llama
+      - pretrain_llama
+
+common:
+  dff: 1024
+  dmodel: 256
+  datt: 2048
+  q_heads: 32
+  kv_heads: 8
+  n_blocks: 4
+  vocab_size: 128256
+  sequence_length: 128
+

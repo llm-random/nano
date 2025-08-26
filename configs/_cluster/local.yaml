@@ -1,0 +1,13 @@
+_run_: true
+
+infrastructure:
+  server: local
+  slurm: null
+
+  venv_path: null
+  experiment_prepare_venv_path: null
+  cemetery_experiments_dir: null
+
+  git:
+    remote_name: cemetery
+    remote_url: git@github.com:llm-random/llm-random-cemetery.git
