@@ -1,3 +1,0 @@
-
-infrastructure:
-  venv_path: $HOME/nano/.venv/bin/activate
