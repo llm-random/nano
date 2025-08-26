@@ -6,10 +6,11 @@ trainer:
     type: huggingface
     interval: -1
     path: ???
-    model_checkpoint_filename: null
-    training_state_filename: null
+    model_checkpoint_filename: __model_checkpoint_filename.pt
+    training_state_filename: __training_state_filename.pt
 
    load:
     type: nano
     path: ???
-    model_checkpoint_filename: null
+    model_checkpoint_filename: __model_checkpoint_filename.pt
+    training_state_filename: __training_state_filename.pt

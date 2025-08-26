@@ -9,14 +9,33 @@ defaults:
   - _misc@_here_: default
   - _mas@_here_: default
 
+common: 
+  batch_size: 512
+
 trainer:
   n_steps: 0
+  learning_rate: 0.0000610352
+  # gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 1
+
+  train_dataloader:
+    num_workers: 12
+    seed: 20001
+    total_batch_size: ${common.batch_size}
+
+  eval_dataloader:
+    num_workers: 12
+    seed: 20001
+    total_batch_size: ${common.batch_size}
 
   checkpoint:
    save:
-    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama3_1_hf_test
+    type: huggingface
+    path: "/storage_nvme_3/mstefaniak/nano_checkpoints/llama3_1_hf_test_1"
    load:
-    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama3_1_nano/63560/0/step_-1
+    type: nano
+    path: "/storage_nvme_3/mstefaniak/nano_checkpoints/llaama3_1_nano/63962/0/step_100"
+    training_state_filename: null
   
 infrastructure:
   metric_logger:
@@ -25,4 +44,6 @@ infrastructure:
       - pc
       - nano
       - ft_llama3_1
+      - hf_conversion
+      - test
 

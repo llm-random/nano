@@ -1,8 +1,8 @@
 
 common:
   _target_: src.definitions.Common
-  dff: 8192
   dmodel: 2048
+  dff: 8192
   datt: 2048
   q_heads: 32
   kv_heads: 8
@@ -41,7 +41,6 @@ model:
         _target_: src.projected_compression.model.RoPEAttention
         _partial_: true
         dmodel: ${common.dmodel}
-        datt: ${common.datt}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}

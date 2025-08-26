@@ -6,8 +6,8 @@ trainer:
   n_eval_steps: 10 
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
-  n_steps: null
-  learning_rate: null
+  n_steps: ???
+  learning_rate: ???
   weight_decay: 0.1
 
   scheduler:

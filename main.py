@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 logger.propagate = False
 ch = logging.StreamHandler()
 formatter = logging.Formatter(
-    fmt=f"[%(levelname)s][host:{platform.node()}][local_rank:{os.environ.get("LOCAL_RANK")}] %(message)s",
+    fmt=f"[%(levelname)s][host:{platform.node()}][local_rank:{os.environ.get('LOCAL_RANK')}] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 ch.setFormatter(formatter)
@@ -200,7 +200,7 @@ def run(cfg, metric_logger=None):
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 fn(model)
-        model = setup_distributed_training(model, cfg.trainer.distributed)   
+        model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=cfg.trainer.learning_rate,

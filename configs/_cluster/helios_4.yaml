@@ -2,7 +2,7 @@
 infrastructure:
   server: helios
   slurm:
-    cpus-per-task: 16
+    cpus-per-task: 12
     gres: gpu:4
     job-name: test
     mem_per_gpu: 90G
@@ -10,7 +10,7 @@ infrastructure:
     partition: plgrid-gpu-gh200
     time: "0-05:00:00"
 
-  venv_path: $HOME/nano/.venv/bin/activate
+  venv_path: ???
   experiment_prepare_venv_path: ${infrastructure.venv_path}
   cemetery_experiments_dir: ~/llmrandom_cemetery
 

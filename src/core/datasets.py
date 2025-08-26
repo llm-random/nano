@@ -42,18 +42,7 @@ def llama_tokenize_fn():
         return batch_encodings
     return tokenize_function
 
-
-class C4Dataset(IterableDataset):
-    """
-    world_size_independent - if True, we take the whole dataset and take every 'mod rank' element. If world_size == 1 it does not matter.
-    shuffle - if True, we shuffle the dataset independently on each rank part (unless world_size_independent is True)
-
-
-    world_size_independent should be 'True' for tests and eval
-    """
-
-    BUFFER_SIZE = 10000
-    NUM_SHARDS = 64
+class AbstractDataset(IterableDataset):
 
     def __init__(
         self,
@@ -68,50 +57,15 @@ class C4Dataset(IterableDataset):
     ):
         self.world_size = int(os.environ.get("WORLD_SIZE"))
         self.rank = int(os.environ.get("RANK"))
-        self.use_new_sampling_method = use_new_sampling_method
-        self.world_size_independent = world_size_independent
-        self._load_dataset(path, split, seed, tokenize_fn, shuffle)
-        self.sequence_length = sequence_length
-        self.seed = seed
         self.rng = random.Random(seed)
-
-    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
-        if path is None:
-            logger.debug(
-                f"Loading 'allenai/c4' dataset from HuggingFace with split={split}"
-            )
-            hf_dataset = load_dataset(
-                "allenai/c4",
-                "en",
-                split=split,
-                streaming=True,
-                trust_remote_code=True,
-            )
-        else:
-            logger.debug(f"Loading dataset from path '{path}'")
-            hf_dataset = load_from_disk(path)
-            hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
-
-        if not self.world_size_independent:
-            hf_dataset = split_dataset_by_node(
-                hf_dataset, rank=self.rank, world_size=self.world_size
-            )
-
-        if shuffle:
-            hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
-
-        self.data_generator = hf_dataset.map(
-            tokenize_fn,
-            batched=True
-        )
-
-    def get_infinite_sampler(self):
-        epoch = 0
-        while True:
-            self.data_generator.set_epoch(epoch)
-            for next_sample in self.data_generator:
-                yield next_sample
-            epoch += 1
+        self.sequence_length = sequence_length
+        self.tokenize_fn = tokenize_fn
+        self.path = path
+        self.split = split
+        self.seed = seed
+        self.use_new_sampling_method = use_new_sampling_method
+        self.shuffle = shuffle
+        self.world_size_independent = world_size_independent
 
     def sample_packer(self):
         buffer: List[int] = []
@@ -155,6 +109,133 @@ class C4Dataset(IterableDataset):
         else:
             return self.sample_packer()
 
+class FineWebEduDataset(AbstractDataset):
+
+    BUFFER_SIZE = 10000
+    NUM_SHARDS = 64
+
+    def __init__(
+        self,
+        sequence_length,
+        tokenize_fn: Callable,
+        path: Optional[str] = None,
+        split: Optional[str] = None,
+        seed: Optional[int] = None,
+        use_new_sampling_method: bool = True,
+        shuffle: bool = True,
+        world_size_independent: bool = False
+    ):
+        super().__init__(sequence_length, tokenize_fn, path, split, seed, use_new_sampling_method, shuffle,
+                         world_size_independent)
+        self._load_dataset(path, seed, tokenize_fn, shuffle)
+
+    def _load_dataset(self, path, seed, tokenize_fn, shuffle: bool):
+        if path is None:
+            raise ValueError("Path to dataset must be provided for FineWebEduDataset")
+        else:
+            logger.debug(f"Loading dataset from path '{path}'")
+            hf_dataset = load_from_disk(path)
+            hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
+
+        if not self.world_size_independent:
+            hf_dataset = split_dataset_by_node(
+                hf_dataset, rank=self.rank, world_size=self.world_size
+            )
+
+        if shuffle:
+            hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
+
+        self.data_generator = hf_dataset.map(
+            tokenize_fn,
+            batched=True
+        )
+
+    def _belongs_to_split(self, document_id: int) -> bool:
+        eval_percentage = 1
+
+        if self.split == "train":
+            return hash(document_id) % 100 >= eval_percentage
+        elif self.split == "validation":
+            return hash(document_id) % 100 < eval_percentage
+        else:
+            raise ValueError("split must be either 'train' or 'validation'")
+
+
+    def get_infinite_sampler(self):
+        epoch = 0
+        while True:
+            self.data_generator.set_epoch(epoch)
+            for next_sample in self.data_generator:
+                if self._belongs_to_split(next_sample["id"]):
+                    yield next_sample
+
+            epoch += 1
+
+class C4Dataset(AbstractDataset):
+    """
+    world_size_independent - if True, we take the whole dataset and take every 'mod rank' element. If world_size == 1 it does not matter.
+    shuffle - if True, we shuffle the dataset independently on each rank part (unless world_size_independent is True)
+
+
+    world_size_independent should be 'True' for tests and eval
+    """
+
+    BUFFER_SIZE = 10000
+    NUM_SHARDS = 64
+
+    def __init__(
+        self,
+        sequence_length,
+        tokenize_fn: Callable,
+        path: Optional[str] = None,
+        split: Optional[str] = None,
+        seed: Optional[int] = None,
+        use_new_sampling_method: bool = True,
+        shuffle: bool = True,
+        world_size_independent: bool = False,
+    ):
+        super().__init__(sequence_length, tokenize_fn, path, split, seed, use_new_sampling_method, shuffle,
+                         world_size_independent)
+        self._load_dataset(path, split, seed, tokenize_fn, shuffle)
+
+    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
+        if path is None:
+            logger.debug(
+                f"Loading 'allenai/c4' dataset from HuggingFace with split={split}"
+            )
+            hf_dataset = load_dataset(
+                "allenai/c4",
+                "en",
+                split=split,
+                streaming=True,
+                trust_remote_code=True,
+            )
+        else:
+            logger.debug(f"Loading dataset from path '{path}'")
+            hf_dataset = load_from_disk(path)
+            hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
+
+        if not self.world_size_independent:
+            hf_dataset = split_dataset_by_node(
+                hf_dataset, rank=self.rank, world_size=self.world_size
+            )
+
+        if shuffle:
+            hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
+
+        self.data_generator = hf_dataset.map(
+            tokenize_fn,
+            batched=True
+        )
+
+    def get_infinite_sampler(self):
+        epoch = 0
+        while True:
+            self.data_generator.set_epoch(epoch)
+            for next_sample in self.data_generator:
+                yield next_sample
+            epoch += 1
+
 
 def collate_wrapper(examples):
     return torch.from_numpy(np.array(examples))
@@ -180,6 +261,24 @@ def get_dataloader(
     logger.debug(f"Total: {total_batch_size}")
     if dataset_type == "c4":
         dataset = C4Dataset(
+            sequence_length=sequence_length + 1,
+            split=dataset_split,
+            tokenize_fn=tokenize_fn,
+            path=dataset_path,
+            seed=seed,
+            use_new_sampling_method=use_new_sampling_method,
+            shuffle=shuffle,
+            world_size_independent=world_size_independent,
+        )
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size_per_device,
+            collate_fn=collate_fn,
+            pin_memory=True,
+            num_workers=num_workers,
+        )
+    elif dataset_type == "fineweb-edu":
+        dataset = FineWebEduDataset(
             sequence_length=sequence_length + 1,
             split=dataset_split,
             tokenize_fn=tokenize_fn,
