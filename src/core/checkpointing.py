@@ -22,6 +22,13 @@ class TrainingState(Stateful):
         model_state_dict, optimizer_state_dict = get_state_dict(
             self.model, self.optimizer
         )
+
+        # uncomment to save checkpoint without optimizer state
+
+        # model_state_dict, optimizer_state_dict = get_state_dict(
+        #     self.model, []
+        # )
+
         return {
             "model": model_state_dict,
             "optim": optimizer_state_dict,
@@ -35,6 +42,16 @@ class TrainingState(Stateful):
             model_state_dict=state_dict["model"],
             optim_state_dict=state_dict["optim"],
         )
+
+        # uncomment to load checkpoint without optimizer saved
+
+        # set_state_dict(
+        #     self.model,
+        #     [],
+        #     model_state_dict=state_dict["model"],
+        #     optim_state_dict={},
+        # )
+
         self.scheduler.load_state_dict(state_dict["scheduler"])
 
 
