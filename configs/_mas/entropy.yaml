@@ -1,0 +1,8 @@
+
+infrastructure:
+  venv_path: /dev/null
+  slurm:
+    export: "ALL,HF_HUB_CACHE=/storage_nvme_3/mstefaniak/huggingface/hub"
+
+common:
+  batch_size: null

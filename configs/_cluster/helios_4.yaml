@@ -8,7 +8,7 @@ infrastructure:
     mem_per_gpu: 90G
     nodes: 1
     partition: plgrid-gpu-gh200
-    time: "0-05:00:00"
+    time: "2-00:00:00"
 
   venv_path: ???
   experiment_prepare_venv_path: ${infrastructure.venv_path}

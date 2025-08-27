@@ -1,0 +1,45 @@
+
+defaults:
+  - _cluster@_here_: entropy_4
+  - _model@_here_: llama_3_1_pc
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: mas/hf_llama_3_1.yaml
+  - _misc@_here_: default
+  - _mas@_here_: entropy
+  
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+  dff: 3072
+  dmodel: 1536
+  # dff: 2048
+  # dmodel: 1024
+
+
+trainer:
+  gradient_accumulation_steps: 8
+  n_steps: 401
+  
+  learning_rate: 6.103515625e-05
+
+  checkpoint:
+   save:
+    # path: null
+    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama31_pc
+   load:
+    path:
+
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_8_pc
+      - sparsity_50
+
+  
+

@@ -1,0 +1,13 @@
+
+infrastructure:
+  venv_path: /net/scratch/hscra/plgrid/plgmstefaniak/envs/nano/.venv/bin/activate
+  # venv_path: /net/scratch/hscra/plgrid/plgmstefaniak/envs/nano/.venv2/bin/activate
+  # venv_path: /net/scratch/hscra/plgrid/plgmstefaniak/envs/nano/.venv_local/bin/activate
+  experiment_prepare_venv_path: /net/scratch/hscra/plgrid/plgmstefaniak/envs/nano/.venv_local/bin/activate
+  # slurm:
+  #   export: ALL,HF_HUB_CACHE="/net/scratch/hscra/plgrid/plgmstefaniak/hf_cash"
+  modules_to_add:
+    - ML-bundle/25.04
+CUDA_AVAILABLE_DEVICES
+${CUDA_AVAILABLE_DEVICES}
+${CUDA_ _DEVICES}
