@@ -195,7 +195,8 @@ def remap_llamahf_state_dict_to_nano(llama_state_dict):
 
 
 def copy_llama_model_weights_from_HF(model: nn.Module, path: str):
-
+ 
+    # hf_model = AutoModelForCausalLM.from_pretrained(path, cache_dir="/net/scratch/hscra/plgrid/plgmstefaniak/hf_cash/my_models") # dev TODO helios fixer
     hf_model = AutoModelForCausalLM.from_pretrained(path)
 
     llama_state_dict = hf_model.state_dict()

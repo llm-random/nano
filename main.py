@@ -61,7 +61,6 @@ def upload_config_file(metric_logger):
 def check_env_vars():
     assert int(os.environ["RANK"]) < int(os.environ["WORLD_SIZE"])
 
-
 def setup_enviroment():
     if "WORLD_SIZE" not in os.environ:
         logger.warning("WORLD_SIZE is not set, setting it to 1")
@@ -153,6 +152,9 @@ def log_environs(metric_logger):
         "CUDA_DEVICE_ORDER",
         "SLURM_TOPOLOGY_ADDR",
         "HOME",
+        "CUDA_VISIBLE_DEVICES",
+        "MASTER_ADDR",
+        "MASTER_PORT",
     ]
 
     environs = os.environ

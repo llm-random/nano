@@ -1,0 +1,57 @@
+
+defaults:
+  # - _cluster@_here_: helios_4
+  - _cluster@_here_: entropy_4_c
+  - _model@_here_: llama_3_1_pc
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+  - _mas@_here_: crewtool
+  # - _mas@_here_: helios
+
+
+common:
+  # sequence_length: 2048
+  sequence_length: 1024
+  batch_size: 512
+
+  # 50%
+  dmodel: 1344
+  dff: 5376
+
+
+trainer:
+  gradient_accumulation_steps: 8
+  n_steps: 101
+
+  # 6.103515625e-05, 3.0517578125e-05, 1.52587890625e-05, 7.62939453125e-06, 3.814697265625e-06, 1.9073486328125e-06
+  learning_rate: 6.103515625e-05
+  # ^learning_rate: 
+  #   - 7.62939453125e-06
+  #   - 3.814697265625e-06
+  #   - 1.52587890625e-05
+  #   - 3.0517578125e-05
+  #   - 1.9073486328125e-06
+  #   - 6.103515625e-05
+
+  checkpoint:
+   save:
+    path: null
+    # path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama31_pc # entropy
+    # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/pc # helios
+  #  load:
+  #   type: huggingface
+  #   path: "meta-llama/Llama-3.2-1B"
+
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_1_pc
+
+  
+

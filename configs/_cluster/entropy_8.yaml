@@ -2,7 +2,7 @@
 infrastructure:
   server: entropy
   slurm:
-    cpus-per-task: 4
+    cpus-per-task: 16
     gres: gpu:8
     job-name: test
     mem_per_gpu: 120G

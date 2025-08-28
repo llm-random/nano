@@ -6,7 +6,7 @@ trainer:
     dataset_path: ${switch.trainer.train_dataloader.dataset_path_c4}
     dataset_split: train
     dataset_type: c4
-    num_workers: 12
+    num_workers: 8
     seed: 20001
     sequence_length: ${common.sequence_length}
     shuffle: true
@@ -21,7 +21,7 @@ trainer:
     dataset_path: ${switch.trainer.eval_dataloader.dataset_path_c4}
     dataset_split: validation
     dataset_type: c4
-    num_workers: 12
+    num_workers: 8
     seed: 123
     sequence_length: ${common.sequence_length}
     shuffle: true
