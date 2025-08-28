@@ -69,13 +69,13 @@ def save_training_state(
 
 def get_full_checkpoint_path(path):
     slurm_array_task_id = os.getenv("SLURM_ARRAY_TASK_ID")
-    return (
-        f"{path}/{slurm_array_task_id}"
-        if slurm_array_task_id is not None
-        else path
-    )
+    slurm_job_id = os.getenv("SLURM_JOB_ID")
 
-
+    if slurm_array_task_id and slurm_job_id:
+        return f"{path}/{slurm_job_id}/{slurm_array_task_id}"
+    else:
+        return f"{path}"
+        
 def load_training_state(load_config):
     training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
 
@@ -85,15 +85,18 @@ def load_training_state(load_config):
         )
         return training_start_config
     
+    if load_config.training_state_filename == None:
+        logger.info(
+            "No training_state_filename. Starting training from step 0."
+        )
+        return training_start_config
+    
     load_path = load_config.path
     if load_path is None:
         logger.warning(
             "Checkpoint load_path is not set. Starting training from scratch."
         )
         return training_start_config
-    load_path = get_full_checkpoint_path(
-        load_path
-    )
     os.makedirs(load_path, exist_ok=True)
 
     training_state_path = (

@@ -1,3 +1,5 @@
+# TODO old version - doesnt work
+
 common:
   _target_: src.definitions.Common
   dff: 486
@@ -197,7 +199,6 @@ infrastructure:
     nodes: 1
     partition: h100
     time: "0-1:00:00"
-    ntasks-per-node: 2
 
   venv_path: $HOME/nano/.venv/bin/activate # Change me!
   experiment_prepare_venv_path: ${infrastructure.venv_path}
