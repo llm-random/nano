@@ -1,0 +1,32 @@
+
+
+trainer:
+  train_dataloader:
+    _target_: src.core.datasets.get_dataloader
+    dataset_path: ${switch.trainer.train_dataloader.dataset_path_c4}
+    dataset_split: train
+    dataset_type: c4
+    num_workers: 12
+    seed: 20001
+    sequence_length: ${common.sequence_length}
+    shuffle: true
+    total_batch_size: ${common.sequence_length}
+    use_new_sampling_method: true
+    world_size_independent: true
+    tokenize_fn:
+      _target_: src.core.datasets.llama_tokenize_fn
+
+  eval_dataloader:
+    _target_: src.core.datasets.get_dataloader
+    dataset_path: ${switch.trainer.eval_dataloader.dataset_path_c4}
+    dataset_split: validation
+    dataset_type: c4
+    num_workers: 12
+    seed: 123
+    sequence_length: ${common.sequence_length}
+    shuffle: true
+    total_batch_size: ${common.sequence_length}
+    use_new_sampling_method: true
+    world_size_independent: true
+    tokenize_fn:
+      _target_: src.core.datasets.llama_tokenize_fn

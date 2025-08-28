@@ -1,0 +1,26 @@
+# TODO contains lr scheduler bug
+
+defaults:
+  - _cluster@_here_: entropy_4
+  - _model@_here_: llama_3_1
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+
+infrastructure:
+  metric_logger:
+    name: test
+    tags:
+      - nano
+      - pc
+      - test_ft_nano
+
+trainer:
+  n_steps: 2000
+  learning_rate: 0.00005
+  gradient_accumulation_steps: 4
+
+  checkpoint:
+   load:
+    path: "/home/mstefaniak/llmrandom_cemetery/run_exp_2025-08-12_16-18-34/checkpoints/0/step_-1"
