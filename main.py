@@ -158,6 +158,7 @@ def log_environs(metric_logger):
     environs = os.environ
     for environ_key in scrap_keys:
         metric_logger.run[f"job/{environ_key}"] = str(environs.get(environ_key))
+        
 
 def run(cfg, metric_logger=None):
     setup_enviroment()
