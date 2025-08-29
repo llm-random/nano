@@ -1,0 +1,134 @@
+
+# common:
+#   _target_: src.definitions.Common
+#   dmodel: 2048
+#   dff: 8192
+#   datt: 2048
+#   q_heads: 32
+#   kv_heads: 8
+#   n_blocks: 16
+#   vocab_size: 128256
+#   sequence_length: 1024
+#   head_norm: true
+#   init_scale: 0.1
+#   init_type: truncated_normal_fixed
+#   model_type: gpt
+  
+common:
+  _target_: src.definitions.Common
+  dff: 4096
+  dmodel: 1024
+  head_norm: true
+  model_type: gpt
+  sequence_length: 1024
+  vocab_size: 128256
+  base_dff: 8192
+  base_dmodel: 2048
+  datt: ${common.base_dmodel}
+  q_heads: 32
+  kv_heads: 8
+  n_blocks: 16
+  norm_dmodel: ${common.base_dmodel}
+
+model:
+  _target_: src.projected_compression.model.LLM
+
+  embedding:
+    _target_: src.projected_compression.model.ProjectedEmbedding
+    embedding:
+      _target_: src.projected_compression.model.Embedding
+      num_embeddings: ${common.vocab_size}
+      embedding_dim: ${common.base_dmodel}
+
+    result_out_features: ${common.dmodel} 
+    
+  encoder:
+    _target_: src.projected_compression.model.TransformerEncoder
+    n_blocks: ${common.n_blocks}
+    block_fn:
+      _target_: src.projected_compression.model.TransformerBlock
+      _partial_: true
+      norm_fn: 
+        _target_: src.core.model.RMSNorm
+        _partial_: true
+        eps: 1e-5
+        # normalized_shape: ${common.base_dmodel}
+        normalized_shape: ${common.norm_dmodel}
+      
+      attention_fn:
+        _target_: src.projected_compression.model.RoPEAttention
+        _partial_: true
+        dmodel: ${common.base_dmodel}
+        q_heads: ${common.q_heads}
+        kv_heads: ${common.kv_heads}
+        seq_len: ${common.sequence_length}
+        q_proj_fn:
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: ${common.dmodel} 
+          result_out_features: null
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${common.base_dmodel}
+
+        k_proj_fn:
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: ${common.dmodel} 
+          result_out_features: null
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${eval:'${model.encoder.block_fn.attention_fn.kv_heads} * (${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads})'}
+
+        v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
+
+        o_proj_fn:
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: null
+          result_out_features: ${common.dmodel} 
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${common.base_dmodel}
+        
+        rope_base: 500000
+        rope_scale_freqs: true
+
+      ff_layer_fn:
+        _target_: src.projected_compression.model.ProjectedLlamaFeedForward
+        _partial_: true
+        ff_pre_act_fn:
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: ${common.dmodel}
+          result_out_features: ${common.dff}
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${common.base_dff}
+        ff_post_act_fn: 
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: ${common.dff}
+          result_out_features: ${common.dmodel} 
+          base_in_features: ${common.base_dff}
+          base_out_features: ${common.base_dmodel}
+        gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
+
+  head:
+    _target_: src.projected_compression.model.TransformerHead
+    linear_fn:
+      _target_: src.projected_compression.model.ProjectedLinear
+      _partial_: true
+      result_in_features: ${common.dmodel}
+      result_out_features: null
+      base_in_features: ${common.base_dmodel}
+      base_out_features: ${common.vocab_size}
+    norm_fn: 
+        _target_: src.core.model.RMSNorm
+        _partial_: true
+        eps: 1e-5
+        # normalized_shape: ${common.base_dmodel}
+        normalized_shape: ${common.norm_dmodel}
+
+apply_functions:
+  - _target_: src.projected_compression.compression.init_compression
+    _partial_: true
+    dmodel: ${common.dmodel}
+    dff: ${common.dff}
+    projection_init: true

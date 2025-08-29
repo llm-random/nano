@@ -34,7 +34,7 @@ def create_master_node_configuration() -> list[str]:
 def create_program_call(config_folder):
     return [
         "srun torchrun --nnodes=${SLURM_NNODES}\\",
-        "  --nproc-per-node=\"auto\" \\",
+        "  --nproc-per-node=${SLURM_GPUS_ON_NODE} \\",
         "  --rdzv-id=${SLURM_JOBID} \\",
         "  --rdzv-backend=c10d \\",
         "  --rdzv-endpoint=${MASTER_ADDR}:${MASTER_PORT} \\",
@@ -54,6 +54,9 @@ def generate_sbatch_script(
     lines.append(f"#SBATCH --array=0-{n_experiments - 1}")
 
     lines.extend(slurm_parameters)
+
+    # lines.append(f"export HF_HUB_CACHE=/net/scratch/hscra/plgrid/plgmstefaniak/hf_cash/my_models") #dev
+    # lines.append("echo ${SLURM_GPUS_ON_NODE}") #dev
 
     lines.extend(create_master_node_configuration())
 

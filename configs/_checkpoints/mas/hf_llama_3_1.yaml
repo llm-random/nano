@@ -3,6 +3,7 @@
 trainer:
   checkpoint:
    save:
+    type: nano
     interval: -1
     path: null
     model_checkpoint_filename: __model_checkpoint_filename.pt
@@ -11,8 +12,10 @@ trainer:
    load:
     type: huggingface
     # path: "meta-llama/Llama-3.2-1B"
-    path: "/home/mstefaniak/checkpoints/llama_1b" # entropy # TODO move to shared
+    path: "meta-llama/Llama-3.1-8B"
+    # path: "/home/mstefaniak/checkpoints/llama_1b" # entropy # TODO move to shared
     # path: "/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_1b" # helios # TODO move to shared
     model_checkpoint_filename: __model_checkpoint_filename.pt
     training_state_filename: null
+    only_weights: true 
 

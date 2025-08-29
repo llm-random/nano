@@ -1,3 +1,19 @@
+
+# common:
+#   _target_: src.definitions.Common
+#   dff: 8192
+#   dmodel: 2048
+#   datt: 2048
+#   q_heads: 32
+#   kv_heads: 8
+#   n_blocks: 16
+#   vocab_size: 128256
+#   sequence_length: 512
+#   head_norm: true
+#   init_scale: 0.1
+#   init_type: truncated_normal_fixed
+#   model_type: gpt
+  
 common:
   _target_: src.definitions.Common
   dff: 14336

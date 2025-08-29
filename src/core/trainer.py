@@ -6,15 +6,20 @@ from typing import Optional
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+# from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
+# from torch.distributed.fsdp.fully_sharded_model import StateDictType
+from torch.distributed.tensor import DTensor
 
+from src.core.conversion_to_hf import save_to_llama_3_hf
 from old_datasets import LLMBatch
 import torch.distributed.checkpoint as dcp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
-from src.core.checkpointing import TrainingState, save_training_state, step_checkpoint_path
+from src.core.checkpointing import TrainingState, get_full_checkpoint_path, save_training_state, step_checkpoint_path
 from src.core.metric_loggers import MetricLogger
 from src.core.utils import create_batch_fingerprint
+# from torch.distributed import barrier
 
 logger = logging.getLogger(__name__)
 
@@ -98,15 +103,51 @@ class Trainer:
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.scheduler.step()
-
+            
             if self._should_save_checkpoint:
                 self.save_checkpoint()
 
             if self._should_evaluate:
                 self.eval()
 
+        def cast_state_dict_to_tensors(state_dict, device="cpu"):
+            """
+            Convert all DTensors in a state dict to regular torch.Tensors.
+            By default, gathers them to CPU.
+            """
+            full_state = {}
+            for k, v in state_dict.items():
+                if isinstance(v, DTensor):
+                    full_state[k] = v.full_tensor().float().to(device)
+                    # full_state[k] = v.to_local().to(device)
+                elif isinstance(v, torch.Tensor):
+                    full_state[k] = v.to(device)
+                else:
+                    full_state[k] = v
+            return full_state
+        
+        
         if self._should_save_final_checkpoint:
-            self.save_checkpoint()
+            if self.checkpoint.save.type == "nano":
+                self.save_checkpoint()
+            elif self.checkpoint.save.type == "huggingface":
+                # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
+                model_state_dict = self.model.state_dict()
+                full_state = cast_state_dict_to_tensors(model_state_dict)
+   
+                if os.environ["RANK"] == "0":
+
+                    save_to_llama_3_hf( #dev fixed values 
+                        full_state, save_dir = get_full_checkpoint_path(self.checkpoint.save.path), 
+                        dmodel = 2048, 
+                        dff = 8192, 
+                        n_att_heads = 32,
+                        n_kvatt_heads = 8,
+                        head_dim = 64,
+                        nlayers = 16,
+                    ) 
+
+
 
     def _preprocess_input(self, batch):  # TODO test it
         input_ids = batch[:, :-1].contiguous()
@@ -202,8 +243,8 @@ class Trainer:
 
     def clip_gradient(self):
         if self.gradient_clipping is not None:
-            if isinstance(self.model, FSDP):
-                return self.model.clip_grad_norm_(self.gradient_clipping)
+            if isinstance(self.model, FSDP): 
+                return self.model.clip_grad_norm_(self.gradient_clipping)  #dev TODO does it work with FSDP2
             else:
                 return torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(), self.gradient_clipping

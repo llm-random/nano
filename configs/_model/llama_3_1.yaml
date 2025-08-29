@@ -4,9 +4,9 @@ common:
   dmodel: 2048
   dff: 8192
   datt: 2048
+  n_blocks: 16
   q_heads: 32
   kv_heads: 8
-  n_blocks: 16
   vocab_size: 128256
   sequence_length: 1024
   head_norm: true
@@ -41,6 +41,7 @@ model:
         _target_: src.projected_compression.model.RoPEAttention
         _partial_: true
         dmodel: ${common.dmodel}
+        # datt: ${common.datt}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
