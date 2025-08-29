@@ -16,7 +16,6 @@ common:
   dmodel: 1536
   # dff: 2048
   # dmodel: 1024
-  # norm_dmodel: ${common.dmodel}
 
 
 trainer:
@@ -27,11 +26,9 @@ trainer:
 
   checkpoint:
    save:
-    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama31_pc
+    path: nano
    load:
     type: nano
-    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama31_pc/64247/0/step_100
-    # path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama31_pc/64332/0/step_100
     training_state_filename: null
 
 
@@ -43,11 +40,4 @@ infrastructure:
       - pc
       - llama_8_pc
       - sparsity_50
-
-# apply_functions:
-#   - _target_: src.projected_compression.compression.init_compression
-#     _partial_: true
-#     dmodel: ${common.dmodel}
-#     dff: ${common.dff}
-#     projection_init: false
 

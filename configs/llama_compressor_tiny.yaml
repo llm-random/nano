@@ -8,28 +8,15 @@ defaults:
   - _misc@_here_: default
   - _mas@_here_: entropy
   
-
 common:
   sequence_length: 1024
-  # batch_size: 256
-  ^batch_size: 
-    - 128
-    - 64
-    - 32
-    - 16
-    - 8
-  # dff: 3072
-  # dmodel: 1536
-  # dff: 2048
-  # dmodel: 1024
-
+  batch_size: 128
 
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 300
   
   learning_rate: 6.103515625e-05
-
 
 infrastructure:
   metric_logger:
@@ -38,7 +25,6 @@ infrastructure:
       - nano
       - pc
       - tiny_compressor
-      - speedup
 
   
 

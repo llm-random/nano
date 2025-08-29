@@ -55,9 +55,6 @@ def generate_sbatch_script(
 
     lines.extend(slurm_parameters)
 
-    # lines.append(f"export HF_HUB_CACHE=/net/scratch/hscra/plgrid/plgmstefaniak/hf_cash/my_models") #dev
-    # lines.append("echo ${SLURM_GPUS_ON_NODE}") #dev
-
     lines.extend(create_master_node_configuration())
 
     if modules_to_add is not None:

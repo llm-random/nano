@@ -14,14 +14,10 @@ defaults:
 
 common:
   batch_size: 512
-  # batch_size: 64
 
 
 trainer:
   gradient_accumulation_steps: 4
-  # ^gradient_accumulation_steps: 
-  #   - 1
-  #   - 2
 
   n_steps: 1001
   
@@ -31,7 +27,7 @@ trainer:
   checkpoint:
     save:
       type: nano
-      path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/pc
+      path: null
     load:
       type: huggingface
       path: "meta-llama/Llama-3.1-8B"

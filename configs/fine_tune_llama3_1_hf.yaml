@@ -6,7 +6,6 @@ defaults:
   - _model@_here_: llama_3_1
   - _trainer@_here_: llama
   - _dataset@_here_: c4
-  # - _checkpoints@_here_: mas/hf_llama_3_1.yaml #dev
   - _checkpoints@_here_: none
   - _misc@_here_: default
   - _mas@_here_: helios
@@ -28,10 +27,9 @@ trainer:
 
   checkpoint:
     save:
-      # path: null
-      path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama3
+      path: null #change me
     load:
-     path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama3/64171/0
+      path: null #change me
 
   train_dataloader:
     num_workers: 12
