@@ -1,6 +1,12 @@
 import torch
 import torch.nn as nn
 import json
+import logging
+import os
+
+from src.core.checkpointing import get_full_checkpoint_path
+
+logger = logging.getLogger(__name__)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -16,8 +22,7 @@ def calculate_dimension_importances(model: nn.Module, calibration_data, dmodel, 
     with torch.no_grad():
         for batch in calibration_data:
             x = model.embedding(batch)
-            i = 0
-            for layer in model.encoder.blocks:
+            for layer_number, layer in enumerate(model.encoder.blocks):
                 y = layer.attention_layer.norm(x) # normalized_pre_attn
                 dmodel_importance += torch.sum(torch.abs(y), dim=[0, 1])  # Sum across batch and sequence dimensions
 
@@ -32,20 +37,18 @@ def calculate_dimension_importances(model: nn.Module, calibration_data, dmodel, 
                 ff_gated = ff_layer.silu(ff_layer.gate(y))
 
                 y = ff_layer.ff_pre_act(y) # ff_pre_act
-                dff_importance[i] += torch.sum(torch.abs(y), dim=[0, 1])
+                dff_importance[layer_number] += torch.sum(torch.abs(y), dim=[0, 1])
 
                 y = ff_layer.ff_post_act(y * ff_gated) # ff_output
 
                 x = x + y  # Residual connection
-
-                i += 1
             x = model.head(x)
 
             assert torch.allclose(x, model(batch)), "Model output does not match expected output"
 
     return dmodel_importance, dff_importance
 
-def prune(model: nn.Module, dmodel_indices, dff_indices):
+def prune(model: nn.Module, dmodel_indices, dff_indices, target_dmodel):
     """
     Prune the model by selecting the top k neurons based on their importance scores.
     """
@@ -57,28 +60,25 @@ def prune(model: nn.Module, dmodel_indices, dff_indices):
     head_weight = model.head.linear.weight.data
     model.head.linear.weight.data = head_weight[:, dmodel_indices]
     model.head.norm.weight.data = model.head.norm.weight[dmodel_indices]
-    model.head.norm.normalized_shape = tuple([3072])
+    model.head.norm.normalized_shape = tuple([target_dmodel])
 
-    i = 0
-    for block in model.encoder.blocks:
-        block.attention_layer.norm.weight.data = block.attention_layer.norm.weight[dmodel_indices]
-        block.attention_layer.norm.normalized_shape = tuple([3072])
-        block.attention_layer.layer.q_proj.weight.data = block.attention_layer.layer.q_proj.weight[:, dmodel_indices]
-        block.attention_layer.layer.k_proj.weight.data = block.attention_layer.layer.k_proj.weight[:, dmodel_indices]
-        block.attention_layer.layer.v_proj.weight.data = block.attention_layer.layer.v_proj.weight[:, dmodel_indices]
-        block.attention_layer.layer.o_proj.weight.data = block.attention_layer.layer.o_proj.weight[dmodel_indices, :]
+    for layer, dff_indices_per_layer in zip(model.encoder.blocks, dff_indices):
+        layer.attention_layer.norm.weight.data = layer.attention_layer.norm.weight[dmodel_indices]
+        layer.attention_layer.norm.normalized_shape = tuple([target_dmodel])
+        layer.attention_layer.layer.q_proj.weight.data = layer.attention_layer.layer.q_proj.weight[:, dmodel_indices]
+        layer.attention_layer.layer.k_proj.weight.data = layer.attention_layer.layer.k_proj.weight[:, dmodel_indices]
+        layer.attention_layer.layer.v_proj.weight.data = layer.attention_layer.layer.v_proj.weight[:, dmodel_indices]
+        layer.attention_layer.layer.o_proj.weight.data = layer.attention_layer.layer.o_proj.weight[dmodel_indices, :]
 
-        block.ff_layer.norm.weight.data = block.ff_layer.norm.weight[dmodel_indices]
-        block.ff_layer.norm.normalized_shape = tuple([3072])
-        block.ff_layer.layer.ff_pre_act.weight.data = block.ff_layer.layer.ff_pre_act.weight[:, dmodel_indices][dff_indices[i], :]
-        block.ff_layer.layer.gate.weight.data = block.ff_layer.layer.gate.weight[:, dmodel_indices][dff_indices[i], :]
-        block.ff_layer.layer.ff_post_act.weight.data = block.ff_layer.layer.ff_post_act.weight[dmodel_indices, :][:, dff_indices[i]]
-
-        i += 1
+        layer.ff_layer.norm.weight.data = layer.ff_layer.norm.weight[dmodel_indices]
+        layer.ff_layer.norm.normalized_shape = tuple([target_dmodel])
+        layer.ff_layer.layer.ff_pre_act.weight.data = layer.ff_layer.layer.ff_pre_act.weight[:, dmodel_indices][dff_indices_per_layer, :]
+        layer.ff_layer.layer.gate.weight.data = layer.ff_layer.layer.gate.weight[:, dmodel_indices][dff_indices_per_layer, :]
+        layer.ff_layer.layer.ff_post_act.weight.data = layer.ff_layer.layer.ff_post_act.weight[dmodel_indices, :][:, dff_indices_per_layer]
 
     return model
 
-def minitron_prune(model: nn.Module, dataloader, dmodel, dff, calibration_dataset_size, seq_len, total_batch_size, n_blocks):
+def minitron_prune(model: nn.Module, dataloader, dmodel, target_dmodel, dff, target_dff, calibration_dataset_size, seq_len, total_batch_size, n_blocks, checkpoint_save_path):
 
     calibration_data = torch.zeros(calibration_dataset_size // total_batch_size, total_batch_size, seq_len, dtype=torch.long, device=device)
     for i, batch in enumerate(dataloader):
@@ -90,29 +90,28 @@ def minitron_prune(model: nn.Module, dataloader, dmodel, dff, calibration_datase
         model, calibration_data, dmodel, dff, n_blocks
     )
 
-    print("Importance dimensions calculated.")
+    logger.debug("Importance dimensions calculated.")
 
-    # select top k neurons
-    topk_dmodel = 3072
-    topk_dff = 9216
-
-    dmodel_top_indices = torch.topk(dmodel_importance, dim=0, largest=True, k=topk_dmodel).indices.tolist()
+    dmodel_top_indices = torch.topk(dmodel_importance, dim=0, largest=True, k=target_dmodel).indices.tolist()
 
     dff_top_indices = []
     for i in range(n_blocks):
-        dff_top_indices_current = torch.topk(dff_importance[i], dim=0, largest=True, k=topk_dff).indices.tolist()
+        dff_top_indices_current = torch.topk(dff_importance[i], dim=0, largest=True, k=target_dff).indices.tolist()
         dff_top_indices.append(dff_top_indices_current)
 
     # save to file indices as dict
     dict_to_save = {"dmodel_top_indices": dmodel_top_indices, "dff_top_indices": dff_top_indices}
-    path = "./top_indices.json"
+    path = get_full_checkpoint_path(checkpoint_save_path) + "/top_indices.json"
+
+    # check if path exists
+    os.makedirs(os.path.dirname(path), exist_ok=True)
 
     with open(path, "w") as f:
         json.dump(dict_to_save, f)
 
-    model = prune(model, dmodel_top_indices, dff_top_indices)
+    model = prune(model, dmodel_top_indices, dff_top_indices, target_dmodel)
 
-    print("Model pruned.")
+    logger.info("Model pruned.")
 
     return model
 

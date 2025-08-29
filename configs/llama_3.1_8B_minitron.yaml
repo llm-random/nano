@@ -183,11 +183,14 @@ apply_functions:
     _partial_: true
     dataloader: ${trainer.train_dataloader}
     dmodel: ${common.dmodel}
+    target_dmodel: 3072
     dff: ${common.dff}
+    target_dff: 9216
     calibration_dataset_size: 1024
     seq_len: ${common.sequence_length}
     total_batch_size: ${trainer.train_dataloader.total_batch_size}
     n_blocks: ${model.encoder.n_blocks}
+    checkpoint_save_path: ${trainer.checkpoint.save.path}
 
 infrastructure:
   slurm:

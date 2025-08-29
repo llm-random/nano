@@ -12,22 +12,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 class TrainingState(Stateful):
-    def __init__(self, model, optimizer, scheduler):
+    def __init__(self, model, optimizer, scheduler, no_optimizer=False):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.no_optimizer = no_optimizer
 
     def state_dict(self):
         # this line automatically manages FSDP FQN's, as well as sets the default state dict type to FSDP.SHARDED_STATE_DICT
         model_state_dict, optimizer_state_dict = get_state_dict(
-            self.model, self.optimizer
+            self.model, self.optimizer if not self.no_optimizer else []
         )
-
-        # uncomment to save checkpoint without optimizer state
-
-        # model_state_dict, optimizer_state_dict = get_state_dict(
-        #     self.model, []
-        # )
 
         return {
             "model": model_state_dict,
@@ -38,19 +33,10 @@ class TrainingState(Stateful):
     def load_state_dict(self, state_dict):
         set_state_dict(
             self.model,
-            self.optimizer,
+            self.optimizer if not self.no_optimizer else [],
             model_state_dict=state_dict["model"],
-            optim_state_dict=state_dict["optim"],
+            optim_state_dict=state_dict["optim"] if not self.no_optimizer else {},
         )
-
-        # uncomment to load checkpoint without optimizer saved
-
-        # set_state_dict(
-        #     self.model,
-        #     [],
-        #     model_state_dict=state_dict["model"],
-        #     optim_state_dict={},
-        # )
 
         self.scheduler.load_state_dict(state_dict["scheduler"])
 
@@ -147,7 +133,8 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
     if checkpoint_path is not None:
         if isinstance(model, FSDP):
             # Sharded load
-            state_dict = {"app": TrainingState(model, optimizer, scheduler)}
+            no_optimizer = load_config.get("load_without_optimizer", False)
+            state_dict = {"app": TrainingState(model, optimizer, scheduler, no_optimizer)}
             dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_path)
             logger.debug(f"Loaded sharded checkpoint from '{checkpoint_path}'")
         else:
@@ -162,7 +149,8 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
             else:
                 logger.info(f"Loading non-DDP model from '{checkpoint_path}'")
                 model.load_state_dict(checkpoint["model"])
-            optimizer.load_state_dict(checkpoint["optim"])
+            if not load_config.get("load_without_optimizer", False):
+                optimizer.load_state_dict(checkpoint["optim"])
             scheduler.load_state_dict(checkpoint["scheduler"])
             logger.info(f"Loaded non-sharded sheduler from '{checkpoint_path}'")
             logger.debug(f"Loaded non-sharded checkpoint from '{checkpoint_path}'")

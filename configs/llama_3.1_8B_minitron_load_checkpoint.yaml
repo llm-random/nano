@@ -113,7 +113,7 @@ trainer:
       interval: -1
       model_checkpoint_filename: __model_optim_scheduler__.pt
       training_state_filename: __training_state__.pt
-#      path: "/storage_nvme_3/m1kush/llama_8_minitron"
+#      path: "/storage_nvme_3/m1kush/llama_8_minitron_check_optimizer"
       path: null
 
     load:
@@ -121,7 +121,9 @@ trainer:
 #      path: "meta-llama/Llama-3.1-8B"
       type: nano
       training_state_filename: __training_state__.pt
-      path: "/storage_nvme_3/m1kush/llama_8_minitron/64295/0/step_-1"
+#      path: "/storage_nvme_3/m1kush/llama_8_minitron/64295/0/step_-1"
+      path: "/storage_nvme_3/m1kush/llama_8_minitron_check_optimizer/64648/0/step_99"
+#      load_without_optimizer: true
 
   eval_interval: 100
   n_eval_steps: 5
@@ -129,7 +131,7 @@ trainer:
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
 #  n_steps: 0
-  n_steps: 100
+  n_steps: 200
 #  n_steps: 15301
 
   learning_rate: 3.0517578125e-05
