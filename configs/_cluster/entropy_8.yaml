@@ -2,13 +2,13 @@
 infrastructure:
   server: entropy
   slurm:
-    cpus-per-task: 4
+    cpus-per-task: 16
     gres: gpu:8
     job-name: test
     mem_per_gpu: 120G
     nodes: 1
     partition: h100
-    time: "0-05:00:00"
+    time: "2-00:00:00"
 
   venv_path: ???
   experiment_prepare_venv_path: ${infrastructure.venv_path}

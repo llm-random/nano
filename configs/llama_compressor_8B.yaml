@@ -1,0 +1,49 @@
+
+defaults:
+  # - _cluster@_here_: helios_4
+  - _cluster@_here_: helios_8
+  # - _cluster@_here_: entropy_8
+  - _model@_here_: llama_3_8_pc
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+  - _mas@_here_: helios
+  - _self_
+  
+
+common:
+  batch_size: 512
+
+
+trainer:
+  gradient_accumulation_steps: 4
+
+  n_steps: 1001
+  
+  ^learning_rate: 
+    - 3.814697265625e-06
+
+  checkpoint:
+    save:
+      type: nano
+      path: null
+    load:
+      type: huggingface
+      path: "meta-llama/Llama-3.1-8B"
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: null
+      only_weights: true 
+
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_8_pc
+
+  
+  slurm:
+    time: "0-01:00:00"
