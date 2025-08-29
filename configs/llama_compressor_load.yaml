@@ -1,0 +1,53 @@
+
+defaults:
+  - _cluster@_here_: entropy_4
+  - _model@_here_: llama_3_1_pc
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+  - _mas@_here_: entropy
+  
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+  dff: 3072
+  dmodel: 1536
+  # dff: 2048
+  # dmodel: 1024
+  # norm_dmodel: ${common.dmodel}
+
+
+trainer:
+  gradient_accumulation_steps: 4
+  n_steps: 401
+  
+  learning_rate: 6.103515625e-05
+
+  checkpoint:
+   save:
+    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama31_pc
+   load:
+    type: nano
+    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama31_pc/64247/0/step_100
+    # path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama31_pc/64332/0/step_100
+    training_state_filename: null
+
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_8_pc
+      - sparsity_50
+
+# apply_functions:
+#   - _target_: src.projected_compression.compression.init_compression
+#     _partial_: true
+#     dmodel: ${common.dmodel}
+#     dff: ${common.dff}
+#     projection_init: false
+

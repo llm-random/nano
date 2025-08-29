@@ -1,19 +1,21 @@
 # working 22.08
 
 defaults:
-  - _cluster@_here_: entropy_4
+  - _cluster@_here_: helios_4
+  # - _cluster@_here_: entropy_4
   - _model@_here_: llama_3_1
   - _trainer@_here_: llama
   - _dataset@_here_: c4
-  - _checkpoints@_here_: mas/hf_llama_3_1.yaml
+  # - _checkpoints@_here_: mas/hf_llama_3_1.yaml #dev
+  - _checkpoints@_here_: none
   - _misc@_here_: default
-  - _mas@_here_: default
+  - _mas@_here_: helios
 
 common: 
   batch_size: 512
 
 trainer:
-  n_steps: 1001
+  n_steps: 101
   # n_steps: 0
   learning_rate: 3.0517578125e-05
   gradient_accumulation_steps: 8
@@ -25,9 +27,11 @@ trainer:
     warmup_steps: 40
 
   checkpoint:
-   save:
-    # path: null
-    path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama3
+    save:
+      # path: null
+      path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama3
+    load:
+     path: /storage_nvme_3/mstefaniak/nano_checkpoints/llama3/64171/0
 
   train_dataloader:
     num_workers: 12
@@ -46,4 +50,5 @@ infrastructure:
       - pc
       - nano
       - ft_llama3_1
+      - helios_ft
 
