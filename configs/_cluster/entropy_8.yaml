@@ -1,13 +1,13 @@
 
 infrastructure:
-  server: helios
+  server: entropy
   slurm:
-    cpus-per-task: 12
-    gres: gpu:4
+    cpus-per-task: 4
+    gres: gpu:8
     job-name: test
-    mem_per_gpu: 90G
+    mem_per_gpu: 120G
     nodes: 1
-    partition: plgrid-gpu-gh200
+    partition: h100
     time: "0-05:00:00"
 
   venv_path: ???
@@ -21,6 +21,6 @@ infrastructure:
 switch:
   trainer:
     train_dataloader:
-      dataset_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/train" # helios
+      dataset_path_c4: "/storage_nvme_1/llm-random/datasets/c4/train"
     eval_dataloader:
-      dataset_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/validation" # helios
+      dataset_path_c4: "/storage_nvme_1/llm-random/datasets/c4/validation"
