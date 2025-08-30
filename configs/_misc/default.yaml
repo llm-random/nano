@@ -6,9 +6,17 @@ infrastructure:
     heavy_metrics_calculation_interval: 100
     new_neptune_job: true
     type: neptune
+    name: default
+    tags:
+      - test
 
   git:
     remote_name: cemetery
     remote_url: git@github.com:llm-random/llm-random-cemetery.git
 
   generated_configs_path: generated_configs
+
+  cemetery_experiments_dir: "~/llmrandom_cemetery"
+
+  venv_path: ???
+  experiment_prepare_venv_path: ${infrastructure.venv_path}

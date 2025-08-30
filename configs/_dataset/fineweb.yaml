@@ -4,13 +4,13 @@ defaults:
 
 trainer:
   train_dataloader:
-    dataset_path: ${cluster_switch.train_path_c4}
+    dataset_path: ${cluster_switch.train_path_fineweb}
     dataset_split: train
-    dataset_type: c4
+    dataset_type: fineweb-edu
     num_workers: ${cluster_switch.num_workers}
 
   eval_dataloader:
-    dataset_path: ${cluster_switch.eval_path_c4}
-    dataset_split: validation
-    dataset_type: c4
+    dataset_path: ${cluster_switch.eval_path_fineweb}
+    dataset_split: train
+    dataset_type: fineweb-edu
     num_workers: ${cluster_switch.num_workers}

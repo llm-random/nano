@@ -1,0 +1,14 @@
+defaults:
+  - base_pc_model
+  - _self_
+
+common:
+  _target_: src.definitions.Common
+  dmodel: 2048 # 2816 gives 4B
+  dff: 7168 # 9856 gives 4B
+  sequence_length: 1024
+  base_dmodel: 4096
+  base_dff: 14336
+  n_blocks: 32
+  q_heads: 32
+  kv_heads: 8
