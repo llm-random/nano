@@ -1,7 +1,7 @@
 infrastructure:
   server: entropy
   slurm:
-    cpus_per_gpu: 16 # TODO CHECK
+    cpus_per_gpu: 16
     gres: ???
     job-name: test
     mem_per_gpu: 125G
