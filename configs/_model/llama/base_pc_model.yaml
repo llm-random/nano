@@ -9,6 +9,11 @@ common:
   q_heads: ???
   kv_heads: ???
 
+apply_functions:
+  - _target_: src.projected_compression.compression.init_compression
+    _partial_: true
+    dmodel: ${common.dmodel}
+    dff: ${common.dff}
 
 model:
   _target_: src.projected_compression.model.LLM

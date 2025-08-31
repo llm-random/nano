@@ -1,7 +1,7 @@
 defaults:
   - _misc@_here_: default
   - _dataset@_here_: c4
-  - _cluster@_here_: entropy_a100
+  - _cluster@_here_: entropy
   - _model/llama@_here_: projected_1B
   - _trainer@_here_: llama
 
@@ -13,11 +13,17 @@ infrastructure:
     gres: gpu:2
     job_name: test_job
   venv_path: $HOME/nano/.venv/bin/activate
-  server: entropia
+  server: entropy
 
 common: 
   batch_size: 32
+  sequence_length: 32 # totally toy example
 
 trainer:
   n_steps: 100
   learning_rate: 5e-5
+  
+  checkpoint:
+    load:
+      type: huggingface
+      path: "meta-llama/Llama-3.2-1B"
