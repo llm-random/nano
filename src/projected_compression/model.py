@@ -419,13 +419,6 @@ class ProjectedLinear(nn.Module):
         self.projection_in_weight = None
         self.projection_out_weight = None
         self.auxiliary_weight = None
-
-    def activate_projections(self):
-        if self.result_in_features is not None:
-            self.projection_in_weight.requires_grad_(True)
-
-        if self.result_out_features is not None:
-            self.projection_out_weight.requires_grad_(True)
         
 
     def init_projections(

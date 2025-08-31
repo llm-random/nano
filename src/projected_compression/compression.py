@@ -127,36 +127,14 @@ def initialize_projection_weights(
         block.ff_layer.norm.weight = torch.nn.Parameter(cloned_data[dmodel_top_indices])
         block.ff_layer.norm.normalized_shape = tuple(block.ff_layer.norm.weight.shape)
 
-def activate_projections(
-    model: nn.Module
-):
-    model.head.linear.activate_projections()
-    model.embedding.activate_projections()
-    for i, block in enumerate(model.encoder.blocks):
-        layers_to_init_projections = [
-            "attention_layer.layer.q_proj",
-            "attention_layer.layer.k_proj",
-            "attention_layer.layer.v_proj",
-            "ff_layer.layer.ff_pre_act",
-            "attention_layer.layer.o_proj",
-            "ff_layer.layer.ff_post_act",
-        ]
-        
-        for layer_name in layers_to_init_projections:
-            get_nested_attr(block, layer_name).activate_projections()
-
-
-
-def init_compression(model: nn.Module, dmodel, dff, projection_init:bool):
+def init_compression(model: nn.Module, dmodel, dff):
     # Freeze all parameters
     for param in model.parameters():
         param.requires_grad = False
 
-    if projection_init:
-        dmodel_top_indices, dff_top_indices = calculate_dimension_importances(
-            model, dmodel, dff
-        )
-        initialize_projection_weights(model, dmodel_top_indices, dff_top_indices)
-    else:
-        activate_projections(model)
+    dmodel_top_indices, dff_top_indices = calculate_dimension_importances(
+        model, dmodel, dff
+    )
+    initialize_projection_weights(model, dmodel_top_indices, dff_top_indices)
+
 
