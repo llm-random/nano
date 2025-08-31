@@ -116,10 +116,9 @@ class Trainer:
                 full_state = cast_state_dict_to_tensors(model_state_dict)
    
                 if os.environ["RANK"] == "0":
-
-                    dmodel = self.model.encoder.blocks[0].ff_layer.layer._modules.get("ff_pre_act").result_in_features
-                    dff = self.model.encoder.blocks[0].ff_layer.layer._modules.get("ff_pre_act").result_out_features
-                    datt = self.model.encoder.blocks[0].attention_layer.layer._modules.get("q_proj").base_out_features # TODO works only when attention is not changed
+                    dmodel = self.model.encoder.blocks[0].ff_layer.layer._modules.get("ff_pre_act").in_features
+                    dff = self.model.encoder.blocks[0].ff_layer.layer._modules.get("ff_pre_act").out_features
+                    datt = self.model.encoder.blocks[0].attention_layer.layer._modules.get("q_proj").out_features # TODO works only when attention is not changed
                     n_att_heads = self.model.encoder.blocks[0].attention_layer.layer.q_heads
                     n_kvatt_heads = self.model.encoder.blocks[0].attention_layer.layer.kv_heads
                     nlayers = len(self.model.encoder.blocks)

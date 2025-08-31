@@ -61,12 +61,13 @@ def remap_nano_to_llama31_hf(nano_dict):
 def save_to_llama_3_hf(nano_model_state_dict, save_dir:str, dmodel:int, dff:int, n_att_heads:int, n_kvatt_heads:int, head_dim:int, nlayers:int):
     config = AutoConfig.from_pretrained("meta-llama/Llama-3.1-8B")
 
-    config.hidden_size = dmodel
-    config.intermediate_size = dff
-    config.num_attention_heads = n_att_heads
-    config.num_key_value_heads = n_kvatt_heads
-    config.head_dim = head_dim
-    config.num_hidden_layers = nlayers
+    config.hidden_size = int(dmodel)
+    config.intermediate_size = int(dff)
+    config.num_attention_heads = int(n_att_heads)
+    config.num_key_value_heads = int(n_kvatt_heads)
+    config.head_dim = int(head_dim)
+    config.num_hidden_layers = int(nlayers)
+
 
     hf_model = AutoModelForCausalLM.from_config(config)
     hf_state_dict = remap_nano_to_llama31_hf(nano_model_state_dict)
