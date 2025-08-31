@@ -230,7 +230,7 @@ class Trainer:
 
     def clip_gradient(self):
         if self.gradient_clipping is not None:
-            if isinstance(self.model, FSDP): 
+            if isinstance(self.model, FSDP):
                 return self.model.clip_grad_norm_(self.gradient_clipping)
             else:
                 return torch.nn.utils.clip_grad_norm_(
