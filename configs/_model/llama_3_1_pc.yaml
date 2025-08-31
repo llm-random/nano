@@ -115,4 +115,3 @@ apply_functions:
     _partial_: true
     dmodel: ${common.dmodel}
     dff: ${common.dff}
-    projection_init: true
