@@ -13,12 +13,12 @@ defaults:
   
 
 common:
-  batch_size: 512
-  # batch_size: 64
+  # batch_size: 512
+  batch_size: 64
 
 
 trainer:
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 8
   # ^gradient_accumulation_steps: 
   #   - 1
   #   - 2
@@ -47,6 +47,7 @@ infrastructure:
       - nano
       - pc
       - llama_8_pc
+      - crewtool_venv
 
   
   slurm:
