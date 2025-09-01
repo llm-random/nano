@@ -4,8 +4,8 @@ defaults:
 
 common:
   _target_: src.definitions.Common
-  dmodel: 2816
-  dff: 9856
+  dmodel: 3072 # 50% parameter compression
+  dff: 9216 # 50% parameter compression
   dhead: 128
   sequence_length: 1024
   base_dmodel: 4096
