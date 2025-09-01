@@ -52,7 +52,7 @@ model:
           result_in_features: ${common.dmodel}
           result_out_features: null
           base_in_features: ${common.base_dmodel}
-          base_out_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}}'}
+          base_out_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'}
 
         k_proj_fn:
           _target_: src.projected_compression.model.ProjectedLinear
@@ -60,7 +60,7 @@ model:
           result_in_features: ${common.dmodel}
           result_out_features: null
           base_in_features: ${common.base_dmodel}
-          base_out_features: ${eval:'${model.encoder.block_fn.attention_fn.kv_heads} * ${common.dhead}}'}
+          base_out_features: ${eval:'${model.encoder.block_fn.attention_fn.kv_heads} * ${common.dhead}'}
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
@@ -69,7 +69,7 @@ model:
           _partial_: true
           result_in_features: null
           result_out_features: ${common.dmodel}
-          base_in_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}}'}
+          base_in_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'}
           base_out_features: ${common.base_dmodel}
 
         rope_base: 500_000
