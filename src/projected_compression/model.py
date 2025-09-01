@@ -342,7 +342,7 @@ class TransformerEncoder(nn.Module):
         
         dmodel = self.blocks[0].ff_layer.layer._modules.get("ff_pre_act").in_features
         dff = self.blocks[0].ff_layer.layer._modules.get("ff_pre_act").out_features
-        datt = self.blocks[0].attention_layer.layer._modules.get("q_proj").out_features # TODO works only when attention is not changed
+        datt = self.blocks[0].attention_layer.layer._modules.get("q_proj").out_features
         n_att_heads = self.blocks[0].attention_layer.layer.q_heads
         n_kvatt_heads = self.blocks[0].attention_layer.layer.kv_heads
         nlayers = len(self.blocks)
