@@ -116,7 +116,7 @@ class Trainer:
                 full_state = cast_state_dict_to_tensors(model_state_dict)
    
                 if os.environ["RANK"] == "0":
-                    dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = self.model.get_model_dimensions()
+                    dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = self.model.encoder.get_model_dimensions()
 
                     save_to_llama_3_hf( #dev fixed values 
                         full_state, save_dir = get_full_checkpoint_path(self.checkpoint.save.path), 

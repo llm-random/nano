@@ -340,12 +340,12 @@ class TransformerEncoder(nn.Module):
     def get_model_dimensions(self): 
         # Works only for llama3 transforermer architecture 
         
-        dmodel = self.encoder.blocks[0].ff_layer.layer._modules.get("ff_pre_act").in_features
-        dff = self.encoder.blocks[0].ff_layer.layer._modules.get("ff_pre_act").out_features
-        datt = self.encoder.blocks[0].attention_layer.layer._modules.get("q_proj").out_features # TODO works only when attention is not changed
-        n_att_heads = self.encoder.blocks[0].attention_layer.layer.q_heads
-        n_kvatt_heads = self.encoder.blocks[0].attention_layer.layer.kv_heads
-        nlayers = len(self.encoder.blocks)
+        dmodel = self.blocks[0].ff_layer.layer._modules.get("ff_pre_act").in_features
+        dff = self.blocks[0].ff_layer.layer._modules.get("ff_pre_act").out_features
+        datt = self.blocks[0].attention_layer.layer._modules.get("q_proj").out_features # TODO works only when attention is not changed
+        n_att_heads = self.blocks[0].attention_layer.layer.q_heads
+        n_kvatt_heads = self.blocks[0].attention_layer.layer.kv_heads
+        nlayers = len(self.blocks)
 
         head_dim = datt / n_att_heads
 
