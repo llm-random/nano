@@ -5,7 +5,7 @@ trainer:
     dataset_split: ???
     dataset_type: ???
     num_workers: ???
-    seed: 20001
+    seed: 1
     sequence_length: ${common.sequence_length}
     shuffle: true
     total_batch_size: ${common.batch_size}

@@ -4,8 +4,9 @@ defaults:
 
 common:
   _target_: src.definitions.Common
-  dmodel: 2048
-  dff: 1024
+  dmodel: 1344
+  dff: 5376
+  dhead: 64
   sequence_length: 512
   base_dmodel: 2048
   base_dff: 8192

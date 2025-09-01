@@ -4,8 +4,9 @@ defaults:
 
 common:
   _target_: src.definitions.Common
-  dmodel: 2048 # 2816 gives 4B
-  dff: 7168 # 9856 gives 4B
+  dmodel: 2816
+  dff: 9856
+  dhead: 128
   sequence_length: 1024
   base_dmodel: 4096
   base_dff: 14336
