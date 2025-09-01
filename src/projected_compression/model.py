@@ -335,9 +335,22 @@ class TransformerBlock(nn.Module):
         x = self.attention_layer(x)
         x = self.ff_layer(x)
         return x
-
-
+    
 class TransformerEncoder(nn.Module):
+    def get_model_dimensions(self): 
+        # Works only for llama3 transforermer architecture 
+        
+        dmodel = self.blocks[0].ff_layer.layer._modules.get("ff_pre_act").in_features
+        dff = self.blocks[0].ff_layer.layer._modules.get("ff_pre_act").out_features
+        datt = self.blocks[0].attention_layer.layer._modules.get("q_proj").out_features
+        n_att_heads = self.blocks[0].attention_layer.layer.q_heads
+        n_kvatt_heads = self.blocks[0].attention_layer.layer.kv_heads
+        nlayers = len(self.blocks)
+
+        head_dim = datt / n_att_heads
+
+        return dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers
+
     def __init__(
         self,
         block_fn: Callable[[int], nn.Module],
@@ -419,6 +432,7 @@ class ProjectedLinear(nn.Module):
         self.projection_in_weight = None
         self.projection_out_weight = None
         self.auxiliary_weight = None
+        
 
     def init_projections(
         self,

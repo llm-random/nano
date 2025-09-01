@@ -7,14 +7,16 @@ from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+from src.core.conversion_to_hf import save_to_llama_3_hf
 from old_datasets import LLMBatch
 import torch.distributed.checkpoint as dcp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
-from src.core.checkpointing import TrainingState, save_training_state, step_checkpoint_path
+from src.core.checkpointing import TrainingState, get_full_checkpoint_path, save_training_state, step_checkpoint_path
 from src.core.metric_loggers import MetricLogger
-from src.core.utils import create_batch_fingerprint
+from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
+# from torch.distributed import barrier
 
 logger = logging.getLogger(__name__)
 
@@ -98,15 +100,35 @@ class Trainer:
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.scheduler.step()
-
+            
             if self._should_save_checkpoint:
                 self.save_checkpoint()
 
             if self._should_evaluate:
-                self.eval()
-
+                self.eval()        
+        
         if self._should_save_final_checkpoint:
-            self.save_checkpoint()
+            if self.checkpoint.save.type == "nano":
+                self.save_checkpoint()
+            elif self.checkpoint.save.type == "huggingface":
+                # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
+                model_state_dict = self.model.state_dict()
+                full_state = cast_state_dict_to_tensors(model_state_dict)
+   
+                if os.environ["RANK"] == "0":
+                    dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = self.model.encoder.get_model_dimensions()
+
+                    save_to_llama_3_hf( #dev fixed values 
+                        full_state, save_dir = get_full_checkpoint_path(self.checkpoint.save.path), 
+                        dmodel = dmodel, 
+                        dff = dff, 
+                        n_att_heads = n_att_heads, 
+                        n_kvatt_heads = n_kvatt_heads, 
+                        head_dim = head_dim,
+                        nlayers = nlayers, 
+                    ) 
+
+
 
     def _preprocess_input(self, batch):  # TODO test it
         input_ids = batch[:, :-1].contiguous()

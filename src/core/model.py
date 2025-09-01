@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class Residual(nn.Module):
     def __init__(self, layer):
+        raise Exception("Not supported Residual - use pc version")
         super(Residual, self).__init__()
         self.layer = layer
         self.metric_logger = None
@@ -130,6 +131,7 @@ def TokenEmbedding(
     init_type: str,
     init_scale: float,
 ):
+    raise Exception("Not supported TokenEmbedding - use pc version")
     weight = get_init_weight(
         shape=(vocab_size, embedding_dim),
         fan_in=1,
@@ -173,6 +175,7 @@ class TransformerBlock(nn.Module):
         attention_fn,
         ff_layer_fn,
     ):
+        raise Exception("Not supported TransformerBlock - use pc version")
         super(TransformerBlock, self).__init__()
         residual_layers = [
             (
@@ -196,6 +199,7 @@ class TransformerTower(nn.Module):
         block_fn: Callable[[], nn.Module],
         n_blocks: int,
     ):
+        raise Exception("Not supported TransformerTower - use pc version")
         super().__init__()
         blocks = [
             (
@@ -246,6 +250,7 @@ class Aggregate(nn.Module):
 
 class Linear(nn.Linear):
     def __init__(self, *args, init_type, init_scale, **kwargs):
+        raise Exception("Not supported Linear - use pc version")
         if "bias" not in kwargs:
             kwargs["bias"] = False
         super().__init__(*args, **kwargs)
@@ -260,6 +265,7 @@ class Linear(nn.Linear):
 
 class EmbeddingLayer(Aggregate):
     def __init__(self, *layers):
+        raise Exception("Not supported EmbeddingLayer - use pc version")
         super(EmbeddingLayer, self).__init__((lambda x, y: x + y), *layers)
 
 
@@ -267,6 +273,7 @@ class PredictionHead(nn.Module):
     def __init__(
         self, embedding_dim, output_size, init_type, init_scale, use_layer_norm: bool
     ):
+        raise Exception("Not supported PredictionHead - use pc version")
         super(PredictionHead, self).__init__()
 
         layers = OrderedDict()
@@ -289,6 +296,7 @@ class LLM(nn.Module):
         tower: nn.Module,
         head: nn.Module,
     ):
+        raise Exception("Not supported LLM - use pc version")
         super(LLM, self).__init__()
 
         self.embedding_layer = embedding
@@ -324,6 +332,7 @@ def FeedForward(
     init_type: str,
     init_scale: float,
 ):
+    raise Exception("Not supported FeedForward - use pc version")
     return nn.Sequential(
         OrderedDict(
             [
@@ -373,6 +382,7 @@ def attention_mechanism(
 
 class AttentionMechanism(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
+        # raise Exception("Not supported AttentionMechanism - use pc version")
         super().__init__(*args, **kwargs)
 
     def forward(
@@ -399,6 +409,7 @@ class Attention(nn.Module):
         init_type: str,
         init_scale: float,
     ):
+        raise Exception("Not supported Attention - use pc version")
         super(Attention, self).__init__()
 
         self.heads = heads
@@ -471,6 +482,7 @@ def get_init_weight(shape, fan_in, init_type: str, scale, dtype=torch.float32):
     return init_types[init_type](shape=shape, fan_in=fan_in, scale=scale, dtype=dtype)
 
 def get_vanilla_embedding(vocab_size, dmodel, init_type, init_scale, sequence_length):
+    raise Exception("Not supported get_vanilla_embedding - use pc version")
     return EmbeddingLayer(
         TokenEmbedding(
             vocab_size,

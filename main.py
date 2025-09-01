@@ -61,7 +61,6 @@ def upload_config_file(metric_logger):
 def check_env_vars():
     assert int(os.environ["RANK"]) < int(os.environ["WORLD_SIZE"])
 
-
 def setup_enviroment():
     if "WORLD_SIZE" not in os.environ:
         logger.warning("WORLD_SIZE is not set, setting it to 1")
@@ -158,7 +157,6 @@ def log_environs(metric_logger):
     environs = os.environ
     for environ_key in scrap_keys:
         metric_logger.run[f"job/{environ_key}"] = str(environs.get(environ_key))
-        
 
 def run(cfg, metric_logger=None):
     setup_enviroment()
@@ -176,7 +174,8 @@ def run(cfg, metric_logger=None):
         npt_handler = NeptuneHandler(run=metric_logger.run)
         logger.addHandler(npt_handler)
 
-    if isinstance(metric_logger, NeptuneLogger) and training_state["run_id"] is None:
+
+    if isinstance(metric_logger, NeptuneLogger) and (training_state["run_id"] is None or cfg.infrastructure.metric_logger.new_neptune_job):
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
         log_environs(metric_logger)
@@ -189,7 +188,6 @@ def run(cfg, metric_logger=None):
     logger.info(f"Creating model...")
     model = instantiate(cfg.model, _convert_="all").to(device)
     logger.info(f"Model {model.__class__.__name__} created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
-
     # Residual layers needs metric_logger for logging update norms
     for _, module in model.named_modules():
         if isinstance(module, Residual):
@@ -220,6 +218,9 @@ def run(cfg, metric_logger=None):
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
     elif cfg.trainer.checkpoint.load.type == "nano":
+        if cfg.get("apply_functions", None):
+            for fn in instantiate(cfg.apply_functions):
+                fn(model)
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -227,7 +228,15 @@ def run(cfg, metric_logger=None):
             weight_decay=cfg.trainer.weight_decay,
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+        
         load_checkpoint_from_file(cfg.trainer.checkpoint.load, model, optimizer, scheduler)
+        if cfg.trainer.checkpoint.load.only_weights:
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=cfg.trainer.learning_rate,
+                weight_decay=cfg.trainer.weight_decay,
+            )
+            scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
     else:
         raise Exception(f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}")
     

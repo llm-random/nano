@@ -127,7 +127,6 @@ def initialize_projection_weights(
         block.ff_layer.norm.weight = torch.nn.Parameter(cloned_data[dmodel_top_indices])
         block.ff_layer.norm.normalized_shape = tuple(block.ff_layer.norm.weight.shape)
 
-
 def init_compression(model: nn.Module, dmodel, dff):
     # Freeze all parameters
     for param in model.parameters():
