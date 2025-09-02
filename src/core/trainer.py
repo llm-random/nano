@@ -128,8 +128,10 @@ class Trainer:
                         nlayers = nlayers, 
                     ) 
             elif self.checkpoint.save.type == "pc_finalize":
-                finalize_projection_weights(self.model)
-                model_state_dict = cast_state_dict_to_tensors(self.model.state_dict())
+                with torch.no_grad():
+                    finalize_projection_weights(self.model)
+                    model_state_dict = cast_state_dict_to_tensors(self.model.state_dict())
+                    
                 if os.environ["RANK"] == "0":
 
                     checkpoint_folder = step_checkpoint_path(
