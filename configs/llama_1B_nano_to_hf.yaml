@@ -7,7 +7,6 @@ defaults:
   - _dataset@_here_: c4
   - _checkpoints@_here_: mas/hf_llama_3_1.yaml
   - _misc@_here_: default
-  - _mas@_here_: crewtool
 
 common: 
   batch_size: 512

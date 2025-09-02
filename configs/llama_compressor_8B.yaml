@@ -8,8 +8,6 @@ defaults:
   - _dataset@_here_: c4
   - _checkpoints@_here_: none
   - _misc@_here_: default
-  - _mas@_here_: helios
-  - _self_
   
 
 common:
