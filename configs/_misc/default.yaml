@@ -18,5 +18,4 @@ infrastructure:
 
   cemetery_experiments_dir: "~/llmrandom_cemetery"
 
-  venv_path: ???
-  experiment_prepare_venv_path: ${infrastructure.venv_path}
+  experiment_prepare_venv_path: ???
