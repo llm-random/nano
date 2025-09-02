@@ -4,6 +4,5 @@ infrastructure:
   server: local
   slurm: null
 
-  venv_path: null
   experiment_prepare_venv_path: null
   cemetery_experiments_dir: null
