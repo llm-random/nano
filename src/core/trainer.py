@@ -128,26 +128,7 @@ class Trainer:
                         nlayers = nlayers, 
                     ) 
             elif self.checkpoint.save.type == "pc_finalize":
-                with torch.no_grad():
-                    finalize_projection_weights(self.model)
-                    model_state_dict = cast_state_dict_to_tensors(self.model.state_dict())
-                    
-                if os.environ["RANK"] == "0":
-
-                    checkpoint_folder = step_checkpoint_path(
-                        self.checkpoint.save.path, self.step
-                    )
-                    os.makedirs(checkpoint_folder, exist_ok=True)
-                    checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
-                    state_to_save = {
-                        "model": model_state_dict,
-                        "optim": self.optimizer.state_dict(),
-                        "scheduler": self.scheduler.state_dict(),
-                    }
-                    torch.save(state_to_save, checkpoint_path)
-                    logger.info(
-                        f"Saved non-sharded Finalized PC model checkpoint in '{checkpoint_path}'"
-                    )
+                self.save_pc_finalized_checkpoint()
 
 
     def _preprocess_input(self, batch):  # TODO test it
@@ -304,11 +285,32 @@ class Trainer:
                 logger.info(
                     f"Saved non-sharded model checkpoint in '{checkpoint_path}'"
                 )
-
+            
         if os.environ["RANK"] == "0":
             save_training_state(
                 save_config=self.checkpoint.save,
                 step=self.step,
                 processed_tokens=self.processed_tokens,
                 metric_logger=self.metric_logger,
+            )
+
+    def save_pc_finalized_checkpoint(self):
+        with torch.no_grad():
+            finalize_projection_weights(self.model)
+            model_state_dict = cast_state_dict_to_tensors(self.model.state_dict())
+            
+        if os.environ["RANK"] == "0":
+            checkpoint_folder = step_checkpoint_path(
+                self.checkpoint.save.path, self.step
+            )
+            os.makedirs(checkpoint_folder, exist_ok=True)
+            checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
+            state_to_save = {
+                "model": model_state_dict,
+                "optim": None,
+                "scheduler": None,
+            }
+            torch.save(state_to_save, checkpoint_path)
+            logger.info(
+                f"Saved non-sharded Finalized PC model checkpoint in '{checkpoint_path}'"
             )
