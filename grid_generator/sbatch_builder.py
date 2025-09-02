@@ -46,7 +46,7 @@ def create_program_call(config_folder):
 
 
 def generate_sbatch_script(
-    slurm_config, config_folder, n_experiments, venv_path, modules_to_add
+    slurm_config, config_folder, n_experiments, script
 ) -> list[str]:
     lines = ["#!/bin/bash -l", ""]
 
@@ -55,13 +55,12 @@ def generate_sbatch_script(
 
     lines.extend(slurm_parameters)
 
+    if script is not None and script != []:
+        lines.extend(["", "#---------- SCRIPT ----------"])
+        lines.extend(script)
+        lines.extend(["#-------- SCRIPT END --------", ""])
+
     lines.extend(create_master_node_configuration())
-
-    if modules_to_add is not None:
-        for module in modules_to_add:
-            lines.append(f"module load {module}")
-
-    lines.append(f"source {venv_path}")
     lines.extend(create_program_call(config_folder))
 
     with open("exp.job", "w") as f:

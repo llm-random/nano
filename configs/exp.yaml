@@ -12,7 +12,6 @@ infrastructure:
   slurm:
     gres: gpu:2
     job_name: test_job
-  venv_path: $HOME/nano/.venv/bin/activate
   server: entropy
 
 common: 
