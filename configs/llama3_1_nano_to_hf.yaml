@@ -1,13 +1,13 @@
 # work in progress
 
 defaults:
-  - _cluster@_here_: entropy_4
+  - _cluster@_here_: entropy
   - _model@_here_: llama_3_1
   - _trainer@_here_: llama
   - _dataset@_here_: c4
   - _checkpoints@_here_: mas/hf_llama_3_1.yaml
   - _misc@_here_: default
-  - _mas@_here_: default
+  - _mas@_here_: crewtool
 
 common: 
   batch_size: 512
@@ -15,27 +15,15 @@ common:
 trainer:
   n_steps: 0
   learning_rate: 0.0000610352
-  # gradient_accumulation_steps: 8
   gradient_accumulation_steps: 1
 
-  train_dataloader:
-    num_workers: 12
-    seed: 20001
-    total_batch_size: ${common.batch_size}
-
-  eval_dataloader:
-    num_workers: 12
-    seed: 20001
-    total_batch_size: ${common.batch_size}
-
   checkpoint:
+   load:
+    type: nano
+    path: null # change
    save:
     type: huggingface
     path: null # change
-   load:
-    type: nano
-    path: null  # change
-    training_state_filename: null
   
 infrastructure:
   metric_logger:
@@ -45,5 +33,7 @@ infrastructure:
       - nano
       - ft_llama3_1
       - hf_conversion
-      - test
+
+  slurm: 
+    gres: gpu:4
 

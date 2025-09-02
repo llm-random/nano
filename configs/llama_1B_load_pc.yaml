@@ -1,34 +1,34 @@
 
 defaults:
-  - _cluster@_here_: entropy_4
-  - _model@_here_: llama_3_1_pc
+  - _cluster@_here_: entropy
+  - _model@_here_: llama_3_1
   - _trainer@_here_: llama
   - _dataset@_here_: c4
   - _checkpoints@_here_: none
   - _misc@_here_: default
-  - _mas@_here_: entropy
+  - _mas@_here_: crewtool
   
 
 common:
   sequence_length: 1024
   batch_size: 512
-  dff: 3072
-  dmodel: 1536
-  # dff: 2048
-  # dmodel: 1024
+  dmodel: 1344
+  dff: 5376
 
 
 trainer:
-  gradient_accumulation_steps: 4
-  n_steps: 401
+  gradient_accumulation_steps: 8
+  n_steps: 101
   
   learning_rate: 6.103515625e-05
 
   checkpoint:
    save:
-    path: nano
-   load:
     type: nano
+    path: null #change
+   load:
+    type: finalized_pc
+    path: null #change
     training_state_filename: null
 
 
@@ -40,4 +40,7 @@ infrastructure:
       - pc
       - llama_8_pc
       - sparsity_50
+    
+  slurm:
+    gres: gpu:4
 
