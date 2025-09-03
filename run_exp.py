@@ -2,6 +2,7 @@
 import datetime
 import logging
 import os
+import re
 import time
 from git import Repo
 from contextlib import contextmanager
@@ -13,12 +14,13 @@ import hydra
 from omegaconf import OmegaConf
 import paramiko.ssh_exception
 
-from resolver import get_cluster_name
+from grid_generator.generate_configs import create_grid_config
+from grid_generator.sbatch_builder import generate_sbatch_script
+from main import dump_grid_configs, run
 
 logger = logging.getLogger(__name__)
 
 _SSH_HOSTS_TO_PASSPHRASES = {}
-
 
 def ensure_remote_config_exist(repo: Repo, remote_name: str, remote_url: str):
     for remote in repo.remotes:
@@ -54,9 +56,9 @@ def reset_to_original_repo_state(
 
 
 def version_code(
-    remote_name: str,
     remote_url: str,
     experiment_config_path: Optional[str] = None,
+    exp_job_path: Optional[str] = None,
     job_name: Optional[str] = None,
 ) -> str:
     repo = Repo(".", search_parent_directories=True)
@@ -68,19 +70,14 @@ def version_code(
     original_branch = repo.active_branch.name
     original_branch_commit_hash = repo.head.object.hexsha
 
-    ensure_remote_config_exist(repo, remote_name, remote_url)
     repo.git.add(experiment_config_path, force=True)
+    repo.git.add(exp_job_path, force=True)
     repo.git.add(all=True)
 
     try:
         commit_pending_changes(repo)
-
         repo.git.checkout(b=experiment_branch_name)
-        print(
-            f"Pushing experiment code to {experiment_branch_name} '{remote_name}' remote..."
-        )
-        repo.git.push(remote_name, experiment_branch_name)
-        print(f"Pushed.")
+        repo.git.push(remote_url, experiment_branch_name)
     finally:
         reset_to_original_repo_state(
             repo, original_branch, original_branch_commit_hash, experiment_branch_name
@@ -128,83 +125,97 @@ def get_experiment_components(
     return config_path, config_name
 
 
-@hydra.main(version_base=None, config_path=".", config_name="experiment")
+def wait_for_job_id(connection, tmux_pane, tries: int = 3):
+    
+    while tries > 0:
+        output = connection.run(
+            f"tmux capture-pane -pt {tmux_pane}.0", hide=True
+        ).stdout
+
+        match = re.search(r"Submitted batch job (\d+)", output)
+        if not match:
+            match_error = re.search(r"sbatch: error: (.*)\n", output)
+            if not match_error:
+                time.sleep(0.5)
+                tries -= 1
+                if tries == 0:
+                    raise RuntimeError("Failed to get job ID from sbatch output.")
+                continue
+            else:
+                err_msg = match_error.group(1)
+                raise RuntimeError(f"Error submitting job: {err_msg}")
+        else:
+            job_id = match.group(1)
+            break
+    return job_id
+
+@hydra.main(version_base=None, config_path="configs", config_name="exp")
 def submit_experiment(
     cfg: OmegaConf,
 ):
-    hydra_config = hydra.utils.HydraConfig.get()
-    config_path, config_name = get_experiment_components(hydra_config)
-    experiment_config_path = f"{config_path}/{config_name}.yaml"
-
-    experiment_branch_name = version_code(
-        cfg.infrastructure.git.remote_name,
-        cfg.infrastructure.git.remote_url,
-        experiment_config_path,
-        hydra_config.job.name,
-    )
-
     missing_keys: set[str] = OmegaConf.missing_keys(cfg)
     if missing_keys:
         raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
 
-    with ConnectWithPassphrase(host=cfg.infrastructure.server, inline_ssh_env=True) as connection:
-        result = connection.run("uname -n", hide=True)
-        hostname = result.stdout.strip()
-        username = connection.user
+    configs_grid = create_grid_config(cfg)
+    dump_grid_configs(configs_grid, cfg.infrastructure.generated_configs_path)
 
-        cluster_name = get_cluster_name(hostname, username)
+    script = cfg.infrastructure.get("script", None)
+    generate_sbatch_script(
+        cfg.infrastructure.slurm, cfg.infrastructure.generated_configs_path, len(configs_grid), script
+    )
+    if cfg.infrastructure.server == "local":
+        config, _overrides = configs_grid[0]
+        omega_conf = OmegaConf.create(config)
+        run(omega_conf)
+    else:
+        experiment_branch_name = version_code(
+            remote_url=cfg.infrastructure.git.remote_url,
+            experiment_config_path=cfg.infrastructure.generated_configs_path,
+            exp_job_path="exp.job",
+            job_name=cfg.infrastructure.metric_logger.name,
+        )
 
-        cluster_config = OmegaConf.load(f"configs/clusters/{cluster_name}.yaml")
+        with ConnectWithPassphrase(host=cfg.infrastructure.server, inline_ssh_env=True) as connection:
+            cemetery_dir = cfg.infrastructure.cemetery_experiments_dir
+            connection.run(f"mkdir -p {cemetery_dir}")
 
-        cemetery_dir = cluster_config.cemetery_experiments_dir
-        connection.run(f"mkdir -p {cemetery_dir}")
+            if "NEPTUNE_API_TOKEN" in os.environ:
+                connection.config["run"]["env"]["NEPTUNE_API_TOKEN"] = os.environ[
+                    "NEPTUNE_API_TOKEN"
+                ]
 
-        if "NEPTUNE_API_TOKEN" in os.environ:
-            connection.config["run"]["env"]["NEPTUNE_API_TOKEN"] = os.environ[
-                "NEPTUNE_API_TOKEN"
-            ]
+            if "WANDB_API_KEY" in os.environ:
+                connection.config["run"]["env"]["WANDB_API_KEY"] = os.environ[
+                    "WANDB_API_KEY"
+                ]
 
-        if "WANDB_API_KEY" in os.environ:
-            connection.config["run"]["env"]["WANDB_API_KEY"] = os.environ[
-                "WANDB_API_KEY"
-            ]
+            experiment_dir = f"{cemetery_dir}/{experiment_branch_name}"
+            if connection.run(f"test -d {experiment_dir}", warn=True).failed:
+                connection.run(
+                    f"git clone --depth 1 -b {experiment_branch_name} {cfg.infrastructure.git.remote_url} {experiment_dir}"
+                )
+            else:
+                print(
+                    f"Experiment {experiment_branch_name} already exists. Skipping."
+                )
 
-        experiment_dir = f"{cemetery_dir}/{experiment_branch_name}"
-        if connection.run(f"test -d {experiment_dir}", warn=True).failed:
-            print(f"Cloning {experiment_branch_name} to {experiment_dir}...")
-            connection.run(
-                f"git clone --depth 1 -b {experiment_branch_name} {cfg.infrastructure.git.remote_url} {experiment_dir}"
-            )
-            print(f"Cloned.")
-        else:
-            print(
-                f"Experiment {experiment_branch_name} already exists on {hostname}. Skipping."
-            )
-
-        try:
-            connection.run(f"tmux new -d -s {experiment_branch_name}")
-            connection.run(
-                f'tmux send -t {experiment_branch_name}.0 "cd {experiment_dir}" ENTER'
-            )
-            connection.run(
-                f'tmux send -t {experiment_branch_name}.0 "source {cfg.infrastructure.experiment_prepare_venv_path}" ENTER'
-            )
-            pwd = os.getcwd()
-            relative_path = os.path.relpath(config_path, pwd)
-            connection.run(
-                f'tmux send -t {experiment_branch_name}.0 "python main.py --config-path={relative_path} --config-name={config_name}" ENTER'
-            )
-            connection.run(
-                f'tmux send -t {experiment_branch_name}.0 "sbatch exp.job" ENTER'
-            )
-            logger.info("=" * 38 + "TMUX" + "=" * 38)
-            time.sleep(3)
-            output = connection.run(
-                f"tmux capture-pane -t {experiment_branch_name}.0 -p", hide=True
-            ).stdout
-            logger.info(output)
-        except Exception as e:
-            print("Exception while running an experiment: ", e)
+            try:
+                connection.run(f"tmux new -d -s {experiment_branch_name}")
+                connection.run(
+                    f'tmux send -t {experiment_branch_name}.0 "cd {experiment_dir}" ENTER'
+                )
+                connection.run(
+                    f'tmux send -t {experiment_branch_name}.0 "sbatch exp.job" ENTER'
+                )
+                job_id = wait_for_job_id(connection, experiment_branch_name)
+                print(f"Job ID: {job_id}")
+                connection.run(
+                    f'tmux send -t {experiment_branch_name}.0 "tail -f --retry slurm-{job_id}_0.out" ENTER'
+                )
+                connection.run(f'tmux attach-session -t {experiment_branch_name}', pty=True)
+            except Exception as e:
+                print("Exception while running an experiment: ", e)
 
 
 if __name__ == "__main__":
