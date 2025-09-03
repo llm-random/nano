@@ -158,7 +158,11 @@ def log_environs(metric_logger):
     environs = os.environ
     for environ_key in scrap_keys:
         metric_logger.run[f"job/{environ_key}"] = str(environs.get(environ_key))
-        
+
+def get_device():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    return device
 
 def run(cfg, metric_logger=None):
     setup_enviroment()
@@ -184,7 +188,7 @@ def run(cfg, metric_logger=None):
         
     torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
 
     logger.info(f"Creating model...")
     model = instantiate(cfg.model, _convert_="all").to(device)

@@ -104,6 +104,7 @@ trainer:
       model_checkpoint_filename: __model_optim_scheduler__.pt
       training_state_filename: __training_state__.pt
       path: "/storage_nvme_3/m1kush/llama_8_minitron"
+      save_without_optimizer: true
 #      path: null
 
     load:

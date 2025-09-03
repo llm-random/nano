@@ -238,7 +238,7 @@ class Trainer:
             checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
             no_optimizer = self.checkpoint.save.get("save_without_optimizer", False)
             state_dict = {
-                "app": TrainingState(self.model, self.optimizer, self.scheduler, no_optimizer)
+                "app": TrainingState(self.model, self.optimizer if not no_optimizer else [], self.scheduler)
             }
             dcp.save(state_dict, checkpoint_id=checkpoint_folder)
             logger.info(f"Saved sharded model checkpoint in {checkpoint_folder}")

@@ -186,8 +186,11 @@ def submit_experiment(
             connection.run(
                 f'tmux send -t {experiment_branch_name}.0 "cd {experiment_dir}" ENTER'
             )
+            # connection.run(
+            #     f'tmux send -t {experiment_branch_name}.0 "source {cfg.infrastructure.experiment_prepare_venv_path}" ENTER'
+            # )
             connection.run(
-                f'tmux send -t {experiment_branch_name}.0 "source {cfg.infrastructure.experiment_prepare_venv_path}" ENTER'
+                f'tmux send -t {experiment_branch_name}.0 "conda activate nano" ENTER'
             )
             pwd = os.getcwd()
             relative_path = os.path.relpath(config_path, pwd)

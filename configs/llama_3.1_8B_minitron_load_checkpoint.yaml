@@ -113,17 +113,17 @@ trainer:
       interval: -1
       model_checkpoint_filename: __model_optim_scheduler__.pt
       training_state_filename: __training_state__.pt
-#      path: "/storage_nvme_3/m1kush/llama_8_minitron_check_optimizer"
-      path: null
+      path: "/storage_nvme_3/m1kush/llama_8_minitron_check_optimizer"
+#      path: null
 
     load:
 #      type: huggingface
 #      path: "meta-llama/Llama-3.1-8B"
       type: nano
       training_state_filename: __training_state__.pt
-#      path: "/storage_nvme_3/m1kush/llama_8_minitron/64295/0/step_-1"
-      path: "/storage_nvme_3/m1kush/llama_8_minitron_check_optimizer/64648/0/step_99"
-#      load_without_optimizer: true
+      path: "/storage_nvme_3/m1kush/llama_8_minitron/65368/0/step_-1"
+#      path: "/storage_nvme_3/m1kush/llama_8_minitron_check_optimizer/64648/0/step_99"
+      load_without_optimizer: true
 
   eval_interval: 100
   n_eval_steps: 5
@@ -190,16 +190,16 @@ trainer:
         - src.projected_compression.model.TransformerBlock
         - src.projected_compression.model.TransformerHead
 
-apply_functions:
-  - _target_: src.projected_compression.minitron.minitron_prune
-    _partial_: true
-    dataloader: ${trainer.train_dataloader}
-    dmodel: ${common.dmodel}
-    dff: ${common.dff}
-    calibration_dataset_size: 1024
-    seq_len: ${common.sequence_length}
-    total_batch_size: ${trainer.train_dataloader.total_batch_size}
-    n_blocks: ${model.encoder.n_blocks}
+#apply_functions:
+#  - _target_: src.projected_compression.minitron.minitron_prune
+#    _partial_: true
+#    dataloader: ${trainer.train_dataloader}
+#    dmodel: ${common.dmodel}
+#    dff: ${common.dff}
+#    calibration_dataset_size: 1024
+#    seq_len: ${common.sequence_length}
+#    total_batch_size: ${trainer.train_dataloader.total_batch_size}
+#    n_blocks: ${model.encoder.n_blocks}
 
 infrastructure:
   slurm:

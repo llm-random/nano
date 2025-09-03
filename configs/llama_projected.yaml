@@ -210,17 +210,18 @@ infrastructure:
     heavy_metrics_calculation_interval: 100
     name: test
     new_neptune_job: true
+#    new_neptune_job: false
     project_name: pmtest/llm-random
     tags:
       - test
-    # type: neptune
+#    type: neptune
     type: stdout
 
   git:
     remote_name: cemetery
     remote_url: git@github.com:llm-random/llm-random-cemetery.git
 
-  server: entropia
+  server: entropy
 
   generated_configs_path: generated_configs
 
