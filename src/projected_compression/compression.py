@@ -138,3 +138,24 @@ def init_compression(model: nn.Module, dmodel, dff):
     initialize_projection_weights(model, dmodel_top_indices, dff_top_indices)
 
 
+def finalize_projection_weights(
+    model: nn.Module
+):
+    model.head.linear.finalize()
+    model.embedding.finalize()
+
+    for i, block in enumerate(model.encoder.blocks):
+        layers_to_init_projections = [
+            "attention_layer.layer.q_proj",
+            "attention_layer.layer.k_proj",
+            "attention_layer.layer.v_proj",
+            "ff_layer.layer.ff_pre_act",
+            "attention_layer.layer.o_proj",
+            "ff_layer.layer.ff_post_act"
+        ]
+        # For models with SiLU (e.g. LLama) 
+        if "ff_layer.layer.gate.weight" in block.state_dict().keys():
+            layers_to_init_projections.append("ff_layer.layer.gate")
+        
+        for layer_name in layers_to_init_projections:
+            get_nested_attr(block, layer_name).finalize()

@@ -5,3 +5,5 @@ infrastructure:
   slurm:
     # export: ALL,HF_HUB_CACHE="/net/scratch/hscra/plgrid/plgmstefaniak/hf_cash"
     export: ALL,HF_HUB_CACHE=/storage_nvme_3/crewtool/huggingface/hub
+
+  server: entropy_c

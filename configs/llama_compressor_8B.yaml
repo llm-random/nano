@@ -3,13 +3,11 @@ defaults:
   # - _cluster@_here_: helios_4
   - _cluster@_here_: helios_8
   # - _cluster@_here_: entropy_8
-  - _model@_here_: llama_3_8_pc
+  - _model/llama@_here_: projected_8B
   - _trainer@_here_: llama
   - _dataset@_here_: c4
   - _checkpoints@_here_: none
   - _misc@_here_: default
-  - _mas@_here_: helios
-  - _self_
   
 
 common:

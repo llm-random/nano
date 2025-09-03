@@ -7,6 +7,7 @@ from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+from src.projected_compression.compression import finalize_projection_weights
 from src.core.conversion_to_hf import save_to_llama_3_hf
 from old_datasets import LLMBatch
 import torch.distributed.checkpoint as dcp
@@ -16,7 +17,6 @@ import logging
 from src.core.checkpointing import TrainingState, get_full_checkpoint_path, save_training_state, step_checkpoint_path
 from src.core.metric_loggers import MetricLogger
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
-# from torch.distributed import barrier
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,8 @@ class Trainer:
                         head_dim = head_dim,
                         nlayers = nlayers, 
                     ) 
-
+            elif self.checkpoint.save.type == "pc_finalize":
+                self.save_pc_finalized_checkpoint()
 
 
     def _preprocess_input(self, batch):  # TODO test it
@@ -284,11 +285,32 @@ class Trainer:
                 logger.info(
                     f"Saved non-sharded model checkpoint in '{checkpoint_path}'"
                 )
-
+            
         if os.environ["RANK"] == "0":
             save_training_state(
                 save_config=self.checkpoint.save,
                 step=self.step,
                 processed_tokens=self.processed_tokens,
                 metric_logger=self.metric_logger,
+            )
+
+    def save_pc_finalized_checkpoint(self):
+        with torch.no_grad():
+            finalize_projection_weights(self.model)
+            model_state_dict = cast_state_dict_to_tensors(self.model.state_dict())
+            
+        if os.environ["RANK"] == "0":
+            checkpoint_folder = step_checkpoint_path(
+                self.checkpoint.save.path, self.step
+            )
+            os.makedirs(checkpoint_folder, exist_ok=True)
+            checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
+            state_to_save = {
+                "model": model_state_dict,
+                "optim": None,
+                "scheduler": None,
+            }
+            torch.save(state_to_save, checkpoint_path)
+            logger.info(
+                f"Saved non-sharded Finalized PC model checkpoint in '{checkpoint_path}'"
             )
