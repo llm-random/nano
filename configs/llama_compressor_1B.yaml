@@ -12,9 +12,6 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  dmodel: 1344
-  dff: 5376
-
 
 trainer:
   gradient_accumulation_steps: 8
