@@ -159,7 +159,7 @@ def log_environs(metric_logger):
     for environ_key in scrap_keys:
         metric_logger.run[f"job/{environ_key}"] = str(environs.get(environ_key))
 
-def run(cfg, metric_logger=None):
+def run(cfg: OmegaConf, metric_logger=None):
     setup_enviroment()
 
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
@@ -266,26 +266,8 @@ def run(cfg, metric_logger=None):
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
-def main(config):
-
-    if config.get("_run_"):
-        run(config)
-        return
-
-    configs_grid = create_grid_config(config)
-    dump_grid_configs(configs_grid, config.infrastructure.generated_configs_path)
-
-    script = config.infrastructure.get("script", None)    
-    generate_sbatch_script(
-        config.infrastructure.slurm, config.infrastructure.generated_configs_path, len(configs_grid), script
-    )
-
-    if config.get("_debug_"):
-        training_config, overrides = configs_grid[0]
-        training_config["overrides"] = overrides
-        training_config = OmegaConf.create(training_config)
-        run(training_config)
-
+def main(config: OmegaConf):
+    run(config)
 
 if __name__ == "__main__":
     main()
