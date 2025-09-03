@@ -126,7 +126,13 @@ def get_experiment_components(
 
 
 def wait_for_job_id(connection, tmux_pane, tries: int = 3):
-    
+    """
+    Wait for a SLURM job ID to appear in the output of a tmux pane.
+
+    Repeatedly checks the pane for a successful `sbatch` message and returns
+    the job ID. Raises RuntimeError if an error is found or if no job ID
+    appears after the given number of tries.
+    """
     while tries > 0:
         output = connection.run(
             f"tmux capture-pane -pt {tmux_pane}.0", hide=True
@@ -213,7 +219,9 @@ def submit_experiment(
                 connection.run(
                     f'tmux send -t {experiment_branch_name}.0 "tail -f --retry slurm-{job_id}_0.out" ENTER'
                 )
-                connection.run(f'tmux attach-session -t {experiment_branch_name}', pty=True)
+                LOGLEVEL = os.environ.get('LOGLEVEL', 'WARNING').upper()
+                if LOGLEVEL == 'DEBUG':
+                    connection.run(f'tmux attach-session -t {experiment_branch_name}', pty=True)
             except Exception as e:
                 print("Exception while running an experiment: ", e)
 
