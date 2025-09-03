@@ -1,4 +1,5 @@
 import os
+import hydra
 import yaml
 from src.core.conversion_from_finalized_pc import load_finalized_pc_checkpoint
 from src.core.distributed_training import setup_distributed_training
@@ -262,3 +263,11 @@ def run(cfg: OmegaConf, metric_logger=None):
     ).train()
 
     cleanup()
+
+
+@hydra.main(version_base=None, config_path="configs", config_name="exp")
+def main(config: OmegaConf):
+    run(config)
+
+if __name__ == "__main__":
+    main()
