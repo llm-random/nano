@@ -99,7 +99,7 @@ def distributed_setup():
     world_size = int(os.environ.get("WORLD_SIZE", 1))
 
     if torch.cuda.is_available():
-        dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
+        dist.init_process_group(backend="nccl", rank=rank, world_size=world_size, device_id=torch.device(f"cuda:{local_rank}"))
         torch.cuda.set_device(local_rank)
     else:
         logger.warning("CUDA is not available. Running on CPU and 'gloo' backend.")
