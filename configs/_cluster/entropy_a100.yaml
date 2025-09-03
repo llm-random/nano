@@ -13,7 +13,7 @@ infrastructure:
     - "PROJECT_HOME_PATH=/storage_nvme_2/projected_compression"
     - |
       VENV_PATH=$PROJECT_HOME_PATH/pc_venv
-      HF_HOME=$PROJECT_HOME_PATH/hf_cache
+      export HF_HOME=$PROJECT_HOME_PATH/hf_cache
 
       # Check if venv exists
       if [ ! -d "$VENV_PATH" ]; then

@@ -11,10 +11,10 @@ infrastructure:
 
   script:
     - "module load ML-bundle/25.04"
-    - "PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/projected_compression"
+    - "PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi/projected_compression"
     - |
       VENV_PATH=$PROJECT_HOME_PATH/pc_venv
-      HF_HOME=$PROJECT_HOME_PATH/hf_cache
+      export HF_HOME=$PROJECT_HOME_PATH/hf_cache
 
       # Check if venv exists
       if [ ! -d "$VENV_PATH" ]; then
