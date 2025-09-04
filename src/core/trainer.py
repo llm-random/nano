@@ -118,7 +118,7 @@ class Trainer:
                 if os.environ["RANK"] == "0":
                     dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = self.model.encoder.get_model_dimensions()
 
-                    save_to_llama_3_hf( #dev fixed values 
+                    save_to_llama_3_hf(
                         full_state, save_dir = get_full_checkpoint_path(self.checkpoint.save.path), 
                         dmodel = dmodel, 
                         dff = dff, 
