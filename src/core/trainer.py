@@ -259,9 +259,7 @@ class Trainer:
         if isinstance(self.model, FSDP) or self.model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard":
             # Sharded save
             checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
-            # no_optimizer = self.checkpoint.save.get("save_without_optimizer", False) #dev
             state_dict = {
-                # "app": TrainingState(self.model, self.optimizer if not no_optimizer else [], self.scheduler) #dev
                 "app": TrainingState(self.model, self.optimizer, self.scheduler)
             }
             dcp.save(state_dict, checkpoint_id=checkpoint_folder)
@@ -274,14 +272,12 @@ class Trainer:
                 )
                 os.makedirs(checkpoint_folder, exist_ok=True)
                 checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
-                # no_optimizer = self.checkpoint.save.get("save_without_optimizer", False) #dev
                 state_to_save = {
                     "model": (
                         self.model.module.state_dict()
                         if type(self.model) is DDP
                         else self.model.state_dict()
                     ),
-                    # "optim": self.optimizer.state_dict() if not no_optimizer else None, #dev
                     "optim": self.optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
                 }

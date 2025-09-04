@@ -34,7 +34,6 @@ class TrainingState(Stateful):
             self.model,
             self.optimizer,
             model_state_dict=state_dict["model"],
-            # optim_state_dict=state_dict["optim"] if self.optimizer != [] else {}, #dev
             optim_state_dict=state_dict["optim"],
         )
         self.scheduler.load_state_dict(state_dict["scheduler"])
@@ -132,8 +131,6 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
     if checkpoint_path is not None:
         if isinstance(model, FSDP) or model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard":
             # Sharded load
-            # no_optimizer = load_config.get("load_without_optimizer", False) #dev
-            # state_dict = {"app": TrainingState(model, optimizer if not no_optimizer else [], scheduler)} #dev
             state_dict = {"app": TrainingState(model, optimizer, scheduler)}
             dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_path)
             logger.debug(f"Loaded sharded checkpoint from '{checkpoint_path}'")
@@ -149,8 +146,6 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
             else:
                 logger.info(f"Loading non-DDP model from '{checkpoint_path}'")
                 model.load_state_dict(checkpoint["model"])
-            # if not load_config.get("load_without_optimizer", False): #dev
-            #     optimizer.load_state_dict(checkpoint["optim"]) #dev
             optimizer.load_state_dict(checkpoint["optim"])
             scheduler.load_state_dict(checkpoint["scheduler"])
             logger.info(f"Loaded non-sharded sheduler from '{checkpoint_path}'")
