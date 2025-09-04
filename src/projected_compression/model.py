@@ -16,7 +16,7 @@ from torchtune.modules.position_embeddings import (
 from torch.nn import Embedding as Embedding
 
 from src.core.llama import repeat_kv
-from src.core.model import AttentionMechanism, Residual
+from src.core.model import AttentionMechanism
 from torch.nn.init import trunc_normal_
 from torch import zeros as zeros
 import torch.distributed as dist
