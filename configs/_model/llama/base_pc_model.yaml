@@ -13,8 +13,9 @@ common:
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
     _partial_: true
-    dmodel: ${common.dmodel}
-    dff: ${common.dff}
+    dimensions_importances_path: ???
+    target_dmodel: ${common.dmodel}
+    target_dff: ${common.dff}
 
 model:
   _target_: src.projected_compression.model.LLM
