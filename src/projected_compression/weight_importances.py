@@ -61,7 +61,7 @@ def _calculate_activations_dimension_importances(model: nn.Module, calibration_d
     return dmodel_importances, dff_importances
 
 
-def _calculate_random_dimension_importances(dmodel, dff, n_blocks):
+def _calculate_dummy_dimension_importances(dmodel, dff, n_blocks):
     dmodel_importances = torch.range(0, dmodel-1)
     dff_importances = torch.zeros(n_blocks, dff)
     dff_importances[:,] = torch.range(0, dff-1)
@@ -93,11 +93,11 @@ def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_
     return dict_to_save
 
 
-def random_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_save_path):
+def dummy_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_save_path):
     
     logger.info(f"Calculating minitron style weight importances calculation.")
 
-    dmodel_importances, dff_importances = _calculate_random_dimension_importances(
+    dmodel_importances, dff_importances = _calculate_dummy_dimension_importances(
         dmodel, dff, n_blocks
     )
     logger.info(f"Calculated dimensions importances")

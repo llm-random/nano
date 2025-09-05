@@ -43,7 +43,7 @@ infrastructure:
 
 
 apply_functions:
-  - _target_: src.projected_compression.weight_importances.random_importances
+  - _target_: src.projected_compression.weight_importances.dummy_importances
     _partial_: true
     dmodel: ${common.dmodel}
     dff: ${common.dff}
