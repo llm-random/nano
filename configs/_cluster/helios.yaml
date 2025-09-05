@@ -30,5 +30,5 @@ infrastructure:
 cluster_switch:
   train_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/train"
   eval_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/validation"
-  train_path_fineweb: ???
-  eval_path_fineweb: ???
+  train_path_fineweb: "/net/scratch/hscra/plgrid/plgmaciejpioro/fineweb-edu/train/train"
+  eval_path_fineweb: "/net/scratch/hscra/plgrid/plgmaciejpioro/fineweb-edu/train/train"
