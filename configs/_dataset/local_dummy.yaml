@@ -8,7 +8,7 @@ trainer:
     dataset_type: c4
     tokenize_fn: 
       _target_: src.core.datasets.gpt2_tokenize_fn
-    num_workers: 0 # Change me!
+    num_workers: 0
     seed: 20001
     sequence_length: 32
     shuffle: true
@@ -23,7 +23,7 @@ trainer:
     dataset_type: c4
     tokenize_fn: 
       _target_: src.core.datasets.gpt2_tokenize_fn
-    num_workers: 0 # Change me!
+    num_workers: 0
     seed: 123
     sequence_length: 32
     shuffle: true

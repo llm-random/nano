@@ -11,4 +11,3 @@ cluster_switch:
   eval_path_c4: "data_eval"
   train_path_fineweb: "data"
   eval_path_fineweb: "data"
-  num_workers: 0

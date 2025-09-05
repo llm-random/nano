@@ -7,10 +7,10 @@ trainer:
     dataset_path: ${cluster_switch.train_path_c4}
     dataset_split: train
     dataset_type: c4
-    num_workers: ${cluster_switch.num_workers}
+    num_workers: 8
 
   eval_dataloader:
     dataset_path: ${cluster_switch.eval_path_c4}
     dataset_split: validation
     dataset_type: c4
-    num_workers: ${cluster_switch.num_workers}
+    num_workers: 8

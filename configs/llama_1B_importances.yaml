@@ -32,12 +32,12 @@ infrastructure:
     tags:
       - nano
       - pc
-      - IMPORTANCS
+      - IMPORTANCES
+      - 8xCalibration
 
   slurm:
     job-name: importances
     gres: gpu:1
-    mem_per_gpu: 125G
     nodes: 1
     time: "0-1:00:00"
 
