@@ -1,15 +1,13 @@
 import os
 import hydra
 import yaml
-from src.core.conversion_from_finalized_pc import load_finalized_pc_checkpoint
+from src.core.llama import llama_hf_to_nano_state_dict
 from src.core.distributed_training import setup_distributed_training
-from src.core.conversion_from_llmrandom import load_llmrandom_checkpoint
-from src.core.llama import copy_llama_model_weights_from_HF
-from grid_generator.generate_configs import create_grid_config
-from grid_generator.sbatch_builder import generate_sbatch_script
 import resolver as _  # I should be able to ignore this line by linter, but ~ things like # ignore did not work
 import logging
 from omegaconf import OmegaConf
+
+from src.core.checkpointing import load_model_state_dict, load_optimizer, load_scheduler, save_checkpoint
 
 import os
 import torch
@@ -18,10 +16,14 @@ import logging
 from hydra.utils import instantiate
 import logging
 from neptune.integrations.python_logger import NeptuneHandler
-from src.core.checkpointing import load_checkpoint_from_file, load_training_state, get_full_checkpoint_path
+from src.core.checkpointing import load_training_state, get_full_checkpoint_path
 from src.core.metric_loggers import NeptuneLogger, get_metric_logger
-from src.core.model import Residual
 import platform
+
+from torch.distributed.checkpoint.state_dict import (
+    set_model_state_dict,
+    StateDictOptions,
+)
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -170,7 +172,7 @@ def run(cfg, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
-    training_state = load_training_state(cfg.trainer.checkpoint.load)
+    training_state = load_training_state(cfg.trainer.checkpoint.load.path)
 
     if metric_logger is None:
         metric_logger = get_metric_logger(
@@ -189,88 +191,74 @@ def run(cfg, metric_logger=None):
         
     torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
-    device = get_device()
+    if os.environ["RANK"] == "0":
+        logger.info(f"Creating model...")
+        if cfg.trainer.checkpoint.load.path is None:
+            model = instantiate(cfg.model, _convert_="all")
+            logger.info(f"Model {model.__class__.__name__} initialized with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
+            if cfg.get("apply_functions", None):
+                for fn in instantiate(cfg.apply_functions):
+                    logger.info(f"Applying function '{fn.func.__name__}' on a model.")
+                    fn(model)
+        else:
+            with torch.device('meta'):
+                model = instantiate(cfg.model, _convert_="all")
+                logger.info(f"Model {model.__class__.__name__} initialized with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
+                
+            if cfg.trainer.checkpoint.load.type == "huggingface":
+                state_dict = llama_hf_to_nano_state_dict(cfg.trainer.checkpoint.load.path)
+                model.load_state_dict(state_dict, assign=True)
+                if cfg.get("apply_functions", None):
+                    for fn in instantiate(cfg.apply_functions):
+                        logger.info(f"Applying function '{fn.func.__name__}' on a model.")
+                        fn(model)
+            else: 
+                if cfg.get("apply_functions", None):
+                    for fn in instantiate(cfg.apply_functions):
+                        logger.info(f"Applying function '{fn.func.__name__}' on a model.")
+                        fn(model)
+                state_dict = load_model_state_dict(cfg.trainer.checkpoint.load.path)
+                model.load_state_dict(state_dict, assign=True)
 
-    logger.info(f"Creating model...")
-    model = instantiate(cfg.model, _convert_="all").to(device)
-    logger.info(f"Model {model.__class__.__name__} created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
-    # Residual layers needs metric_logger for logging update norms
-    for _, module in model.named_modules():
-        if isinstance(module, Residual):
-            module.set_metric_logger(metric_logger)
+        logger.info(f"Model {model.__class__.__name__} after applying functions have {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
+        state_dict = model.state_dict()
+        model = setup_distributed_training(model, cfg.trainer.distributed)
 
-    if cfg.trainer.checkpoint.load.type == "huggingface":
-        copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    cleanup() 
-                    return 0
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=cfg.trainer.learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
-        )
-        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
-    elif cfg.trainer.checkpoint.load.type == "llm-random":
-        load_llmrandom_checkpoint(cfg.trainer.checkpoint.load, model)
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    cleanup() 
-                    return 0
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=cfg.trainer.learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
-        )
-        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
-    elif cfg.trainer.checkpoint.load.type == "finalized_pc":
-        load_finalized_pc_checkpoint(model, cfg.trainer.checkpoint.load)
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    cleanup() 
-                    return 0
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=cfg.trainer.learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
-        )
-        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
-    elif cfg.trainer.checkpoint.load.type == "nano":
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    cleanup() 
-                    return 0
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=cfg.trainer.learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
-        )
-        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
-        
-        load_checkpoint_from_file(cfg.trainer.checkpoint.load, model, optimizer, scheduler)
-        if cfg.trainer.checkpoint.load.only_weights:
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=cfg.trainer.learning_rate,
-                weight_decay=cfg.trainer.weight_decay,
+        set_model_state_dict(
+            model, 
+            state_dict,                 
+            options=StateDictOptions(
+                full_state_dict=True,
+                broadcast_from_rank0=True,
             )
-            scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+        )
     else:
-        raise Exception(f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}")
-    
-    logger.info(f"Model initialized")
+        with torch.device('meta'):
+            model = instantiate(cfg.model, _convert_="all")
+            if cfg.get("apply_functions", None):
+                for fn in instantiate(cfg.apply_functions):
+                    logger.info(f"Applying function '{fn.func.__name__}' on a model.")
+                    fn(model)
+        model = setup_distributed_training(model, cfg.trainer.distributed)
+        set_model_state_dict(
+            model, 
+            {},                 
+            options=StateDictOptions(
+                full_state_dict=True,
+                broadcast_from_rank0=True,
+            )
+        )
+
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=cfg.trainer.learning_rate,
+        weight_decay=cfg.trainer.weight_decay,
+    )
+    scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+
+    load_optimizer(model, optimizer, cfg.trainer.checkpoint.load.path)
+    load_scheduler(scheduler, cfg.trainer.checkpoint.load.path)
+
     trainer = instantiate(cfg.trainer)
     trainer(
         model=model,
@@ -279,6 +267,14 @@ def run(cfg, metric_logger=None):
         training_state=training_state,
         metric_logger=metric_logger,
     ).train()
+
+    apply_final_functions = cfg.get("apply_functions_final")
+    if cfg.trainer.checkpoint.save.path is not None and apply_final_functions is not None:
+        save_checkpoint(
+            checkpoint_path=f"{cfg.trainer.checkpoint.save.path}/final",
+            model=model,
+            apply_functions=instantiate(apply_final_functions)
+        )
 
     cleanup()
 
