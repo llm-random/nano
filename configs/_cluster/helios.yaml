@@ -32,4 +32,3 @@ cluster_switch:
   eval_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/validation"
   train_path_fineweb: "/net/scratch/hscra/plgrid/plgmaciejpioro/fineweb-edu/train/train"
   eval_path_fineweb: "/net/scratch/hscra/plgrid/plgmaciejpioro/fineweb-edu/train/train"
-  num_workers: 8

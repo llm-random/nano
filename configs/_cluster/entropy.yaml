@@ -27,6 +27,5 @@ infrastructure:
 cluster_switch:
   train_path_c4: "/storage_nvme_1/llm-random/datasets/c4/train"
   eval_path_c4: "/storage_nvme_1/llm-random/datasets/c4/validation"
-  train_path_fineweb:
-  eval_path_fineweb:
-  num_workers: 8
+  train_path_fineweb: ???
+  eval_path_fineweb: ???

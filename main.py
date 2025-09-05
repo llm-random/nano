@@ -159,7 +159,12 @@ def log_environs(metric_logger):
     for environ_key in scrap_keys:
         metric_logger.run[f"job/{environ_key}"] = str(environs.get(environ_key))
 
-def run(cfg: OmegaConf, metric_logger=None):
+def get_device():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    return device
+
+def run(cfg, metric_logger=None):
     setup_enviroment()
 
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
@@ -184,7 +189,7 @@ def run(cfg: OmegaConf, metric_logger=None):
         
     torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
 
     logger.info(f"Creating model...")
     model = instantiate(cfg.model, _convert_="all").to(device)
@@ -198,7 +203,10 @@ def run(cfg: OmegaConf, metric_logger=None):
         copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
-                fn(model)
+                res = fn(model)
+                if res == False:
+                    cleanup() 
+                    return 0
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -210,7 +218,10 @@ def run(cfg: OmegaConf, metric_logger=None):
         load_llmrandom_checkpoint(cfg.trainer.checkpoint.load, model)
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
-                fn(model)
+                res = fn(model)
+                if res == False:
+                    cleanup() 
+                    return 0
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -222,7 +233,10 @@ def run(cfg: OmegaConf, metric_logger=None):
         load_finalized_pc_checkpoint(model, cfg.trainer.checkpoint.load)
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
-                fn(model)
+                res = fn(model)
+                if res == False:
+                    cleanup() 
+                    return 0
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -233,7 +247,10 @@ def run(cfg: OmegaConf, metric_logger=None):
     elif cfg.trainer.checkpoint.load.type == "nano":
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
-                fn(model)
+                res = fn(model)
+                if res == False:
+                    cleanup() 
+                    return 0
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -253,6 +270,7 @@ def run(cfg: OmegaConf, metric_logger=None):
     else:
         raise Exception(f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}")
     
+    logger.info(f"Model initialized")
     trainer = instantiate(cfg.trainer)
     trainer(
         model=model,

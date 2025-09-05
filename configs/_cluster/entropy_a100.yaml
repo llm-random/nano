@@ -29,4 +29,3 @@ cluster_switch:
   eval_path_c4: "/storage_nvme_1/llm-random/datasets/c4/validation"
   train_path_fineweb: null
   eval_path_fineweb: null
-  num_workers: 8
