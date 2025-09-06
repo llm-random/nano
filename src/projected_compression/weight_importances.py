@@ -10,6 +10,8 @@ device = get_device()
 logger = logging.getLogger(__name__)
 
 
+WEIGHT_IMPORTANCES_DIR = "weight_importances"
+
 def _calculate_activations_dimension_importances(model: nn.Module, calibration_data, dmodel, dff, n_blocks, device="cuda"):
     """
     Calculate importance of each neuron (dmodel and dff) using forward hooks.
@@ -84,7 +86,7 @@ def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_
     logger.info(f"Calculated dimensions importances")
 
     dict_to_save = {"dmodel_importances": dmodel_importances, "dff_importances": dff_importances}
-    path = get_full_checkpoint_path(checkpoint_save_path) + "/minitron_dimensions_importances.pt"
+    path = get_full_checkpoint_path(checkpoint_save_path) + f"{WEIGHT_IMPORTANCES_DIR}/minitron_dimensions_importances.pt"
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(dict_to_save, path)
@@ -93,21 +95,19 @@ def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_
     return dict_to_save
 
 
-def dummy_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_save_path):
-    
-    logger.info(f"Calculating minitron style weight importances calculation.")
-
+def dummy_importances(model: nn.Module, target_dmodel, target_dff, n_blocks, checkpoint_save_path):
+    logger.info(f"Dummy weight importances.")
     dmodel_importances, dff_importances = _calculate_dummy_dimension_importances(
-        dmodel, dff, n_blocks
+        target_dmodel, target_dff, n_blocks
     )
     logger.info(f"Calculated dimensions importances")
 
     dict_to_save = {"dmodel_importances": dmodel_importances, "dff_importances": dff_importances}
-    path = get_full_checkpoint_path(checkpoint_save_path) + "/random_dimensions_importances.pt"
+    save_path = get_full_checkpoint_path(checkpoint_save_path) + f"{WEIGHT_IMPORTANCES_DIR}/random_dimensions_importances.pt"
 
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save(dict_to_save, path)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save(dict_to_save, save_path)
 
-    logger.info(f"Saved importances to {path}.")
+    logger.info(f"Saved dummy importances to '{save_path}'.")
 
     return dict_to_save
