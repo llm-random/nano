@@ -1,10 +1,10 @@
 
 defaults:
-  - _cluster@_here_: entropy
+  - _misc@_here_: default
+  - _cluster@_here_: helios
   - _model/llama@_here_: projected_1B
   - _trainer@_here_: llama
   - _dataset@_here_: c4
-  - _misc@_here_: default
 
 
 common:
@@ -19,8 +19,6 @@ trainer:
   learning_rate: 6.103515625e-05
 
   checkpoint:
-   save:  
-    path: null
    load:
     type: huggingface
     path: "meta-llama/Llama-3.2-1B"
@@ -31,7 +29,8 @@ infrastructure:
     tags:
       - nano
       - pc
-      - llama_1_pc
+      - dummy_importances
+      - model=llama_3_2_1B
 
   slurm: 
     gres: gpu:4
@@ -39,6 +38,7 @@ infrastructure:
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
     _partial_: true
-    dimensions_importances_path: ??? # change
+    checkpoint_load_path: ${trainer.checkpoint.save.path}
+    dimensions_importances_path: "llama3_2_1B/random_dimensions_importances.pt"
     target_dmodel: ${common.dmodel}
     target_dff: ${common.dff}

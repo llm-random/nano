@@ -95,7 +95,7 @@ def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_
     return dict_to_save
 
 
-def dummy_importances(model: nn.Module, target_dmodel, target_dff, n_blocks, checkpoint_save_path):
+def dummy_importances(model: nn.Module, target_dmodel, target_dff, n_blocks, checkpoint_save_path, model_dir_name=""):
     logger.info(f"Dummy weight importances.")
     dmodel_importances, dff_importances = _calculate_dummy_dimension_importances(
         target_dmodel, target_dff, n_blocks
@@ -103,7 +103,7 @@ def dummy_importances(model: nn.Module, target_dmodel, target_dff, n_blocks, che
     logger.info(f"Calculated dimensions importances")
 
     dict_to_save = {"dmodel_importances": dmodel_importances, "dff_importances": dff_importances}
-    save_path = get_full_checkpoint_path(checkpoint_save_path) + f"{WEIGHT_IMPORTANCES_DIR}/random_dimensions_importances.pt"
+    save_path = get_full_checkpoint_path(checkpoint_save_path) + f"/{WEIGHT_IMPORTANCES_DIR}/{model_dir_name}/random_dimensions_importances.pt"
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(dict_to_save, save_path)
