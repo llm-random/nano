@@ -7,16 +7,11 @@ from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from src.projected_compression.compression import finalize_projection_weights
-from src.core.conversion_to_hf import save_to_llama_3_hf
-from old_datasets import LLMBatch
-import torch.distributed.checkpoint as dcp
-from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
-from src.core.checkpointing import TrainingState, get_full_checkpoint_path, save_training_state, step_checkpoint_path
+from src.core.checkpointing import save_checkpoint, step_checkpoint_path
 from src.core.metric_loggers import MetricLogger
-from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
+from src.core.utils import create_batch_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -102,34 +97,20 @@ class Trainer:
             self.scheduler.step()
             
             if self._should_save_checkpoint:
-                self.save_checkpoint()
+                save_checkpoint(
+                    checkpoint_path=step_checkpoint_path(self.checkpoint.save.path, self.step),
+                    model=self.model,
+                    optimizer=self.optimizer,
+                    scheduler=self.scheduler,
+                    training_state={
+                        "next_step": self.step + 1,
+                        "run_id": self.training_state["run_id"],
+                        "processed_tokens": self.processed_tokens,
+                    },
+                )
 
             if self._should_evaluate:
-                self.eval()        
-        
-        if self._should_save_final_checkpoint:
-            if self.checkpoint.save.type == "nano":
-                self.save_checkpoint()
-            elif self.checkpoint.save.type == "huggingface":
-                # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
-                model_state_dict = self.model.state_dict()
-                full_state = cast_state_dict_to_tensors(model_state_dict)
-   
-                if os.environ["RANK"] == "0":
-                    dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = self.model.encoder.get_model_dimensions()
-
-                    save_to_llama_3_hf( #dev fixed values 
-                        full_state, save_dir = get_full_checkpoint_path(self.checkpoint.save.path), 
-                        dmodel = dmodel, 
-                        dff = dff, 
-                        n_att_heads = n_att_heads, 
-                        n_kvatt_heads = n_kvatt_heads, 
-                        head_dim = head_dim,
-                        nlayers = nlayers, 
-                    ) 
-            elif self.checkpoint.save.type == "pc_finalize":
-                self.save_pc_finalized_checkpoint()
-
+                self.eval()
 
     def _preprocess_input(self, batch):  # TODO test it
         input_ids = batch[:, :-1].contiguous()
@@ -232,63 +213,3 @@ class Trainer:
             "tokens/train/grad_norm", self.processed_tokens, grad_norm.item()
         )
         self.metric_logger.flush_accumulated_metrics(self.step)
-
-    def save_checkpoint(self):
-        if isinstance(self.model, FSDP) or self.model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard":
-            # Sharded save
-            checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
-            state_dict = {
-                "app": TrainingState(self.model, self.optimizer, self.scheduler)
-            }
-            dcp.save(state_dict, checkpoint_id=checkpoint_folder)
-            logger.info(f"Saved sharded model checkpoint in {checkpoint_folder}")
-        else:
-            # Non-sharded save
-            if os.environ["RANK"] == "0":
-                checkpoint_folder = step_checkpoint_path(
-                    self.checkpoint.save.path, self.step
-                )
-                os.makedirs(checkpoint_folder, exist_ok=True)
-                checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
-                state_to_save = {
-                    "model": (
-                        self.model.module.state_dict()
-                        if type(self.model) is DDP
-                        else self.model.state_dict()
-                    ),
-                    "optim": self.optimizer.state_dict(),
-                    "scheduler": self.scheduler.state_dict(),
-                }
-                torch.save(state_to_save, checkpoint_path)
-                logger.info(
-                    f"Saved non-sharded model checkpoint in '{checkpoint_path}'"
-                )
-            
-        if os.environ["RANK"] == "0":
-            save_training_state(
-                save_config=self.checkpoint.save,
-                step=self.step,
-                processed_tokens=self.processed_tokens,
-                metric_logger=self.metric_logger,
-            )
-
-    def save_pc_finalized_checkpoint(self):
-        with torch.no_grad():
-            finalize_projection_weights(self.model)
-            model_state_dict = cast_state_dict_to_tensors(self.model.state_dict())
-            
-        if os.environ["RANK"] == "0":
-            checkpoint_folder = step_checkpoint_path(
-                self.checkpoint.save.path, self.step
-            )
-            os.makedirs(checkpoint_folder, exist_ok=True)
-            checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
-            state_to_save = {
-                "model": model_state_dict,
-                "optim": None,
-                "scheduler": None,
-            }
-            torch.save(state_to_save, checkpoint_path)
-            logger.info(
-                f"Saved non-sharded Finalized PC model checkpoint in '{checkpoint_path}'"
-            )

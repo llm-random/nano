@@ -6,7 +6,6 @@ defaults:
   - _model/llama@_here_: projected_8B
   - _trainer@_here_: llama
   - _dataset@_here_: c4
-  - _checkpoints@_here_: none
   - _misc@_here_: default
   
 
@@ -29,8 +28,6 @@ trainer:
     load:
       type: huggingface
       path: "meta-llama/Llama-3.1-8B"
-      model_checkpoint_filename: __model_checkpoint_filename.pt
-      training_state_filename: null
       only_weights: true 
 
 

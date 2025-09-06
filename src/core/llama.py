@@ -194,12 +194,9 @@ def remap_llamahf_state_dict_to_nano(llama_state_dict):
     return OrderedDict(remapped)
 
 
-def copy_llama_model_weights_from_HF(model: nn.Module, path: str):
- 
+def llama_hf_to_nano_state_dict(path: str) -> dict:
     hf_model = AutoModelForCausalLM.from_pretrained(path)
-
     llama_state_dict = hf_model.state_dict()
 
     remapped_state_dict = remap_llamahf_state_dict_to_nano(llama_state_dict)
-
-    model.load_state_dict(remapped_state_dict)
+    return remapped_state_dict

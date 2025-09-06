@@ -3,7 +3,6 @@ defaults:
   - _model/llama@_here_: projected_1B
   - _trainer@_here_: llama
   - _dataset@_here_: c4
-  - _checkpoints@_here_: none
   - _misc@_here_: default
   
 

@@ -34,6 +34,3 @@ def cast_state_dict_to_tensors(state_dict, device="cpu"):
         else:
             full_state[k] = v
     return full_state
-
-def finish_exp(model):
-    return False

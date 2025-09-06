@@ -4,7 +4,6 @@ defaults:
   - _model@_here_: llama_3_1
   - _trainer@_here_: llama
   - _dataset@_here_: c4
-  - _checkpoints@_here_: none
   - _misc@_here_: default
   
 
@@ -28,8 +27,6 @@ trainer:
    load:
     type: finalized_pc
     path: null #change
-    training_state_filename: null
-
 
 infrastructure:
   metric_logger:

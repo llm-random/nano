@@ -25,7 +25,10 @@ infrastructure:
       source "$VENV_PATH/bin/activate"
       pip install --upgrade -r requirements.txt
 
-
+trainer:
+  checkpoint:
+    save:
+      path: "/net/storage/pr3/plgrid/plggllmeffi/projected_compression"
 
 cluster_switch:
   train_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/train"

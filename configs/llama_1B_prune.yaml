@@ -4,7 +4,6 @@ defaults:
   - _trainer@_here_: llama
   - _dataset@_here_: c4
   # - _dataset@_here_: fineweb
-  - _checkpoints@_here_: none
   - _misc@_here_: default
 
 

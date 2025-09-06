@@ -117,8 +117,6 @@ trainer:
   checkpoint:
     save:
       interval: 12500
-      model_checkpoint_filename: __model_optim_scheduler__.pt
-      training_state_filename: __training_state__.pt
       path: checkpoints # Change me!
 
     load:
