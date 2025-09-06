@@ -155,38 +155,16 @@ class Trainer:
             return loss
 
         losses = []
-        if type(batch) is LLMBatch:
-            for input_ids, target_ids in zip(
-                batch.input_ids.chunk(self.gradient_accumulation_steps),
-                batch.target_ids.chunk(self.gradient_accumulation_steps),
-            ):
-                input_ids = input_ids.to(self.device)
-                predicted_ids = self.model(input_ids)
+        for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
+            input_ids, target_ids = self._preprocess_input(batch_chunk)
+            input_ids = input_ids.to(self.device)
+            if self.model.training:
+                self._update_processed_tokens(input_ids)
 
-                # Tensors should be on the same device for loss calculation #TODO check
-                target_ids = target_ids.to(predicted_ids.device)
-
-                mask_loss = F.cross_entropy(
-                    predicted_ids.flatten(0, -2),
-                    target_ids.reshape(-1).long(),
-                    reduction="none",
-                )
-                loss = mask_loss.mean() / self.gradient_accumulation_steps
-
-                if self.model.training:
-                    loss.backward()
-                losses.append(loss.item())
-        else:
-            for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
-                input_ids, target_ids = self._preprocess_input(batch_chunk)
-                input_ids = input_ids.to(self.device)
-                if self.model.training:
-                    self._update_processed_tokens(input_ids)
-
-                loss = _hack_for_python_garbage_collection(input_ids, target_ids)
-                if self.model.training:
-                    loss.backward()
-                losses.append(loss.item())
+            loss = _hack_for_python_garbage_collection(input_ids, target_ids)
+            if self.model.training:
+                loss.backward()
+            losses.append(loss.item())
 
         # gloo backend supports only sum reduce operation, therfore we first divide by world size and then sum
         avg_loss = torch.tensor(losses, device=loss.device).sum()
