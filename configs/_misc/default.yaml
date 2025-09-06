@@ -18,3 +18,14 @@ infrastructure:
 
   cemetery_experiments_dir: "~/llmrandom_cemetery"
 
+
+trainer:
+  checkpoint:
+    save:
+      type: nano
+      interval: -1
+      path: null
+
+    load:
+      type: nano
+      path: null
