@@ -269,11 +269,12 @@ def run(cfg, metric_logger=None):
     ).train()
 
     apply_final_functions = cfg.get("apply_functions_final")
-    if cfg.trainer.checkpoint.save.path is not None and apply_final_functions is not None:
+    if cfg.trainer.checkpoint.save.path is not None:
+        checkpoint_path=f"{get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)}/final"
         save_checkpoint(
-            checkpoint_path=f"{cfg.trainer.checkpoint.save.path}/final",
+            checkpoint_path=checkpoint_path,
             model=model,
-            apply_functions=instantiate(apply_final_functions)
+            apply_functions=instantiate(apply_final_functions) if apply_final_functions is not None else []
         )
 
     cleanup()
