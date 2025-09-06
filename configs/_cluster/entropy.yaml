@@ -24,6 +24,12 @@ infrastructure:
       source "$VENV_PATH/bin/activate"
       pip install --upgrade -r requirements.txt
 
+trainer:
+  checkpoint:
+    save:
+      path: "/storage_nvme_4/projected_compression"
+
+
 cluster_switch:
   train_path_c4: "/storage_nvme_1/llm-random/datasets/c4/train"
   eval_path_c4: "/storage_nvme_1/llm-random/datasets/c4/validation"
