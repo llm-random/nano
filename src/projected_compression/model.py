@@ -154,7 +154,6 @@ class RoPE(nn.Module):
         self.length = length
         self.base = base
         self.apply_freq_scaling = apply_freq_scaling
-        self.register_freqs()
 
     def register_freqs(self):
         angle_exponents = (
@@ -197,6 +196,9 @@ class RoPE(nn.Module):
         return inv_freq_llama
 
     def forward(self, x):
+        if not hasattr(self, "sin"):
+            self.register_freqs()
+
         [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
         x_rotated = torch.cat([-y2, y1], dim=-1)
         cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
