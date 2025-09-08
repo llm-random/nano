@@ -101,10 +101,14 @@ class AbstractDataset(IterableDataset):
                     buffer, document_lengths = [], []
 
     def __iter__(self):
-        self.rng.seed(self.seed)
+        worker_info = torch.utils.data.get_worker_info()
+        num_workers = worker_info.num_workers
+        worker_id = worker_info.id
+        
+        self.rng.seed(self.seed+(self.world_size)*num_workers+worker_id)
         if self.world_size_independent:
             return itertools.islice(
-                self.sample_packer(), self.rank, None, self.world_size
+                self.sample_packer(), self.rank*num_workers+worker_id, None, self.world_size*num_workers
             )
         else:
             return self.sample_packer()
