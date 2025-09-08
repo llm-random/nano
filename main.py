@@ -183,7 +183,6 @@ def run(cfg, metric_logger=None):
     if cfg.trainer.exp_learning_rate:
         learning_rate = 1/(2**cfg.trainer.exp_learning_rate)
         cfg.trainer.learning_rate = learning_rate
-        print(f"converted LR {learning_rate}") #dev
     else:
         learning_rate = cfg.trainer.learning_rate
 
