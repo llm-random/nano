@@ -167,7 +167,7 @@ def get_device():
 
     return device
 
-def run(cfg, metric_logger=None):
+def run(cfg:OmegaConf, metric_logger=None):
     setup_enviroment()
 
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
