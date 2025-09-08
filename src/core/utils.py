@@ -37,3 +37,13 @@ def cast_state_dict_to_tensors(state_dict, device="cpu"):
 
 def finish_exp(model):
     return False
+
+def print_state_dict_info(state_dict): # used for debugging + log info
+    for name, param in state_dict.items():
+        if isinstance(param, torch.Tensor):
+            print(f"{name:60s} {type(param)}, shape={tuple(param.shape)} "
+            # print(f"{name:60s} {param}, shape={tuple(param.shape)} "
+                f"norm={param.norm().item():.4f}")
+        else:
+            # Sometimes buffers / metadata can be non-tensors
+            print(f"{name:60s} NON-TENSOR {type(param)}")
