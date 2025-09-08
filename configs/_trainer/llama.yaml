@@ -6,7 +6,8 @@ trainer:
   n_eval_steps: 10
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
-  n_steps: null
+  n_steps: 0 # TODO change to ??? when missing config will be fixed with ^n_steps
+  exp_learning_rate: null
   learning_rate: null
   weight_decay: 0.1
 
