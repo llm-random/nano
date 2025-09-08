@@ -180,6 +180,12 @@ def run(cfg, metric_logger=None):
         npt_handler = NeptuneHandler(run=metric_logger.run)
         logger.addHandler(npt_handler)
 
+    if cfg.trainer.exp_learning_rate:
+        learning_rate = 1/(2**cfg.trainer.exp_learning_rate)
+        cfg.trainer.learning_rate = learning_rate
+        print(f"converted LR {learning_rate}") #dev
+    else:
+        learning_rate = cfg.trainer.learning_rate
 
     if isinstance(metric_logger, NeptuneLogger) and (training_state["run_id"] is None or cfg.infrastructure.metric_logger.new_neptune_job):
         metric_logger.run["job_config"] = cfg
@@ -210,7 +216,7 @@ def run(cfg, metric_logger=None):
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
-            lr=cfg.trainer.learning_rate,
+            lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
@@ -225,7 +231,7 @@ def run(cfg, metric_logger=None):
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
-            lr=cfg.trainer.learning_rate,
+            lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
@@ -240,7 +246,7 @@ def run(cfg, metric_logger=None):
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
-            lr=cfg.trainer.learning_rate,
+            lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
@@ -254,7 +260,7 @@ def run(cfg, metric_logger=None):
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
-            lr=cfg.trainer.learning_rate,
+            lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
         scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
@@ -263,7 +269,7 @@ def run(cfg, metric_logger=None):
         if cfg.trainer.checkpoint.load.only_weights:
             optimizer = torch.optim.AdamW(
                 model.parameters(),
-                lr=cfg.trainer.learning_rate,
+                lr=learning_rate,
                 weight_decay=cfg.trainer.weight_decay,
             )
             scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
