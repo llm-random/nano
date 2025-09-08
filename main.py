@@ -153,6 +153,9 @@ def log_environs(metric_logger):
         "CUDA_DEVICE_ORDER",
         "SLURM_TOPOLOGY_ADDR",
         "HOME",
+        "CUDA_VISIBLE_DEVICES",
+        "MASTER_ADDR",
+        "MASTER_PORT",
     ]
 
     environs = os.environ
