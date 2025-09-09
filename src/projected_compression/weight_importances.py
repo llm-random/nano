@@ -51,7 +51,7 @@ def _calculate_activations_dimension_importances(model: nn.Module, calibration_d
     # --- Run calibration data ---
     with torch.no_grad():
         for i, batch in enumerate(calibration_data):
-            logger.debug(f"Beginning batch {i}")
+            logger.info(f"Beginning batch {i}")
             _ = model(batch.to(device))
 
     # cleanup
