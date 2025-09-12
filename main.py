@@ -1,6 +1,7 @@
 import os
 import hydra
 import yaml
+from src.core.utils import solve_config_lr
 from src.core.conversion_from_finalized_pc import load_finalized_pc_checkpoint
 from src.core.distributed_training import setup_distributed_training
 from src.core.conversion_from_llmrandom import load_llmrandom_checkpoint
@@ -180,17 +181,15 @@ def run(cfg, metric_logger=None):
         npt_handler = NeptuneHandler(run=metric_logger.run)
         logger.addHandler(npt_handler)
 
-    if cfg.trainer.exp_learning_rate:
-        learning_rate = 1/(2**cfg.trainer.exp_learning_rate)
-        cfg.trainer.learning_rate = learning_rate
-    else:
-        learning_rate = cfg.trainer.learning_rate
+    learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
 
     if isinstance(metric_logger, NeptuneLogger) and (training_state["run_id"] is None or cfg.infrastructure.metric_logger.new_neptune_job):
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
         log_environs(metric_logger)
         metric_logger.run[f"job/full_save_checkpoints_path"] = get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)
+        metric_logger.run["learning_rate"] = learning_rate
+        metric_logger.run["exp_lr"] = exp_lr
         
     torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
