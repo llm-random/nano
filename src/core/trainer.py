@@ -236,10 +236,12 @@ class Trainer:
         self.metric_logger.log(
             "tokens/train/grad_norm", self.processed_tokens, grad_norm.item()
         )
-        self.metric_logger.flush_accumulated_metrics(self.step)
 
         self.tloss_100.log(self.metric_logger, self.step, loss.item())
         self.time_100.log(self.metric_logger, self.step, time.time())
+
+        self.metric_logger.flush_accumulated_metrics(self.step)
+
 
     def save_checkpoint(self):
         if isinstance(self.model, FSDP) or self.model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard":
