@@ -37,7 +37,6 @@ class Trainer:
     gradient_clipping: Optional[float]
     checkpoint: Optional[dict]
     learning_rate: float
-    exp_learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
 
@@ -57,8 +56,8 @@ class Trainer:
             for _ in range(n_skip_eval_batches):
                 next(self.eval_iterator)
 
-        self.tloss_100 = AveMetric(100, "steps/100/train/loss")
-        self.time_100 = AveDiffMetric(100, "steps/100/time", time.time())
+        self.loss_averaged_100 = AveMetric(100, "steps/100/train/loss")
+        self.time_diff_averaged_100 = AveDiffMetric(100, "steps/100/time", time.time())
 
     @property
     def _should_evaluate(self) -> bool:
@@ -237,8 +236,8 @@ class Trainer:
             "tokens/train/grad_norm", self.processed_tokens, grad_norm.item()
         )
 
-        self.tloss_100.log(self.metric_logger, self.step, loss.item())
-        self.time_100.log(self.metric_logger, self.step, time.time())
+        self.loss_averaged_100.log(self.metric_logger, self.step, loss.item())
+        self.time_diff_averaged_100.log(self.metric_logger, self.step, time.time())
 
         self.metric_logger.flush_accumulated_metrics(self.step)
 
