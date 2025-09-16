@@ -1,5 +1,5 @@
 defaults:
-  - _cluster@_here_: dgx
+  - _cluster@_here_: entropy
   - _model/llama@_here_: tiny
   - _trainer@_here_: llama
   - _dataset@_here_: c4
