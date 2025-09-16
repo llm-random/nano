@@ -36,8 +36,6 @@ def cast_state_dict_to_tensors(state_dict, device="cpu"):
             full_state[k] = v
     return full_state
 
-def finish_exp(model):
-    return False
 
 def solve_config_lr(config_lr:float) -> tuple[float, float] # TODO temporary place - move to devinitions eval+ when created
     ret_lr, ret_exp_lr = None
