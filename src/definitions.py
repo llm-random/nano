@@ -72,6 +72,7 @@ class TrapezoidalSchedulerConfig(SchedulerConfig):
 class TrainingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     learning_rate: PositiveFloat
+    learning_rate_exp: PositiveFloat
     weight_decay: PositiveFloat
     scheduler: object
     gradient_accumulation_steps: PositiveInt

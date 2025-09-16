@@ -1,3 +1,4 @@
+import math
 import os
 import torch
 from torch.distributed.tensor import DTensor
@@ -37,3 +38,13 @@ def cast_state_dict_to_tensors(state_dict, device="cpu"):
 
 def finish_exp(model):
     return False
+
+def solve_config_lr(config_lr:float) -> tuple[float, float] # TODO temporary place - move to devinitions eval+ when created
+    ret_lr, ret_exp_lr = None
+    if config_lr < 1.0: 
+        ret_lr = config_lr
+        ret_exp_lr = -1*math.log(config_lr) / math.log(2)
+    if config_lr >= 1.0: 
+        ret_lr = 2**-config_lr
+        ret_exp_lr = ret_exp_lr
+    return ret_lr, ret_exp_lr
