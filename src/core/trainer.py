@@ -1,4 +1,5 @@
 import os
+import time
 from attr import define
 import torch
 import torch.nn.functional as F
@@ -15,7 +16,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
 from src.core.checkpointing import TrainingState, get_full_checkpoint_path, save_training_state, step_checkpoint_path
-from src.core.metric_loggers import MetricLogger
+from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,9 @@ class Trainer:
             logger.debug(f"Skipping {n_skip_eval_batches} eval batches")
             for _ in range(n_skip_eval_batches):
                 next(self.eval_iterator)
+
+        self.loss_averaged_100 = AveMetric(100, "steps/100/train/loss")
+        self.time_diff_averaged_100 = AveDiffMetric(100, "steps/100/time", time.time())
 
     @property
     def _should_evaluate(self) -> bool:
@@ -232,7 +236,12 @@ class Trainer:
         self.metric_logger.log(
             "tokens/train/grad_norm", self.processed_tokens, grad_norm.item()
         )
+
+        self.loss_averaged_100.log(self.metric_logger, self.step, loss.item())
+        self.time_diff_averaged_100.log(self.metric_logger, self.step, time.time())
+
         self.metric_logger.flush_accumulated_metrics(self.step)
+
 
     def save_checkpoint(self):
         if isinstance(self.model, FSDP) or self.model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard":

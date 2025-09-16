@@ -1,4 +1,5 @@
 import os
+import statistics
 import neptune
 import torch
 from typing import Optional
@@ -214,3 +215,27 @@ def broadcast_message(rank, message=None):
 
     return message_tensor.cpu().numpy().tobytes().decode("utf-8")
 
+class AveMetric:
+    def __init__(self, average_tail_len, name):
+        self.name = name
+        self.tail_len = average_tail_len
+        self.metric_stack = []
+
+    def log(self, mlogger:MetricLogger, step, metric_val):
+        do_log = False 
+        self.metric_stack.append(metric_val)
+        while len(self.metric_stack) > self.tail_len:
+            self.metric_stack.pop(0)
+            do_log = True
+        if do_log:
+            mlogger.log(self.name, step, statistics.mean(self.metric_stack))
+
+class AveDiffMetric(AveMetric):
+    def __init__(self, average_tail_len, name, first_metric_val):
+        super().__init__(average_tail_len, name)
+        self.last_metric_val = first_metric_val
+
+    def log(self, mlogger, step, metric_val):
+        metric_val_diff = metric_val - self.last_metric_val
+        self.last_metric_val = metric_val
+        super().log(mlogger, step, metric_val_diff)
