@@ -31,7 +31,7 @@ trainer:
 
 infrastructure:
   metric_logger:
-    name: Llame_PC
+    name: Llame_HP
     tags:
       - nano
       - pc
