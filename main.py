@@ -183,14 +183,14 @@ def run(cfg:OmegaConf, metric_logger=None):
         )
         npt_handler = NeptuneHandler(run=metric_logger.run)
         logger.addHandler(npt_handler)
-
-    learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
+    
 
     if isinstance(metric_logger, NeptuneLogger) and (training_state["run_id"] is None or cfg.infrastructure.metric_logger.new_neptune_job):
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
         log_environs(metric_logger)
         metric_logger.run[f"job/full_save_checkpoints_path"] = get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)
+        learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
         metric_logger.run["learning_rate"] = learning_rate
         metric_logger.run["exp_lr"] = exp_lr
         
