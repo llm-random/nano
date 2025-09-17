@@ -7,7 +7,7 @@ import itertools
 import numpy as np
 import random
 from torch.utils.data import IterableDataset, DataLoader
-from transformers import GPT2TokenizerFast, LlamaTokenizerFast
+from transformers import GPT2TokenizerFast, LlamaTokenizerFast, AutoTokenizer
 from datasets import load_dataset
 from datasets.distributed import split_dataset_by_node
 import logging
@@ -32,7 +32,8 @@ def gpt2_tokenize_fn():
     return tokenize_function
 
 def llama_tokenize_fn():
-    tokenizer = LlamaTokenizerFast.from_pretrained("meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False)
+    # tokenizer = LlamaTokenizerFast.from_pretrained("meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False) # xD
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False)
     def tokenize_function(examples):
         batch_encodings = tokenizer(
             examples["text"],
@@ -150,25 +151,20 @@ class FineWebEduDataset(AbstractDataset):
             batched=True
         )
 
-    def _belongs_to_split(self, document_id: int) -> bool:
-        eval_percentage = 1
-
-        if self.split == "train":
-            return hash(document_id) % 100 >= eval_percentage
-        elif self.split == "validation":
-            return hash(document_id) % 100 < eval_percentage
-        else:
-            raise ValueError("split must be either 'train' or 'validation'")
-
-
     def get_infinite_sampler(self):
         epoch = 0
         while True:
             self.data_generator.set_epoch(epoch)
             for next_sample in self.data_generator:
-                if self._belongs_to_split(next_sample["id"]):
-                    yield next_sample
-
+                # logger.info(f"{next_sample['id']}") # dev
+                # logger.info(f"{next_sample['text'][:50]}") # dev
+                # logger.info(f"{next_sample['input_ids'][:50]}") # dev
+                # logger.info(f"{next_sample['attention_mask'][:50]}") # dev
+                # logger.info(f"{next_sample['dump']}") # dev
+                # logger.info(f"{next_sample['token_count']}") # dev
+                # logger.info(f"-------------------------------------------") # dev
+                # logger.info(f"{next_sample.keys()}") # dev
+                yield next_sample
             epoch += 1
 
 class C4Dataset(AbstractDataset):
