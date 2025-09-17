@@ -9,7 +9,6 @@ import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 
-import torch.distributed.checkpoint as dcp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
