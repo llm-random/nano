@@ -7,7 +7,7 @@ import itertools
 import numpy as np
 import random
 from torch.utils.data import IterableDataset, DataLoader
-from transformers import GPT2TokenizerFast, LlamaTokenizerFast
+from transformers import GPT2TokenizerFast, AutoTokenizer
 from datasets import load_dataset
 from datasets.distributed import split_dataset_by_node
 import logging
@@ -32,7 +32,7 @@ def gpt2_tokenize_fn():
     return tokenize_function
 
 def llama_tokenize_fn():
-    tokenizer = LlamaTokenizerFast.from_pretrained("meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False)
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False)
     def tokenize_function(examples):
         batch_encodings = tokenizer(
             examples["text"],
