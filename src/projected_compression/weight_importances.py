@@ -71,10 +71,13 @@ def _calculate_dummy_dimension_importances(dmodel, dff, n_blocks):
 
 def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_dataset_size, seq_len, total_batch_size, n_blocks, checkpoint_save_path):
     logger.info(f"Calculating minitron style weight importances calculation.")
+    model.to(device)
+    world_size = int(os.environ["WORLD_SIZE"])
+    batch_size =  total_batch_size // world_size
 
-    calibration_data = torch.zeros(calibration_dataset_size // total_batch_size, total_batch_size, seq_len, dtype=torch.long, device=device)
+    calibration_data = torch.zeros(calibration_dataset_size // batch_size, batch_size, seq_len, dtype=torch.long, device=device)
     for i, batch in enumerate(dataloader):
-        if i * total_batch_size >= calibration_dataset_size:
+        if i * batch_size >= calibration_dataset_size:
             break
         calibration_data[i] = batch[:, :seq_len]
 
