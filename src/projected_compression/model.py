@@ -339,10 +339,9 @@ class TransformerBlock(nn.Module):
 class TransformerEncoder(nn.Module):
     def get_model_dimensions(self): 
         # Works only for llama3 transforermer architecture 
-        
-        dmodel = self.blocks[0].ff_layer.layer._modules.get("ff_pre_act").in_features
-        dff = self.blocks[0].ff_layer.layer._modules.get("ff_pre_act").out_features
-        datt = self.blocks[0].attention_layer.layer._modules.get("q_proj").out_features
+        dmodel = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[1]
+        dff = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[0]
+        datt = self.blocks[0].attention_layer.layer.q_proj.weight.shape[0]
         n_att_heads = self.blocks[0].attention_layer.layer.q_heads
         n_kvatt_heads = self.blocks[0].attention_layer.layer.kv_heads
         nlayers = len(self.blocks)
