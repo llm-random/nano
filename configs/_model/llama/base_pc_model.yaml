@@ -10,7 +10,7 @@ common:
   q_heads: ???
   kv_heads: ???
 
-apply_functions:
+apply_functions_after_load:
   - _target_: src.projected_compression.compression.init_compression
     _partial_: true
     dimensions_importances_path: ???

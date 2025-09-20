@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 
-from main import get_device
-
 
 def get_nested_attr(module, attr_path):
     attrs = attr_path.split(".")
@@ -134,16 +132,14 @@ def init_compression(model: nn.Module, dimensions_importances_path, target_dmode
     for param in model.parameters():
         param.requires_grad = False
 
-    device = get_device()
-
-    dimensions_importances = torch.load(dimensions_importances_path)
+    dimensions_importances = torch.load(dimensions_importances_path, mmap=True, weights_only=True, map_location="cpu")
     dmodel_importances = dimensions_importances["dmodel_importances"]
     dff_importances = dimensions_importances["dff_importances"]
 
-    dmodel_indices = torch.topk(dmodel_importances, dim=0, largest=True, k=target_dmodel).indices.to(device)
+    dmodel_indices = torch.topk(dmodel_importances, dim=0, largest=True, k=target_dmodel).indices
     dff_indices = []
     for i in range(len(dff_importances)):
-        dff_top_indices_current = torch.topk(dff_importances[i], dim=0, largest=True, k=target_dff).indices.to(device)
+        dff_top_indices_current = torch.topk(dff_importances[i], dim=0, largest=True, k=target_dff).indices
         dff_indices.append(dff_top_indices_current)
 
     initialize_projection_weights(model, dmodel_indices, dff_indices)
@@ -153,21 +149,22 @@ def init_compression(model: nn.Module, dimensions_importances_path, target_dmode
 def finalize_projection_weights(
     model: nn.Module
 ):
-    model.head.linear.finalize()
-    model.embedding.finalize()
+    with torch.no_grad():
+        model.head.linear.finalize()
+        model.embedding.finalize()
 
-    for i, block in enumerate(model.encoder.blocks):
-        layers_to_init_projections = [
-            "attention_layer.layer.q_proj",
-            "attention_layer.layer.k_proj",
-            "attention_layer.layer.v_proj",
-            "ff_layer.layer.ff_pre_act",
-            "attention_layer.layer.o_proj",
-            "ff_layer.layer.ff_post_act"
-        ]
-        # For models with SiLU (e.g. LLama) 
-        if "ff_layer.layer.gate.weight" in block.state_dict().keys():
-            layers_to_init_projections.append("ff_layer.layer.gate")
-        
-        for layer_name in layers_to_init_projections:
-            get_nested_attr(block, layer_name).finalize()
+        for block in model.encoder.blocks:
+            layers_to_init_projections = [
+                "attention_layer.layer.q_proj",
+                "attention_layer.layer.k_proj",
+                "attention_layer.layer.v_proj",
+                "ff_layer.layer.ff_pre_act",
+                "attention_layer.layer.o_proj",
+                "ff_layer.layer.ff_post_act"
+            ]
+            # For models with SiLU (e.g. LLama) 
+            if "ff_layer.layer.gate.weight" in block.state_dict().keys():
+                layers_to_init_projections.append("ff_layer.layer.gate")
+            
+            for layer_name in layers_to_init_projections:
+                get_nested_attr(block, layer_name).finalize()

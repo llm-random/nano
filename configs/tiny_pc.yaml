@@ -1,0 +1,36 @@
+defaults:
+  - _misc@_here_: default
+  - _dataset@_here_: c4
+  - _cluster@_here_: entropy
+  - _model/llama@_here_: projected_tiny
+  - _trainer@_here_: llama
+
+
+infrastructure:
+  slurm:
+    job_name: tiny
+  server: entropy
+
+common: 
+  batch_size: 32
+  sequence_length: 32 # totally toy example
+
+trainer:
+  n_steps: 0
+  learning_rate: 5e-5
+  
+  checkpoint:
+    load:
+      type: huggingface
+      path: "pc-project/tiny-llama-16M"
+    
+    save:
+      interval: -1
+
+
+apply_functions_after_train:
+  - _target_: src.projected_compression.compression.finalize_projection_weights
+    _partial_: true
+  
+
+
