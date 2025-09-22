@@ -35,4 +35,7 @@ infrastructure:
 
   slurm: 
     gres: gpu:4
+    # gres: gpu:2
+    # gres: gpu:1
+    time: "0-00:30:00"
 
