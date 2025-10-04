@@ -114,51 +114,6 @@ class Residual(nn.Module):
                 "update_to_residual_ratio/std": ratio_std.item(),
             }
 
-    @staticmethod
-    def calculate_metrics(
-        update_norms_list: torch.Tensor, residual_norms_list: torch.Tensor
-    ):
-        update_norms_concat = torch.cat(update_norms_list)
-        residual_norms_concat = torch.cat(residual_norms_list)
-
-        if dist.is_initialized():
-            world_size = int(os.environ["WORLD_SIZE"])
-            gpu_batch_size, seq_len = residual_norms_concat.shape
-            update_norms = torch.empty(
-                world_size * gpu_batch_size,
-                seq_len,
-                device=update_norms_concat.device,
-                dtype=update_norms_concat.dtype,
-            )
-            dist.all_gather_into_tensor(update_norms, update_norms_concat)
-
-            residual_norms = torch.empty(
-                world_size * gpu_batch_size,
-                seq_len,
-                device=residual_norms_concat.device,
-                dtype=residual_norms_concat.dtype,
-            )
-            dist.all_gather_into_tensor(residual_norms, residual_norms_concat)
-        else:
-            update_norms = update_norms_concat
-            residual_norms = residual_norms_concat
-
-        with torch.no_grad():
-            update_norms_std, update_norms_mean = torch.std_mean(update_norms)
-            residual_norms_std, residual_norms_mean = torch.std_mean(residual_norms)
-
-            update_to_residual_ratio = update_norms / residual_norms
-            ratio_std, ratio_mean = torch.std_mean(update_to_residual_ratio)
-
-            return {
-                "update_norms/mean": update_norms_mean.item(),
-                "update_norms/std": update_norms_std.item(),
-                "residual_norms/mean": residual_norms_mean.item(),
-                "residual_norms/std": residual_norms_std.item(),
-                "update_to_residual_ratio/mean": ratio_mean.item(),
-                "update_to_residual_ratio/std": ratio_std.item(),
-            }
-
 
 class TransformerEmbedding(nn.Module):
     def __init__(self, vocab_size: int, dmodel: int, init_fn: Optional[Callable]):
@@ -235,26 +190,23 @@ class TransformerTower(nn.Module):
         super().__init__()
         self.blocks = nn.ModuleList([block_fn(i) for i in range(n_blocks)])
 
+    def get_model_dimensions(self):
+        # Works only for llama3 transformer architecture
+        dmodel = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[1]
+        dff = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[0]
+        datt = self.blocks[0].attention_layer.layer.q_proj.weight.shape[0]
+        n_att_heads = self.blocks[0].attention_layer.layer.q_heads
+        n_kvatt_heads = self.blocks[0].attention_layer.layer.kv_heads
+        nlayers = len(self.blocks)
+
+        head_dim = datt / n_att_heads
+
+        return dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers
+
     def forward(self, x):
         for block in self.blocks:
             x = block(x)
         return x
-
-
-class Aggregate(nn.Module):
-    def __init__(self, function, *layers):
-        super(Aggregate, self).__init__()
-        self.function = function
-        self.layers = nn.ModuleList(layers)
-
-    def forward(self, x):
-        result = None
-        for layer in self.layers:
-            if result is None:
-                result = layer(x)
-            else:
-                result = self.function(result, layer(x))
-        return result
 
 
 class Aggregate(nn.Module):
@@ -325,6 +277,23 @@ class FeedForward(nn.Module):
     def forward(self, x):
         x = self.ff_pre_act(x)
         x = self.relu(x)
+        x = self.ff_post_act(x)
+        return x
+
+
+class LlamaFeedForward(nn.Module):
+    def __init__(self, dmodel, dff, linear_fn):
+        super().__init__()
+        self.ff_pre_act = linear_fn(dmodel, dff)
+        self.gate = linear_fn(dmodel, dff)
+        self.silu = nn.SiLU()
+        self.ff_post_act = linear_fn(dff, dmodel)
+
+    def forward(self, x):
+        gated = self.gate(x)
+        gated = self.silu(gated)
+        x = self.ff_pre_act(x)
+        x = x * gated
         x = self.ff_post_act(x)
         return x
 
