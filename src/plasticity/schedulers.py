@@ -51,7 +51,7 @@ class WSDScheduler(_LRScheduler):
     """
 
     def __init__(self, optimizer, warmup_steps, stable_steps, decay_steps,
-                 final_lr_fraction=0, last_epoch=-1):
+                 final_lr_fraction=0, n_steps=None, last_epoch=-1):
         """
         Args:
             optimizer: Wrapped optimizer
@@ -59,6 +59,7 @@ class WSDScheduler(_LRScheduler):
             stable_steps: Number of stable steps at peak learning rate
             decay_steps: Number of decay steps
             final_lr_fraction: Final learning rate as a fraction of base_lr (default: 0)
+            n_steps: Total steps (ignored, calculated from warmup+stable+decay) (default: None)
             last_epoch: The index of last epoch (default: -1)
         """
         self.warmup_steps = warmup_steps
