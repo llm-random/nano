@@ -228,6 +228,53 @@ def collate_wrapper(examples):
     return torch.from_numpy(np.array(examples))
 
 
+def download_dummy_dataset(dataset_type: str = "c4", num_samples: int = 100, output_dir: str = "data"):
+    """
+    Download a small portion of a dataset for local debugging.
+
+    Args:
+        dataset_type: Type of dataset to download ("c4" or "fineweb-edu")
+        num_samples: Number of samples to download
+        output_dir: Directory to save the dataset
+    """
+    import os
+
+    if os.path.exists(output_dir):
+        logger.info(f"Dataset already exists at {output_dir}, skipping download")
+        return
+
+    logger.info(f"Downloading {num_samples} samples of {dataset_type} to {output_dir}")
+
+    if dataset_type == "c4":
+        dataset = load_dataset(
+            "allenai/c4",
+            "en",
+            split="train",
+            streaming=True,
+            trust_remote_code=True,
+        )
+    elif dataset_type == "fineweb-edu":
+        dataset = load_dataset(
+            "HuggingFaceFW/fineweb-edu",
+            name="sample-10BT",
+            split="train",
+            streaming=True,
+        )
+    else:
+        raise ValueError(f"Unsupported dataset type: {dataset_type}")
+
+    # Take only num_samples
+    dataset = dataset.take(num_samples)
+
+    # Convert to regular dataset and save
+    from datasets import Dataset
+    samples = list(dataset)
+    dataset_dict = Dataset.from_dict({k: [sample[k] for sample in samples] for k in samples[0].keys()})
+    dataset_dict.save_to_disk(output_dir)
+
+    logger.info(f"Successfully saved {num_samples} samples to {output_dir}")
+
+
 def get_dataloader(
     dataset_type: str,
     dataset_path: str,
