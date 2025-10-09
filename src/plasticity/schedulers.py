@@ -57,22 +57,27 @@ class WSDScheduler(_LRScheduler):
     Note: last_epoch in PyTorch's _LRScheduler is actually the step count (poor naming).
     """
 
-    def __init__(self, optimizer, warmup_steps, stable_steps, decay_steps,
-                 final_lr_fraction=0, n_steps=None, last_epoch=-1):
+    def __init__(self, optimizer, n_steps, warmup_fraction=0.1, decay_fraction=0.1,
+                 final_lr_fraction=0, warmup_steps=None, stable_steps=None, decay_steps=None,
+                 last_epoch=-1):
         """
         Args:
             optimizer: Wrapped optimizer
-            warmup_steps: Number of warmup steps
-            stable_steps: Number of stable steps at peak learning rate
-            decay_steps: Number of decay steps
+            n_steps: Total number of training steps
+            warmup_fraction: Fraction of n_steps for warmup (default: 0.1)
+            decay_fraction: Fraction of n_steps for decay (default: 0.1)
             final_lr_fraction: Final learning rate as a fraction of base_lr (default: 0)
-            n_steps: Total steps (ignored, calculated from warmup+stable+decay) (default: None)
+            warmup_steps: Override warmup_fraction with explicit step count (default: None)
+            stable_steps: Override stable phase with explicit step count (default: None)
+            decay_steps: Override decay_fraction with explicit step count (default: None)
             last_epoch: Current step count, -1 means start from beginning (default: -1)
         """
-        self.warmup_steps = warmup_steps
-        self.stable_steps = stable_steps
-        self.decay_steps = decay_steps
-        self.n_steps = warmup_steps + stable_steps + decay_steps
+        # Allow explicit step counts to override fractions
+        self.n_steps = n_steps
+        self.warmup_steps = warmup_steps if warmup_steps is not None else int(n_steps * warmup_fraction)
+        self.decay_steps = decay_steps if decay_steps is not None else int(n_steps * decay_fraction)
+        self.stable_steps = stable_steps if stable_steps is not None else (n_steps - self.warmup_steps - self.decay_steps)
+
         self.final_lr_fraction = final_lr_fraction
         self.total_iters = self.n_steps  # For compatibility with RepeatedScheduler
         super().__init__(optimizer, last_epoch)

@@ -5,9 +5,9 @@ trainer:
   scheduler:
     _partial_: true
     _target_: src.plasticity.schedulers.WSDScheduler
-    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
-    stable_steps: ${eval:'int(${trainer.n_steps} * 0.89)'}
-    decay_steps: ${eval:'int(${trainer.n_steps} * 0.1)'}
+    n_steps: ${trainer.n_steps}
+    warmup_fraction: 0.01
+    decay_fraction: 0.1
     final_lr_fraction: 0.1
 
 infrastructure:
