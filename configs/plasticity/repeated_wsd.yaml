@@ -1,0 +1,20 @@
+defaults:
+  - base_scheduler_comparison
+
+trainer:
+  scheduler:
+    _partial_: true
+    _target_: src.plasticity.schedulers.RepeatedScheduler
+    num_cycles: 5
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
+    base_scheduler:
+      _partial_: true
+      _target_: src.plasticity.schedulers.WSDScheduler
+      warmup_steps: 0
+      stable_steps: ${eval:'int(${trainer.n_steps} / 5 * 0.9)'}
+      decay_steps: ${eval:'int(${trainer.n_steps} / 5 * 0.1)'}
+      final_lr_fraction: 0.1
+
+infrastructure:
+  metric_logger:
+    name: Plasticity_Repeated_WSD
