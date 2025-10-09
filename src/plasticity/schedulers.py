@@ -6,6 +6,8 @@ class CosineScheduler(_LRScheduler):
     """
     Cosine annealing learning rate scheduler.
     Decays learning rate from initial value to final_lr_fraction * base_lr following a cosine curve.
+
+    Note: last_epoch in PyTorch's _LRScheduler is actually the step count (poor naming).
     """
 
     def __init__(self, optimizer, n_steps, final_lr_fraction=0, warmup_steps=0, last_epoch=-1):
@@ -15,7 +17,7 @@ class CosineScheduler(_LRScheduler):
             n_steps: Total number of steps for the schedule
             final_lr_fraction: Final learning rate as a fraction of base_lr (default: 0)
             warmup_steps: Number of warmup steps with linear increase (default: 0)
-            last_epoch: The index of last epoch (default: -1)
+            last_epoch: Current step count, -1 means start from beginning (default: -1)
         """
         self.n_steps = n_steps
         self.final_lr_fraction = final_lr_fraction
@@ -26,15 +28,18 @@ class CosineScheduler(_LRScheduler):
         self.min_lr = [base_lr * final_lr_fraction for base_lr in self.base_lrs]
 
     def get_lr(self):
-        if self.warmup_steps > 0 and self.last_epoch < self.warmup_steps:
-            # Warmup phase: linear increase from 0 to base_lr
-            alpha = self.last_epoch / self.warmup_steps
+        """Calculate learning rate based on current step (self.last_epoch is actually step count)."""
+        step = self.last_epoch
+
+        if self.warmup_steps > 0 and step < self.warmup_steps:
+            # Warmup: linear increase from 0 to base_lr
+            alpha = step / self.warmup_steps
             return [base_lr * alpha for base_lr in self.base_lrs]
-        elif self.last_epoch >= self.n_steps:
+        elif step >= self.n_steps:
             return self.min_lr
 
-        # Cosine annealing formula (adjusted for warmup)
-        progress = (self.last_epoch - self.warmup_steps) / (self.n_steps - self.warmup_steps)
+        # Cosine annealing (adjusted for warmup)
+        progress = (step - self.warmup_steps) / (self.n_steps - self.warmup_steps)
         return [
             min_lr + (base_lr - min_lr) *
             (1 + math.cos(math.pi * progress)) / 2
@@ -48,6 +53,8 @@ class WSDScheduler(_LRScheduler):
     - Warmup: Linear increase from 0 to peak_lr
     - Stable: Constant at peak_lr
     - Decay: Linear decrease to final_lr_fraction * base_lr
+
+    Note: last_epoch in PyTorch's _LRScheduler is actually the step count (poor naming).
     """
 
     def __init__(self, optimizer, warmup_steps, stable_steps, decay_steps,
@@ -60,7 +67,7 @@ class WSDScheduler(_LRScheduler):
             decay_steps: Number of decay steps
             final_lr_fraction: Final learning rate as a fraction of base_lr (default: 0)
             n_steps: Total steps (ignored, calculated from warmup+stable+decay) (default: None)
-            last_epoch: The index of last epoch (default: -1)
+            last_epoch: Current step count, -1 means start from beginning (default: -1)
         """
         self.warmup_steps = warmup_steps
         self.stable_steps = stable_steps
@@ -73,18 +80,21 @@ class WSDScheduler(_LRScheduler):
         self.min_lr = [base_lr * final_lr_fraction for base_lr in self.base_lrs]
 
     def get_lr(self):
-        if self.last_epoch < self.warmup_steps:
-            # Warmup phase: linear increase from 0 to peak_lr
-            alpha = self.last_epoch / self.warmup_steps
+        """Calculate learning rate based on current step (self.last_epoch is actually step count)."""
+        step = self.last_epoch
+
+        if step < self.warmup_steps:
+            # Warmup: linear increase from 0 to peak_lr
+            alpha = step / self.warmup_steps
             return [base_lr * alpha for base_lr in self.base_lrs]
 
-        elif self.last_epoch < self.warmup_steps + self.stable_steps:
-            # Stable phase: constant at peak_lr
+        elif step < self.warmup_steps + self.stable_steps:
+            # Stable: constant at peak_lr
             return self.base_lrs
 
-        elif self.last_epoch < self.n_steps:
-            # Decay phase: linear decrease from peak_lr to min_lr
-            decay_progress = (self.last_epoch - self.warmup_steps - self.stable_steps) / self.decay_steps
+        elif step < self.n_steps:
+            # Decay: linear decrease from peak_lr to min_lr
+            decay_progress = (step - self.warmup_steps - self.stable_steps) / self.decay_steps
             return [
                 base_lr - (base_lr - min_lr) * decay_progress
                 for base_lr, min_lr in zip(self.base_lrs, self.min_lr)
