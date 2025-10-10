@@ -1,4 +1,5 @@
 """Comprehensive test to verify RepeatedScheduler behavior"""
+
 import torch
 import torch.nn as nn
 from functools import partial
@@ -22,7 +23,7 @@ def test_cycle_boundaries():
         ),
         num_cycles=3,
         n_steps=300,
-        warmup_steps=0
+        warmup_steps=0,
     )
 
     print(f"Total n_steps: 300")
@@ -70,7 +71,7 @@ def test_warmup_override():
         ),
         num_cycles=3,
         n_steps=1000,
-        warmup_steps=50
+        warmup_steps=50,
     )
 
     print(f"RepeatedScheduler warmup_steps: 50")
@@ -112,7 +113,7 @@ def test_no_warmup_after_first_cycle():
         ),
         num_cycles=3,
         n_steps=900,
-        warmup_steps=100  # Only first cycle
+        warmup_steps=100,  # Only first cycle
     )
 
     lrs = []
@@ -144,12 +145,10 @@ def test_cosine_scheduler():
 
     scheduler = RepeatedScheduler(
         optimizer=optimizer,
-        base_scheduler_factory=lambda **kw: CosineScheduler(
-            final_lr_fraction=0.1, **kw
-        ),
+        base_scheduler_factory=lambda **kw: CosineScheduler(final_lr_fraction=0.1, **kw),
         num_cycles=3,
         n_steps=600,
-        warmup_steps=0
+        warmup_steps=0,
     )
 
     lrs = []

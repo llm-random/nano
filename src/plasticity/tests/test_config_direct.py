@@ -1,7 +1,9 @@
 """Direct test of schedulers without config interpolation"""
+
 import torch
 import torch.nn as nn
 from ..schedulers import WSDScheduler, CosineScheduler, RepeatedScheduler
+
 
 def test_repeated_wsd_direct():
     """Test repeated WSD scheduler directly"""
@@ -21,13 +23,11 @@ def test_repeated_wsd_direct():
     scheduler = RepeatedScheduler(
         optimizer=optimizer,
         base_scheduler_factory=lambda **kw: WSDScheduler(
-            decay_fraction=0.1,
-            final_lr_fraction=0.1,
-            **kw
+            decay_fraction=0.1, final_lr_fraction=0.1, **kw
         ),
         num_cycles=num_cycles,
         n_steps=n_steps,
-        warmup_steps=warmup_steps
+        warmup_steps=warmup_steps,
     )
 
     print(f"✓ Scheduler created successfully!")
@@ -73,7 +73,9 @@ def test_repeated_wsd_direct():
         if cycle > 0:  # After first cycle
             step_idx = cycle * cycle_len
             if step_idx < len(lrs):
-                print(f"    Cycle {cycle+1} start (step {step_idx}): {lrs[step_idx]:.6f} (should be ~0.001)")
+                print(
+                    f"    Cycle {cycle+1} start (step {step_idx}): {lrs[step_idx]:.6f} (should be ~0.001)"
+                )
 
     print()
     return negative_count == 0
@@ -96,13 +98,10 @@ def test_repeated_cosine_direct():
     # Create scheduler as config would
     scheduler = RepeatedScheduler(
         optimizer=optimizer,
-        base_scheduler_factory=lambda **kw: CosineScheduler(
-            final_lr_fraction=0.1,
-            **kw
-        ),
+        base_scheduler_factory=lambda **kw: CosineScheduler(final_lr_fraction=0.1, **kw),
         num_cycles=num_cycles,
         n_steps=n_steps,
-        warmup_steps=warmup_steps
+        warmup_steps=warmup_steps,
     )
 
     print(f"✓ Scheduler created successfully!")
@@ -157,7 +156,9 @@ def test_repeated_cosine_direct():
         if cycle > 0:  # After first cycle
             step_idx = cycle * cycle_len
             if step_idx < len(lrs):
-                print(f"    Cycle {cycle+1} start (step {step_idx}): {lrs[step_idx]:.6f} (should be ~0.001)")
+                print(
+                    f"    Cycle {cycle+1} start (step {step_idx}): {lrs[step_idx]:.6f} (should be ~0.001)"
+                )
 
     print()
     return negative_count == 0

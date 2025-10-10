@@ -1,8 +1,10 @@
 """Test RepeatedScheduler with various base schedulers"""
+
 import torch
 import torch.nn as nn
 from functools import partial
 from ..schedulers import WSDScheduler, CosineScheduler, RepeatedScheduler
+
 
 def test_repeated_wsd():
     """Test RepeatedScheduler with WSDScheduler"""
@@ -20,7 +22,7 @@ def test_repeated_wsd():
             n_steps=n_steps,
             warmup_steps=warmup_steps,
             decay_fraction=0.1,
-            final_lr_fraction=0.1
+            final_lr_fraction=0.1,
         )
 
     scheduler = RepeatedScheduler(
@@ -28,7 +30,7 @@ def test_repeated_wsd():
         base_scheduler_factory=wsd_factory,
         num_cycles=3,
         n_steps=1000,
-        warmup_steps=100
+        warmup_steps=100,
     )
 
     lrs = []
@@ -65,10 +67,7 @@ def test_repeated_cosine():
     # Factory function for Cosine scheduler
     def cosine_factory(optimizer, n_steps, warmup_steps):
         return CosineScheduler(
-            optimizer=optimizer,
-            n_steps=n_steps,
-            warmup_steps=warmup_steps,
-            final_lr_fraction=0.1
+            optimizer=optimizer, n_steps=n_steps, warmup_steps=warmup_steps, final_lr_fraction=0.1
         )
 
     scheduler = RepeatedScheduler(
@@ -76,7 +75,7 @@ def test_repeated_cosine():
         base_scheduler_factory=cosine_factory,
         num_cycles=3,
         n_steps=1000,
-        warmup_steps=100
+        warmup_steps=100,
     )
 
     lrs = []
@@ -118,7 +117,7 @@ def test_with_lambda():
         ),
         num_cycles=3,
         n_steps=1000,
-        warmup_steps=100
+        warmup_steps=100,
     )
 
     lrs = []

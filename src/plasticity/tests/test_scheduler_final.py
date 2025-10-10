@@ -1,4 +1,5 @@
 """Final verification: ensure no negative values across full range"""
+
 import torch
 import torch.nn as nn
 from ..schedulers import WSDScheduler, RepeatedScheduler
@@ -17,7 +18,9 @@ configs = [
 print("Testing RepeatedScheduler + WSDScheduler for negative values...\n")
 
 for i, config in enumerate(configs):
-    print(f"=== Test {i+1}: n_steps={config['n_steps']}, cycles={config['num_cycles']}, warmup={config['warmup_steps']} ===")
+    print(
+        f"=== Test {i+1}: n_steps={config['n_steps']}, cycles={config['num_cycles']}, warmup={config['warmup_steps']} ==="
+    )
 
     # Create fresh optimizer for each test
     model = nn.Linear(10, 10)
@@ -29,19 +32,19 @@ for i, config in enumerate(configs):
         base_scheduler_factory=lambda **kw: WSDScheduler(
             decay_fraction=0.1, final_lr_fraction=0.1, **kw
         ),
-        num_cycles=config['num_cycles'],
-        n_steps=config['n_steps'],
-        warmup_steps=config['warmup_steps']
+        num_cycles=config["num_cycles"],
+        n_steps=config["n_steps"],
+        warmup_steps=config["warmup_steps"],
     )
 
     # Track learning rates
     lrs = []
-    min_lr = float('inf')
-    max_lr = float('-inf')
+    min_lr = float("inf")
+    max_lr = float("-inf")
     negative_count = 0
 
     # Simulate training
-    for step in range(config['n_steps']):
+    for step in range(config["n_steps"]):
         lr = scheduler.get_last_lr()[0]
         lrs.append(lr)
         min_lr = min(min_lr, lr)

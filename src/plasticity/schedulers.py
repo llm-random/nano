@@ -24,7 +24,7 @@ class CosineScheduler(_LRScheduler):
         self.warmup_steps = warmup_steps
         # Initialize min_lr before super().__init__() which calls get_lr()
         # We'll use optimizer.defaults['lr'] as a fallback for base_lr
-        base_lrs = [group['lr'] for group in optimizer.param_groups]
+        base_lrs = [group["lr"] for group in optimizer.param_groups]
         self.min_lr = [base_lr * final_lr_fraction for base_lr in base_lrs]
         super().__init__(optimizer, last_epoch)
 
@@ -42,8 +42,7 @@ class CosineScheduler(_LRScheduler):
         # Cosine annealing (adjusted for warmup)
         progress = (step - self.warmup_steps) / (self.n_steps - self.warmup_steps)
         return [
-            min_lr + (base_lr - min_lr) *
-            (1 + math.cos(math.pi * progress)) / 2
+            min_lr + (base_lr - min_lr) * (1 + math.cos(math.pi * progress)) / 2
             for base_lr, min_lr in zip(self.base_lrs, self.min_lr)
         ]
 
@@ -58,9 +57,17 @@ class WSDScheduler(_LRScheduler):
     Note: last_epoch in PyTorch's _LRScheduler is actually the step count (poor naming).
     """
 
-    def __init__(self, optimizer, n_steps, warmup_fraction=0.1, decay_fraction=0.1,
-                 final_lr_fraction=0, warmup_steps=None, decay_steps=None,
-                 last_epoch=-1):
+    def __init__(
+        self,
+        optimizer,
+        n_steps,
+        warmup_fraction=0.1,
+        decay_fraction=0.1,
+        final_lr_fraction=0,
+        warmup_steps=None,
+        decay_steps=None,
+        last_epoch=-1,
+    ):
         """
         Args:
             optimizer: Wrapped optimizer
@@ -74,7 +81,9 @@ class WSDScheduler(_LRScheduler):
         """
         # Allow explicit step counts to override fractions
         self.n_steps = n_steps
-        self.warmup_steps = warmup_steps if warmup_steps is not None else int(n_steps * warmup_fraction)
+        self.warmup_steps = (
+            warmup_steps if warmup_steps is not None else int(n_steps * warmup_fraction)
+        )
         self.decay_steps = decay_steps if decay_steps is not None else int(n_steps * decay_fraction)
         self.stable_steps = n_steps - self.warmup_steps - self.decay_steps
 
@@ -117,8 +126,9 @@ class RepeatedScheduler(_LRScheduler):
     First cycle can have warmup, subsequent cycles start at peak LR.
     """
 
-    def __init__(self, optimizer, base_scheduler_factory, num_cycles, n_steps,
-                 warmup_steps=0, last_epoch=-1):
+    def __init__(
+        self, optimizer, base_scheduler_factory, num_cycles, n_steps, warmup_steps=0, last_epoch=-1
+    ):
         """
         Args:
             optimizer: Wrapped optimizer
@@ -137,17 +147,15 @@ class RepeatedScheduler(_LRScheduler):
 
         # Create base scheduler for first cycle with warmup
         self.base_scheduler = base_scheduler_factory(
-            optimizer=optimizer,
-            n_steps=cycle_steps,
-            warmup_steps=warmup_steps
+            optimizer=optimizer, n_steps=cycle_steps, warmup_steps=warmup_steps
         )
 
         # Store attributes from base scheduler
-        if hasattr(self.base_scheduler, 'final_lr_fraction'):
+        if hasattr(self.base_scheduler, "final_lr_fraction"):
             self.final_lr_fraction = self.base_scheduler.final_lr_fraction
-        if hasattr(self.base_scheduler, 'decay_steps'):
+        if hasattr(self.base_scheduler, "decay_steps"):
             self.decay_steps = self.base_scheduler.decay_steps
-        if hasattr(self.base_scheduler, 'stable_steps'):
+        if hasattr(self.base_scheduler, "stable_steps"):
             self.stable_steps = self.base_scheduler.stable_steps
 
         self.cycle_steps = cycle_steps
@@ -182,8 +190,11 @@ class RepeatedScheduler(_LRScheduler):
                     self.optimizer,
                     n_steps=self.cycle_steps,
                     warmup_steps=0,
-                    **{k: v for k, v in self.base_scheduler.__dict__.items()
-                       if k in ['final_lr_fraction', 'decay_fraction', 'warmup_fraction']}
+                    **{
+                        k: v
+                        for k, v in self.base_scheduler.__dict__.items()
+                        if k in ["final_lr_fraction", "decay_fraction", "warmup_fraction"]
+                    }
                 )
 
         self.last_epoch = self.base_scheduler.last_epoch
@@ -191,13 +202,13 @@ class RepeatedScheduler(_LRScheduler):
     def state_dict(self):
         """Return state for checkpointing"""
         return {
-            'base_scheduler': self.base_scheduler.state_dict(),
-            'current_cycle': self.current_cycle,
-            'step_in_cycle': self.step_in_cycle,
+            "base_scheduler": self.base_scheduler.state_dict(),
+            "current_cycle": self.current_cycle,
+            "step_in_cycle": self.step_in_cycle,
         }
 
     def load_state_dict(self, state_dict):
         """Load state from checkpoint"""
-        self.base_scheduler.load_state_dict(state_dict['base_scheduler'])
-        self.current_cycle = state_dict['current_cycle']
-        self.step_in_cycle = state_dict['step_in_cycle']
+        self.base_scheduler.load_state_dict(state_dict["base_scheduler"])
+        self.current_cycle = state_dict["current_cycle"]
+        self.step_in_cycle = state_dict["step_in_cycle"]

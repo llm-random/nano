@@ -70,9 +70,7 @@ class Residual(nn.Module):
             }
 
     @staticmethod
-    def calculate_metrics(
-        update_norms_list: torch.Tensor, residual_norms_list: torch.Tensor
-    ):
+    def calculate_metrics(update_norms_list: torch.Tensor, residual_norms_list: torch.Tensor):
         update_norms_concat = torch.cat(update_norms_list)
         residual_norms_concat = torch.cat(residual_norms_list)
 
@@ -384,9 +382,7 @@ class RoPEAttention(nn.Module):
 
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
-        attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=True
-        )
+        attention_output = self.attention_mechanism(query=q, key=k, value=v, causal=True)
 
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
 
@@ -411,20 +407,14 @@ class RoPE(nn.Module):
         self.register_freqs()
 
     def register_freqs(self):
-        angle_exponents = (
-            torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
-        )
+        angle_exponents = torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
         angles = 1.0 / torch.pow(self.base, angle_exponents).reshape(1, -1)
         if self.apply_freq_scaling:
             angles = self.scale_freqs(angles)
 
         angle_per_token = angles * torch.arange(0, self.length).reshape(-1, 1)
-        self.register_buffer(
-            "sin", torch.sin(angle_per_token).repeat(1, 2), persistent=False
-        )
-        self.register_buffer(
-            "cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False
-        )
+        self.register_buffer("sin", torch.sin(angle_per_token).repeat(1, 2), persistent=False)
+        self.register_buffer("cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False)
 
     def scale_freqs(self, freqs, factor=32):
         # factor = `8` in the original implementation according to HuggingFace
