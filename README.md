@@ -1,5 +1,16 @@
 # Nano
 
+# Running Experiments
+Local:
+```bash
+source venv/bin/activate && python3 main.py +experiment=your_config
+```
+
+Cluster:
+```bash
+sbatch main.py +experiment=your_config
+```
+
 # FAQ
 1. Why state of model, optim, scheduler is separated from other state parameters?
 - We want to start metric_logger ASAP, loading model's distributed checkpoint forces us to create model before loading weights.
