@@ -1,0 +1,79 @@
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model/llama@_here_: projected_1B
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+  # dmodel: 448 # 10
+  # dff: 1728
+  dmodel: 960 # 30
+  dff: 3840
+  # dmodel: 1344 # 50
+  # dff: 5376
+  # dmodel: 1728 # 75
+  # dff: 6912
+  
+
+trainer:
+  gradient_accumulation_steps: 8
+  # gradient_accumulation_steps: 4
+  ^n_steps: 
+    - 2048 # 1B tokens
+    # - 4096
+    # - 6144
+    # - 8192
+    # - 12288
+    # - 16384
+
+  # learning_rate: 12 # optimal 10%
+  learning_rate: 13 # optimal 30%
+  # learning_rate: 14 # optimal 1B 50%
+  # learning_rate: 15 # optimal 75%
+  # learning_rate: 14 # optimal for randomi 50%
+
+  scheduler:
+    warmup_steps: 40
+
+  checkpoint:
+   load:
+    type: huggingface
+    path: "meta-llama/Llama-3.2-1B"
+   save:  
+    type: nano
+    path: ??? # CHANGE
+
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_1
+      - projected_compression
+      # - ta10b
+      # - 10p
+      - 30p
+      # - 50p
+      # - magnitude
+      # - randomi
+  
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:4
+    time: "0-24:00:00"
+
+
+apply_functions:
+  - _target_: src.projected_compression.compression.init_compression
+    _partial_: true
+    dimensions_importances_path: ??? # CHANGE
+    target_dmodel: ${common.dmodel}
+    target_dff: ${common.dff}
