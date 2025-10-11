@@ -7,6 +7,29 @@ from torch.optim.lr_scheduler import (
 )
 
 
+def _resolve_warmup(n_steps, warmup_fraction=None, warmup_steps=None):
+    """
+    Resolve warmup parameters with priority: warmup_fraction > warmup_steps.
+
+    Args:
+        n_steps: Total number of steps
+        warmup_fraction: Fraction of n_steps for warmup (optional)
+        warmup_steps: Absolute number of warmup steps (optional)
+
+    Returns:
+        tuple: (warmup_fraction, warmup_steps)
+    """
+    if warmup_fraction is not None:
+        # warmup_fraction has priority
+        return warmup_fraction, int(n_steps * warmup_fraction)
+    elif warmup_steps is not None:
+        # Use warmup_steps if warmup_fraction not specified
+        return warmup_steps / n_steps if n_steps > 0 else 0.0, warmup_steps
+    else:
+        # Both are None, default to no warmup
+        return 0.0, 0
+
+
 class LinearWarmupLR(_LRScheduler):
     """
     Linear warmup scheduler that starts from 0 (not just near 0).
@@ -24,7 +47,8 @@ class LinearWarmupLR(_LRScheduler):
             return self.base_lrs
         else:
             return [
-                base_lr * self.last_epoch / self.total_iters for base_lr in self.base_lrs
+                base_lr * self.last_epoch / self.total_iters
+                for base_lr in self.base_lrs
             ]
 
 
@@ -37,7 +61,13 @@ class CosineScheduler(SequentialLR):
     """
 
     def __init__(
-        self, optimizer, n_steps, final_lr_fraction=0, warmup_fraction=0.0, warmup_steps=None, last_epoch=-1
+        self,
+        optimizer,
+        n_steps,
+        final_lr_fraction=0,
+        warmup_fraction=0.0,
+        warmup_steps=None,
+        last_epoch=-1,
     ):
         """
         Args:
@@ -51,13 +81,10 @@ class CosineScheduler(SequentialLR):
         self.n_steps = n_steps
         self.final_lr_fraction = final_lr_fraction
 
-        # If warmup_fraction is specified (not default), use it; otherwise use warmup_steps
-        if warmup_fraction is not None:
-            self.warmup_fraction = warmup_fraction
-            self.warmup_steps = int(n_steps * warmup_fraction)
-        else:
-            self.warmup_steps = warmup_steps
-            self.warmup_fraction = warmup_steps / n_steps if n_steps > 0 else 0.0
+        # Resolve warmup parameters
+        self.warmup_fraction, self.warmup_steps = _resolve_warmup(
+            n_steps, warmup_fraction, warmup_steps
+        )
 
         # Get base learning rate for eta_min calculation
         optimizer_lr = optimizer.param_groups[0]["lr"]
@@ -129,14 +156,10 @@ class WSDScheduler(SequentialLR):
         self.decay_fraction = decay_fraction
         self.final_lr_fraction = final_lr_fraction
 
-        # If warmup_fraction is specified (not default), use it; otherwise use warmup_steps
-        if warmup_fraction is not None:
-            self.warmup_fraction = warmup_fraction
-            self.warmup_steps = int(n_steps * warmup_fraction)
-        else:
-            self.warmup_steps = warmup_steps
-            self.warmup_fraction = warmup_steps / n_steps if n_steps > 0 else 0.0
-
+        # Resolve warmup parameters
+        self.warmup_fraction, self.warmup_steps = _resolve_warmup(
+            n_steps, warmup_fraction, warmup_steps
+        )
 
         self.decay_steps = int(n_steps * decay_fraction)
         self.stable_steps = n_steps - self.warmup_steps - self.decay_steps
@@ -195,8 +218,14 @@ class RepeatedScheduler(_LRScheduler):
     Repeats a base scheduler for multiple cycles.
     After each cycle completes, the scheduler resets to its initial state.
 
-    Allows overriding the first cycle's warmup with a longer warmup_steps.
-    Subsequent cycles use the base scheduler's own warmup_fraction.
+    Allows overriding the first cycle's warmup with custom warmup_fraction or warmup_steps.
+    Subsequent cycles use the base scheduler's own warmup parameters.
+
+    Warmup priority (highest to lowest):
+    1. RepeatedScheduler.warmup_fraction
+    2. RepeatedScheduler.warmup_steps
+    3. base_scheduler.warmup_fraction (from base_scheduler_kwargs)
+    4. base_scheduler.warmup_steps (from base_scheduler_kwargs)
 
     Note: This uses a delegation pattern rather than SequentialLR because we need
     to reset the base scheduler at cycle boundaries, which SequentialLR doesn't support
@@ -210,7 +239,7 @@ class RepeatedScheduler(_LRScheduler):
         num_cycles,
         n_steps,
         warmup_fraction=None,
-        warmup_steps = None,
+        warmup_steps=None,
         last_epoch=-1,
         **base_scheduler_kwargs
     ):
@@ -221,6 +250,7 @@ class RepeatedScheduler(_LRScheduler):
             num_cycles: Number of times to repeat the scheduler
             n_steps: Total number of training steps
             warmup_fraction: Override warmup fraction for first cycle only (default: None, uses base scheduler's warmup_fraction)
+            warmup_steps: Override warmup steps for first cycle only (default: None, uses base scheduler's warmup_steps)
             last_epoch: Current step (default: -1)
             **base_scheduler_kwargs: Arguments to pass to base_scheduler_factory (e.g., warmup_fraction, decay_fraction)
         """
@@ -228,27 +258,63 @@ class RepeatedScheduler(_LRScheduler):
         self.n_steps = n_steps
         self.base_scheduler_kwargs = base_scheduler_kwargs
 
-        # Get base scheduler's warmup_fraction
-        base_warmup_fraction = base_scheduler_kwargs.get('warmup_fraction', 0.0)
+        # Priority: repeated.warmup_fraction > repeated.warmup_steps > base.warmup_fraction > base.warmup_steps
+        base_warmup_fraction = base_scheduler_kwargs.get("warmup_fraction", None)
+        base_warmup_steps = base_scheduler_kwargs.get("warmup_steps", None)
 
-        # Use base warmup_fraction if repeated warmup_fraction is not specified
-        self.warmup_fraction = warmup_fraction if warmup_fraction is not None else base_warmup_fraction
+        # Resolve warmup for first cycle (per cycle, not total)
+        cycle_n_steps = n_steps // num_cycles
 
-        # Calculate cycle steps: (n_steps - repeated_warmup + base_warmup) // num_cycles
-        # This accounts for replacing base warmup with repeated warmup in first cycle
-        base_warmup_steps = int((n_steps / num_cycles) * base_warmup_fraction)
-        warmup_steps = int((n_steps / num_cycles) * self.warmup_fraction)
-        cycle_steps = (n_steps - warmup_steps + base_warmup_steps) // num_cycles
+        # Determine what to use based on priority
+        if warmup_fraction is not None:
+            # Use repeated warmup_fraction
+            first_cycle_warmup_fraction = warmup_fraction
+            first_cycle_warmup_steps = int(cycle_n_steps * warmup_fraction)
+        elif warmup_steps is not None:
+            # Use repeated warmup_steps
+            first_cycle_warmup_steps = warmup_steps
+            first_cycle_warmup_fraction = (
+                warmup_steps / cycle_n_steps if cycle_n_steps > 0 else 0.0
+            )
+        elif base_warmup_fraction is not None:
+            # Use base warmup_fraction
+            first_cycle_warmup_fraction = base_warmup_fraction
+            first_cycle_warmup_steps = int(cycle_n_steps * base_warmup_fraction)
+        elif base_warmup_steps is not None:
+            # Use base warmup_steps
+            first_cycle_warmup_steps = base_warmup_steps
+            first_cycle_warmup_fraction = (
+                base_warmup_steps / cycle_n_steps if cycle_n_steps > 0 else 0.0
+            )
+        else:
+            # No warmup specified anywhere
+            first_cycle_warmup_fraction = 0.0
+            first_cycle_warmup_steps = 0
+
+        self.warmup_fraction = first_cycle_warmup_fraction
+        self.warmup_steps = first_cycle_warmup_steps
+
+        # For base scheduler, use its own warmup parameters (from base_scheduler_kwargs)
+        base_resolved_fraction, base_resolved_steps = _resolve_warmup(
+            cycle_n_steps, base_warmup_fraction, base_warmup_steps
+        )
+
+        # Calculate cycle steps accounting for warmup difference
+        cycle_steps = (
+            n_steps - first_cycle_warmup_steps + base_resolved_steps
+        ) // num_cycles
 
         # Create base scheduler for first cycle
         first_cycle_kwargs = dict(base_scheduler_kwargs)
-        if self.warmup_fraction != base_warmup_fraction:
-            # Override base scheduler's warmup with RepeatedScheduler's warmup for first cycle
-            first_cycle_kwargs['warmup_fraction'] = self.warmup_fraction
+        # Override with resolved warmup for first cycle
+        first_cycle_kwargs["warmup_fraction"] = first_cycle_warmup_fraction
+        first_cycle_kwargs["warmup_steps"] = (
+            None  # Clear warmup_steps since we're using fraction
+        )
 
         self.base_scheduler = base_scheduler_factory(
             optimizer=optimizer,
-            n_steps=cycle_steps + warmup_steps - base_warmup_steps,
+            n_steps=cycle_steps + first_cycle_warmup_steps - base_resolved_steps,
             **first_cycle_kwargs
         )
 
@@ -264,9 +330,8 @@ class RepeatedScheduler(_LRScheduler):
         self.current_cycle = 0
         self.step_in_cycle = 0
         self.base_scheduler_factory = base_scheduler_factory
-        self.base_warmup_fraction = base_warmup_fraction
-        self.warmup_steps = warmup_steps
-        self.base_warmup_steps = base_warmup_steps
+        self.base_warmup_fraction = base_resolved_fraction
+        self.base_warmup_steps = base_resolved_steps
 
         super().__init__(optimizer, last_epoch)
 
@@ -285,9 +350,13 @@ class RepeatedScheduler(_LRScheduler):
 
         # Check if cycle complete
         # First cycle length is adjusted for the custom warmup
-        first_cycle_length = self.cycle_steps + self.warmup_steps - self.base_warmup_steps
+        first_cycle_length = (
+            self.cycle_steps + self.warmup_steps - self.base_warmup_steps
+        )
 
-        cycle_length = first_cycle_length if self.current_cycle == 0 else self.cycle_steps
+        cycle_length = (
+            first_cycle_length if self.current_cycle == 0 else self.cycle_steps
+        )
 
         if self.step_in_cycle >= cycle_length:
             self.current_cycle += 1
