@@ -178,6 +178,15 @@ class CosineScheduler(SequentialLR):
         """Override step to ignore epoch parameter for compatibility with nested SequentialLR"""
         super().step()
 
+    def print_config(self):
+        """Print scheduler configuration for debugging"""
+        print(f"CosineScheduler Configuration:")
+        print(f"  n_steps: {self.n_steps}")
+        print(f"  warmup_fraction: {self.warmup_fraction}")
+        print(f"  warmup_steps: {self.warmup_steps}")
+        print(f"  cosine_steps: {self.n_steps - self.warmup_steps}")
+        print(f"  final_lr_fraction: {self.final_lr_fraction}")
+
 
 class WSDScheduler(SequentialLR):
     """
@@ -269,6 +278,17 @@ class WSDScheduler(SequentialLR):
         """Override step to ignore epoch parameter for compatibility with nested SequentialLR"""
         super().step()
 
+    def print_config(self):
+        """Print scheduler configuration for debugging"""
+        print(f"WSDScheduler Configuration:")
+        print(f"  n_steps: {self.n_steps}")
+        print(f"  warmup_fraction: {self.warmup_fraction}")
+        print(f"  warmup_steps: {self.warmup_steps}")
+        print(f"  stable_steps: {self.stable_steps}")
+        print(f"  decay_fraction: {self.decay_fraction}")
+        print(f"  decay_steps: {self.decay_steps}")
+        print(f"  final_lr_fraction: {self.final_lr_fraction}")
+
 
 class RepeatedScheduler(_LRScheduler):
     """
@@ -298,7 +318,7 @@ class RepeatedScheduler(_LRScheduler):
         warmup_fraction=None,
         warmup_steps=None,
         last_epoch=-1,
-        **base_scheduler_kwargs
+        **base_scheduler_kwargs,
     ):
         """
         Args:
@@ -389,7 +409,7 @@ class RepeatedScheduler(_LRScheduler):
                 self.base_scheduler = self.base_scheduler_factory(
                     optimizer=self.optimizer,
                     n_steps=self.cycle_n_steps,
-                    **self.base_scheduler_kwargs
+                    **self.base_scheduler_kwargs,
                 )
 
         self.last_epoch = self.base_scheduler.last_epoch
@@ -407,3 +427,26 @@ class RepeatedScheduler(_LRScheduler):
         self.base_scheduler.load_state_dict(state_dict["base_scheduler"])
         self.current_cycle = state_dict["current_cycle"]
         self.step_in_cycle = state_dict["step_in_cycle"]
+
+    def print_config(self):
+        """Print scheduler configuration for debugging"""
+        print(f"RepeatedScheduler Configuration:")
+        print(f"  n_steps: {self.n_steps}")
+        print(f"  num_cycles: {self.num_cycles}")
+        print(f"  current_cycle: {self.current_cycle}")
+        print(f"  step_in_cycle: {self.step_in_cycle}")
+        print(f"  First cycle warmup:")
+        print(f"    warmup_fraction: {self.warmup_fraction}")
+        print(f"    warmup_steps: {self.warmup_steps}")
+        print(f"  Subsequent cycles warmup:")
+        print(f"    base_warmup_fraction: {self.base_warmup_fraction}")
+        print(f"    base_warmup_steps: {self.base_warmup_steps}")
+        print(f"  Cycle parameters:")
+        print(f"    cycle_n_steps: {self.cycle_n_steps}")
+        print(f"    cycle_steps: {self.cycle_steps}")
+        if hasattr(self, "final_lr_fraction"):
+            print(f"  final_lr_fraction: {self.final_lr_fraction}")
+        if hasattr(self, "decay_steps"):
+            print(f"  decay_steps: {self.decay_steps}")
+        if hasattr(self, "stable_steps"):
+            print(f"  stable_steps: {self.stable_steps}")
