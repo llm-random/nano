@@ -202,24 +202,25 @@ class WSDScheduler(SequentialLR):
         self,
         optimizer,
         n_steps,
-        warmup_fraction=0.0,
-        decay_fraction=0.0,
+        warmup_fraction=None,
+        decay_fraction=None,
         final_lr_fraction=0,
         warmup_steps=None,
+        decay_steps=None,
         last_epoch=-1,
     ):
         """
         Args:
             optimizer: Wrapped optimizer
             n_steps: Total number of training steps
-            warmup_fraction: Fraction of n_steps for warmup (default: 0.0)
-            decay_fraction: Fraction of n_steps for decay (default: 0.0)
+            warmup_fraction: Fraction of n_steps for warmup (optional, default: None)
+            decay_fraction: Fraction of n_steps for decay (optional, default: None)
             final_lr_fraction: Final learning rate as a fraction of base_lr (default: 0)
             warmup_steps: Absolute number of warmup steps (optional, used only if warmup_fraction is not specified)
+            decay_steps: Absolute number of decay steps (optional, used only if decay_fraction is not specified)
             last_epoch: Current step count, -1 means start from beginning (default: -1)
         """
         self.n_steps = n_steps
-        self.decay_fraction = decay_fraction
         self.final_lr_fraction = final_lr_fraction
 
         # Resolve warmup parameters
@@ -227,7 +228,11 @@ class WSDScheduler(SequentialLR):
             n_steps, warmup_fraction, warmup_steps
         )
 
-        self.decay_steps = int(n_steps * decay_fraction)
+        # Resolve decay parameters
+        self.decay_fraction, self.decay_steps = _resolve_warmup(
+            n_steps, decay_fraction, decay_steps
+        )
+
         self.stable_steps = n_steps - self.warmup_steps - self.decay_steps
 
         schedulers = []
