@@ -5,8 +5,9 @@ trainer:
   scheduler:
     _partial_: true
     _target_: src.plasticity.schedulers.RepeatedScheduler
-    num_cycles: 5
-    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
+    n_steps: ${trainer.n_steps}
+    num_cycles: 3
+    warmup_fraction: 0.1
     base_scheduler_factory:
       _partial_: true
       _target_: src.plasticity.schedulers.CosineScheduler

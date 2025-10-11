@@ -5,6 +5,7 @@ trainer:
   scheduler:
     _partial_: true
     _target_: src.plasticity.schedulers.CosineScheduler
+    warmup_fraction: 0.1
     final_lr_fraction: 0.1
     n_steps: ${trainer.n_steps}
 
