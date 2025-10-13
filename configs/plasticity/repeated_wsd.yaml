@@ -7,7 +7,7 @@ trainer:
     _target_: src.plasticity.schedulers.RepeatedScheduler
     n_steps: ${trainer.n_steps}
     num_cycles: 3
-    warmup_fraction: 0.1
+    warmup_fraction: 0.01
     base_scheduler_factory:
       _partial_: true
       _target_: src.plasticity.schedulers.WSDScheduler

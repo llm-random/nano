@@ -1,0 +1,108 @@
+
+common:
+  _target_: src.definitions.Common
+  dmodel: 768
+  dff: 3072
+  datt: 768
+  n_blocks: 12
+  q_heads: 12
+  kv_heads: 6
+  vocab_size: 128256
+  sequence_length: 256
+  head_norm: true
+  init_scale: 0.1
+  init_type: truncated_normal_fixed
+  model_type: gpt
+
+model:
+  _target_: src.plasticity.model.LLM
+
+  embedding:
+    _target_: src.plasticity.model.TransformerEmbedding
+    vocab_size: ${common.vocab_size}
+    dmodel: ${common.dmodel}
+    init_fn:
+      _target_: src.plasticity.model.trunc_normal_
+      _partial_: true
+
+  encoder:
+    _target_: src.plasticity.model.TransformerTower
+    n_blocks: ${common.n_blocks}
+    block_fn:
+      _target_: src.plasticity.model.TransformerBlock
+      _partial_: true
+      norm_fn:
+        _target_: torch.nn.modules.normalization.RMSNorm
+        _partial_: true
+        normalized_shape: ${common.dmodel}
+
+      attention_fn:
+        _target_: src.plasticity.model.RoPEAttention
+        _partial_: true
+        dmodel: ${common.dmodel}
+        q_heads: ${common.q_heads}
+        kv_heads: ${common.kv_heads}
+        seq_len: ${common.sequence_length}
+        q_proj_fn:
+          _target_: src.plasticity.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${common.datt}
+          partial_init_fn:
+            _target_: src.plasticity.model.truncated_normal_init
+            _partial_: true
+            scale: ${common.init_scale}
+
+        k_proj_fn:
+          _target_: src.plasticity.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
+          partial_init_fn:
+            _target_: src.plasticity.model.truncated_normal_init
+            _partial_: true
+            scale: ${common.init_scale}
+
+        v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
+
+        o_proj_fn:
+          _target_: src.plasticity.model.Linear
+          _partial_: true
+          in_features: ${common.datt}
+          out_features: ${common.dmodel}
+          partial_init_fn:
+            _target_: src.plasticity.model.truncated_normal_init
+            _partial_: true
+            scale: ${common.init_scale}
+
+        rope_base: 500000
+        rope_scale_freqs: true
+
+      ff_layer_fn:
+        _target_: src.plasticity.model.LlamaFeedForward
+        _partial_: true
+        dmodel: ${common.dmodel}
+        dff: ${common.dff}
+        linear_fn:
+          _target_: src.plasticity.model.Linear
+          _partial_: true
+          partial_init_fn:
+            _target_: src.plasticity.model.truncated_normal_init
+            _partial_: true
+            scale: ${common.init_scale}
+
+  head:
+    _target_: src.plasticity.model.TransformerHead
+    linear_fn:
+      _target_: src.plasticity.model.Linear
+      _partial_: true
+      in_features: ${common.dmodel}
+      out_features: ${common.vocab_size}
+      partial_init_fn:
+        _target_: src.plasticity.model.truncated_normal_init
+        _partial_: true
+        scale: ${common.init_scale}
+    norm_fn:
+      _target_: torch.nn.modules.normalization.RMSNorm
+      _partial_: true
+      normalized_shape: ${common.dmodel}

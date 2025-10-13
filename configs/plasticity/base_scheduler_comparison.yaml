@@ -7,13 +7,13 @@ defaults:
   - ../_misc@_here_: default
 
 common:
-  sequence_length: 256
-  batch_size: 256
+  sequence_length: 512
+  batch_size: 512
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 1000
-  learning_rate: 1e-3
+  n_steps: 10_000
+  ^learning_rate: [2e-4, 5e-4, 1e-3, 2e-3]
 
 infrastructure:
   metric_logger:
@@ -23,5 +23,5 @@ infrastructure:
       - scheduler_comparison
 
   slurm:
-    gres: gpu:1
+    gres: gpu:2
     time: "02:00:00"
