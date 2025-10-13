@@ -322,28 +322,31 @@ class RepeatedScheduler(_LRScheduler):
         n_steps,
         warmup_fraction=None,
         warmup_steps=None,
+        final_lr_fraction=None,  # Not used - only for config compatibility
         last_epoch=-1,
-        **base_scheduler_kwargs,
     ):
         """
         Args:
             optimizer: Wrapped optimizer
-            base_scheduler_factory: Scheduler class or factory that creates a scheduler
+            base_scheduler_factory: Scheduler class or factory (partial or lambda) that creates a scheduler
             num_cycles: Number of times to repeat the scheduler
             n_steps: Total number of training steps
             warmup_fraction: Override warmup fraction for first cycle only (default: None, uses base scheduler's warmup_fraction)
             warmup_steps: Override warmup steps for first cycle only (default: None, uses base scheduler's warmup_steps)
+            final_lr_fraction: Not used by RepeatedScheduler - only here for config compatibility (default: None)
             last_epoch: Current step (default: -1)
-            **base_scheduler_kwargs: Arguments to pass to base_scheduler_factory (e.g., warmup_fraction, decay_fraction)
         """
         self.num_cycles = num_cycles
         self.n_steps = n_steps
-        self.base_scheduler_kwargs = base_scheduler_kwargs
         self.base_scheduler_factory = base_scheduler_factory
 
-        # Extract warmup parameters from base scheduler kwargs
-        base_warmup_fraction = base_scheduler_kwargs.get("warmup_fraction", None)
-        base_warmup_steps = base_scheduler_kwargs.get("warmup_steps", None)
+        # Extract warmup parameters from base scheduler factory (if it's a partial)
+        base_warmup_fraction = None
+        base_warmup_steps = None
+        if hasattr(base_scheduler_factory, 'keywords'):
+            # It's a functools.partial
+            base_warmup_fraction = base_scheduler_factory.keywords.get("warmup_fraction", None)
+            base_warmup_steps = base_scheduler_factory.keywords.get("warmup_steps", None)
 
         # Resolve warmup for first cycle with 4-level priority
         (
@@ -361,18 +364,18 @@ class RepeatedScheduler(_LRScheduler):
             base_warmup_steps,
         )
 
-        # Calculate cycle parameters
-        self.cycle_steps = (
-            self.cycle_n_steps + self.warmup_steps - self.base_warmup_steps
-        )
+        # 1st cycle may have more steps
+        self.current_cycle_steps = self.cycle_n_steps + self.warmup_steps - self.base_warmup_steps
+        # to make sure the whole training has self.n_steps
+        self.current_cycle_steps = self.n_steps - ((self.num_cycles - 1) * self.cycle_n_steps) 
 
-        # Create first cycle's base scheduler with resolved warmup
-        first_cycle_kwargs = dict(base_scheduler_kwargs)
-        first_cycle_kwargs["warmup_fraction"] = self.warmup_fraction
-        first_cycle_kwargs["warmup_steps"] = None  # Use fraction instead
 
+        # Create first cycle's base scheduler
+        # Override warmup, use longer steps
         self.base_scheduler = base_scheduler_factory(
-            optimizer=optimizer, n_steps=self.cycle_steps, **first_cycle_kwargs
+            optimizer=optimizer,
+            n_steps=self.current_cycle_steps,
+            warmup_steps=self.warmup_steps,
         )
 
         # Store attributes from base scheduler for external access
@@ -404,18 +407,28 @@ class RepeatedScheduler(_LRScheduler):
 
         # Check if cycle complete
 
-        if self.step_in_cycle >= self.cycle_steps:
+        if self.step_in_cycle >= self.current_cycle_steps:
+            # after 1st cycle all cycles have equal number of steps
+            self.current_cycle_steps = self.cycle_n_steps
             self.current_cycle += 1
             self.step_in_cycle = 0
 
             # Reset for next cycle (if not last)
             if self.current_cycle < self.num_cycles:
-                # Reset base scheduler with its original warmup_fraction
-                self.base_scheduler = self.base_scheduler_factory(
-                    optimizer=self.optimizer,
-                    n_steps=self.cycle_n_steps,
-                    **self.base_scheduler_kwargs,
-                )
+                # Reset base scheduler with base warmup params
+                try:
+                    # Try passing warmup_steps (works for lambda factories)
+                    self.base_scheduler = self.base_scheduler_factory(
+                        optimizer=self.optimizer,
+                        n_steps=self.cycle_n_steps,
+                        warmup_steps=self.base_warmup_steps,
+                    )
+                except TypeError:
+                    # Factory doesn't accept warmup_steps, just call with optimizer and n_steps
+                    self.base_scheduler = self.base_scheduler_factory(
+                        optimizer=self.optimizer,
+                        n_steps=self.cycle_n_steps,
+                    )
 
         self.last_epoch = self.base_scheduler.last_epoch
 
@@ -432,26 +445,3 @@ class RepeatedScheduler(_LRScheduler):
         self.base_scheduler.load_state_dict(state_dict["base_scheduler"])
         self.current_cycle = state_dict["current_cycle"]
         self.step_in_cycle = state_dict["step_in_cycle"]
-
-    def print_config(self):
-        """Print scheduler configuration for debugging"""
-        print(f"RepeatedScheduler Configuration:")
-        print(f"  n_steps: {self.n_steps}")
-        print(f"  num_cycles: {self.num_cycles}")
-        print(f"  current_cycle: {self.current_cycle}")
-        print(f"  step_in_cycle: {self.step_in_cycle}")
-        print(f"  First cycle warmup:")
-        print(f"    warmup_fraction: {self.warmup_fraction}")
-        print(f"    warmup_steps: {self.warmup_steps}")
-        print(f"  Subsequent cycles warmup:")
-        print(f"    base_warmup_fraction: {self.base_warmup_fraction}")
-        print(f"    base_warmup_steps: {self.base_warmup_steps}")
-        print(f"  Cycle parameters:")
-        print(f"    cycle_n_steps: {self.cycle_n_steps}")
-        print(f"    cycle_steps: {self.cycle_steps}")
-        if hasattr(self, "final_lr_fraction"):
-            print(f"  final_lr_fraction: {self.final_lr_fraction}")
-        if hasattr(self, "decay_steps"):
-            print(f"  decay_steps: {self.decay_steps}")
-        if hasattr(self, "stable_steps"):
-            print(f"  stable_steps: {self.stable_steps}")

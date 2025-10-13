@@ -18,18 +18,19 @@ common:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 20
+  n_steps: 100
   learning_rate: 1e-3
   scheduler:
     _partial_: true
     _target_: src.plasticity.schedulers.RepeatedScheduler
     n_steps: ${trainer.n_steps}
     num_cycles: 3
-    warmup_fraction: 0.1
+    warmup_steps: 30
     base_scheduler_factory:
       _partial_: true
       _target_: src.plasticity.schedulers.WSDScheduler
-      decay_fraction: 0.1
+      warmup_steps: 10
+      decay_steps: 5
       final_lr_fraction: 0
 
 infrastructure:
@@ -38,5 +39,6 @@ infrastructure:
     type: neptune
     tags:
       - nano
+      - plasticity
       - remove
       - local_debug
