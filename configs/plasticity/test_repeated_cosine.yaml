@@ -25,17 +25,16 @@ trainer:
     _target_: src.plasticity.schedulers.RepeatedScheduler
     n_steps: ${trainer.n_steps}
     num_cycles: 3
-    warmup_steps: 15
+    warmup_steps: 20
     base_scheduler_factory:
       _partial_: true
-      _target_: src.plasticity.schedulers.WSDScheduler
-      warmup_steps: 2
-      decay_steps: 10
-      final_lr_fraction: 0
+      _target_: src.plasticity.schedulers.CosineScheduler
+      warmup_steps: 0
+      final_lr_fraction: 0.1
 
 infrastructure:
   metric_logger:
-    name: local_debug_repeated
+    name: local_debug_repeated_cosine
     type: neptune
     tags:
       - nano

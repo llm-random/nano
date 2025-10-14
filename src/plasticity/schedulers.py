@@ -121,8 +121,8 @@ class CosineScheduler(SequentialLR):
         self,
         optimizer,
         n_steps,
-        final_lr_fraction=0,
-        warmup_fraction=0.0,
+        final_lr_fraction=0.1,
+        warmup_fraction=None,
         warmup_steps=None,
         last_epoch=-1,
     ):
@@ -144,7 +144,11 @@ class CosineScheduler(SequentialLR):
         )
 
         # Get base learning rate for eta_min calculation
-        optimizer_lr = optimizer.param_groups[0]["lr"]
+        # this is is a fix for repeated scheduler
+        if "initial_lr" in optimizer.param_groups[0]:
+            initial_lr = optimizer.param_groups[0]["initial_lr"]
+        else:
+            initial_lr = optimizer.param_groups[0]["lr"]
 
         schedulers = []
         milestones = []
@@ -163,7 +167,7 @@ class CosineScheduler(SequentialLR):
         cosine_scheduler = CosineAnnealingLR(
             optimizer,
             T_max=cosine_steps,
-            eta_min=final_lr_fraction * optimizer_lr,
+            eta_min=final_lr_fraction * initial_lr,
         )
         schedulers.append(cosine_scheduler)
 
