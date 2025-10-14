@@ -2,6 +2,7 @@ defaults:
   - base_scheduler_comparison
 
 trainer:
+  n_steps: 11_000
   scheduler:
     _partial_: true
     _target_: src.plasticity.schedulers.RepeatedScheduler
@@ -17,4 +18,4 @@ trainer:
 
 infrastructure:
   metric_logger:
-    name: Plasticity_Repeated_WSD
+    name: Plasticity_Repeated_Long_WSD
