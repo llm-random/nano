@@ -415,8 +415,6 @@ class RepeatedScheduler(_LRScheduler):
         )
 
         # Store attributes from base scheduler for external access
-        if hasattr(self.base_scheduler, "final_lr_fraction"):
-            self.final_lr_fraction = self.base_scheduler.final_lr_fraction
         if hasattr(self.base_scheduler, "decay_steps"):
             self.decay_steps = self.base_scheduler.decay_steps
         if hasattr(self.base_scheduler, "stable_steps"):
@@ -457,27 +455,19 @@ class RepeatedScheduler(_LRScheduler):
                 # Check if this is the final cycle and we have a final_lr_fraction override
                 is_final_cycle = self.current_cycle == self.num_cycles - 1
 
-                # Reset base scheduler with base warmup params
-                try:
-                    # Try passing warmup_steps, starting_lr, and final_lr_fraction (works for lambda factories)
-                    kwargs = {
-                        "optimizer": self.optimizer,
-                        "n_steps": self.cycle_n_steps,
-                        "warmup_steps": self.base_warmup_steps,
-                        "starting_lr": cycle_final_lr,  # Start next cycle from where this one ended
-                    }
+                # Try passing warmup_steps, starting_lr, and final_lr_fraction (works for lambda factories)
+                kwargs = {
+                    "optimizer": self.optimizer,
+                    "n_steps": self.cycle_n_steps,
+                    "warmup_steps": self.base_warmup_steps,
+                    "starting_lr": cycle_final_lr,  # Start next cycle from where this one ended
+                }
 
-                    # Override final_lr_fraction for the final cycle if specified
-                    if is_final_cycle and self.final_lr_fraction is not None:
-                        kwargs["final_lr_fraction"] = self.final_lr_fraction
+                # Override final_lr_fraction for the final cycle if specified
+                if is_final_cycle and self.final_lr_fraction is not None:
+                    kwargs["final_lr_fraction"] = self.final_lr_fraction
 
-                    self.base_scheduler = self.base_scheduler_factory(**kwargs)
-                except TypeError:
-                    # Factory doesn't accept some parameters, try minimal arguments
-                    self.base_scheduler = self.base_scheduler_factory(
-                        optimizer=self.optimizer,
-                        n_steps=self.cycle_n_steps,
-                    )
+                self.base_scheduler = self.base_scheduler_factory(**kwargs)
 
         self.last_epoch = self.base_scheduler.last_epoch
 
