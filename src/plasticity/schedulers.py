@@ -89,22 +89,32 @@ def _resolve_repeated_warmup(
 
 class LinearWarmupLR(_LRScheduler):
     """
-    Linear warmup scheduler that starts from 0 (not just near 0).
+    Linear warmup scheduler that starts from a specified starting_lr (or 0 by default).
     PyTorch's LinearLR doesn't allow start_factor=0, so we need a custom implementation.
     """
 
-    def __init__(self, optimizer, total_iters, last_epoch=-1):
+    def __init__(self, optimizer, total_iters, last_epoch=-1, starting_lr=None):
+        """
+        Args:
+            optimizer: Wrapped optimizer
+            total_iters: Number of warmup steps
+            last_epoch: Current step count, -1 means start from beginning (default: -1)
+            starting_lr: Starting learning rate (default: None, which means 0.0)
+        """
         self.total_iters = total_iters
+        self.starting_lr = starting_lr if starting_lr is not None else 0.0
         super().__init__(optimizer, last_epoch)
 
     def get_lr(self):
         if self.last_epoch == 0:
-            return [0.0 for _ in self.base_lrs]
+            return [self.starting_lr for _ in self.base_lrs]
         elif self.last_epoch >= self.total_iters:
             return self.base_lrs
         else:
+            # Linear interpolation from starting_lr to base_lr
+            progress = self.last_epoch / self.total_iters
             return [
-                base_lr * self.last_epoch / self.total_iters
+                self.starting_lr + (base_lr - self.starting_lr) * progress
                 for base_lr in self.base_lrs
             ]
 
@@ -124,6 +134,7 @@ class CosineScheduler(SequentialLR):
         final_lr_fraction=0.1,
         warmup_fraction=None,
         warmup_steps=None,
+        starting_lr=None,
         last_epoch=-1,
     ):
         """
@@ -133,6 +144,7 @@ class CosineScheduler(SequentialLR):
             final_lr_fraction: Final learning rate as a fraction of base_lr (default: 0)
             warmup_fraction: Fraction of n_steps for warmup (default: 0.0)
             warmup_steps: Absolute number of warmup steps (optional, used only if warmup_fraction is not specified)
+            starting_lr: Starting learning rate for warmup (default: None, which means 0.0)
             last_epoch: Current step count, -1 means start from beginning (default: -1)
         """
         self.n_steps = n_steps
@@ -154,10 +166,11 @@ class CosineScheduler(SequentialLR):
         milestones = []
 
         if self.warmup_steps > 0:
-            # Warmup phase: linear increase from 0 to base_lr
+            # Warmup phase: linear increase from starting_lr (or 0) to base_lr
             warmup_scheduler = LinearWarmupLR(
                 optimizer,
                 total_iters=self.warmup_steps,
+                starting_lr=starting_lr,
             )
             schedulers.append(warmup_scheduler)
             milestones.append(self.warmup_steps)
@@ -211,6 +224,7 @@ class WSDScheduler(SequentialLR):
         final_lr_fraction=0,
         warmup_steps=None,
         decay_steps=None,
+        starting_lr=None,
         last_epoch=-1,
     ):
         """
@@ -222,6 +236,7 @@ class WSDScheduler(SequentialLR):
             final_lr_fraction: Final learning rate as a fraction of base_lr (default: 0)
             warmup_steps: Absolute number of warmup steps (optional, used only if warmup_fraction is not specified)
             decay_steps: Absolute number of decay steps (optional, used only if decay_fraction is not specified)
+            starting_lr: Starting learning rate for warmup (default: None, which means 0.0)
             last_epoch: Current step count, -1 means start from beginning (default: -1)
         """
         self.n_steps = n_steps
@@ -243,11 +258,12 @@ class WSDScheduler(SequentialLR):
         milestones = []
         current_step = 0
 
-        # Warmup phase: linear increase from 0 to base_lr
+        # Warmup phase: linear increase from starting_lr (or 0) to base_lr
         if self.warmup_steps > 0:
             warmup_scheduler = LinearWarmupLR(
                 optimizer,
                 total_iters=self.warmup_steps,
+                starting_lr=starting_lr,
             )
             schedulers.append(warmup_scheduler)
             current_step += self.warmup_steps
@@ -307,6 +323,10 @@ class RepeatedScheduler(_LRScheduler):
     Allows overriding the first cycle's warmup with custom warmup_fraction or warmup_steps.
     Subsequent cycles use the base scheduler's own warmup parameters.
 
+    Warmup behavior across cycles:
+    - First cycle: warmup starts from starting_lr (default 0.0 if not specified)
+    - Subsequent cycles: warmup starts from where the previous cycle ended
+
     Warmup priority (highest to lowest):
     1. RepeatedScheduler.warmup_fraction
     2. RepeatedScheduler.warmup_steps
@@ -326,7 +346,8 @@ class RepeatedScheduler(_LRScheduler):
         n_steps,
         warmup_fraction=None,
         warmup_steps=None,
-        final_lr_fraction=None,  # Not used - only for config compatibility
+        final_lr_fraction=None,
+        starting_lr=None,
         last_epoch=-1,
     ):
         """
@@ -337,20 +358,27 @@ class RepeatedScheduler(_LRScheduler):
             n_steps: Total number of training steps
             warmup_fraction: Override warmup fraction for first cycle only (default: None, uses base scheduler's warmup_fraction)
             warmup_steps: Override warmup steps for first cycle only (default: None, uses base scheduler's warmup_steps)
-            final_lr_fraction: Not used by RepeatedScheduler - only here for config compatibility (default: None)
+            final_lr_fraction: Override final_lr_fraction for the final cycle only (default: None, uses base scheduler's final_lr_fraction)
+            starting_lr: Starting learning rate for warmup in first cycle (default: None, which means 0.0)
             last_epoch: Current step (default: -1)
         """
         self.num_cycles = num_cycles
         self.n_steps = n_steps
         self.base_scheduler_factory = base_scheduler_factory
+        self.final_lr_fraction = final_lr_fraction
+        self.starting_lr = starting_lr  # Store for first cycle
 
         # Extract warmup parameters from base scheduler factory (if it's a partial)
         base_warmup_fraction = None
         base_warmup_steps = None
-        if hasattr(base_scheduler_factory, 'keywords'):
+        if hasattr(base_scheduler_factory, "keywords"):
             # It's a functools.partial
-            base_warmup_fraction = base_scheduler_factory.keywords.get("warmup_fraction", None)
-            base_warmup_steps = base_scheduler_factory.keywords.get("warmup_steps", None)
+            base_warmup_fraction = base_scheduler_factory.keywords.get(
+                "warmup_fraction", None
+            )
+            base_warmup_steps = base_scheduler_factory.keywords.get(
+                "warmup_steps", None
+            )
 
         # Resolve warmup for first cycle with 4-level priority
         (
@@ -369,17 +397,21 @@ class RepeatedScheduler(_LRScheduler):
         )
 
         # 1st cycle may have more steps
-        self.current_cycle_steps = self.cycle_n_steps + self.warmup_steps - self.base_warmup_steps
+        self.current_cycle_steps = (
+            self.cycle_n_steps + self.warmup_steps - self.base_warmup_steps
+        )
         # to make sure the whole training has self.n_steps
-        self.current_cycle_steps = self.n_steps - ((self.num_cycles - 1) * self.cycle_n_steps) 
-
+        self.current_cycle_steps = self.n_steps - (
+            (self.num_cycles - 1) * self.cycle_n_steps
+        )
 
         # Create first cycle's base scheduler
-        # Override warmup, use longer steps
+        # Override warmup, use longer steps, and pass starting_lr
         self.base_scheduler = base_scheduler_factory(
             optimizer=optimizer,
             n_steps=self.current_cycle_steps,
             warmup_steps=self.warmup_steps,
+            starting_lr=self.starting_lr,
         )
 
         # Store attributes from base scheduler for external access
@@ -412,6 +444,9 @@ class RepeatedScheduler(_LRScheduler):
         # Check if cycle complete
 
         if self.step_in_cycle >= self.current_cycle_steps:
+            # Capture the final LR from this cycle to use as starting_lr for next cycle
+            cycle_final_lr = self.get_last_lr()[0]  # Get LR from first param group
+
             # after 1st cycle all cycles have equal number of steps
             self.current_cycle_steps = self.cycle_n_steps
             self.current_cycle += 1
@@ -419,16 +454,26 @@ class RepeatedScheduler(_LRScheduler):
 
             # Reset for next cycle (if not last)
             if self.current_cycle < self.num_cycles:
+                # Check if this is the final cycle and we have a final_lr_fraction override
+                is_final_cycle = self.current_cycle == self.num_cycles - 1
+
                 # Reset base scheduler with base warmup params
                 try:
-                    # Try passing warmup_steps (works for lambda factories)
-                    self.base_scheduler = self.base_scheduler_factory(
-                        optimizer=self.optimizer,
-                        n_steps=self.cycle_n_steps,
-                        warmup_steps=self.base_warmup_steps,
-                    )
+                    # Try passing warmup_steps, starting_lr, and final_lr_fraction (works for lambda factories)
+                    kwargs = {
+                        "optimizer": self.optimizer,
+                        "n_steps": self.cycle_n_steps,
+                        "warmup_steps": self.base_warmup_steps,
+                        "starting_lr": cycle_final_lr,  # Start next cycle from where this one ended
+                    }
+
+                    # Override final_lr_fraction for the final cycle if specified
+                    if is_final_cycle and self.final_lr_fraction is not None:
+                        kwargs["final_lr_fraction"] = self.final_lr_fraction
+
+                    self.base_scheduler = self.base_scheduler_factory(**kwargs)
                 except TypeError:
-                    # Factory doesn't accept warmup_steps, just call with optimizer and n_steps
+                    # Factory doesn't accept some parameters, try minimal arguments
                     self.base_scheduler = self.base_scheduler_factory(
                         optimizer=self.optimizer,
                         n_steps=self.cycle_n_steps,

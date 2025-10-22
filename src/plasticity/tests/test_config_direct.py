@@ -98,7 +98,9 @@ def test_repeated_cosine_direct():
     # Create scheduler as config would
     scheduler = RepeatedScheduler(
         optimizer=optimizer,
-        base_scheduler_factory=lambda **kw: CosineScheduler(final_lr_fraction=0.1, **kw),
+        base_scheduler_factory=lambda **kw: CosineScheduler(
+            final_lr_fraction=0.1, **kw
+        ),
         num_cycles=num_cycles,
         n_steps=n_steps,
         warmup_steps=warmup_steps,

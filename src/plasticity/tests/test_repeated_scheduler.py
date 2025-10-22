@@ -67,7 +67,10 @@ def test_repeated_cosine():
     # Factory function for Cosine scheduler
     def cosine_factory(optimizer, n_steps, warmup_steps):
         return CosineScheduler(
-            optimizer=optimizer, n_steps=n_steps, warmup_steps=warmup_steps, final_lr_fraction=0.1
+            optimizer=optimizer,
+            n_steps=n_steps,
+            warmup_steps=warmup_steps,
+            final_lr_fraction=0.1,
         )
 
     scheduler = RepeatedScheduler(

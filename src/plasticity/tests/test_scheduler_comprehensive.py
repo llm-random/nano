@@ -49,8 +49,12 @@ def test_cycle_boundaries():
     print()
 
     # Verify cycles reset (LR should jump back to peak after decay)
-    assert abs(lrs[100] - 1e-3) < 1e-6, f"Cycle 2 should start at peak LR, got {lrs[100]}"
-    assert abs(lrs[200] - 1e-3) < 1e-6, f"Cycle 3 should start at peak LR, got {lrs[200]}"
+    assert (
+        abs(lrs[100] - 1e-3) < 1e-6
+    ), f"Cycle 2 should start at peak LR, got {lrs[100]}"
+    assert (
+        abs(lrs[200] - 1e-3) < 1e-6
+    ), f"Cycle 3 should start at peak LR, got {lrs[200]}"
     print("✓ PASS: Cycles reset correctly\n")
 
 
@@ -145,7 +149,9 @@ def test_cosine_scheduler():
 
     scheduler = RepeatedScheduler(
         optimizer=optimizer,
-        base_scheduler_factory=lambda **kw: CosineScheduler(final_lr_fraction=0.1, **kw),
+        base_scheduler_factory=lambda **kw: CosineScheduler(
+            final_lr_fraction=0.1, **kw
+        ),
         num_cycles=3,
         n_steps=600,
         warmup_steps=0,
