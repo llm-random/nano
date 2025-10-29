@@ -1,0 +1,51 @@
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model@_here_: plasticity_mini
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: c4
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 128
+  batch_size: 128
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 100
+  learning_rate: 1e-3
+
+  scheduler:
+    _partial_: true
+    _target_: src.plasticity.schedulers.WSDScheduler
+    n_steps: ${trainer.n_steps}
+    warmup_fraction: 0.1
+    decay_fraction: 0.1
+    final_lr_fraction: 0
+
+  checkpoint:
+    save:
+      type: huggingface
+      interval: -1
+      path: final_chkpt
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: __training_state_filename.pt
+
+    load:
+      type: nano
+      path: null
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: null # not tested
+      only_weights: true # false not tested
+
+infrastructure:
+  metric_logger:
+    name: plasticity_basic_exp
+    tags:
+      - nano
+      - plasticity
+      - basic
+
+  slurm:
+    gres: gpu:1
+    time: "01:00:00"

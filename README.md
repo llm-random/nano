@@ -19,7 +19,7 @@ sbatch main.py +experiment=your_config
 Set following fields in a config:
 ```trainer:
   checkpoint:
-   load:
+   save:
     type: huggingface
     path: "meta-llama/Llama-3.2-1B"
   n_steps: 0
