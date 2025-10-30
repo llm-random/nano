@@ -287,7 +287,53 @@ def run(cfg:OmegaConf, metric_logger=None):
         metric_logger=metric_logger,
     ).train()
 
+    print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+
     cleanup()
+
+    print("YYYYYYYYYYYYYYYYYYYYYYYYYYYYY")
+
+    print(cfg.do_eval)
+    # print(f'metric_logger["job/SLURM_JOB_ID"]: {metric_logger["job/SLURM_JOB_ID"]}')
+    # print(f'metric_logger["job/SLURM_ARRAY_JOB_ID"]: {metric_logger["job/SLURM_ARRAY_JOB_ID"]}')
+
+    if cfg.do_eval:
+        from lm_eval import evaluator
+
+        eval_model_args = (
+            f"pretrained={cfg.trainer.checkpoint.save.path},"
+            f"tokenizer=meta-llama/Llama-3.1-8B"
+        )
+
+        results = evaluator.simple_evaluate(
+            model="hf",
+            model_args=eval_model_args,
+            tasks=["wikitext", "piqa"],
+            limit=3,
+            device="cpu",
+        )
+
+        # Save results to JSON with default=str to handle torch dtypes
+        import json
+        with open("eval_results.json", "w") as f:
+            json.dump(results, f, indent=2, default=str)
+
+        print(results)
+        log_eval(metric_logger, results)
+
+def log_eval(metric_logger, eval_results: dict):
+    """Log evaluation results to Neptune."""
+    # Log individual task metrics
+    for task_name, metrics in eval_results["results"].items():
+        for metric_name, value in metrics.items():
+            # Strip ,none suffix and log
+            clean_metric_name = metric_name.replace(",none", "")
+            metric_logger.run[f"eval/{task_name}/{clean_metric_name}"] = value
+
+    metric_logger.run["eval/limit"] = eval_results["config"]["limit"]
+
+    # Upload full results as artifact
+    metric_logger.run["eval/full_results"].upload("eval_results.json")
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
