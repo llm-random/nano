@@ -303,42 +303,12 @@ def run(cfg:OmegaConf, metric_logger=None):
         metric_logger=metric_logger,
     ).train()
 
-    print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
-
     cleanup()
 
-    print("YYYYYYYYYYYYYYYYYYYYYYYYYYYYY")
-
-    print(cfg.eval.do_eval)
-    # print(f'metric_logger["job/SLURM_JOB_ID"]: {metric_logger["job/SLURM_JOB_ID"]}')
-    # print(f'metric_logger["job/SLURM_ARRAY_JOB_ID"]: {metric_logger["job/SLURM_ARRAY_JOB_ID"]}')
-
-    if cfg.eval.do_eval:
-        from lm_eval import evaluator
-
-        eval_model_args = (
-            f"pretrained={cfg.eval.checkpoint_path},"
-            f"tokenizer=meta-llama/Llama-3.1-8B"
-        )
-
-        print(f"cfg.eval.tasks: {list(cfg.eval.tasks)}")
-
-        results = evaluator.simple_evaluate(
-            model="hf",
-            model_args=eval_model_args,
-            # tasks=["wikitext", "piqa"],
-            tasks=list(cfg.eval.tasks),
-            limit=cfg.eval.limit,
-            device=cfg.eval.device,
-        )
-
-        # Save results to JSON with default=str to handle torch dtypes
-        import json
-        with open("eval_results.json", "w") as f:
-            json.dump(results, f, indent=2, default=str)
-
-        # print(results)
-        log_eval(metric_logger, results)
+    evaluator = instantiate(cfg.evaluator)
+    evaluator(
+        metric_logger=metric_logger
+    ).eval()
 
     cleanup()
 
