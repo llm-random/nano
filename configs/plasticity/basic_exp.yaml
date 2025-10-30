@@ -1,18 +1,18 @@
 defaults:
   - ../_cluster@_here_: entropy
-  - ../_model@_here_: plasticity_mini
+  - ../_model@_here_: plasticity_512
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: c4
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
 
 common:
-  sequence_length: 128
-  batch_size: 128
+  sequence_length: 256
+  batch_size: 256
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 100
+  n_steps: 10_000
   learning_rate: 1e-3
 
   scheduler:
@@ -39,3 +39,14 @@ infrastructure:
   slurm:
     gres: gpu:1
     time: "01:00:00"
+
+evaluator:
+  _partial_: true
+  _target_: src.plasticity.eval.Evaluator
+  checkpoint_path: ${trainer.checkpoint.save.path}
+  tokenizer: meta-llama/Llama-3.1-8B
+  tasks:
+    - wikitext
+    - piqa
+  limit: null
+  device: cpu

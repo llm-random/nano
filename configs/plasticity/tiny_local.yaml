@@ -42,9 +42,11 @@ infrastructure:
     # gres: gpu:1
   #   time: "01:00:00"
 
-eval:
-  do_eval: true
+evaluator:
+  _partial_: true
+  _target_: src.plasticity.eval.Evaluator
   checkpoint_path: ${trainer.checkpoint.save.path}
+  tokenizer: meta-llama/Llama-3.1-8B
   tasks:
     - wikitext
     - piqa
