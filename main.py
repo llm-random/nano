@@ -168,6 +168,22 @@ def get_device():
 
     return device
 
+def log_eval(metric_logger, eval_results: dict):
+    """Log evaluation results to Neptune."""
+    # Log individual task metrics
+    for task_name, metrics in eval_results["results"].items():
+        for metric_name, value in metrics.items():
+            # Strip ,none suffix and log
+            clean_metric_name = metric_name.replace(",none", "")
+            metric_logger.run[f"eval/{task_name}/{clean_metric_name}"] = value
+
+    metric_logger.run["eval/limit"] = eval_results["config"]["limit"]
+
+    # Upload full results as artifact
+    # disabled for now, it is a huge dict.
+    # metric_logger.run["eval/full_results"].upload("eval_results.json")
+
+
 def run(cfg:OmegaConf, metric_logger=None):
     setup_enviroment()
 
@@ -293,24 +309,27 @@ def run(cfg:OmegaConf, metric_logger=None):
 
     print("YYYYYYYYYYYYYYYYYYYYYYYYYYYYY")
 
-    print(cfg.do_eval)
+    print(cfg.eval.do_eval)
     # print(f'metric_logger["job/SLURM_JOB_ID"]: {metric_logger["job/SLURM_JOB_ID"]}')
     # print(f'metric_logger["job/SLURM_ARRAY_JOB_ID"]: {metric_logger["job/SLURM_ARRAY_JOB_ID"]}')
 
-    if cfg.do_eval:
+    if cfg.eval.do_eval:
         from lm_eval import evaluator
 
         eval_model_args = (
-            f"pretrained={cfg.trainer.checkpoint.save.path},"
+            f"pretrained={cfg.eval.checkpoint_path},"
             f"tokenizer=meta-llama/Llama-3.1-8B"
         )
+
+        print(f"cfg.eval.tasks: {list(cfg.eval.tasks)}")
 
         results = evaluator.simple_evaluate(
             model="hf",
             model_args=eval_model_args,
-            tasks=["wikitext", "piqa"],
-            limit=3,
-            device="cpu",
+            # tasks=["wikitext", "piqa"],
+            tasks=list(cfg.eval.tasks),
+            limit=cfg.eval.limit,
+            device=cfg.eval.device,
         )
 
         # Save results to JSON with default=str to handle torch dtypes
@@ -318,22 +337,10 @@ def run(cfg:OmegaConf, metric_logger=None):
         with open("eval_results.json", "w") as f:
             json.dump(results, f, indent=2, default=str)
 
-        print(results)
+        # print(results)
         log_eval(metric_logger, results)
 
-def log_eval(metric_logger, eval_results: dict):
-    """Log evaluation results to Neptune."""
-    # Log individual task metrics
-    for task_name, metrics in eval_results["results"].items():
-        for metric_name, value in metrics.items():
-            # Strip ,none suffix and log
-            clean_metric_name = metric_name.replace(",none", "")
-            metric_logger.run[f"eval/{task_name}/{clean_metric_name}"] = value
-
-    metric_logger.run["eval/limit"] = eval_results["config"]["limit"]
-
-    # Upload full results as artifact
-    metric_logger.run["eval/full_results"].upload("eval_results.json")
+    cleanup()
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="exp")

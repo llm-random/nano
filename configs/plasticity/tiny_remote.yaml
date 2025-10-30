@@ -42,4 +42,12 @@ infrastructure:
     gres: gpu:1
     time: "01:00:00"
 
-do_eval: true
+eval:
+  do_eval: true
+  checkpoint_path: ${trainer.checkpoint.save.path}
+  tasks:
+    - wikitext
+    - piqa
+  limit: 3
+  device: cpu
+
