@@ -1,8 +1,8 @@
 defaults:
-  - ../_cluster@_here_: local
+  - ../_cluster@_here_: entropy
   - ../_model@_here_: plasticity_mini
   - ../_trainer@_here_: llama
-  - ../_dataset@_here_: local_dummy
+  - ../_dataset@_here_: c4
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
 
@@ -38,8 +38,8 @@ infrastructure:
       - tiny
       - local
 
-  # slurm:
-  #   gres: gpu:1
-  #   time: "01:00:00"
+  slurm:
+    gres: gpu:1
+    time: "01:00:00"
 
 do_eval: true

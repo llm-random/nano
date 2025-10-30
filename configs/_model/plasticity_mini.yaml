@@ -1,9 +1,9 @@
 
 common:
   _target_: src.definitions.Common
-  dmodel: 256
-  dff: 1024
-  datt: 256
+  dmodel: 64
+  dff: 256
+  datt: 64
   n_blocks: 4
   q_heads: 4
   kv_heads: 4
