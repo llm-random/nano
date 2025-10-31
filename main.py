@@ -319,8 +319,6 @@ def run(cfg:OmegaConf, metric_logger=None):
             metric_logger=metric_logger
         ).eval()
 
-    cleanup()
-
 
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
 def main(config: OmegaConf):
