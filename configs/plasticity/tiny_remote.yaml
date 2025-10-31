@@ -1,15 +1,17 @@
 defaults:
   - ../_cluster@_here_: entropy
-  - ../_model@_here_: plasticity_mini
+  - ../_model@_here_: plasticity_64
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: c4
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
+  - ../_eval@_here_: default
 
 common:
   sequence_length: 8
   batch_size: 2
   dmodel: 64
+  evaluate: true
 
 trainer:
   gradient_accumulation_steps: 1
@@ -31,24 +33,18 @@ trainer:
 
 infrastructure:
   metric_logger:
-    name: tiny_local
+    name: tiny_remote
     tags:
       - nano
       - plasticity
       - tiny
-      - local
+      - remote
 
   slurm:
     gres: gpu:1
     time: "01:00:00"
 
+# Override evaluator settings from _eval/default.yaml
 evaluator:
-  _partial_: true
-  _target_: src.plasticity.eval.Evaluator
-  checkpoint_path: ${trainer.checkpoint.save.path}
-  tokenizer: meta-llama/Llama-3.1-8B
-  tasks:
-    - wikitext
-    - piqa
   limit: 3
-  device: cpu
+  device: cuda

@@ -190,6 +190,9 @@ def run(cfg:OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
+    # Instantiate common config to apply Pydantic defaults
+    common_config = instantiate(cfg.common, _convert_="all")
+
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
     if metric_logger is None:
@@ -294,21 +297,27 @@ def run(cfg:OmegaConf, metric_logger=None):
         raise Exception(f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}")
     
     logger.info(f"Model initialized")
-    trainer = instantiate(cfg.trainer)
-    trainer(
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        training_state=training_state,
-        metric_logger=metric_logger,
-    ).train()
+
+    # run pretraining
+    if common_config.pretrain:
+        trainer = instantiate(cfg.trainer)
+        trainer(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+        ).train()
 
     cleanup()
 
-    evaluator = instantiate(cfg.evaluator)
-    evaluator(
-        metric_logger=metric_logger
-    ).eval()
+    # Run evaluation if configured
+    if common_config.evaluate:
+        logger.info("Running evaluation...")
+        evaluator = instantiate(cfg.evaluator)
+        evaluator(
+            metric_logger=metric_logger
+        ).eval()
 
     cleanup()
 
