@@ -1,0 +1,29 @@
+
+defaults:
+  - _cluster@_here_: entropy
+  - _model@_here_: llama_tiny_compressor
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+  
+common:
+  sequence_length: 1024
+  batch_size: 128
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 300
+  
+  learning_rate: 6.103515625e-05
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - tiny_compressor
+
+  
+
