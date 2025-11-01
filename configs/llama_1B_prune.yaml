@@ -1,0 +1,49 @@
+defaults:
+  - _cluster@_here_: entropy
+  - _model@_here_: llama_3_1
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  # - _dataset@_here_: fineweb
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+
+trainer:
+  gradient_accumulation_steps: 8
+  n_steps: 2048
+
+  ^learning_rate: 
+    - 0.0001220703125
+
+  checkpoint:
+   load:
+    type: huggingface
+    path: "meta-llama/Llama-3.2-1B"
+   save:
+    type: nano
+    path: null #change
+
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_1
+
+  slurm:
+    gres: gpu:4
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune
+    _partial_: true
+    dimensions_importances_path: /storage_nvme_3/crewtool/nano_checkpoints/tmp/65575/0/minitron_dimensions_importances.pt
+    target_dmodel: 1344
+    target_dff: 5376
+

@@ -1,0 +1,46 @@
+defaults:
+  # - _cluster@_here_: helios_4
+  - _cluster@_here_: entropy
+  - _model@_here_: llama_3_1
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+  # # 50%
+  # dmodel: 1344
+  # dff: 5376
+
+
+trainer:
+  gradient_accumulation_steps: 8
+  n_steps: 2048
+
+  learning_rate: 6.103515625e-05
+
+
+  checkpoint:
+   load:
+    type: nano
+    path: null #change
+   save:
+    type: huggingface
+    path: null #change
+  
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_1
+
+  slurm:
+    gres: gpu:4
+
