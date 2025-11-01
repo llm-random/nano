@@ -8,12 +8,19 @@ defaults:
   - ../_eval@_here_: default
 
 common:
-  sequence_length: 256
+  sequence_length: 512
   batch_size: 256
+  dmodel: 768
+  dff: 3072
+  datt: 768
+  n_blocks: 12
+  q_heads: 12
+  kv_heads: 12
+  evaluate: true
 
 trainer:
-  gradient_accumulation_steps: 1
-  n_steps: 10_000
+  gradient_accumulation_steps: 2
+  n_steps: 50_000
   learning_rate: 1e-3
 
   scheduler:

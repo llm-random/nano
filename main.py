@@ -309,6 +309,16 @@ def run(cfg:OmegaConf, metric_logger=None):
             metric_logger=metric_logger,
         ).train()
 
+    if common_config.finetune:
+        ft_trainer = instantiate(cfg.finetuning_trainer)
+        ft_trainer(
+            model=trainer.model,    # I hope this is the pretrained model
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+        ).train()
+
     cleanup()
 
     # Run evaluation if configured
