@@ -1,0 +1,15 @@
+defaults:
+  - base_pc_model
+  - _self_
+
+common:
+  _target_: src.definitions.Common
+  dmodel: 640 # 50% parameter compression
+  dff: 2560 # 50% parameter compression
+  datt: 1024
+  sequence_length: 512
+  base_dmodel: 1024
+  base_dff: 4096
+  n_blocks: 16
+  q_heads: 16
+  kv_heads: 16

@@ -1,0 +1,59 @@
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model/llama@_here_: projected_1B
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: c4 # not used - loads slower
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+  # dmodel: 448 # 10
+  # dff: 1728
+  dmodel: 960 # 30
+  dff: 3840
+  # dmodel: 1344 # 50
+  # dff: 5376
+  # dmodel: 1728 # 75
+  # dff: 6912
+
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 0
+  
+  learning_rate: 6.103515625e-05
+
+  checkpoint:
+    load:
+      type: nano
+      path: ??? # CHANGE
+    save:
+      type: pc_finalize
+      path: ??? # CHANGE
+
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_1
+      - llama_pc_finalized
+
+  slurm: 
+    gres: gpu:4
+    time: "0-00:30:00"
+
+
+apply_functions:
+  - _target_: src.projected_compression.compression.init_compression
+    _partial_: true
+    dimensions_importances_path: ??? # CHANGE - has to be initialized in any way to achive structure with weights dimensions to math equivalent checkpoint 
+    
+    target_dmodel: ${common.dmodel}
+    target_dff: ${common.dff}

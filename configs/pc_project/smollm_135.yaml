@@ -1,0 +1,56 @@
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model/smollm@_here_: def_135
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+
+trainer:
+  gradient_accumulation_steps: 1
+  ^n_steps: 
+    - 4001
+    # - 8001
+    # - 16001
+    # - 24001
+
+  learning_rate: ??? # CHANGE
+
+  scheduler:
+    warmup_steps: 40
+
+  checkpoint:
+   load:
+    type: huggingface
+    path: "HuggingFaceTB/SmolLM-135M"
+   save:
+    type: nano
+    path: null #change
+
+  train_dataloader:
+    tokenize_fn: 
+      _target_: src.core.datasets.smollm_135_tokenize_fn
+
+  eval_dataloader:
+    tokenize_fn: 
+      _target_: src.core.datasets.smollm_135_tokenize_fn
+
+
+infrastructure:
+  metric_logger:
+    name: LLMR_training
+    tags:
+      - nano
+      - pc
+      - smollm_135
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:1
+    time: "0-4:00:00"

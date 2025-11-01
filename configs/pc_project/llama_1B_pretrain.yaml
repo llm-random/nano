@@ -1,15 +1,17 @@
 defaults:
-  - _cluster@_here_: entropy_4
-  - _model@_here_: llama_3_1
-  - _trainer@_here_: llama
-  - _dataset@_here_: c4
-  - _checkpoints@_here_: none
-  - _misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model@_here_: llama_3_1
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
 
 trainer:
   n_steps: 2000
   learning_rate: 0.00005
   gradient_accumulation_steps: 4
+
 
 infrastructure:
   metric_logger:
@@ -17,5 +19,6 @@ infrastructure:
     tags:
       - pc
       - nano
+      - llama_1
       - test_configs
       - pretrain_llama
