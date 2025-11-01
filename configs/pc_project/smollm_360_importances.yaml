@@ -1,11 +1,11 @@
 defaults:
-  - _cluster@_here_: entropy
-  - _model@_here_: llama_3_1
-  - _trainer@_here_: llama
-  - _dataset@_here_: c4
-  # - _dataset@_here_: fineweb
-  - _checkpoints@_here_: none
-  - _misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/smollm@_here_: def_360
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
 
 common:
   sequence_length: 1024
@@ -13,33 +13,42 @@ common:
 
 
 trainer:
-  gradient_accumulation_steps: 8
-  n_steps: 0
-
-  learning_rate: 6.103515625e-05
+  gradient_accumulation_steps: 1 # not used
+  n_steps: 0 # not used
+  learning_rate: 1 # not used
 
   checkpoint:
    load:
     type: huggingface
-    path: "meta-llama/Llama-3.2-1B"
+    path: "HuggingFaceTB/SmolLM-360M"
    save:
     type: nano
-    path: ??? # change
+    path: ??? # CHANGE
+
+  train_dataloader:
+    tokenize_fn: 
+      _target_: src.core.datasets.smollm_360_tokenize_fn
+
+  eval_dataloader:
+    tokenize_fn: 
+      _target_: src.core.datasets.smollm_360_tokenize_fn
+
 
 infrastructure:
   metric_logger:
-    name: Llame_PC
+    name: Llame_importances
     tags:
       - nano
       - pc
+      - smollm_360
       - IMPORTANCES
-      - 8xCalibration
+      - fineweb
 
   slurm:
     job-name: importances
     gres: gpu:1
     nodes: 1
-    time: "0-1:00:00"
+    time: "0-2:00:00"
 
 
 apply_functions:
@@ -54,9 +63,15 @@ apply_functions:
     dataloader: ${trainer.train_dataloader}
     dmodel: ${common.dmodel}
     dff: ${common.dff}
-    calibration_dataset_size: 1024
+    calibration_dataset_size: 8192
     seq_len: ${common.sequence_length}
     total_batch_size: ${trainer.train_dataloader.total_batch_size}
+    n_blocks: ${model.encoder.n_blocks}
+    checkpoint_save_path: ${trainer.checkpoint.save.path}
+  - _target_: src.projected_compression.weight_importances.magnitude_importances
+    _partial_: true
+    dmodel: ${common.dmodel}
+    dff: ${common.dff}
     n_blocks: ${model.encoder.n_blocks}
     checkpoint_save_path: ${trainer.checkpoint.save.path}
   - _target_: src.core.utils.finish_exp
