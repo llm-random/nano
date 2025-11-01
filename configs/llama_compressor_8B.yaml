@@ -1,10 +1,13 @@
+
 defaults:
-  - ../_cluster@_here_: entropy
-  - ../_model/llama@_here_: projected_8B
-  - ../_trainer@_here_: llama
-  - ../_dataset@_here_: fineweb
-  - ../_checkpoints@_here_: none
-  - ../_misc@_here_: default
+  # - _cluster@_here_: helios_4
+  - _cluster@_here_: helios_8
+  # - _cluster@_here_: entropy_8
+  - _model/llama@_here_: projected_8B
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
   
 
 common:
@@ -16,7 +19,8 @@ trainer:
 
   n_steps: 1001
   
-  learning_rate: ??? # CHANGE
+  ^learning_rate: 
+    - 3.814697265625e-06
 
   checkpoint:
     save:
@@ -36,8 +40,8 @@ infrastructure:
     tags:
       - nano
       - pc
-      - llama_8
-      - projected_compression
+      - llama_8_pc
 
+  
   slurm:
     time: "0-01:00:00"
