@@ -6,11 +6,11 @@ infrastructure:
     job-name: test
     mem_per_gpu: 125G
     nodes: 1
-    partition: h100
+    partition: a100
     time: "2-00:00:00"
 
   script:
-    - "PROJECT_HOME_PATH=/storage_nvme_4/projected_compression"
+    - "PROJECT_HOME_PATH=/storage_nvme_2/projected_compression"
     - |
       VENV_PATH=$PROJECT_HOME_PATH/pc_venv
       export HF_HOME=$PROJECT_HOME_PATH/hf_cache
@@ -27,5 +27,5 @@ infrastructure:
 cluster_switch:
   train_path_c4: "/storage_nvme_1/llm-random/datasets/c4/train"
   eval_path_c4: "/storage_nvme_1/llm-random/datasets/c4/validation"
-  train_path_fineweb: "/storage_nvme_4/llm-random/datasets/fineweb/train"
-  eval_path_fineweb: "/storage_nvme_4/llm-random/datasets/fineweb/train"
+  train_path_fineweb: null
+  eval_path_fineweb: null
