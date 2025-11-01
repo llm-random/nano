@@ -1,9 +1,10 @@
 infrastructure:
+  server: entropy
   slurm:
-    cpus_per_gpu: 15
+    cpus_per_gpu: 16
     gres: ???
     job-name: test
-    mem_per_gpu: 100G
+    mem_per_gpu: 125G
     nodes: 1
     partition: h100
     time: "2-00:00:00"
