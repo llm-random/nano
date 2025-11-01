@@ -1,0 +1,12 @@
+defaults:
+  - base_model
+  - _self_
+
+common:
+  dmodel: 960
+  dff: 2560
+  dhead: 64
+  sequence_length: 2048
+  n_blocks: 32
+  q_heads: 15
+  kv_heads: 5
