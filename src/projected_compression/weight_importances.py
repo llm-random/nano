@@ -69,6 +69,75 @@ def _calculate_dummy_dimension_importances(dmodel, dff, n_blocks):
     return dmodel_importances, dff_importances
 
 
+def determine_dmodel_magnitudes(block_state_dict):
+    magnitudes = []
+
+    leftside_projections = [
+        "attention_layer.layer.q_proj.weight",
+        "attention_layer.layer.k_proj.weight",
+        "attention_layer.layer.v_proj.weight",
+        "ff_layer.layer.ff_pre_act.weight",
+    ]
+
+    # For models with SiLU (e.g. LLama) 
+    if "ff_layer.layer.gate.weight" in block_state_dict.keys(): 
+        leftside_projections.append("ff_layer.layer.gate.weight")
+
+    rightside_projections = [
+        "attention_layer.layer.o_proj.weight",
+        "ff_layer.layer.ff_post_act.weight",
+    ]
+
+    for layer_name in leftside_projections:
+        weight = block_state_dict[layer_name]
+        magnitudes.append(torch.norm(weight, dim=0))
+
+    for layer_name in rightside_projections:
+        weight = block_state_dict[layer_name]
+        magnitudes.append(torch.norm(weight, dim=1))
+
+    return magnitudes
+
+
+def determine_dff_magnitudes(block_state_dict):
+    weight = block_state_dict["ff_layer.layer.ff_post_act.weight"]
+    dff_magnitude = torch.norm(weight, dim=0)
+
+    rightside_projections = ["ff_layer.layer.ff_pre_act.weight"]
+    # For models with SiLU (e.g. LLama) 
+    if "ff_layer.layer.gate.weight" in block_state_dict.keys():
+        rightside_projections.append("ff_layer.layer.gate.weight")
+
+    for layer_name in rightside_projections:
+        weight = block_state_dict[layer_name]
+        dff_magnitude += torch.norm(weight, dim=1)
+
+    return dff_magnitude
+
+
+def _calculate_magnitude_dimension_importances(model: nn.Module):
+    dmodel_magnitudes = []
+    dff_magnitudes = []
+
+    # Embedding
+    embedding_weight = model.embedding.embedding.weight.data
+    dmodel_magnitudes.append(torch.norm(embedding_weight, dim=0))
+
+    # Head
+    head_weight = model.head.linear.weight.data
+    dmodel_magnitudes.append(torch.norm(head_weight, dim=0))
+
+    for block in model.encoder.blocks:
+        block_state_dict = block.state_dict()
+        dmodel_magnitudes.extend(determine_dmodel_magnitudes(block_state_dict))
+        dff_magnitudes.append(determine_dff_magnitudes(block_state_dict))
+
+    mean_dmodel_magnitudes = torch.stack(dmodel_magnitudes, dim=1).mean(dim=1)
+    dff_magnitudes = torch.stack(dff_magnitudes)
+
+    return mean_dmodel_magnitudes, dff_magnitudes
+
+
 def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_dataset_size, seq_len, total_batch_size, n_blocks, checkpoint_save_path):
     logger.info(f"Calculating minitron style weight importances calculation.")
     model.to(device)
@@ -95,6 +164,23 @@ def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_
 
     return dict_to_save
 
+
+def magnitude_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_save_path):
+    logger.info(f"Calculating magnitude weight importances.")
+
+    dmodel_importances, dff_importances = _calculate_magnitude_dimension_importances(
+        model
+    )
+    logger.info(f"Calculated dimensions importances")
+
+    dict_to_save = {"dmodel_importances": dmodel_importances, "dff_importances": dff_importances}
+    path = get_full_checkpoint_path(checkpoint_save_path) + "/magnitude_dimensions_importances.pt"
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(dict_to_save, path)
+    logger.info(f"Saved importances to {path}.")
+
+    return dict_to_save
 
 def dummy_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_save_path):
     
