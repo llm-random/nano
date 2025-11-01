@@ -1,10 +1,11 @@
+
 defaults:
-  - ../_cluster@_here_: entropy
-  - ../_model@_here_: llama_3_1
-  - ../_trainer@_here_: llama
-  - ../_dataset@_here_: fineweb
-  - ../_checkpoints@_here_: none
-  - ../_misc@_here_: default
+  - _cluster@_here_: entropy
+  - _model@_here_: llama_3_1
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
   
 
 common:
@@ -23,10 +24,10 @@ trainer:
   checkpoint:
    save:
     type: nano
-    path: ??? # CHANGE
+    path: null #change
    load:
     type: finalized_pc
-    path: ??? # CHANGE
+    path: null #change
     training_state_filename: null
 
 
@@ -36,8 +37,9 @@ infrastructure:
     tags:
       - nano
       - pc
-      - llama_1
-      - loaded
+      - llama_8_pc
+      - sparsity_50
     
   slurm:
     gres: gpu:4
+
