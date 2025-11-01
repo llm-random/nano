@@ -183,7 +183,7 @@ def get_device():
     return device
 
 
-def initialize_training_components(cfg):
+def initialize_training_components(cfg, metric_logger=None):
     """
     Initializes all training components: model, optimizer, scheduler, metric logger, and training state.
 
@@ -327,7 +327,7 @@ def run(cfg: OmegaConf, metric_logger=None):
         distributed_setup()
 
     model, optimizer, scheduler, metric_logger, training_state = (
-        initialize_training_components(cfg)
+        initialize_training_components(cfg, metric_logger)
     )
     if model is None:
         return 0
