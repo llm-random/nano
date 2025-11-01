@@ -10,9 +10,9 @@ trainer:
       _target_: src.core.datasets.gpt2_tokenize_fn
     num_workers: 0
     seed: 20001
-    sequence_length: 32
+    sequence_length: ${common.sequence_length}
     shuffle: true
-    total_batch_size: 32
+    total_batch_size: ${common.batch_size}
     use_new_sampling_method: true
     world_size_independent: false
 
@@ -25,8 +25,8 @@ trainer:
       _target_: src.core.datasets.gpt2_tokenize_fn
     num_workers: 0
     seed: 123
-    sequence_length: 32
+    sequence_length: ${common.sequence_length}
     shuffle: true
-    total_batch_size: 32
+    total_batch_size: ${common.batch_size}
     use_new_sampling_method: true
     world_size_independent: false
