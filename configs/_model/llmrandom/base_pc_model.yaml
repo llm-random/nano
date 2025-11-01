@@ -1,0 +1,105 @@
+common:
+  _target_: src.definitions.Common
+  dmodel: ???
+  dff: ???
+  sequence_length: ???
+  base_dmodel: ???
+  base_dff: ???
+  n_blocks: ???
+  q_heads: ???
+  kv_heads: ???
+  vocab_size: 50257
+
+model:
+  _target_: src.projected_compression.model.LLM
+
+  embedding:
+    _target_: src.projected_compression.model.ProjectedEmbedding
+    embedding:
+      _target_: src.projected_compression.model.Embedding
+      num_embeddings: ${common.vocab_size}
+      embedding_dim: ${common.base_dmodel}
+    result_out_features: ${common.dmodel} 
+
+  encoder:
+    _target_: src.projected_compression.model.TransformerEncoder
+    n_blocks: ${common.n_blocks}
+    block_fn:
+      _target_: src.projected_compression.model.TransformerBlock
+      _partial_: true
+      norm_fn: 
+        _target_: src.core.model.LayerNorm
+        _partial_: true
+        eps: 1e-5
+        normalized_shape: ${common.base_dmodel}
+        bias: false
+
+      attention_fn:
+        _target_: src.projected_compression.model.RoPEAttention
+        _partial_: true
+        dmodel: ${common.base_dmodel}
+        q_heads: ${common.q_heads}
+        kv_heads: ${common.kv_heads}
+        seq_len: ${common.sequence_length}
+        q_proj_fn:
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: ${common.dmodel}
+          result_out_features: null
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${common.datt}
+
+        k_proj_fn:
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: ${common.dmodel}
+          result_out_features: null
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${common.datt}
+
+        v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
+
+        o_proj_fn:
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: null
+          result_out_features: ${common.dmodel}
+          base_in_features: ${common.datt}
+          base_out_features: ${common.base_dmodel}
+
+        rope_base: 10000
+        rope_scale_freqs: false
+
+      ff_layer_fn:
+        _target_: src.projected_compression.model.FeedForward
+        _partial_: true
+        ff_pre_act_fn:
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: ${common.dmodel} 
+          result_out_features: ${common.dff}  
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${common.base_dff}
+        ff_post_act_fn: 
+          _target_: src.projected_compression.model.ProjectedLinear
+          _partial_: true
+          result_in_features: ${common.dff}
+          result_out_features: ${common.dmodel} 
+          base_in_features: ${common.base_dff}
+          base_out_features: ${common.base_dmodel}
+
+  head:
+    _target_: src.projected_compression.model.TransformerHead
+    linear_fn:
+      _target_: src.projected_compression.model.ProjectedLinear
+      _partial_: true
+      result_in_features: ${common.dmodel}
+      result_out_features: null
+      base_in_features: ${common.base_dmodel}
+      base_out_features: ${common.vocab_size}
+    norm_fn: 
+        _target_: src.core.model.LayerNorm
+        _partial_: true
+        eps: 1e-5
+        normalized_shape: ${common.base_dmodel}
+        bias: false
