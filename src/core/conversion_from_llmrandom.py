@@ -105,6 +105,7 @@ def fix_qkv_from_llmrandom(model, remapped_state_dict):
             f"encoder.blocks.{n_layer}.attention_layer.layer.v_proj.weight"
         ] = v.reshape(heads * dhead, -1)
 
+
 def load_llmrandom_checkpoint(load_config, model):
     checkpoint = torch.load(load_config.path)
     remapped_state_dict = remap_llmrandom_state_dict_to_nano(checkpoint["model"])

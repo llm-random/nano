@@ -11,6 +11,7 @@ from typing import Literal
 from typing import Optional, List
 from attr import dataclass
 
+
 @dataclass
 class AttentionConfig:
     mode: str

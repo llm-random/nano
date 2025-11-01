@@ -335,10 +335,11 @@ class TransformerBlock(nn.Module):
         x = self.attention_layer(x)
         x = self.ff_layer(x)
         return x
-    
+
+
 class TransformerEncoder(nn.Module):
-    def get_model_dimensions(self): 
-        # Works only for llama3 transforermer architecture 
+    def get_model_dimensions(self):
+        # Works only for llama3 transforermer architecture
         dmodel = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[1]
         dff = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[0]
         datt = self.blocks[0].attention_layer.layer.q_proj.weight.shape[0]
@@ -431,7 +432,6 @@ class ProjectedLinear(nn.Module):
         self.projection_in_weight = None
         self.projection_out_weight = None
         self.auxiliary_weight = None
-        
 
     def init_projections(
         self,
@@ -488,7 +488,7 @@ class ProjectedLinear(nn.Module):
             self.auxiliary_weight = nn.Parameter(weight, requires_grad=True)
 
         self.initialized_compression = True
-    
+
     def finalize(self):
         device = "cpu"
         weight = self.weight.full_tensor().float().to(device)
@@ -497,12 +497,11 @@ class ProjectedLinear(nn.Module):
             weight = weight @ self.projection_in_weight.full_tensor().float().to(device)
 
         if self.result_out_features is not None:
-            weight = self.projection_out_weight.full_tensor().float().to(device) @ weight
+            weight = (
+                self.projection_out_weight.full_tensor().float().to(device) @ weight
+            )
 
-        if (
-            self.result_in_features is not None
-            or self.result_out_features is not None
-        ):
+        if self.result_in_features is not None or self.result_out_features is not None:
             weight += self.auxiliary_weight.full_tensor().float().to(device)
 
         self.projection_in_weight = None
@@ -524,10 +523,7 @@ class ProjectedLinear(nn.Module):
         if self.result_out_features is not None:
             weight = self.projection_out_weight @ weight
 
-        if (
-            self.result_in_features is not None
-            or self.result_out_features is not None
-        ):
+        if self.result_in_features is not None or self.result_out_features is not None:
             weight += self.auxiliary_weight
 
         return F.linear(input, weight, bias=None)
@@ -541,6 +537,7 @@ class ProjectedLinear(nn.Module):
         if self.result_out_features is not None:
             result += f"\n(projection_out_weight) ({self.result_out_features}, {self.base_out_features})"
         return result
+
 
 class ProjectedEmbedding(nn.Module):
     def __init__(
@@ -556,7 +553,11 @@ class ProjectedEmbedding(nn.Module):
 
     def finalize(self):
         device = "cpu"
-        pweight = (self.projection.full_tensor().float().to(device) @ self.embedding.weight.full_tensor().float().to(device).T + self.auxiliary_weight.weight.full_tensor().float().to(device).T).T
+        pweight = (
+            self.projection.full_tensor().float().to(device)
+            @ self.embedding.weight.full_tensor().float().to(device).T
+            + self.auxiliary_weight.weight.full_tensor().float().to(device).T
+        ).T
 
         self.projection = None
         self.auxiliary_weight.weight = None
@@ -565,7 +566,6 @@ class ProjectedEmbedding(nn.Module):
             self.embedding.weight = nn.Parameter(pweight, requires_grad=False)
         else:
             self.embedding.weight = None
-
 
     def forward(self, x):
         result = self.embedding(x)

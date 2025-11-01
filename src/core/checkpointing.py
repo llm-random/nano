@@ -39,7 +39,6 @@ class TrainingState(Stateful):
         self.scheduler.load_state_dict(state_dict["scheduler"])
 
 
-
 def step_checkpoint_path(path, step):
     full_config_path = get_full_checkpoint_path(path)
     return f"{full_config_path}/step_{step}"
@@ -76,7 +75,8 @@ def get_full_checkpoint_path(path):
         return f"{path}/{slurm_job_id}/{slurm_array_task_id}"
     else:
         return f"{path}"
-        
+
+
 def load_training_state(load_config):
     training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
 
@@ -85,13 +85,11 @@ def load_training_state(load_config):
             f"Checkpoint type: '{load_config.type}'. Starting training from step 0."
         )
         return training_start_config
-    
+
     if load_config.training_state_filename == None:
-        logger.info(
-            "No training_state_filename. Starting training from step 0."
-        )
+        logger.info("No training_state_filename. Starting training from step 0.")
         return training_start_config
-    
+
     load_path = load_config.path
     if load_path is None:
         logger.warning(
@@ -100,9 +98,7 @@ def load_training_state(load_config):
         return training_start_config
     os.makedirs(load_path, exist_ok=True)
 
-    training_state_path = (
-        f"{load_path}/{load_config.training_state_filename}"
-    )
+    training_state_path = f"{load_path}/{load_config.training_state_filename}"
     if os.path.isfile(training_state_path):
         return torch.load(training_state_path)
     else:
@@ -126,10 +122,13 @@ def _find_latest_checkpoint(path: str) -> str:
 def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
     checkpoint_path = load_config.path
     if checkpoint_path is None:
-        return 
+        return
 
     if checkpoint_path is not None:
-        if isinstance(model, FSDP) or model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard":
+        if (
+            isinstance(model, FSDP)
+            or model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard"
+        ):
             # Sharded load
             state_dict = {"app": TrainingState(model, optimizer, scheduler)}
             dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_path)
