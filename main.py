@@ -310,9 +310,8 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         raise Exception(
             f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}"
         )
-    
-    return model, optimizer, scheduler, training_state, metric_logger
 
+    return model, optimizer, scheduler, training_state, metric_logger
 
 
 def run(cfg: OmegaConf, metric_logger=None):
@@ -321,7 +320,9 @@ def run(cfg: OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
-    model, optimizer, scheduler, training_state, metric_logger = initialize_training_components(cfg, metric_logger)
+    model, optimizer, scheduler, training_state, metric_logger = (
+        initialize_training_components(cfg, metric_logger)
+    )
 
     logger.info(f"Model initialized")
     trainer = instantiate(cfg.trainer)
