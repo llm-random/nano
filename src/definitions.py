@@ -52,6 +52,9 @@ class Common(BaseModel):
     init_scale: float
     vocab_size: int
     head_norm: bool
+    pretrain: bool = True
+    finetune: bool = False
+    evaluate: bool = False
 
 
 class SchedulerConfig(BaseModel):
