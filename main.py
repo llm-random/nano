@@ -320,6 +320,9 @@ def run(cfg: OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
+    # Instantiate common config to apply Pydantic defaults
+    common_config = instantiate(cfg.common, _convert_="all")
+
     model, optimizer, scheduler, training_state, metric_logger = (
         initialize_training_components(cfg, metric_logger)
     )
