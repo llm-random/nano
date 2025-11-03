@@ -1,0 +1,11 @@
+# Default evaluation configuration
+evaluator:
+  _partial_: true
+  _target_: src.core.eval.Evaluator
+  checkpoint_path: ${trainer.checkpoint.save.path}
+  tokenizer: meta-llama/Llama-3.1-8B
+  tasks:
+    - wikitext
+    - piqa
+  limit: null  # No limit by default, evaluate on full datasets
+  device: cuda

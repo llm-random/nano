@@ -320,19 +320,44 @@ def run(cfg: OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
+    # Instantiate common config to apply Pydantic defaults
+    common_config = instantiate(cfg.common, _convert_="all")
+
     model, optimizer, scheduler, training_state, metric_logger = (
         initialize_training_components(cfg, metric_logger)
     )
 
     logger.info(f"Model initialized")
-    trainer = instantiate(cfg.trainer)
-    trainer(
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        training_state=training_state,
-        metric_logger=metric_logger,
-    ).train()
+
+    # run pretraining
+    if common_config.pretrain:
+        trainer = instantiate(cfg.trainer)
+        trainer(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+        ).train()
+
+    # run finetuning
+    # TODO
+    # impelemnt finetuning
+    if common_config.finetune:
+        ft_trainer = instantiate(cfg.finetuning_trainer)
+        ft_trainer(
+            model=trainer.model,  # I hope this is the pretrained model
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+        ).train()
+
+    # Run evaluation if configured
+    if common_config.evaluate:
+        logger.info("Running evaluation...")
+        evaluator = instantiate(cfg.evaluator)
+        evaluator(metric_logger=metric_logger).eval()
 
     cleanup()
 
