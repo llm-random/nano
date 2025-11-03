@@ -10,7 +10,9 @@ device = get_device()
 logger = logging.getLogger(__name__)
 
 
-def _calculate_activations_dimension_importances(model: nn.Module, calibration_data, dmodel, dff, n_blocks, device="cuda"):
+def _calculate_activations_dimension_importances(
+    model: nn.Module, calibration_data, dmodel, dff, n_blocks, device="cuda"
+):
     """
     Calculate importance of each neuron (dmodel and dff) using forward hooks.
     """
@@ -36,7 +38,9 @@ def _calculate_activations_dimension_importances(model: nn.Module, calibration_d
     # --- Register hooks ---
     for block_idx, block in enumerate(model.encoder.blocks):
         # normalized pre-attention
-        handles.append(block.attention_layer.norm.register_forward_hook(hook_dmodel_pre_attn))
+        handles.append(
+            block.attention_layer.norm.register_forward_hook(hook_dmodel_pre_attn)
+        )
 
         # normalized pre-ff
         handles.append(block.ff_layer.norm.register_forward_hook(hook_dmodel_pre_ff))
@@ -44,7 +48,9 @@ def _calculate_activations_dimension_importances(model: nn.Module, calibration_d
         # ff_pre_act with block index captured
         handles.append(
             block.ff_layer.layer.ff_pre_act.register_forward_hook(
-                lambda layer, inp, out, idx=block_idx: hook_ff_pre_act(layer, inp, out, idx)
+                lambda layer, inp, out, idx=block_idx: hook_ff_pre_act(
+                    layer, inp, out, idx
+                )
             )
         )
 
@@ -62,9 +68,9 @@ def _calculate_activations_dimension_importances(model: nn.Module, calibration_d
 
 
 def _calculate_dummy_dimension_importances(dmodel, dff, n_blocks):
-    dmodel_importances = torch.range(0, dmodel-1)
+    dmodel_importances = torch.range(0, dmodel - 1)
     dff_importances = torch.zeros(n_blocks, dff)
-    dff_importances[:,] = torch.range(0, dff-1)
+    dff_importances[:,] = torch.range(0, dff - 1)
 
     return dmodel_importances, dff_importances
 
@@ -79,8 +85,8 @@ def determine_dmodel_magnitudes(block_state_dict):
         "ff_layer.layer.ff_pre_act.weight",
     ]
 
-    # For models with SiLU (e.g. LLama) 
-    if "ff_layer.layer.gate.weight" in block_state_dict.keys(): 
+    # For models with SiLU (e.g. LLama)
+    if "ff_layer.layer.gate.weight" in block_state_dict.keys():
         leftside_projections.append("ff_layer.layer.gate.weight")
 
     rightside_projections = [
@@ -104,7 +110,7 @@ def determine_dff_magnitudes(block_state_dict):
     dff_magnitude = torch.norm(weight, dim=0)
 
     rightside_projections = ["ff_layer.layer.ff_pre_act.weight"]
-    # For models with SiLU (e.g. LLama) 
+    # For models with SiLU (e.g. LLama)
     if "ff_layer.layer.gate.weight" in block_state_dict.keys():
         rightside_projections.append("ff_layer.layer.gate.weight")
 
@@ -138,13 +144,29 @@ def _calculate_magnitude_dimension_importances(model: nn.Module):
     return mean_dmodel_magnitudes, dff_magnitudes
 
 
-def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_dataset_size, seq_len, total_batch_size, n_blocks, checkpoint_save_path):
+def minitron_importances(
+    model: nn.Module,
+    dataloader,
+    dmodel,
+    dff,
+    calibration_dataset_size,
+    seq_len,
+    total_batch_size,
+    n_blocks,
+    checkpoint_save_path,
+):
     logger.info(f"Calculating minitron style weight importances calculation.")
     model.to(device)
     world_size = int(os.environ["WORLD_SIZE"])
-    batch_size =  total_batch_size // world_size
+    batch_size = total_batch_size // world_size
 
-    calibration_data = torch.zeros(calibration_dataset_size // batch_size, batch_size, seq_len, dtype=torch.long, device=device)
+    calibration_data = torch.zeros(
+        calibration_dataset_size // batch_size,
+        batch_size,
+        seq_len,
+        dtype=torch.long,
+        device=device,
+    )
     for i, batch in enumerate(dataloader):
         if i * batch_size >= calibration_dataset_size:
             break
@@ -155,8 +177,14 @@ def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_
     )
     logger.info(f"Calculated dimensions importances")
 
-    dict_to_save = {"dmodel_importances": dmodel_importances, "dff_importances": dff_importances}
-    path = get_full_checkpoint_path(checkpoint_save_path) + "/minitron_dimensions_importances.pt"
+    dict_to_save = {
+        "dmodel_importances": dmodel_importances,
+        "dff_importances": dff_importances,
+    }
+    path = (
+        get_full_checkpoint_path(checkpoint_save_path)
+        + "/minitron_dimensions_importances.pt"
+    )
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(dict_to_save, path)
@@ -165,7 +193,9 @@ def minitron_importances(model: nn.Module, dataloader, dmodel, dff, calibration_
     return dict_to_save
 
 
-def magnitude_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_save_path):
+def magnitude_importances(
+    model: nn.Module, dmodel, dff, n_blocks, checkpoint_save_path
+):
     logger.info(f"Calculating magnitude weight importances.")
 
     dmodel_importances, dff_importances = _calculate_magnitude_dimension_importances(
@@ -173,8 +203,14 @@ def magnitude_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_sa
     )
     logger.info(f"Calculated dimensions importances")
 
-    dict_to_save = {"dmodel_importances": dmodel_importances, "dff_importances": dff_importances}
-    path = get_full_checkpoint_path(checkpoint_save_path) + "/magnitude_dimensions_importances.pt"
+    dict_to_save = {
+        "dmodel_importances": dmodel_importances,
+        "dff_importances": dff_importances,
+    }
+    path = (
+        get_full_checkpoint_path(checkpoint_save_path)
+        + "/magnitude_dimensions_importances.pt"
+    )
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(dict_to_save, path)
@@ -182,8 +218,9 @@ def magnitude_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_sa
 
     return dict_to_save
 
+
 def dummy_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_save_path):
-    
+
     logger.info(f"Calculating minitron style weight importances calculation.")
 
     dmodel_importances, dff_importances = _calculate_dummy_dimension_importances(
@@ -191,8 +228,14 @@ def dummy_importances(model: nn.Module, dmodel, dff, n_blocks, checkpoint_save_p
     )
     logger.info(f"Calculated dimensions importances")
 
-    dict_to_save = {"dmodel_importances": dmodel_importances, "dff_importances": dff_importances}
-    path = get_full_checkpoint_path(checkpoint_save_path) + "/random_dimensions_importances.pt"
+    dict_to_save = {
+        "dmodel_importances": dmodel_importances,
+        "dff_importances": dff_importances,
+    }
+    path = (
+        get_full_checkpoint_path(checkpoint_save_path)
+        + "/random_dimensions_importances.pt"
+    )
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(dict_to_save, path)

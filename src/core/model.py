@@ -13,7 +13,9 @@ from torch.nn import (
 )  # used by FSDP, but it keeps getting removed during file formatting
 
 from torch.nn.modules.normalization import RMSNorm as RMSNorm, LayerNorm as LayerNorm
-from torchtune.modules.position_embeddings import RotaryPositionalEmbeddings as RotaryPositionalEmbeddings
+from torchtune.modules.position_embeddings import (
+    RotaryPositionalEmbeddings as RotaryPositionalEmbeddings,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -201,13 +203,7 @@ class TransformerTower(nn.Module):
     ):
         raise Exception("Not supported TransformerTower - use pc version")
         super().__init__()
-        blocks = [
-            (
-                f"block_{i}",
-                block_fn()
-            )
-            for i in range(n_blocks)
-        ]
+        blocks = [(f"block_{i}", block_fn()) for i in range(n_blocks)]
         self.blocks = nn.Sequential(OrderedDict(blocks))
 
     def forward(self, x):
@@ -361,6 +357,7 @@ def FeedForward(
         )
     )
 
+
 def attention_mechanism(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -448,6 +445,7 @@ class Attention(nn.Module):
 
         return output
 
+
 def init_kaiming_uniform(shape, fan_in, scale, dtype=torch.float32):
     range_ = scale * (3 / fan_in) ** 0.5
     return torch.zeros(shape, dtype=dtype).uniform_(-range_, range_)
@@ -480,6 +478,7 @@ def get_init_weight(shape, fan_in, init_type: str, scale, dtype=torch.float32):
         raise ValueError(f"Unknown init_type: {init_type}")
 
     return init_types[init_type](shape=shape, fan_in=fan_in, scale=scale, dtype=dtype)
+
 
 def get_vanilla_embedding(vocab_size, dmodel, init_type, init_scale, sequence_length):
     raise Exception("Not supported get_vanilla_embedding - use pc version")

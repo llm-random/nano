@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _SSH_HOSTS_TO_PASSPHRASES = {}
 
+
 def ensure_remote_config_exist(repo: Repo, remote_name: str, remote_url: str):
     for remote in repo.remotes:
         if remote.name == remote_name:
@@ -155,6 +156,7 @@ def wait_for_job_id(connection, tmux_pane, tries: int = 3):
             break
     return job_id
 
+
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
 def submit_experiment(
     cfg: OmegaConf,
@@ -168,7 +170,10 @@ def submit_experiment(
 
     script = cfg.infrastructure.get("script", None)
     generate_sbatch_script(
-        cfg.infrastructure.slurm, cfg.infrastructure.generated_configs_path, len(configs_grid), script
+        cfg.infrastructure.slurm,
+        cfg.infrastructure.generated_configs_path,
+        len(configs_grid),
+        script,
     )
     if cfg.infrastructure.server == "local":
         config, _overrides = configs_grid[0]
@@ -182,7 +187,9 @@ def submit_experiment(
             job_name=cfg.infrastructure.metric_logger.name,
         )
 
-        with ConnectWithPassphrase(host=cfg.infrastructure.server, inline_ssh_env=True) as connection:
+        with ConnectWithPassphrase(
+            host=cfg.infrastructure.server, inline_ssh_env=True
+        ) as connection:
             cemetery_dir = cfg.infrastructure.cemetery_experiments_dir
             connection.run(f"mkdir -p {cemetery_dir}")
 
@@ -202,9 +209,7 @@ def submit_experiment(
                     f"git clone --depth 1 -b {experiment_branch_name} {cfg.infrastructure.git.remote_url} {experiment_dir}"
                 )
             else:
-                print(
-                    f"Experiment {experiment_branch_name} already exists. Skipping."
-                )
+                print(f"Experiment {experiment_branch_name} already exists. Skipping.")
 
             try:
                 connection.run(f"tmux new -d -s {experiment_branch_name}")
@@ -219,9 +224,11 @@ def submit_experiment(
                 connection.run(
                     f'tmux send -t {experiment_branch_name}.0 "tail -f --retry slurm-{job_id}_0.out" ENTER'
                 )
-                LOGLEVEL = os.environ.get('LOGLEVEL', 'WARNING').upper()
-                if LOGLEVEL == 'DEBUG':
-                    connection.run(f'tmux attach-session -t {experiment_branch_name}', pty=True)
+                LOGLEVEL = os.environ.get("LOGLEVEL", "WARNING").upper()
+                if LOGLEVEL == "DEBUG":
+                    connection.run(
+                        f"tmux attach-session -t {experiment_branch_name}", pty=True
+                    )
             except Exception as e:
                 print("Exception while running an experiment: ", e)
 

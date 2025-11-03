@@ -11,6 +11,7 @@ from src.definitions import MetricLoggerConfig
 
 logger = logging.getLogger(__name__)
 
+
 class MetricLogger(ABC):
     def __init__(self, config=None):
         self.heavy_metrics_calculation_interval = (
@@ -215,20 +216,22 @@ def broadcast_message(rank, message=None):
 
     return message_tensor.cpu().numpy().tobytes().decode("utf-8")
 
+
 class AveMetric:
     def __init__(self, average_tail_len, name):
         self.name = name
         self.tail_len = average_tail_len
         self.metric_stack = []
 
-    def log(self, mlogger:MetricLogger, step, metric_val):
-        do_log = False 
+    def log(self, mlogger: MetricLogger, step, metric_val):
+        do_log = False
         self.metric_stack.append(metric_val)
         while len(self.metric_stack) > self.tail_len:
             self.metric_stack.pop(0)
             do_log = True
         if do_log:
             mlogger.log(self.name, step, statistics.mean(self.metric_stack))
+
 
 class AveDiffMetric(AveMetric):
     def __init__(self, average_tail_len, name, first_metric_val):
