@@ -17,6 +17,7 @@ def create_batch_fingerprint(batch):
 
     return first_row + middle_row + last_row
 
+
 def cast_state_dict_to_tensors(state_dict, device="cpu"):
     """
     Convert all DTensors in a state dict to regular torch.Tensors.
@@ -36,15 +37,21 @@ def cast_state_dict_to_tensors(state_dict, device="cpu"):
             full_state[k] = v
     return full_state
 
+
 def finish_exp(model):
     return False
 
-def solve_config_lr(config_lr:float) -> tuple[float, float]: # TODO temporary place - move to devinitions eval+ when created
+
+def solve_config_lr(
+    config_lr: float,
+) -> tuple[
+    float, float
+]:  # TODO temporary place - move to devinitions eval+ when created
     ret_lr, ret_exp_lr = None, None
-    if config_lr < 1.0: 
+    if config_lr < 1.0:
         ret_lr = config_lr
-        ret_exp_lr = -1*math.log(config_lr) / math.log(2)
-    if config_lr >= 1.0: 
+        ret_exp_lr = -1 * math.log(config_lr) / math.log(2)
+    if config_lr >= 1.0:
         ret_lr = 2**-config_lr
         ret_exp_lr = ret_exp_lr
     return ret_lr, ret_exp_lr

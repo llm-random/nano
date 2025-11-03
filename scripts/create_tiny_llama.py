@@ -1,8 +1,9 @@
-from transformers import  AutoConfig, LlamaForCausalLM
+from transformers import AutoConfig, LlamaForCausalLM
 import argparse
 
 PROJECT_ORG = "pc-project"
 MODEL_NAME = "tiny-llama-16M"
+
 
 def main():
     parser = argparse.ArgumentParser(description="Save or push model")
@@ -30,6 +31,7 @@ def main():
     elif args.command == "push":
         print("Pushing model to hub...")
         model.push_to_hub(f"{PROJECT_ORG}/{MODEL_NAME}", private=True)
+
 
 if __name__ == "__main__":
     main()

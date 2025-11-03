@@ -57,7 +57,10 @@ class TrapezoidalLR(SequentialLR):
         while loaded_state["last_epoch"] > self.last_epoch:
             self.step()
 
-def get_cosine_scheduler_with_warmup(optimizer, warmup_steps: int, n_steps: int, final_lr_fraction: float):
+
+def get_cosine_scheduler_with_warmup(
+    optimizer, warmup_steps: int, n_steps: int, final_lr_fraction: float
+):
     assert (
         len(optimizer.param_groups) == 1
     ), "Cosine scheduler only supports one param group"

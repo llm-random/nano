@@ -41,7 +41,7 @@ def create_program_call(config_folder):
         "  main.py \\",
         f"    --config-path={config_folder} \\",
         "    --config-name=config_${SLURM_ARRAY_TASK_ID}.yaml \\",
-        "    +checkpoint_config.slurm_array_task_id=${SLURM_ARRAY_TASK_ID}"
+        "    +checkpoint_config.slurm_array_task_id=${SLURM_ARRAY_TASK_ID}",
     ]
 
 

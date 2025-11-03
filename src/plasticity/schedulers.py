@@ -94,7 +94,9 @@ class CustomLinearLR(_LRScheduler):
     Unlike PyTorch's LinearLR which uses factors, this allows explicit start and end learning rates.
     """
 
-    def __init__(self, optimizer, total_iters, last_epoch=-1, start_lr=None, end_lr=None):
+    def __init__(
+        self, optimizer, total_iters, last_epoch=-1, start_lr=None, end_lr=None
+    ):
         """
         Args:
             optimizer: Wrapped optimizer
