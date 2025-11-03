@@ -5,22 +5,31 @@ defaults:
   - _dataset@_here_: local_dummy
   - _checkpoints@_here_: none
   - _misc@_here_: default
+  - _eval@_here_: default
 
 
 common:
   sequence_length: 16
   batch_size: 2
+  evaluate: true
 
+evaluator:
+  limit: 3
+  device: cpu
 
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 100
-
   learning_rate: 1e-3
+
+  checkpoint:
+    save:
+      type: huggingface
+      path: final_chkpt
 
 infrastructure:
   metric_logger:
-    name: tiny_Local
+    name: tiny_local
     tags:
       - nano
       - local
