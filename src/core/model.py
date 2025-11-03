@@ -426,7 +426,6 @@ class RoPEAttention(nn.Module):
         return output
 
 
-
 def attention_mechanism(
     query: torch.Tensor,
     key: torch.Tensor,
