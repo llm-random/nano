@@ -199,14 +199,7 @@ def log_eval(metric_logger, eval_results: dict):
     # metric_logger.run["eval/full_results"].upload("eval_results.json")
 
 
-def run(cfg: OmegaConf, metric_logger=None):
-    setup_enviroment()
-
-    if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
-        distributed_setup()
-
-    # Instantiate common config to apply Pydantic defaults
-    common_config = instantiate(cfg.common, _convert_="all")
+def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
@@ -256,7 +249,7 @@ def run(cfg: OmegaConf, metric_logger=None):
                 res = fn(model)
                 if res == False:
                     cleanup()
-                    return 0
+                    return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -273,7 +266,7 @@ def run(cfg: OmegaConf, metric_logger=None):
                 res = fn(model)
                 if res == False:
                     cleanup()
-                    return 0
+                    return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -290,7 +283,7 @@ def run(cfg: OmegaConf, metric_logger=None):
                 res = fn(model)
                 if res == False:
                     cleanup()
-                    return 0
+                    return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -306,7 +299,7 @@ def run(cfg: OmegaConf, metric_logger=None):
                 res = fn(model)
                 if res == False:
                     cleanup()
-                    return 0
+                    return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -333,6 +326,22 @@ def run(cfg: OmegaConf, metric_logger=None):
         raise Exception(
             f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}"
         )
+
+    return model, optimizer, scheduler, training_state, metric_logger
+
+
+def run(cfg: OmegaConf, metric_logger=None):
+    setup_enviroment()
+
+    if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
+        distributed_setup()
+
+    # Instantiate common config to apply Pydantic defaults
+    common_config = instantiate(cfg.common, _convert_="all")
+
+    model, optimizer, scheduler, training_state, metric_logger = (
+        initialize_training_components(cfg, metric_logger)
+    )
 
     logger.info(f"Model initialized")
 
