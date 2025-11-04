@@ -34,24 +34,16 @@ class Evaluator:
             log_samples=False,
         )
 
-        # Save results to JSON with default=str to handle torch dtypes
         with open("eval_results.json", "w") as f:
             json.dump(results, f, indent=2, default=str)
 
-        # print(results)
         self.log_eval(results)
 
     def log_eval(self, eval_results: dict):
         """Log evaluation results to Neptune."""
-        # Log individual task metrics
         for task_name, metrics in eval_results["results"].items():
             for metric_name, value in metrics.items():
-                # Strip ,none suffix and log
                 clean_metric_name = metric_name.replace(",none", "")
                 self.metric_logger.run[f"eval/{task_name}/{clean_metric_name}"] = value
 
         self.metric_logger.run["eval/limit"] = eval_results["config"]["limit"]
-
-        # Upload full results as artifact
-        # disabled for now, it is a huge dict.
-        # self.metric_logger.run["eval/full_results"].upload("eval_results.json")
