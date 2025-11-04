@@ -1,32 +1,20 @@
-
+defaults:
+  - default
+  - _self_
 
 trainer:
   train_dataloader:
-    _target_: src.core.datasets.get_dataloader
     dataset_path: data
     dataset_split: train
     dataset_type: c4
+    num_workers: 0
     tokenize_fn: 
       _target_: src.core.datasets.gpt2_tokenize_fn
-    num_workers: 0
-    seed: 20001
-    sequence_length: ${common.sequence_length}
-    shuffle: true
-    total_batch_size: ${common.batch_size}
-    use_new_sampling_method: true
-    world_size_independent: false
 
   eval_dataloader:
-    _target_: src.core.datasets.get_dataloader
     dataset_path: data_eval
     dataset_split: validation
     dataset_type: c4
+    num_workers: 0
     tokenize_fn: 
       _target_: src.core.datasets.gpt2_tokenize_fn
-    num_workers: 0
-    seed: 123
-    sequence_length: ${common.sequence_length}
-    shuffle: true
-    total_batch_size: ${common.batch_size}
-    use_new_sampling_method: true
-    world_size_independent: false
