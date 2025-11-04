@@ -15,11 +15,6 @@ class Evaluator:
     device: str
     metric_logger: MetricLogger
 
-    def __attrs_post_init__(self):
-        self.tasks = list(
-            self.tasks
-        )  # it's omegaconf.listconfig.ListConfig, lm_eval doesn't accept this type
-
     def eval(self):
         eval_model_args = (
             f"pretrained={self.checkpoint_path}," f"tokenizer={self.tokenizer}"
@@ -28,7 +23,7 @@ class Evaluator:
         results = evaluator.simple_evaluate(
             model="hf",
             model_args=eval_model_args,
-            tasks=self.tasks,
+            tasks=list(self.tasks),
             limit=self.limit,
             device=self.device,
             log_samples=False,
