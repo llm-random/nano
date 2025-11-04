@@ -28,12 +28,13 @@ trainer:
 1. Why state of model, optim, scheduler is separated from other state parameters?
 - We want to start metric_logger ASAP, loading model's distributed checkpoint forces us to create model before loading weights.
 
-2. How to save llama weights?
+2. How to load llama weights?
 Set following fields in a config:
 ```yaml
 trainer:
   checkpoint:
-   save:
+   load:
     type: huggingface
-    path: "path_to_checkpoint"
+    path: "meta-llama/Llama-3.2-1B"
+  n_steps: 0
 ```
