@@ -15,6 +15,7 @@ from torchtune.modules.position_embeddings import (
 
 from torch.nn import Embedding as Embedding
 
+from src.projected_compression.utils import mpp, smart_projections, svd_g
 from src.core.llama import repeat_kv
 from src.core.model import AttentionMechanism
 from torch.nn.init import trunc_normal_
@@ -463,8 +464,10 @@ class ProjectedLinear(nn.Module):
         self,
         proj_in_topk_indices: Optional[torch.Tensor],
         proj_out_topk_indices: Optional[torch.Tensor],
+        smart_init = False,
         factory_kwargs={},
     ):
+
         if proj_in_topk_indices is None:
             assert (
                 self.projection_in_weight is None
@@ -483,19 +486,37 @@ class ProjectedLinear(nn.Module):
                 len(proj_out_topk_indices) == self.result_out_features
             ), "projection 'out' dimension mismatch."
 
-        if self.result_in_features is not None:
-            weight = torch.zeros(
-                self.base_in_features, self.result_in_features, **factory_kwargs
-            )
-            weight[proj_in_topk_indices, torch.arange(self.result_in_features)] = 1
-            self.projection_in_weight = nn.Parameter(weight, requires_grad=True)
+        if smart_init:
+            print(f"SMART P1 P2 - {str(smart_init)}") #dev
+            p1, p2 = smart_projections(self.weight, proj_out_topk_indices, proj_in_topk_indices, smart_init)
 
-        if self.result_out_features is not None:
-            weight = torch.zeros(
-                self.result_out_features, self.base_out_features, **factory_kwargs
-            )
-            weight[torch.arange(self.result_out_features), proj_out_topk_indices] = 1
-            self.projection_out_weight = nn.Parameter(weight, requires_grad=True)
+            if self.result_in_features is not None:
+                weight = torch.zeros(
+                    self.base_in_features, self.result_in_features, **factory_kwargs
+                )
+                weight = weight + p2.to("cpu")
+                self.projection_in_weight = nn.Parameter(weight, requires_grad=True)
+
+            if self.result_out_features is not None:
+                weight = torch.zeros(
+                    self.result_out_features, self.base_out_features, **factory_kwargs
+                )
+                weight = weight + p1.to("cpu")
+                self.projection_out_weight = nn.Parameter(weight, requires_grad=True)
+        else:
+            if self.result_in_features is not None:
+                weight = torch.zeros(
+                    self.base_in_features, self.result_in_features, **factory_kwargs
+                )
+                weight[proj_in_topk_indices, torch.arange(self.result_in_features)] = 1
+                self.projection_in_weight = nn.Parameter(weight, requires_grad=True)
+
+            if self.result_out_features is not None:
+                weight = torch.zeros(
+                    self.result_out_features, self.base_out_features, **factory_kwargs
+                )
+                weight[torch.arange(self.result_out_features), proj_out_topk_indices] = 1
+                self.projection_out_weight = nn.Parameter(weight, requires_grad=True)
 
         if self.result_in_features is not None or self.result_out_features is not None:
             final_in_features = (
@@ -600,11 +621,19 @@ class ProjectedEmbedding(Embedding):
             result += self.auxiliary_weight(x)
         return result
 
-    def init_projection(self, topk_dmodel_indices, **factory_kwargs):
+    def init_projection(self, topk_dmodel_indices, smart_init, **factory_kwargs):
         assert len(topk_dmodel_indices) == self.result_out_features
         vocab_size, dmodel = self.weight.shape
         weight = torch.zeros(self.result_out_features, dmodel, **factory_kwargs)
-        weight[torch.arange(self.result_out_features), topk_dmodel_indices] = 1
+        if smart_init:
+            print(f"SMART P1 P2 - {str(smart_init)}") #dev
+            print(f"self.embedding.weight.shape {self.embedding.weight.shape}") #dev
+            print(f"topk_dmodel_indices.shape {topk_dmodel_indices.shape}") #dev
+            print(f"weight.shape {weight.shape}") #dev
+            _, p2 = smart_projections(self.embedding.weight, None, topk_dmodel_indices, smart_init)
+            weight = weight + p2.T.to('cpu')
+        else:
+            weight[torch.arange(self.result_out_features), topk_dmodel_indices] = 1
         self.projection = nn.Parameter(weight, requires_grad=True)
         self.initialized_compression = True
 
