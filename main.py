@@ -232,6 +232,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
+                    logger.info("Initialization failed, exiting...")
                     return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
@@ -248,6 +249,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
+                    logger.info("Initialization failed, exiting...")
                     return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
@@ -264,6 +266,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
+                    logger.info("Initialization failed, exiting...")
                     return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
@@ -279,6 +282,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
+                    logger.info("Initialization failed, exiting...")
                     return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
@@ -321,24 +325,15 @@ def run(cfg: OmegaConf, metric_logger=None):
     )
 
     if model is not None:
-       trainer = instantiate(cfg.trainer)
-       trainer(
+        logger.info(f"Model initialized")
+        trainer = instantiate(cfg.trainer)
+        trainer(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
             training_state=training_state,
             metric_logger=metric_logger,
-       ).train()
-
-    logger.info(f"Model initialized")
-    trainer = instantiate(cfg.trainer)
-    trainer(
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        training_state=training_state,
-        metric_logger=metric_logger,
-    ).train()
+        ).train()
 
     cleanup()
 
