@@ -320,10 +320,15 @@ def run(cfg: OmegaConf, metric_logger=None):
         initialize_training_components(cfg, metric_logger)
     )
 
-    if model is None:
-        logger.info("Initialization failed, exiting...")
-        cleanup()
-        return 0
+    if model is not None:
+       trainer = instantiate(cfg.trainer)
+       trainer(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+       ).train()
 
     logger.info(f"Model initialized")
     trainer = instantiate(cfg.trainer)
