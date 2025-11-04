@@ -30,3 +30,7 @@ infrastructure:
       - nano
       - local
       - tiny
+
+evaluator:
+  limit: 1
+  device: cpu

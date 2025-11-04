@@ -324,16 +324,27 @@ def run(cfg: OmegaConf, metric_logger=None):
         initialize_training_components(cfg, metric_logger)
     )
 
+    common_config = instantiate(cfg.common)
+
     if model is not None:
         logger.info(f"Model initialized")
-        trainer = instantiate(cfg.trainer)
-        trainer(
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            training_state=training_state,
-            metric_logger=metric_logger,
-        ).train()
+
+        if common_config.pretrain:
+            trainer = instantiate(cfg.trainer)
+            trainer(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                training_state=training_state,
+                metric_logger=metric_logger,
+            ).train()
+
+        # TODO
+        # finetuning
+
+        if common_config.evaluate:
+            evaluator = instantiate(cfg.evaluator)
+            evaluator(metric_logger=metric_logger).eval()
 
     cleanup()
 
