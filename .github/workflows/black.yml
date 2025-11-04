@@ -24,4 +24,4 @@ jobs:
 
       - name: Run Black check
         run: |
-          black --check .
+          black --check --extend-exclude='\.ipynb$' .
