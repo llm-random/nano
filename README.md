@@ -30,10 +30,10 @@ trainer:
 
 2. How to save llama weights?
 Set following fields in a config:
-```trainer:
+```yaml
+trainer:
   checkpoint:
-   load:
+   save:
     type: huggingface
-    path: "meta-llama/Llama-3.2-1B"
-  n_steps: 0
+    path: "path_to_checkpoint"
 ```
