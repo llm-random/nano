@@ -232,7 +232,6 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
-                    cleanup()
                     return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
@@ -249,7 +248,6 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
-                    cleanup()
                     return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
@@ -266,7 +264,6 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
-                    cleanup()
                     return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
@@ -282,7 +279,6 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
-                    cleanup()
                     return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
@@ -323,6 +319,11 @@ def run(cfg: OmegaConf, metric_logger=None):
     model, optimizer, scheduler, training_state, metric_logger = (
         initialize_training_components(cfg, metric_logger)
     )
+
+    if model is None:
+        logger.info("Initialization failed, exiting...")
+        cleanup()
+        return 0
 
     logger.info(f"Model initialized")
     trainer = instantiate(cfg.trainer)
