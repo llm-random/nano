@@ -10,8 +10,6 @@ defaults:
 common:
   sequence_length: 16
   batch_size: 2
-  pretrain: true
-  evaluate: true
 
 trainer:
   gradient_accumulation_steps: 1
