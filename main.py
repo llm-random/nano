@@ -214,6 +214,19 @@ def run(cfg:OmegaConf, metric_logger=None):
                 if res == False:
                     cleanup() 
                     return 0
+        # if dist.get_rank() == 0: #dev
+        #     copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
+        #     if cfg.get("apply_functions", None):
+        #         for fn in instantiate(cfg.apply_functions):
+        #             res = fn(model)
+        #             if res == False:
+        #                 cleanup() 
+        #                 return 0
+        # dist.barrier()
+        # for p in model.parameters():
+        #     dist.broadcast(p.data, src=0)
+        
+        model = model.to(device)
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -279,13 +292,28 @@ def run(cfg:OmegaConf, metric_logger=None):
     
     logger.info(f"Model initialized")
     trainer = instantiate(cfg.trainer)
-    trainer(
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        training_state=training_state,
-        metric_logger=metric_logger,
-    ).train()
+    if "distillation" in cfg:
+        teacher_model = instantiate(cfg.distillation.teacher_model, _convert_="all").to(device)
+        if cfg.distillation.load.type == "huggingface":
+            copy_llama_model_weights_from_HF(teacher_model, cfg.distillation.load.path)
+            teacher_model = setup_distributed_training(teacher_model, cfg.trainer.teacher_distributed)
+
+        trainer(
+            teacher_model=teacher_model,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+        ).train()
+    else:
+        trainer(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+        ).train()
 
     cleanup()
 
