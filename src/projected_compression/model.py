@@ -148,12 +148,16 @@ class RoPE(nn.Module):
     """
 
     # features are paired x_i, x_{i + d_head/2}
-    def __init__(self, dhead, length, base, apply_freq_scaling):
+    def __init__(self, dhead, length, base, apply_freq_scaling, factor, low_freq_factor, high_freq_factor, original_max_position_embeddings):
         super().__init__()
         self.dhead = dhead
         self.length = length
         self.base = base
         self.apply_freq_scaling = apply_freq_scaling
+        self.factor = factor
+        self.low_freq_factor = low_freq_factor
+        self.high_freq_factor = high_freq_factor
+        self.original_max_position_embeddings = original_max_position_embeddings
         self.register_freqs()
 
     def register_freqs(self):
@@ -172,11 +176,11 @@ class RoPE(nn.Module):
             "cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False
         )
 
-    def scale_freqs(self, freqs, factor=32):
-        # factor = `8` in the original implementation according to HuggingFace
-        low_freq_factor = 1  # `1` in the original implementation
-        high_freq_factor = 4  # `4` in the original implementation
-        old_context_len = 8192  # `8192` in the original implementation
+    def scale_freqs(self, freqs):
+        factor = self.factor 
+        low_freq_factor = self.low_freq_factor
+        high_freq_factor = self.high_freq_factor
+        old_context_len = self.original_max_position_embeddings
 
         low_freq_wavelen = old_context_len / low_freq_factor
         high_freq_wavelen = old_context_len / high_freq_factor
@@ -217,6 +221,10 @@ class RoPEAttention(nn.Module):
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
+        factor=32,
+        low_freq_factor=1,
+        high_freq_factor=4,
+        original_max_position_embeddings=8192,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -235,6 +243,10 @@ class RoPEAttention(nn.Module):
             length=seq_len,
             base=rope_base,
             apply_freq_scaling=rope_scale_freqs,
+            factor=factor,
+            low_freq_factor=low_freq_factor,
+            high_freq_factor=high_freq_factor,
+            original_max_position_embeddings=original_max_position_embeddings
         )
 
     def forward(self, x):
