@@ -14,6 +14,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def take_circular(iterable, start, stop):
     cycle = itertools.cycle(iterable)
     return itertools.islice(cycle, start, stop)
@@ -21,6 +22,7 @@ def take_circular(iterable, start, stop):
 
 def gpt2_tokenize_fn():
     tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+
     def tokenize_function(examples):
         texts = [text + tokenizer.eos_token for text in examples["text"]]
         batch_encodings = tokenizer(
@@ -29,10 +31,15 @@ def gpt2_tokenize_fn():
             max_length=int(1e10),
         )
         return batch_encodings
+
     return tokenize_function
 
+
 def llama_tokenize_fn():
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False)
+    tokenizer = AutoTokenizer.from_pretrained(
+        "meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False
+    )
+
     def tokenize_function(examples):
         batch_encodings = tokenizer(
             examples["text"],
@@ -40,6 +47,7 @@ def llama_tokenize_fn():
             max_length=int(1e10),
         )
         return batch_encodings
+
     return tokenize_function
 
 def smollm_135_tokenize_fn():
@@ -143,6 +151,7 @@ class AbstractDataset(IterableDataset):
         else:
             return self.sample_packer()
 
+
 class FineWebEduDataset(AbstractDataset):
 
     BUFFER_SIZE = 10000
@@ -157,10 +166,18 @@ class FineWebEduDataset(AbstractDataset):
         seed: Optional[int] = None,
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
-        world_size_independent: bool = False
+        world_size_independent: bool = False,
     ):
-        super().__init__(sequence_length, tokenize_fn, path, split, seed, use_new_sampling_method, shuffle,
-                         world_size_independent)
+        super().__init__(
+            sequence_length,
+            tokenize_fn,
+            path,
+            split,
+            seed,
+            use_new_sampling_method,
+            shuffle,
+            world_size_independent,
+        )
         self._load_dataset(path, seed, tokenize_fn, shuffle)
 
     def _load_dataset(self, path, seed, tokenize_fn, shuffle: bool):
@@ -179,10 +196,7 @@ class FineWebEduDataset(AbstractDataset):
         if shuffle:
             hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
 
-        self.data_generator = hf_dataset.map(
-            tokenize_fn,
-            batched=True
-        )
+        self.data_generator = hf_dataset.map(tokenize_fn, batched=True)
 
     def get_infinite_sampler(self):
         epoch = 0
@@ -191,6 +205,7 @@ class FineWebEduDataset(AbstractDataset):
             for next_sample in self.data_generator:
                 yield next_sample
             epoch += 1
+
 
 class C4Dataset(AbstractDataset):
     """
@@ -215,8 +230,16 @@ class C4Dataset(AbstractDataset):
         shuffle: bool = True,
         world_size_independent: bool = False,
     ):
-        super().__init__(sequence_length, tokenize_fn, path, split, seed, use_new_sampling_method, shuffle,
-                         world_size_independent)
+        super().__init__(
+            sequence_length,
+            tokenize_fn,
+            path,
+            split,
+            seed,
+            use_new_sampling_method,
+            shuffle,
+            world_size_independent,
+        )
         self._load_dataset(path, split, seed, tokenize_fn, shuffle)
 
     def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
@@ -244,10 +267,7 @@ class C4Dataset(AbstractDataset):
         if shuffle:
             hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
 
-        self.data_generator = hf_dataset.map(
-            tokenize_fn,
-            batched=True
-        )
+        self.data_generator = hf_dataset.map(tokenize_fn, batched=True)
 
     def get_infinite_sampler(self):
         epoch = 0
@@ -320,4 +340,3 @@ def get_dataloader(
         raise ValueError(f"Unsupported dataset type: '{dataset_type}'")
 
     return dataloader
-

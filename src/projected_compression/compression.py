@@ -21,8 +21,8 @@ def determine_dmodel_magnitudes(block_state_dict):
         "ff_layer.layer.ff_pre_act.weight",
     ]
 
-    # For models with SiLU (e.g. LLama) 
-    if "ff_layer.layer.gate.weight" in block_state_dict.keys(): 
+    # For models with SiLU (e.g. LLama)
+    if "ff_layer.layer.gate.weight" in block_state_dict.keys():
         leftside_projections.append("ff_layer.layer.gate.weight")
 
     rightside_projections = [
@@ -46,7 +46,7 @@ def determine_dff_magnitudes(block_state_dict):
     dff_magnitude = torch.norm(weight, dim=0)
 
     rightside_projections = ["ff_layer.layer.ff_pre_act.weight"]
-    # For models with SiLU (e.g. LLama) 
+    # For models with SiLU (e.g. LLama)
     if "ff_layer.layer.gate.weight" in block_state_dict.keys():
         rightside_projections.append("ff_layer.layer.gate.weight")
 
@@ -106,12 +106,14 @@ def initialize_projection_weights(
             ("attention_layer.layer.v_proj", dmodel_top_indices, None),
             ("ff_layer.layer.ff_pre_act", dmodel_top_indices, dff_top_indices[i]),
             ("attention_layer.layer.o_proj", None, dmodel_top_indices),
-            ("ff_layer.layer.ff_post_act", dff_top_indices[i], dmodel_top_indices)
+            ("ff_layer.layer.ff_post_act", dff_top_indices[i], dmodel_top_indices),
         ]
-        # For models with SiLU (e.g. LLama) 
+        # For models with SiLU (e.g. LLama)
         if "ff_layer.layer.gate.weight" in block.state_dict().keys():
-            layers_to_init_projections.append(("ff_layer.layer.gate", dmodel_top_indices, dff_top_indices[i]))
-        
+            layers_to_init_projections.append(
+                ("ff_layer.layer.gate", dmodel_top_indices, dff_top_indices[i])
+            )
+
         for layer_name, in_topk_indices, out_topk_indices in layers_to_init_projections:
             get_nested_attr(block, layer_name).init_projections(
                 in_topk_indices, out_topk_indices
@@ -129,7 +131,10 @@ def initialize_projection_weights(
         block.ff_layer.norm.weight = torch.nn.Parameter(cloned_data[dmodel_top_indices])
         block.ff_layer.norm.normalized_shape = tuple(block.ff_layer.norm.weight.shape)
 
-def init_compression(model: nn.Module, dimensions_importances_path, target_dmodel, target_dff):
+
+def init_compression(
+    model: nn.Module, dimensions_importances_path, target_dmodel, target_dff
+):
     # Freeze all parameters
     for param in model.parameters():
         param.requires_grad = False
@@ -140,19 +145,21 @@ def init_compression(model: nn.Module, dimensions_importances_path, target_dmode
     dmodel_importances = dimensions_importances["dmodel_importances"]
     dff_importances = dimensions_importances["dff_importances"]
 
-    dmodel_indices = torch.topk(dmodel_importances, dim=0, largest=True, k=target_dmodel).indices.to(device)
+    dmodel_indices = torch.topk(
+        dmodel_importances, dim=0, largest=True, k=target_dmodel
+    ).indices.to(device)
     dff_indices = []
     for i in range(len(dff_importances)):
-        dff_top_indices_current = torch.topk(dff_importances[i], dim=0, largest=True, k=target_dff).indices.to(device)
+        dff_top_indices_current = torch.topk(
+            dff_importances[i], dim=0, largest=True, k=target_dff
+        ).indices.to(device)
         dff_indices.append(dff_top_indices_current)
 
     initialize_projection_weights(model, dmodel_indices, dff_indices)
     return model
 
 
-def finalize_projection_weights(
-    model: nn.Module
-):
+def finalize_projection_weights(model: nn.Module):
     model.head.linear.finalize()
     model.embedding.finalize()
 
@@ -163,11 +170,11 @@ def finalize_projection_weights(
             "attention_layer.layer.v_proj",
             "ff_layer.layer.ff_pre_act",
             "attention_layer.layer.o_proj",
-            "ff_layer.layer.ff_post_act"
+            "ff_layer.layer.ff_post_act",
         ]
-        # For models with SiLU (e.g. LLama) 
+        # For models with SiLU (e.g. LLama)
         if "ff_layer.layer.gate.weight" in block.state_dict().keys():
             layers_to_init_projections.append("ff_layer.layer.gate")
-        
+
         for layer_name in layers_to_init_projections:
             get_nested_attr(block, layer_name).finalize()

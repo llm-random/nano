@@ -1,0 +1,27 @@
+name: Check code style (Black)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  black:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install black
+        run: pip install black==25.1.0
+
+      - name: Run Black check
+        run: |
+          black --check --extend-exclude='\.ipynb$' .

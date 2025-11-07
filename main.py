@@ -19,7 +19,11 @@ import logging
 from hydra.utils import instantiate
 import logging
 from neptune.integrations.python_logger import NeptuneHandler
-from src.core.checkpointing import load_checkpoint_from_file, load_training_state, get_full_checkpoint_path
+from src.core.checkpointing import (
+    load_checkpoint_from_file,
+    load_training_state,
+    get_full_checkpoint_path,
+)
 from src.core.metric_loggers import NeptuneLogger, get_metric_logger
 from src.core.model import Residual
 import platform
@@ -33,6 +37,7 @@ formatter = logging.Formatter(
 )
 ch.setFormatter(formatter)
 logger.addHandler(ch)
+
 
 def dump_grid_configs(configs_grid, output_folder):
     os.makedirs(output_folder, exist_ok=True)
@@ -60,8 +65,10 @@ def upload_config_file(metric_logger):
             f"generated_configs/config_{slurm_array_task_id}.yaml"
         )
 
+
 def check_env_vars():
     assert int(os.environ["RANK"]) < int(os.environ["WORLD_SIZE"])
+
 
 def setup_enviroment():
     if "WORLD_SIZE" not in os.environ:
@@ -101,7 +108,12 @@ def distributed_setup():
     world_size = int(os.environ.get("WORLD_SIZE", 1))
 
     if torch.cuda.is_available():
-        dist.init_process_group(backend="nccl", rank=rank, world_size=world_size, device_id=torch.device(f"cuda:{local_rank}"))
+        dist.init_process_group(
+            backend="nccl",
+            rank=rank,
+            world_size=world_size,
+            device_id=torch.device(f"cuda:{local_rank}"),
+        )
         torch.cuda.set_device(local_rank)
     else:
         logger.warning("CUDA is not available. Running on CPU and 'gloo' backend.")
@@ -112,45 +124,46 @@ def cleanup():
     if dist.is_initialized():
         dist.destroy_process_group()
 
+
 def log_environs(metric_logger):
     scrap_keys = [
-        "SLURM_MEM_PER_GPU", 
-        "SLURM_JOB_USER", 
-        "SLURM_TASKS_PER_NODE", 
-        "SLURM_JOB_UID", 
-        "SLURM_TASK_PID", 
-        "CONDA_EXE", 
-        "SLURM_ARRAY_TASK_STEP", 
-        "TMUX", 
-        "SLURM_JOB_GPUS", 
-        "SLURM_LOCALID", 
-        "SLURM_SUBMIT_DIR", 
-        "HOSTNAME", 
+        "SLURM_MEM_PER_GPU",
+        "SLURM_JOB_USER",
+        "SLURM_TASKS_PER_NODE",
+        "SLURM_JOB_UID",
+        "SLURM_TASK_PID",
+        "CONDA_EXE",
+        "SLURM_ARRAY_TASK_STEP",
+        "TMUX",
+        "SLURM_JOB_GPUS",
+        "SLURM_LOCALID",
+        "SLURM_SUBMIT_DIR",
+        "HOSTNAME",
         "SLURMD_NODENAME",
-        "SLURM_JOB_START_TIME", 
-        "SLURM_CLUSTER_NAME", 
-        "SLURM_JOB_END_TIME", 
-        "SLURM_CPUS_ON_NODE", 
-        "SLURM_JOB_CPUS_PER_NODE", 
-        "SLURM_GPUS_ON_NODE", 
-        "LOGNAME", 
+        "SLURM_JOB_START_TIME",
+        "SLURM_CLUSTER_NAME",
+        "SLURM_JOB_END_TIME",
+        "SLURM_CPUS_ON_NODE",
+        "SLURM_JOB_CPUS_PER_NODE",
+        "SLURM_GPUS_ON_NODE",
+        "LOGNAME",
         "USER",
         "SLURM_NODELIST",
-        "SLURM_JOB_PARTITION", 
+        "SLURM_JOB_PARTITION",
         "SLURM_JOB_ACCOUNT",
         "SLURM_NPROCS",
         "SLURM_ARRAY_TASK_ID",
         "SLURM_JOB_ID",
-        "SLURM_JOBID", 
-        "SLURM_CONF", 
-        "SLURM_ARRAY_TASK_COUNT", 
-        "PATH", 
-        "SLURM_ARRAY_JOB_ID", 
-        "SLURM_JOB_NAME", 
-        "SLURM_JOB_GID", 
-        "CUDA_MODULE_LOADING", 
-        "RANK", 
-        "LOCAL_RANK", 
+        "SLURM_JOBID",
+        "SLURM_CONF",
+        "SLURM_ARRAY_TASK_COUNT",
+        "PATH",
+        "SLURM_ARRAY_JOB_ID",
+        "SLURM_JOB_NAME",
+        "SLURM_JOB_GID",
+        "CUDA_MODULE_LOADING",
+        "RANK",
+        "LOCAL_RANK",
         "CUDA_DEVICE_ORDER",
         "SLURM_TOPOLOGY_ADDR",
         "HOME",
@@ -163,22 +176,22 @@ def log_environs(metric_logger):
     for environ_key in scrap_keys:
         metric_logger.run[f"job/{environ_key}"] = str(environs.get(environ_key))
 
+
 def get_device():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     return device
 
-def run(cfg:OmegaConf, metric_logger=None):
-    setup_enviroment()
 
-    if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
-        distributed_setup()
+def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
     if metric_logger is None:
         metric_logger = get_metric_logger(
-            metric_logger_config=instantiate(cfg.infrastructure.metric_logger, _convert_="all"),
+            metric_logger_config=instantiate(
+                cfg.infrastructure.metric_logger, _convert_="all"
+            ),
             neptune_run_id=training_state["run_id"],
         )
         npt_handler = NeptuneHandler(run=metric_logger.run)
@@ -186,21 +199,28 @@ def run(cfg:OmegaConf, metric_logger=None):
 
     learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
 
-    if isinstance(metric_logger, NeptuneLogger) and (training_state["run_id"] is None or cfg.infrastructure.metric_logger.new_neptune_job):
+    if isinstance(metric_logger, NeptuneLogger) and (
+        training_state["run_id"] is None
+        or cfg.infrastructure.metric_logger.new_neptune_job
+    ):
         metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
         log_environs(metric_logger)
-        metric_logger.run[f"job/full_save_checkpoints_path"] = get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)
+        metric_logger.run[f"job/full_save_checkpoints_path"] = get_full_checkpoint_path(
+            cfg.trainer.checkpoint.save.path
+        )
         metric_logger.run["learning_rate"] = learning_rate
         metric_logger.run["exp_lr"] = exp_lr
-        
+
     torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
     device = get_device()
 
     logger.info(f"Creating model...")
     model = instantiate(cfg.model, _convert_="all").to(device)
-    logger.info(f"Model {model.__class__.__name__} created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
+    logger.info(
+        f"Model {model.__class__.__name__} created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters"
+    )
     # Residual layers needs metric_logger for logging update norms
     for _, module in model.named_modules():
         if isinstance(module, Residual):
@@ -212,80 +232,118 @@ def run(cfg:OmegaConf, metric_logger=None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
-                    cleanup() 
-                    return 0
+                    logger.info("Initialization failed, exiting...")
+                    return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
-        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+        scheduler = instantiate(cfg.trainer.scheduler)(
+            optimizer=optimizer, n_steps=cfg.trainer.n_steps
+        )
     elif cfg.trainer.checkpoint.load.type == "llm-random":
         load_llmrandom_checkpoint(cfg.trainer.checkpoint.load, model)
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
-                    cleanup() 
-                    return 0
+                    logger.info("Initialization failed, exiting...")
+                    return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
-        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+        scheduler = instantiate(cfg.trainer.scheduler)(
+            optimizer=optimizer, n_steps=cfg.trainer.n_steps
+        )
     elif cfg.trainer.checkpoint.load.type == "finalized_pc":
         load_finalized_pc_checkpoint(model, cfg.trainer.checkpoint.load)
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
-                    cleanup() 
-                    return 0
+                    logger.info("Initialization failed, exiting...")
+                    return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
-        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+        scheduler = instantiate(cfg.trainer.scheduler)(
+            optimizer=optimizer, n_steps=cfg.trainer.n_steps
+        )
     elif cfg.trainer.checkpoint.load.type == "nano":
         if cfg.get("apply_functions", None):
             for fn in instantiate(cfg.apply_functions):
                 res = fn(model)
                 if res == False:
-                    cleanup() 
-                    return 0
+                    logger.info("Initialization failed, exiting...")
+                    return None, None, None, None, None
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
-        scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
-        
-        load_checkpoint_from_file(cfg.trainer.checkpoint.load, model, optimizer, scheduler)
+        scheduler = instantiate(cfg.trainer.scheduler)(
+            optimizer=optimizer, n_steps=cfg.trainer.n_steps
+        )
+
+        load_checkpoint_from_file(
+            cfg.trainer.checkpoint.load, model, optimizer, scheduler
+        )
         if cfg.trainer.checkpoint.load.only_weights:
             optimizer = torch.optim.AdamW(
                 model.parameters(),
                 lr=learning_rate,
                 weight_decay=cfg.trainer.weight_decay,
             )
-            scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer, n_steps=cfg.trainer.n_steps)
+            scheduler = instantiate(cfg.trainer.scheduler)(
+                optimizer=optimizer, n_steps=cfg.trainer.n_steps
+            )
     else:
-        raise Exception(f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}")
-    
-    logger.info(f"Model initialized")
-    trainer = instantiate(cfg.trainer)
-    trainer(
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        training_state=training_state,
-        metric_logger=metric_logger,
-    ).train()
+        raise Exception(
+            f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}"
+        )
+
+    return model, optimizer, scheduler, training_state, metric_logger
+
+
+def run(cfg: OmegaConf, metric_logger=None):
+    setup_enviroment()
+
+    if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
+        distributed_setup()
+
+    model, optimizer, scheduler, training_state, metric_logger = (
+        initialize_training_components(cfg, metric_logger)
+    )
+
+    common_config = instantiate(cfg.common)
+
+    if model is not None:
+        logger.info(f"Model initialized")
+
+        trainer = instantiate(cfg.trainer)
+        trainer(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+        ).train()
+
+        # TODO
+        # finetuning
+
+        evaluator = instantiate(cfg.evaluator)
+        if evaluator is not None:
+            evaluator(metric_logger=metric_logger).eval()
 
     cleanup()
 
@@ -293,6 +351,7 @@ def run(cfg:OmegaConf, metric_logger=None):
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
 def main(config: OmegaConf):
     run(config)
+
 
 if __name__ == "__main__":
     main()

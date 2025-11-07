@@ -1,4 +1,3 @@
-
 from collections import OrderedDict
 import re
 import math
@@ -7,6 +6,7 @@ import torch
 
 from .model import AttentionMechanism, Linear
 from transformers import AutoModelForCausalLM
+
 
 class LlamaRoPE(nn.Module):
     # features are paired x_i, x_{i + d_head/2}
@@ -23,7 +23,7 @@ class LlamaRoPE(nn.Module):
         self.register_buffer("cos", torch.cos(angle_per_token).repeat(1, 2))
 
     def scale_freqs(self, freqs, factor=32):
-        # factor = `8` in the original implementation according to HuggingFace 
+        # factor = `8` in the original implementation according to HuggingFace
         low_freq_factor = 1  # `1` in the original implementation
         high_freq_factor = 4  # `4` in the original implementation
         old_context_len = 8192  # `8192` in the original implementation
@@ -36,12 +36,15 @@ class LlamaRoPE(nn.Module):
         # wavelen > low_freq_wavelen: divide by factor
         inv_freq_llama = torch.where(wavelen > low_freq_wavelen, freqs / factor, freqs)
         # otherwise: interpolate between the two, using a smooth factor
-        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
-        smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
+        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (
+            high_freq_factor - low_freq_factor
+        )
+        smoothed_inv_freq = (
+            1 - smooth_factor
+        ) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
         return inv_freq_llama
-
 
     def forward(self, x):
         # x shape (batch, n_heads, seq_len, dhead)
@@ -80,6 +83,7 @@ class LLamaFeedForward(nn.Module):
         x = self.ff_post_act(x)
         return x
 
+
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -88,10 +92,10 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
         return hidden_states
-    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    hidden_states = hidden_states[:, :, None, :, :].expand(
+        batch, num_key_value_heads, n_rep, slen, head_dim
+    )
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
-
-    
 
 
 class LlamaAttention(nn.Module):
@@ -111,9 +115,23 @@ class LlamaAttention(nn.Module):
         self.causal = causal
         self.head_dim = dmodel // self.q_heads
 
-        self.q_proj = Linear(dmodel, dmodel, bias=False, init_type=init_type, init_scale=init_scale)
-        self.k_proj = Linear(dmodel, self.kv_heads * self.head_dim, bias=False, init_type=init_type, init_scale=init_scale)
-        self.v_proj = Linear(dmodel, self.kv_heads * self.head_dim, bias=False, init_type=init_type, init_scale=init_scale)
+        self.q_proj = Linear(
+            dmodel, dmodel, bias=False, init_type=init_type, init_scale=init_scale
+        )
+        self.k_proj = Linear(
+            dmodel,
+            self.kv_heads * self.head_dim,
+            bias=False,
+            init_type=init_type,
+            init_scale=init_scale,
+        )
+        self.v_proj = Linear(
+            dmodel,
+            self.kv_heads * self.head_dim,
+            bias=False,
+            init_type=init_type,
+            init_scale=init_scale,
+        )
 
         self.o_proj = Linear(
             dmodel,
@@ -123,12 +141,7 @@ class LlamaAttention(nn.Module):
             init_scale=init_scale,
         )
         self.attention_mechanism = AttentionMechanism()
-        self.rope = LlamaRoPE(
-            dhead=self.head_dim,
-            length=seq_len,
-            base=500000
-        )
-
+        self.rope = LlamaRoPE(dhead=self.head_dim, length=seq_len, base=500000)
 
     def forward(self, x):
         query_states = self.q_proj(x)
@@ -154,13 +167,16 @@ class LlamaAttention(nn.Module):
 
         return output
 
+
 def remap_llamahf_state_dict_to_nano(llama_state_dict):
     remapped = {}
     for key, value in llama_state_dict.items():
         new_key = key
 
         # Embedding
-        new_key = new_key.replace("model.embed_tokens.weight", "embedding.embedding.weight")
+        new_key = new_key.replace(
+            "model.embed_tokens.weight", "embedding.embedding.weight"
+        )
 
         # Final norm and lm head
         new_key = new_key.replace("model.norm.weight", "head.norm.weight")
@@ -173,19 +189,37 @@ def remap_llamahf_state_dict_to_nano(llama_state_dict):
             sub_key = layer_match.group(2)
 
             # Attention projections
-            sub_key = sub_key.replace("self_attn.q_proj.weight", f"attention_layer.layer.q_proj.weight")
-            sub_key = sub_key.replace("self_attn.k_proj.weight", f"attention_layer.layer.k_proj.weight")
-            sub_key = sub_key.replace("self_attn.v_proj.weight", f"attention_layer.layer.v_proj.weight")
-            sub_key = sub_key.replace("self_attn.o_proj.weight", f"attention_layer.layer.o_proj.weight")
+            sub_key = sub_key.replace(
+                "self_attn.q_proj.weight", f"attention_layer.layer.q_proj.weight"
+            )
+            sub_key = sub_key.replace(
+                "self_attn.k_proj.weight", f"attention_layer.layer.k_proj.weight"
+            )
+            sub_key = sub_key.replace(
+                "self_attn.v_proj.weight", f"attention_layer.layer.v_proj.weight"
+            )
+            sub_key = sub_key.replace(
+                "self_attn.o_proj.weight", f"attention_layer.layer.o_proj.weight"
+            )
 
             # Attention norms
-            sub_key = sub_key.replace("input_layernorm.weight", "attention_layer.norm.weight")
-            sub_key = sub_key.replace("post_attention_layernorm.weight", "ff_layer.norm.weight")
+            sub_key = sub_key.replace(
+                "input_layernorm.weight", "attention_layer.norm.weight"
+            )
+            sub_key = sub_key.replace(
+                "post_attention_layernorm.weight", "ff_layer.norm.weight"
+            )
 
             # MLP
-            sub_key = sub_key.replace("mlp.up_proj.weight", "ff_layer.layer.ff_pre_act.weight")
-            sub_key = sub_key.replace("mlp.gate_proj.weight", "ff_layer.layer.gate.weight")
-            sub_key = sub_key.replace("mlp.down_proj.weight", "ff_layer.layer.ff_post_act.weight")
+            sub_key = sub_key.replace(
+                "mlp.up_proj.weight", "ff_layer.layer.ff_pre_act.weight"
+            )
+            sub_key = sub_key.replace(
+                "mlp.gate_proj.weight", "ff_layer.layer.gate.weight"
+            )
+            sub_key = sub_key.replace(
+                "mlp.down_proj.weight", "ff_layer.layer.ff_post_act.weight"
+            )
 
             new_key = f"encoder.blocks.{layer_num}.{sub_key}"
 
@@ -195,7 +229,7 @@ def remap_llamahf_state_dict_to_nano(llama_state_dict):
 
 
 def copy_llama_model_weights_from_HF(model: nn.Module, path: str):
- 
+
     hf_model = AutoModelForCausalLM.from_pretrained(path)
 
     llama_state_dict = hf_model.state_dict()

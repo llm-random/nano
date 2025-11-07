@@ -12,11 +12,13 @@ from torch.distributed.device_mesh import init_device_mesh
 
 logger = logging.getLogger(__name__)
 
+
 def get_classes_from_dotted_path(paths):
     return [dynamic_import(path) for path in paths]
 
+
 def dynamic_import(dotted_path):
-    module_path, _, obj_name = dotted_path.rpartition('.')
+    module_path, _, obj_name = dotted_path.rpartition(".")
     if not module_path or not obj_name:
         raise ValueError(f"Invalid path: {dotted_path}")
     module = importlib.import_module(module_path)
@@ -31,7 +33,9 @@ def setup_fsdp1_model(model, fsdp_config):
     ignore_mixed_precision_classes = get_classes_from_dotted_path(
         fsdp_config.mixed_precision.ignored_classes
     )
-    logger.info(f"[FSDP1] Ignoring mixed precision for classes: {ignore_mixed_precision_classes}")
+    logger.info(
+        f"[FSDP1] Ignoring mixed precision for classes: {ignore_mixed_precision_classes}"
+    )
 
     mixed_precision_dtype = getattr(
         sys.modules["torch"], fsdp_config.mixed_precision.dtype
@@ -66,7 +70,7 @@ def setup_fsdp2_model(model, fsdp_config):
 
     for module in model.modules():
         if isinstance(module, tuple(modules_to_shard)):
-            fully_shard(module,mesh=device_mesh, **fsdp2_kwargs)
+            fully_shard(module, mesh=device_mesh, **fsdp2_kwargs)
 
     fully_shard(model, mesh=device_mesh, **fsdp2_kwargs)
     logger.info(f"Sharding done.")
