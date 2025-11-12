@@ -18,3 +18,4 @@ infrastructure:
 
   cemetery_experiments_dir: "~/llmrandom_cemetery"
 
+evaluator: null
