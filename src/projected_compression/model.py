@@ -148,7 +148,17 @@ class RoPE(nn.Module):
     """
 
     # features are paired x_i, x_{i + d_head/2}
-    def __init__(self, dhead, length, base, apply_freq_scaling, factor, low_freq_factor, high_freq_factor, original_max_position_embeddings):
+    def __init__(
+        self,
+        dhead,
+        length,
+        base,
+        apply_freq_scaling,
+        factor,
+        low_freq_factor,
+        high_freq_factor,
+        original_max_position_embeddings,
+    ):
         super().__init__()
         self.dhead = dhead
         self.length = length
@@ -177,7 +187,7 @@ class RoPE(nn.Module):
         )
 
     def scale_freqs(self, freqs):
-        factor = self.factor 
+        factor = self.factor
         low_freq_factor = self.low_freq_factor
         high_freq_factor = self.high_freq_factor
         old_context_len = self.original_max_position_embeddings
@@ -246,7 +256,7 @@ class RoPEAttention(nn.Module):
             factor=factor,
             low_freq_factor=low_freq_factor,
             high_freq_factor=high_freq_factor,
-            original_max_position_embeddings=original_max_position_embeddings
+            original_max_position_embeddings=original_max_position_embeddings,
         )
 
     def forward(self, x):
