@@ -139,7 +139,7 @@ def main():
         "--cluster",
         type=str,
         required=True,
-        help="Path to cluster configuration YAML file"
+        help="Path to cluster configuration YAML file",
     )
 
     parser.add_argument(
