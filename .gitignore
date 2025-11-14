@@ -188,7 +188,6 @@ checkpoints
 
 # pixi
 .pixi/*
-!.pixi/config.toml
 
 # MAS (madragonse)
 *mastest*# pixi environments
