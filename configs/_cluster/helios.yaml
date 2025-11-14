@@ -9,11 +9,9 @@ infrastructure:
     partition: plgrid-gpu-gh200
     time: "2-00:00:00"
 
-    path: "/net/storage/pr3/plgrid/plggllmeffi"
-
   script:
     - 'module load ML-bundle/25.04'
-    - 'PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi/nano'
+    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi/nano'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
     
     # hydra errors

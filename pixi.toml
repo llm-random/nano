@@ -2,7 +2,7 @@
 authors = ["Janek <jan.malasnicki@gmail.com>"]
 channels = ["conda-forge"]
 name = "nano"
-platforms = ["linux-64", "osx-arm64"]   # drop osx-64 (Intel Mac)
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]   # drop osx-64 (Intel Mac)
 version = "0.1.0"
 
 [tasks]
@@ -11,8 +11,6 @@ version = "0.1.0"
 python = "==3.12.3"
 
 [pypi-dependencies]
-# Linux: CUDA 12.8 wheels
-torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
 transformers = "==4.46.2"
 datasets = "==3.1.0"
 neptune = "==1.13.0"
@@ -26,6 +24,12 @@ black = "==25.1.0"
 torchao = "==0.11.0"
 torchtune = "==0.6.1"
 lm-eval = ">=0.4.0"
+
+[target.linux-64.pypi-dependencies]
+torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+
+[target.linux-aarch64.pypi-dependencies]
+torch = { version = "==2.6", index = "https://download.pytorch.org/whl/cu126"}
 
 # macOS (Apple Silicon): CPU wheels (PyPI has arm64 wheels)
 [target.osx-arm64.pypi-dependencies]
