@@ -2,10 +2,12 @@ import argparse
 import os
 import re
 import sys
+import shlex
 from pathlib import Path
 
 from omegaconf import OmegaConf
 from run_exp import ConnectWithPassphrase
+from grid_generator.sbatch_builder import create_slurm_parameters
 
 
 def extract_pixi_home(script_lines) -> str:
@@ -48,6 +50,12 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
     # Extract server and PIXI_HOME
     server = cfg.infrastructure.server
     script_lines = cfg.infrastructure.script
+    slurm_config = cfg.infrastructure.slurm
+
+    # Override SLURM config for pixi install (doesn't need GPUs, shorter time)
+    slurm_config["time"] = "00:15:00"
+    slurm_config["gres"] = "gpu:1"
+    slurm_config["job-name"] = "update_pixi"
 
     try:
         pixi_home = extract_pixi_home(script_lines)
@@ -81,7 +89,10 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
         print(f"  3. Copy pixi.toml to {pixi_home}/")
         if pixi_lock.exists():
             print(f"  4. Copy pixi.lock to {pixi_home}/")
-        print(f"  5. Run 'pixi install' in {pixi_home}")
+        print(f"  5. Run 'pixi install' on compute node using srun with SLURM params:")
+        slurm_params = create_slurm_parameters(slurm_config)
+        for param in slurm_params:
+            print(f"      {param}")
         return
 
     # Connect to remote server
@@ -102,15 +113,35 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
             print(f"Copying pixi.lock to {pixi_home}/...")
             connection.put(str(pixi_lock), remote=f"{pixi_home}/pixi.lock")
 
-        # Run pixi install
-        print(f"\nRunning 'pixi install' in {pixi_home}...")
+        # Run pixi install on compute node using srun
+        print(f"\nRunning 'pixi install' on compute node...")
+
+        # Build srun command with SLURM parameters
+        slurm_params = create_slurm_parameters(slurm_config)
+        # Convert #SBATCH flags to srun flags (remove #SBATCH prefix)
+        srun_flags = [param.replace("#SBATCH ", "") for param in slurm_params]
+        srun_cmd = "srun " + " ".join(srun_flags)
 
         # Set up PATH and other environment variables from the cluster config
         text = "\n".join(script_lines)
         env_setup = []
         for line in text.splitlines():
             stripped = line.strip()
-            if stripped.startswith("export") and "PIXI" in stripped:
+
+            # skip empty lines and comments
+            if not line or line.startswith("#"):
+                continue
+
+            # include module load
+            if stripped.startswith("module load"):
+                env_setup.append(stripped)
+
+            # include all pixi-related exports
+            if stripped.startswith("export") and (
+                "PIXI" in stripped
+                or "XDG_" in stripped
+                or 'PATH="$PIXI_HOME' in stripped
+            ):
                 env_setup.append(stripped)
 
         env_commands = " && ".join(env_setup) if env_setup else ""
@@ -120,7 +151,10 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
         else:
             install_command = f"cd {pixi_home} && pixi install"
 
-        result = connection.run(install_command, pty=True)
+        cmd_quoted = shlex.quote(install_command)
+        full_command = f"{srun_cmd} bash -lc {cmd_quoted}"
+
+        result = connection.run(full_command, pty=True)
 
         if result.ok:
             print("\n✓ Pixi environment updated successfully!")
