@@ -3,6 +3,7 @@ import re
 import sys
 import shlex
 from pathlib import Path
+from datetime import datetime
 
 import hydra
 from omegaconf import OmegaConf
@@ -54,11 +55,17 @@ def update_remote_pixi(cfg: OmegaConf):
         print(f"Error: {e}")
         sys.exit(1)
 
-    # Override SLURM config for pixi install (doesn't need GPUs, shorter time)
-    slurm_config["time"] = "00:15:00"
-    slurm_config["gres"] = "gpu:1"
+    # This job is just "pixi install" → no GPU needed.
+    # Remove GPU-related keys inherited from the main cluster config.
+    for key in ("gres", "cpus_per_gpu", "mem_per_gpu"):
+        slurm_config.pop(key, None)
+
+    # Optionally set simple CPU-only params (tune if you like)
     slurm_config["job-name"] = "update_pixi"
-    slurm_config["output"] = f"{pixi_home}/pixi_install_%j.out"
+    slurm_config["cpus-per-task"] = (
+        4  # requires your create_slurm_parameters to map this
+    )
+    slurm_config["mem"] = "8G"  # normal mem, not mem-per-gpu
 
     print(f"Cluster: {server}")
     print(f"PIXI_HOME: {pixi_home}")
@@ -84,14 +91,15 @@ def update_remote_pixi(cfg: OmegaConf):
     if dry_run:
         print("\n[DRY RUN] Would perform the following actions:")
         print(f"  1. Connect to {server}")
-        print(f"  2. Create directory {pixi_home} if it doesn't exist")
-        print(f"  3. Copy pixi.toml to {pixi_home}/")
-        if pixi_lock.exists():
-            print(f"  4. Copy pixi.lock to {pixi_home}/")
-        print(f"  5. Run 'pixi install' on compute node using srun with SLURM params:")
+        print(f"  2. Create temporary directory in $HOME for pixi config")
+        print(f"  3. Copy pixi.toml (and pixi.lock if present) there")
+        print(f"  4. Run 'pixi install' on compute node using srun with SLURM params:")
         slurm_params = create_slurm_parameters(slurm_config)
         for param in slurm_params:
             print(f"      {param}")
+        print(
+            "  5. Inside srun: mkdir -p PIXI_HOME, copy from temp dir to PIXI_HOME, run pixi install"
+        )
         return
 
     # Connect to remote server
@@ -99,14 +107,24 @@ def update_remote_pixi(cfg: OmegaConf):
     with ConnectWithPassphrase(host=server, inline_ssh_env=True) as connection:
         print("Connected successfully!")
 
-        # Copy pixi.toml
-        print(f"Copying pixi.toml to {pixi_home}/...")
-        connection.put(str(pixi_toml), remote=f"{pixi_home}/pixi.toml")
+        # Figure out remote $HOME and temp dir for pixi config
+        home_dir = connection.run("cd && pwd", hide=True).stdout.strip()
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        remote_tmp_dir = f"{home_dir}/update_pixi/{timestamp}"
 
-        # Copy pixi.lock if it exists
+        print(f"\nEnsuring temporary directory {remote_tmp_dir} exists...")
+        connection.run(f"mkdir -p {remote_tmp_dir}", hide=True)
+
+        # Now that we know the real remote path, set SLURM output there
+        slurm_config["output"] = f"{remote_tmp_dir}/pixi_install_%j.out"
+
+        # Copy pixi.toml / pixi.lock into $HOME temp dir
+        print(f"Copying pixi.toml to {remote_tmp_dir}/...")
+        connection.put(str(pixi_toml), remote=f"{remote_tmp_dir}/pixi.toml")
+
         if pixi_lock.exists():
-            print(f"Copying pixi.lock to {pixi_home}/...")
-            connection.put(str(pixi_lock), remote=f"{pixi_home}/pixi.lock")
+            print(f"Copying pixi.lock to {remote_tmp_dir}/...")
+            connection.put(str(pixi_lock), remote=f"{remote_tmp_dir}/pixi.lock")
 
         # Run pixi install on compute node using srun
         print(f"\nRunning 'pixi install' on compute node...")
@@ -134,17 +152,36 @@ def update_remote_pixi(cfg: OmegaConf):
 
             # include all pixi-related exports
             if line.startswith("export") and (
-                "PIXI" in line
-                or "XDG_" in line
-                or 'PATH="$PIXI_HOME' in line
+                "PIXI" in line or "XDG_" in line or 'PATH="$PIXI_HOME' in line
             ):
                 env_setup.append(line)
                 continue
 
         env_commands = " && ".join(env_setup) if env_setup else ""
 
-        # mkdir happens on the compute node, via srun
-        base_command = f"mkdir -p {pixi_home} && cd {pixi_home} && pixi install"
+        # mkdir + copy happen on the compute node, via srun
+        base_command = (
+            "ts=$(date +%Y_%m_%d_%H_%M_%S) && "
+            f"mkdir -p {pixi_home} && "
+            # archive old pixi.toml / pixi.lock if present
+            f"if [ -f {pixi_home}/pixi.toml ] || [ -f {pixi_home}/pixi.lock ]; then "
+            f"mkdir -p {pixi_home}/old_pixi_files/obsolete_since_${{ts}}; "
+            f"if [ -f {pixi_home}/pixi.toml ]; then "
+            f"mv -f {pixi_home}/pixi.toml {pixi_home}/old_pixi_files/obsolete_since_${{ts}}/; "
+            f"fi; "
+            f"if [ -f {pixi_home}/pixi.lock ]; then "
+            f"mv -f {pixi_home}/pixi.lock {pixi_home}/old_pixi_files/obsolete_since_${{ts}}/; "
+            f"fi; "
+            "fi && "
+            # move new files from $HOME temp dir into PIXI_HOME
+            f"mv -f {remote_tmp_dir}/pixi.toml {pixi_home}/ && "
+            f"if [ -f {remote_tmp_dir}/pixi.lock ]; then "
+            f"mv -f {remote_tmp_dir}/pixi.lock {pixi_home}/; "
+            f"fi && "
+            # run pixi install
+            f"cd {pixi_home} && "
+            "pixi install"
+        )
 
         if env_commands:
             install_command = f"{env_commands} && {base_command}"
