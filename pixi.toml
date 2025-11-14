@@ -25,6 +25,7 @@ torchdata = "==0.11.0"
 black = "==25.1.0"
 torchao = "==0.11.0"
 torchtune = "==0.6.1"
+lm-eval = ">=0.4.0"
 
 # macOS (Apple Silicon): CPU wheels (PyPI has arm64 wheels)
 [target.osx-arm64.pypi-dependencies]
