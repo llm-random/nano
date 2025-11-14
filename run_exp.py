@@ -75,8 +75,13 @@ def version_code(
     repo.git.add(exp_job_path, force=True)
     repo.git.add(all=True)
 
-    # Remove pixi files from staging area for the experiment branch
-    repo.git.restore("--staged", "pixi.toml", "pixi.lock")
+    # Remove pixi files from the *commit snapshot* for the experiment branch
+    for fname in ("pixi.toml", "pixi.lock"):
+        try:
+            repo.git.rm("--cached", fname)
+        except Exception:
+            # ignore if file is not tracked / doesn't exist
+            pass
 
     try:
         commit_pending_changes(repo)
