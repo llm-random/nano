@@ -1,10 +1,10 @@
-import argparse
 import os
 import re
 import sys
 import shlex
 from pathlib import Path
 
+import hydra
 from omegaconf import OmegaConf
 from run_exp import ConnectWithPassphrase
 from grid_generator.sbatch_builder import create_slurm_parameters
@@ -33,29 +33,20 @@ def get_project_root() -> Path:
     raise FileNotFoundError("Could not find pixi.toml in parent directories")
 
 
-def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
+@hydra.main(version_base=None)
+def update_remote_pixi(cfg: OmegaConf):
     """
     Update pixi environment on a remote cluster.
 
     Args:
-        cluster_config_path: Path to the cluster yaml configuration file
-        dry_run: If True, only print actions without executing them
+        cfg: Hydra configuration object
     """
-    # Load cluster configuration
-    if not os.path.exists(cluster_config_path):
-        raise FileNotFoundError(f"Cluster config not found: {cluster_config_path}")
-
-    cfg = OmegaConf.load(cluster_config_path)
-
     # Extract server and PIXI_HOME
     server = cfg.infrastructure.server
     script_lines = cfg.infrastructure.script
-    slurm_config = cfg.infrastructure.slurm
 
-    # Override SLURM config for pixi install (doesn't need GPUs, shorter time)
-    slurm_config["time"] = "00:15:00"
-    slurm_config["gres"] = "gpu:1"
-    slurm_config["job-name"] = "update_pixi"
+    # Convert to plain dict to avoid struct mode restrictions
+    slurm_config = OmegaConf.to_container(cfg.infrastructure.slurm, resolve=True)
 
     try:
         pixi_home = extract_pixi_home(script_lines)
@@ -63,7 +54,10 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
         print(f"Error: {e}")
         sys.exit(1)
 
-    # Set output file location to PIXI_HOME directory
+    # Override SLURM config for pixi install (doesn't need GPUs, shorter time)
+    slurm_config["time"] = "00:15:00"
+    slurm_config["gres"] = "gpu:1"
+    slurm_config["job-name"] = "update_pixi"
     slurm_config["output"] = f"{pixi_home}/pixi_install_%j.out"
 
     print(f"Cluster: {server}")
@@ -85,6 +79,8 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
     else:
         print(f"  - pixi.lock not found (will only copy pixi.toml)")
 
+    dry_run = cfg.get("dry_run", False)
+
     if dry_run:
         print("\n[DRY RUN] Would perform the following actions:")
         print(f"  1. Connect to {server}")
@@ -102,10 +98,6 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
     print(f"\nConnecting to {server}...")
     with ConnectWithPassphrase(host=server, inline_ssh_env=True) as connection:
         print("Connected successfully!")
-
-        # Ensure PIXI_HOME directory exists
-        print(f"\nEnsuring {pixi_home} exists...")
-        connection.run(f"mkdir -p {pixi_home}", hide=True)
 
         # Copy pixi.toml
         print(f"Copying pixi.toml to {pixi_home}/...")
@@ -128,31 +120,36 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
         # Set up PATH and other environment variables from the cluster config
         text = "\n".join(script_lines)
         env_setup = []
-        for line in text.splitlines():
-            stripped = line.strip()
+        for raw in text.splitlines():
+            line = raw.strip()
 
             # skip empty lines and comments
             if not line or line.startswith("#"):
                 continue
 
             # include module load
-            if stripped.startswith("module load"):
-                env_setup.append(stripped)
+            if line.startswith("module load"):
+                env_setup.append(line)
+                continue
 
             # include all pixi-related exports
-            if stripped.startswith("export") and (
-                "PIXI" in stripped
-                or "XDG_" in stripped
-                or 'PATH="$PIXI_HOME' in stripped
+            if line.startswith("export") and (
+                "PIXI" in line
+                or "XDG_" in line
+                or 'PATH="$PIXI_HOME' in line
             ):
-                env_setup.append(stripped)
+                env_setup.append(line)
+                continue
 
         env_commands = " && ".join(env_setup) if env_setup else ""
 
+        # mkdir happens on the compute node, via srun
+        base_command = f"mkdir -p {pixi_home} && cd {pixi_home} && pixi install"
+
         if env_commands:
-            install_command = f"{env_commands} && cd {pixi_home} && pixi install"
+            install_command = f"{env_commands} && {base_command}"
         else:
-            install_command = f"cd {pixi_home} && pixi install"
+            install_command = base_command
 
         cmd_quoted = shlex.quote(install_command)
         full_command = f"{srun_cmd} bash -lc {cmd_quoted}"
@@ -166,33 +163,5 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
             sys.exit(1)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Update pixi environment on remote clusters",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-
-    parser.add_argument(
-        "--cluster",
-        type=str,
-        required=True,
-        help="Path to cluster configuration YAML file",
-    )
-
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show what would be done without actually doing it",
-    )
-
-    args = parser.parse_args()
-
-    try:
-        update_remote_pixi(args.cluster, dry_run=args.dry_run)
-    except Exception as e:
-        print(f"\nError: {e}")
-        sys.exit(1)
-
-
 if __name__ == "__main__":
-    main()
+    update_remote_pixi()
