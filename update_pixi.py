@@ -63,6 +63,9 @@ def update_remote_pixi(cluster_config_path: str, dry_run: bool = False):
         print(f"Error: {e}")
         sys.exit(1)
 
+    # Set output file location to PIXI_HOME directory
+    slurm_config["output"] = f"{pixi_home}/pixi_install_%j.out"
+
     print(f"Cluster: {server}")
     print(f"PIXI_HOME: {pixi_home}")
 
