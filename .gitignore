@@ -186,7 +186,9 @@ exp.job
 
 checkpoints
 
-# MAS (madragonse)
-*mastest*# pixi environments
+# pixi
 .pixi/*
 !.pixi/config.toml
+
+# MAS (madragonse)
+*mastest*# pixi environments

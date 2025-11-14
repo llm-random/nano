@@ -1,10 +1,16 @@
 # Nano
 
+## Setup
+Firstly install pixi, then run:
+```bash
+pixi install
+```
+
 ## Running Experiments
 
 ### Local
 ```bash
-source venv/bin/activate
+pixi shell
 python main.py --config-path configs --config-name tiny_local
 ```
 
