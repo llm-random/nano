@@ -75,6 +75,14 @@ def version_code(
     repo.git.add(exp_job_path, force=True)
     repo.git.add(all=True)
 
+    # Remove pixi files from the *commit snapshot* for the experiment branch
+    for fname in ("pixi.toml", "pixi.lock"):
+        try:
+            repo.git.rm("--cached", fname)
+        except Exception:
+            # ignore if file is not tracked / doesn't exist
+            pass
+
     try:
         commit_pending_changes(repo)
         repo.git.checkout(b=experiment_branch_name)
