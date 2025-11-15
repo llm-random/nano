@@ -183,6 +183,26 @@ def get_device():
     return device
 
 
+def get_model_optimizer_scheduler(cfg, learning_rate):
+    if cfg.get("apply_functions", None):
+        for fn in instantiate(cfg.apply_functions):
+            res = fn(model)
+            if res == False:
+                logger.info("Initialization failed, exiting...")
+                return None, None, None, None, None
+    model = setup_distributed_training(model, cfg.trainer.distributed)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=cfg.trainer.weight_decay,
+    )
+    scheduler = instantiate(cfg.trainer.scheduler)(
+        optimizer=optimizer, n_steps=cfg.trainer.n_steps
+    )
+
+    return model, optimizer, scheduler
+
+
 def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
     training_state = load_training_state(cfg.trainer.checkpoint.load)
@@ -228,71 +248,15 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
     if cfg.trainer.checkpoint.load.type == "huggingface":
         copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    logger.info("Initialization failed, exiting...")
-                    return None, None, None, None, None
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
-        )
-        scheduler = instantiate(cfg.trainer.scheduler)(
-            optimizer=optimizer, n_steps=cfg.trainer.n_steps
-        )
+        model, optimizer, scheduler = get_model_optimizer_scheduler(cfg, learning_rate)
     elif cfg.trainer.checkpoint.load.type == "llm-random":
         load_llmrandom_checkpoint(cfg.trainer.checkpoint.load, model)
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    logger.info("Initialization failed, exiting...")
-                    return None, None, None, None, None
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
-        )
-        scheduler = instantiate(cfg.trainer.scheduler)(
-            optimizer=optimizer, n_steps=cfg.trainer.n_steps
-        )
+        model, optimizer, scheduler = get_model_optimizer_scheduler(cfg, learning_rate)
     elif cfg.trainer.checkpoint.load.type == "finalized_pc":
         load_finalized_pc_checkpoint(model, cfg.trainer.checkpoint.load)
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    logger.info("Initialization failed, exiting...")
-                    return None, None, None, None, None
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
-        )
-        scheduler = instantiate(cfg.trainer.scheduler)(
-            optimizer=optimizer, n_steps=cfg.trainer.n_steps
-        )
+        model, optimizer, scheduler = get_model_optimizer_scheduler(cfg, learning_rate)
     elif cfg.trainer.checkpoint.load.type == "nano":
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    logger.info("Initialization failed, exiting...")
-                    return None, None, None, None, None
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
-        )
-        scheduler = instantiate(cfg.trainer.scheduler)(
-            optimizer=optimizer, n_steps=cfg.trainer.n_steps
-        )
+        model, optimizer, scheduler = get_model_optimizer_scheduler(cfg, learning_rate)
 
         load_checkpoint_from_file(
             cfg.trainer.checkpoint.load, model, optimizer, scheduler
@@ -323,8 +287,6 @@ def run(cfg: OmegaConf, metric_logger=None):
     model, optimizer, scheduler, training_state, metric_logger = (
         initialize_training_components(cfg, metric_logger)
     )
-
-    common_config = instantiate(cfg.common)
 
     if model is not None:
         logger.info(f"Model initialized")
