@@ -169,10 +169,12 @@ def submit_experiment(
     dump_grid_configs(configs_grid, cfg.infrastructure.generated_configs_path)
 
     script = cfg.infrastructure.get("script", None)
+    max_concurrent_jobs = cfg.infrastructure.get("max_concurrent_jobs", None)
     generate_sbatch_script(
         cfg.infrastructure.slurm,
         cfg.infrastructure.generated_configs_path,
         len(configs_grid),
+        max_concurrent_jobs,
         script,
     )
     if cfg.infrastructure.server == "local":
