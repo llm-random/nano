@@ -103,21 +103,23 @@ def setup_enviroment():
 
 
 def distributed_setup():
+    if not torch.cuda.is_available():
+        logger.warning(
+            "CUDA is not available. Skipping distributed setup - running single-process training on CPU."
+        )
+        return
+
     rank = int(os.environ["RANK"])
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ.get("WORLD_SIZE", 1))
 
-    if torch.cuda.is_available():
-        dist.init_process_group(
-            backend="nccl",
-            rank=rank,
-            world_size=world_size,
-            device_id=torch.device(f"cuda:{local_rank}"),
-        )
-        torch.cuda.set_device(local_rank)
-    else:
-        logger.warning("CUDA is not available. Running on CPU and 'gloo' backend.")
-        dist.init_process_group(backend="gloo", rank=rank, world_size=world_size)
+    dist.init_process_group(
+        backend="nccl",
+        rank=rank,
+        world_size=world_size,
+        device_id=torch.device(f"cuda:{local_rank}"),
+    )
+    torch.cuda.set_device(local_rank)
 
 
 def cleanup():
