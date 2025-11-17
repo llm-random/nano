@@ -314,17 +314,13 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
     return model, optimizer, scheduler, training_state, metric_logger
 
 
-def run(cfg: OmegaConf, metric_logger=None):
-    setup_enviroment()
-
+def train(cfg: OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
     model, optimizer, scheduler, training_state, metric_logger = (
         initialize_training_components(cfg, metric_logger)
     )
-
-    common_config = instantiate(cfg.common)
 
     if model is not None:
         logger.info(f"Model initialized")
@@ -338,19 +334,25 @@ def run(cfg: OmegaConf, metric_logger=None):
             metric_logger=metric_logger,
         ).train()
 
-        # TODO
-        # finetuning
-
-        evaluator = instantiate(cfg.evaluator)
-        if evaluator is not None:
-            evaluator(metric_logger=metric_logger).eval()
-
     cleanup()
+
+    return metric_logger
+
+
+def eval(cfg: OmegaConf, metric_logger=None):
+
+    evaluator = instantiate(cfg.evaluator)
+    if evaluator is not None:
+        evaluator(metric_logger=metric_logger).eval()
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
 def main(config: OmegaConf):
-    run(config)
+    setup_enviroment()
+
+    metric_logger = train(config)
+
+    eval(config, metric_logger)
 
 
 if __name__ == "__main__":
