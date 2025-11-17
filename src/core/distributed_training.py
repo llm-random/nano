@@ -5,7 +5,6 @@ from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 import importlib
 import torch
 import os
-from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 import sys
 from torch.distributed.device_mesh import init_device_mesh
@@ -87,7 +86,6 @@ def setup_distributed_training(model, distributed_config):
             else:
                 raise ValueError(f"Unknown distributed config.")
         else:
-            logger.info("FSDP is not supported with CPU. Running DDP instead")
-            model = DDP(model)
+            logger.info("CUDA is not available. Skipping distributed training - using unwrapped model for single-process CPU training.")
 
     return model
