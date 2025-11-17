@@ -1,5 +1,6 @@
 infrastructure:
   server: entropy
+  max_concurrent: null
   slurm:
     cpus_per_gpu: 16
     gres: ???
