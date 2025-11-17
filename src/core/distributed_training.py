@@ -86,6 +86,8 @@ def setup_distributed_training(model, distributed_config):
             else:
                 raise ValueError(f"Unknown distributed config.")
         else:
-            logger.info("CUDA is not available. Skipping distributed training - using unwrapped model for single-process CPU training.")
+            logger.info(
+                "CUDA is not available. Skipping distributed training - using unwrapped model for single-process CPU training."
+            )
 
     return model

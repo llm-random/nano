@@ -104,7 +104,9 @@ def setup_enviroment():
 
 def distributed_setup():
     if not torch.cuda.is_available():
-        logger.warning("CUDA is not available. Skipping distributed setup - running single-process training on CPU.")
+        logger.warning(
+            "CUDA is not available. Skipping distributed setup - running single-process training on CPU."
+        )
         return
 
     rank = int(os.environ["RANK"])
