@@ -488,7 +488,7 @@ class ProjectedLinear(nn.Module):
 
         if smart_init:
             print(f"SMART P1 P2 - {str(smart_init)}") #dev
-            p1, p2 = smart_projections(self.weight, proj_out_topk_indices, proj_in_topk_indices, smart_init)
+            p1, p2, diff_weights = smart_projections(self.weight, proj_out_topk_indices, proj_in_topk_indices, smart_init)
 
             if self.result_in_features is not None:
                 weight = torch.zeros(
@@ -503,6 +503,8 @@ class ProjectedLinear(nn.Module):
                 )
                 weight = weight + p1.to("cpu")
                 self.projection_out_weight = nn.Parameter(weight, requires_grad=True)
+                
+            self.auxiliary_weight = nn.Parameter(diff_weights.to("cpu"), requires_grad=True)  #dev SWITCH
         else:
             if self.result_in_features is not None:
                 weight = torch.zeros(
@@ -518,21 +520,37 @@ class ProjectedLinear(nn.Module):
                 weight[torch.arange(self.result_out_features), proj_out_topk_indices] = 1
                 self.projection_out_weight = nn.Parameter(weight, requires_grad=True)
 
-        if self.result_in_features is not None or self.result_out_features is not None:
-            final_in_features = (
-                self.result_in_features
-                if self.result_in_features is not None
-                else self.base_in_features
-            )
-            final_out_features = (
-                self.result_out_features
-                if self.result_out_features is not None
-                else self.base_out_features
-            )
-            weight = torch.zeros(
-                final_out_features, final_in_features, **factory_kwargs
-            )
-            self.auxiliary_weight = nn.Parameter(weight, requires_grad=True)
+            if self.result_in_features is not None or self.result_out_features is not None:
+                final_in_features = (
+                    self.result_in_features
+                    if self.result_in_features is not None
+                    else self.base_in_features
+                )
+                final_out_features = (
+                    self.result_out_features
+                    if self.result_out_features is not None
+                    else self.base_out_features
+                )
+                weight = torch.zeros(
+                    final_out_features, final_in_features, **factory_kwargs
+                )
+                self.auxiliary_weight = nn.Parameter(weight, requires_grad=True)
+
+        # if self.result_in_features is not None or self.result_out_features is not None: #dev SWITCH
+        #     final_in_features = (
+        #         self.result_in_features
+        #         if self.result_in_features is not None
+        #         else self.base_in_features
+        #     )
+        #     final_out_features = (
+        #         self.result_out_features
+        #         if self.result_out_features is not None
+        #         else self.base_out_features
+        #     )
+        #     weight = torch.zeros(
+        #         final_out_features, final_in_features, **factory_kwargs
+        #     )
+        #     self.auxiliary_weight = nn.Parameter(weight, requires_grad=True)
 
         self.initialized_compression = True
 
@@ -630,14 +648,22 @@ class ProjectedEmbedding(Embedding):
             print(f"self.embedding.weight.shape {self.embedding.weight.shape}") #dev
             print(f"topk_dmodel_indices.shape {topk_dmodel_indices.shape}") #dev
             print(f"weight.shape {weight.shape}") #dev
-            _, p2 = smart_projections(self.embedding.weight, None, topk_dmodel_indices, smart_init)
+            _, p2, diff_weights = smart_projections(self.embedding.weight, None, topk_dmodel_indices, smart_init)
             weight = weight + p2.T.to('cpu')
+            self.auxiliary_weight = nn.Embedding( #dev SWITCH
+                vocab_size, self.result_out_features, _weight=diff_weights.to('cpu')
+            )
         else:
             weight[torch.arange(self.result_out_features), topk_dmodel_indices] = 1
+            zeros = torch.zeros(vocab_size, self.result_out_features, **factory_kwargs)
+            self.auxiliary_weight = nn.Embedding(
+                vocab_size, self.result_out_features, _weight=zeros
+            )
         self.projection = nn.Parameter(weight, requires_grad=True)
         self.initialized_compression = True
 
-        zeros = torch.zeros(vocab_size, self.result_out_features, **factory_kwargs)
-        self.auxiliary_weight = nn.Embedding(
-            vocab_size, self.result_out_features, _weight=zeros
-        )
+        # zeros = torch.zeros(vocab_size, self.result_out_features, **factory_kwargs) #dev SWITCH
+        # self.auxiliary_weight = nn.Embedding(
+        #     vocab_size, self.result_out_features, _weight=zeros
+        # )
+

@@ -261,6 +261,8 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                     return 0
         
         model = model.to(device)
+        for p in model.parameters():
+            dist.broadcast(p.data, src=0)
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
