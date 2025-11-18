@@ -9,6 +9,8 @@ common:
   n_blocks: ???
   q_heads: ???
   kv_heads: ???
+  # rope_sequence_length: 128000 #dev
+  rope_sequence_length: 1024
 
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
@@ -44,7 +46,7 @@ model:
         dmodel: ${common.base_dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
-        seq_len: ${common.sequence_length}
+        seq_len: ${common.rope_sequence_length}
         q_proj_fn:
           _target_: src.projected_compression.model.ProjectedLinear
           _partial_: true

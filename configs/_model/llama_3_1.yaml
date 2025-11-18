@@ -8,11 +8,13 @@ common:
   q_heads: 32
   kv_heads: 8
   vocab_size: 128256
-  sequence_length: 1024
+  sequence_length: ???
   head_norm: true
   init_scale: 0.1
   init_type: truncated_normal_fixed
   model_type: gpt
+  # rope_sequence_length: 128000 #dev
+  rope_sequence_length: 1024
   
 model:
   _target_: src.projected_compression.model.LLM
@@ -43,7 +45,7 @@ model:
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
-        seq_len: ${common.sequence_length}
+        seq_len: ${common.rope_sequence_length}
         q_proj_fn:
           _target_: src.projected_compression.model.Linear
           _partial_: true

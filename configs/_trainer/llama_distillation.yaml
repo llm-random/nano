@@ -8,7 +8,8 @@ common_distillation:
   q_heads: 32
   kv_heads: 8
   vocab_size: 128256
-  sequence_length: 1024
+  rope_sequence_length: 128000
+  # rope_sequence_length: 1024 #dev
   head_norm: true
   init_scale: 0.1
   init_type: truncated_normal_fixed
@@ -47,7 +48,7 @@ distillation:
           dmodel: ${common_distillation.dmodel}
           q_heads: ${common_distillation.q_heads}
           kv_heads: ${common_distillation.kv_heads}
-          seq_len: ${common_distillation.sequence_length}
+          seq_len: ${common_distillation.rope_sequence_length}
           q_proj_fn:
             _target_: src.projected_compression.model.Linear
             _partial_: true
