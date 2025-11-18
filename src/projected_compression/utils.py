@@ -65,48 +65,34 @@ def smart_projections(t, iy, ix, fun=svd_g):
     assert not (iy is None and ix is None)
     
     if iy is None:
-        print("iy is None")#dev
         ar = t[:, ix]
         _, p2ll = fun(t)
         _ = None
-        err = torch.norm(t@p2ll[:, ix] - t[:, ix])
-        print(err)
+        diff_weights = t[:, ix] - t@p2ll[:, ix]
+        err = torch.norm(diff_weights)
         if err > 0.01: #dev
             print(f"err: {err}")
             print(t.shape)
-            print(p2ll.shape)
-            print(ix.shape)
-        return None, p2ll[:, ix]
+        return None, p2ll[:, ix], diff_weights
     elif ix is None:
-        print("ix is None")#dev
         p1r, _ = fun(t)
         _, p2ll = fun(p1r[iy]@t)
         _ = None
-        err = torch.norm(p1r[iy]@t - t[iy])
-        print(err)
-        # assert err < 0.01
+        diff_weights = t[iy] - p1r[iy]@t
+        err = torch.norm(diff_weights)
         if err > 0.01: #dev
             print(f"err: {err}")
             print(t.shape)
-            print(p2ll.shape)
-            print(iy.shape)
-        return p1r[iy], None
+        return p1r[iy], None, diff_weights
     else:
-        print("ix iy")#dev
         ar = t[:, ix]
-        # print("before p1r") #dev
         p1r, _ = fun(ar)
-        # print("before p2ll") #dev
         _, p2ll = fun(p1r[iy]@t)
         _ = None
-        # print("before err") #dev
-        err = torch.norm(p1r[iy]@t@p2ll[:, ix] - t[iy][:, ix])
+        diff_weights = t[iy][:, ix] - p1r[iy]@t@p2ll[:, ix]
+        err = torch.norm(diff_weights)
         print(err)
-        # assert err < 0.01
         if err > 0.01: #dev
             print(f"err: {err}")
             print(t.shape)
-            print(p2ll.shape)
-            print(ix.shape)
-            print(iy.shape)
-        return p1r[iy], p2ll[:, ix]
+        return p1r[iy], p2ll[:, ix], diff_weights
