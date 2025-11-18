@@ -185,7 +185,7 @@ def get_device():
     return device
 
 
-def get_model_optimizer_scheduler(cfg, learning_rate):
+def get_model_optimizer_scheduler(cfg, model, learning_rate):
     if cfg.get("apply_functions", None):
         for fn in instantiate(cfg.apply_functions):
             res = fn(model)
@@ -250,15 +250,23 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
     if cfg.trainer.checkpoint.load.type == "huggingface":
         copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
-        model, optimizer, scheduler = get_model_optimizer_scheduler(cfg, learning_rate)
+        model, optimizer, scheduler = get_model_optimizer_scheduler(
+            cfg, model, learning_rate
+        )
     elif cfg.trainer.checkpoint.load.type == "llm-random":
         load_llmrandom_checkpoint(cfg.trainer.checkpoint.load, model)
-        model, optimizer, scheduler = get_model_optimizer_scheduler(cfg, learning_rate)
+        model, optimizer, scheduler = get_model_optimizer_scheduler(
+            cfg, model, learning_rate
+        )
     elif cfg.trainer.checkpoint.load.type == "finalized_pc":
         load_finalized_pc_checkpoint(model, cfg.trainer.checkpoint.load)
-        model, optimizer, scheduler = get_model_optimizer_scheduler(cfg, learning_rate)
+        model, optimizer, scheduler = get_model_optimizer_scheduler(
+            cfg, model, learning_rate
+        )
     elif cfg.trainer.checkpoint.load.type == "nano":
-        model, optimizer, scheduler = get_model_optimizer_scheduler(cfg, learning_rate)
+        model, optimizer, scheduler = get_model_optimizer_scheduler(
+            cfg, model, learning_rate
+        )
 
         load_checkpoint_from_file(
             cfg.trainer.checkpoint.load, model, optimizer, scheduler
