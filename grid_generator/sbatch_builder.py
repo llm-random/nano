@@ -33,7 +33,7 @@ def create_master_node_configuration() -> list[str]:
 
 def create_program_call(config_folder):
     return [
-        "srun pixi run torchrun --nnodes=${SLURM_NNODES}\\",
+        "srun torchrun --nnodes=${SLURM_NNODES}\\",
         "  --nproc-per-node=${SLURM_GPUS_ON_NODE} \\",
         "  --rdzv-id=${SLURM_JOBID} \\",
         "  --rdzv-backend=c10d \\",
