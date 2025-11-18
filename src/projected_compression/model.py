@@ -510,22 +510,6 @@ class ProjectedLinear(nn.Module):
                 )
                 self.auxiliary_weight = nn.Parameter(weight, requires_grad=True)
 
-        # if self.result_in_features is not None or self.result_out_features is not None: #dev SWITCH
-        #     final_in_features = (
-        #         self.result_in_features
-        #         if self.result_in_features is not None
-        #         else self.base_in_features
-        #     )
-        #     final_out_features = (
-        #         self.result_out_features
-        #         if self.result_out_features is not None
-        #         else self.base_out_features
-        #     )
-        #     weight = torch.zeros(
-        #         final_out_features, final_in_features, **factory_kwargs
-        #     )
-        #     self.auxiliary_weight = nn.Parameter(weight, requires_grad=True)
-
         self.initialized_compression = True
     
     def finalize(self):
@@ -618,10 +602,6 @@ class ProjectedEmbedding(nn.Module):
         vocab_size, dmodel = self.embedding.weight.shape
         weight = torch.zeros(self.result_out_features, dmodel, **factory_kwargs)
         if smart_init:
-            print(f"SMART P1 P2 - {str(smart_init)}") #dev
-            print(f"self.embedding.weight.shape {self.embedding.weight.shape}") #dev
-            print(f"topk_dmodel_indices.shape {topk_dmodel_indices.shape}") #dev
-            print(f"weight.shape {weight.shape}") #dev
             _, p2, diff_weights = smart_projections(self.embedding.weight, None, topk_dmodel_indices, smart_init)
             weight = weight + p2.T.to('cpu')
             self.auxiliary_weight = nn.Embedding( #dev SWITCH
@@ -635,9 +615,3 @@ class ProjectedEmbedding(nn.Module):
             )
         self.projection = nn.Parameter(weight, requires_grad=True)
         self.initialized_compression = True
-
-        # zeros = torch.zeros(vocab_size, self.result_out_features, **factory_kwargs) #dev SWITCH
-        # self.auxiliary_weight = nn.Embedding(
-        #     vocab_size, self.result_out_features, _weight=zeros
-        # )
-
