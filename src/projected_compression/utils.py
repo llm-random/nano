@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 
 from src.core.model import get_init_weight
@@ -96,3 +97,40 @@ def smart_projections(t, iy, ix, fun=svd_g):
             print(f"err: {err}")
             print(t.shape)
         return p1r[iy], p2ll[:, ix], diff_weights
+
+
+def transfer_selected(
+    W_from: torch.Tensor,
+    W: torch.Tensor,
+    ix: Optional[torch.Tensor] = None,
+    iy: Optional[torch.Tensor] = None,
+):
+    """
+    Copy selected rows/columns/submatrix from A → B with minimal extra memory.
+
+    - If both proj_in_topk_indices and proj_out_topk_indices are given:
+        copy A[i, proj_out...] → B[i, proj_out...] for each i in proj_in...
+        (loop over rows, no R×C temporary)
+    - If only proj_in_topk_indices: copy whole rows
+    - If only proj_out_topk_indices: copy whole columns
+    """
+
+    # Both rows and columns: submatrix, row by row (no R×C tensor)
+    if ix is not None and iy is not None:
+        for i in ix:
+            W[i, iy] = W_from[i, iy]
+        return W
+
+    # Only rows
+    if ix is not None:
+        W[ix] = W_from[ix]
+        return W
+
+    # Only columns
+    if iy is not None:
+        W[:, iy] = W_from[:, iy]
+        return W
+
+    return W
+
+
