@@ -1,0 +1,24 @@
+name: Tiny Test Run
+
+on:
+  push:
+    branches:
+      - jm_github_test_run
+
+jobs:
+  tiny-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run tiny test with pixi
+        run: |
+          cd jm_tmp
+          eval "$(pixi shell-hook)"
+          cd ..
+          python main.py --config-path configs --config-name tiny_local
