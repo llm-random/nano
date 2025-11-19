@@ -25,6 +25,7 @@ jobs:
       - name: Run tiny test
         if: success() || failure()
         run: |
-          python main.py --config-path configs --config-name tiny_local
+          python main.py --config-path configs/github_check_runs --config-name test_core
         env:
           NEPTUNE_API_TOKEN: ${{ secrets.NEPTUNE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
