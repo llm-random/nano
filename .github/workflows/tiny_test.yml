@@ -16,9 +16,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Run tiny test with pixi
+      - name: Install dependencies
         run: |
-          cd jm_tmp
-          eval "$(pixi shell-hook)"
-          cd ..
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tiny test
+        run: |
           python main.py --config-path configs --config-name tiny_local
