@@ -23,3 +23,4 @@ jobs:
         env:
           NEPTUNE_API_TOKEN: ${{ secrets.NEPTUNE_API_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HYDRA_FULL_ERROR: 1
