@@ -1,9 +1,9 @@
 name: Tiny Test Run
 
 on:
-  push:
+  pull_request:
     branches:
-      - jm_github_test_run
+      - main
 
 jobs:
   tiny-test:
