@@ -1,6 +1,6 @@
 defaults:
-  # - ../_cluster@_here_: helios #helios
-  - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: helios #helios
+  # - ../_cluster@_here_: entropy
   - ../_model/llama@_here_: projected_1B
   - ../_trainer@_here_: llama_distillation
   - ../_dataset@_here_: fineweb
@@ -71,7 +71,7 @@ trainer:
     # - 16384
     # - 32768
 
-  # learning_rate: 12 # optimal 10% !!!!!!!!!!!!!!
+  # learning_rate: 13 # optimal 10% ???
   # learning_rate: 13 # optimal 30%
   # learning_rate: 13 # optimal 50%
   # learning_rate: asd # optimal 100%
@@ -89,13 +89,13 @@ trainer:
   # #   # - 16
   # #   # - 17
 
-  train_dataloader:
+  # train_dataloader:
     # world_size_independent: true
-    ^seed: 
-      - 1
-      - 2
-      - 3
-      - 4
+    # ^seed: 
+    #   - 1
+      # - 2
+      # - 3
+      # - 4
 
   scheduler:
     warmup_steps: 40
@@ -123,8 +123,8 @@ infrastructure:
       - projected_compression
       - distillation
       # - ta10b
-      # - 10p
-      - 30p
+      - 10p
+      # - 30p
       # - 50p
       # - 100p
       # - magnitude
@@ -145,24 +145,26 @@ infrastructure:
       # - speedup
       # - range
       # - auxilary_error_init
+      - REBUTAL
+      - occlusion
   
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:4
     # time: "0-0:15:00"
-    # time: "0-3:30:00"
+    time: "0-3:30:00"
     # time: "0-12:00:00"
-    time: "0-24:00:00"
+    # time: "0-24:00:00"
 
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
     _partial_: true
-    dimensions_importances_path: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama31 ######################################
+    # dimensions_importances_path: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama31 ######################################
     # dimensions_importances_path: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/random_dimensions_importances.pt # entropy RANDOM llama31
     # dimensions_importances_path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/68549/0/magnitude_dimensions_importances.pt # entropy MAGNITUDE llama31
     
-    # dimensions_importances_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_1_fw_importances/minitron_dimensions_importances.pt # #helios ACTIVATIONS llama31 ######################################
+    dimensions_importances_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_1_fw_importances/minitron_dimensions_importances.pt # #helios ACTIVATIONS llama31 ######################################
     # dimensions_importances_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_1_fw_importances/random_dimensions_importances.pt # #helios RANDOM llama31
     # dimensions_importances_path: /net/home/plgrid/plgmstefaniak/checkpoints/llama_1_importances/magnitude_dimensions_importances.pt # #helios RANDOM llama31
     

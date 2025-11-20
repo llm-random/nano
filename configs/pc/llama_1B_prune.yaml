@@ -12,10 +12,10 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  # target_dmodel: 448 # 10
-  # target_dff: 1728
-  target_dmodel: 960 # 30
-  target_dff: 3840
+  target_dmodel: 448 # 10
+  target_dff: 1728
+  # target_dmodel: 960 # 30
+  # target_dff: 3840
   # target_dmodel: 1344 #50
   # target_dff: 5376
   # target_dmodel: 1728 # 75
@@ -32,8 +32,8 @@ trainer:
     # - 8192
     # - 12288
 
-  # learning_rate: 11 #optimal fo 10%
-  learning_rate: 12 #optimal fo 30%
+  learning_rate: 11 #optimal fo 10%
+  # learning_rate: 12 #optimal fo 30%
   # learning_rate: 12 #optimal fo 50%
   # learning_rate: 13 #optimal fo 75%
   # learning_rate: 12 #optimal fo randomi 50%
@@ -42,10 +42,10 @@ trainer:
   # #   - 7
   # #   - 8
   # #   - 9
-  # #   - 10
+  #   - 10
   #   - 11
   #   - 12
-  #   - 13
+  # #   - 13
   #   # - 14
   #   # - 15
 
@@ -65,24 +65,6 @@ trainer:
     # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
     # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/tem # #helios
 
-  # train_dataloader:
-    # world_size_independent: false
-    # ^num_workers: 
-    #   - 1
-    #   - 2
-    #   - 3
-    #   - 4
-    # seed: 1000
-    # shuffle: true
-    # use_new_sampling_method: true
-
-  # eval_dataloader:
-  #   world_size_independent: false
-    # num_workers: 1
-    # seed: 123
-    # shuffle: true
-    # use_new_sampling_method: true
-
 
 infrastructure:
   metric_logger:
@@ -93,12 +75,13 @@ infrastructure:
       - llama_1
       - hard_pruning
       # - ta10b
-      # - 10p
-      - 30p
+      - 10p
+      # - 30p
       # - 50p
       # - randomi
       # - MAGNITUDE
-      # - TEST
+      - TEST
+      - REBUTAL
   
   slurm:
     job-name: ${infrastructure.metric_logger.name}

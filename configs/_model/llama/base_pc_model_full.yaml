@@ -9,6 +9,7 @@ common:
   n_blocks: ???
   q_heads: ???
   kv_heads: ???
+  smart_init: False
 
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression

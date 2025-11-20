@@ -1,0 +1,106 @@
+defaults:
+  # - ../_cluster@_here_: helios
+  - ../_cluster@_here_: entropy
+  - ../_model/llmrandom@_here_: def_300
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: c4
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 512
+  batch_size: 512
+
+  target_dmodel: 640 # 50
+  target_dff: 2560
+  # target_dmodel: 480 # 35
+  # target_dff: 1920
+  # target_dmodel: 320 # 20
+  # target_dff: 1280
+
+trainer:
+  gradient_accumulation_steps: 2
+  ^n_steps: 
+    - 201
+    # - 4001
+    # - 8001
+    # - 16001
+    # - 24001
+
+  learning_rate: 12 # 50 1B
+  # learning_rate: 11 # 35 1B
+  # learning_rate: 11 # 20 1B
+  # ^learning_rate: 
+  #   - 8
+  #   - 9
+  #   - 10
+  #   - 11
+    # - 12
+    # - 13
+    # - 14
+    # - 15
+    # - 16
+    # - 17
+
+  scheduler:
+    warmup_steps: 80
+
+  
+  checkpoint:
+   load:
+    type: llm-random
+    path: null #dev
+    # path: /home/mstefaniak/checkpoints/def_4ff_1024_92688.pt # entropy
+    # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/def_4ff_1024_92688.pt # helios
+   save:  
+    type: nano
+    path: null #dev
+    # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
+    # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/tem # #helios
+
+  train_dataloader:
+    tokenize_fn: 
+      _target_: src.core.datasets.gpt2_tokenize_fn
+
+  eval_dataloader:
+    tokenize_fn: 
+      _target_: src.core.datasets.gpt2_tokenize_fn
+
+infrastructure:
+  metric_logger:
+    name: LLMR_300_HP
+    tags:
+      - nano
+      - pc
+      - llmr_300
+      - hard_pruning
+      - 50p
+      # - 35p
+      # - 20p
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:4
+    time: "0-4:00:00"
+    # time: "0-8:00:00"
+    # time: "0-12:00:00"
+
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune
+    _partial_: true
+    dimensions_importances_path: /home/mstefaniak/checkpoints/importances/67735/0/minitron_dimensions_importances.pt # activations entropy llmr300
+    # dimensions_importances_path: asd/minitron_dimensions_importances.pt # activations helios llmr300
+
+    # # # # dimensions_importances_path: /home/mstefaniak/checkpoints/importances/67735/0/random_dimensions_importances.pt # random entropy llmr300
+    # # # # dimensions_importances_path: asd/random_dimensions_importances.pt # random helios llmr300
+    target_dmodel: ${common.target_dmodel}
+    target_dff: ${common.target_dff}
+    # target_dmodel: 640 # 50
+    # target_dff: 2560
+    # target_dmodel: 480 # 35
+    # target_dff: 1920
+    # target_dmodel: 320 # 20
+    # target_dff: 1280
+    # target_dmodel: asd # 65
+    # target_dff: asd
