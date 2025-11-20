@@ -4,7 +4,6 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.checkpoint.stateful import Stateful
 from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 import torch.distributed.checkpoint as dcp
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 from src.core.metric_loggers import NeptuneLogger
 import logging
@@ -139,12 +138,8 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
                 f"{checkpoint_path}/{load_config.model_checkpoint_filename}"
             )
             checkpoint = torch.load(checkpoint_model)
-            if type(model) is DDP:
-                logger.info(f"Loading DDP model from '{checkpoint_path}'")
-                model.module.load_state_dict(checkpoint["model"])
-            else:
-                logger.info(f"Loading non-DDP model from '{checkpoint_path}'")
-                model.load_state_dict(checkpoint["model"])
+            logger.info(f"Loading model from '{checkpoint_path}'")
+            model.load_state_dict(checkpoint["model"])
             optimizer.load_state_dict(checkpoint["optim"])
             scheduler.load_state_dict(checkpoint["scheduler"])
             logger.info(f"Loaded non-sharded sheduler from '{checkpoint_path}'")

@@ -11,7 +11,6 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from src.projected_compression.compression import finalize_projection_weights
 from src.core.conversion_to_hf import save_to_llama_3_hf
 import torch.distributed.checkpoint as dcp
-from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 
 from src.core.checkpointing import (
@@ -273,11 +272,7 @@ class Trainer:
                 os.makedirs(checkpoint_folder, exist_ok=True)
                 checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
                 state_to_save = {
-                    "model": (
-                        self.model.module.state_dict()
-                        if type(self.model) is DDP
-                        else self.model.state_dict()
-                    ),
+                    "model": self.model.state_dict(),
                     "optim": self.optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
                 }
