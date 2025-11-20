@@ -9,6 +9,7 @@ common:
   n_blocks: ???
   q_heads: ???
   kv_heads: ???
+  vocab_size: 49152
   smart_init: False
 
 apply_functions:
@@ -25,7 +26,7 @@ model:
     _target_: src.projected_compression.model.ProjectedEmbedding
     embedding:
       _target_: src.projected_compression.model.Embedding
-      num_embeddings: 128256
+      num_embeddings: ${common.vocab_size}
       embedding_dim: ${common.base_dmodel}
     result_out_features: ${common.dmodel}
 
@@ -52,7 +53,7 @@ model:
           _target_: src.projected_compression.model.ProjectedLinear
           _partial_: true
           result_in_features: ${common.dmodel}
-          result_out_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'}  #dev
+          result_out_features: null
           base_in_features: ${common.base_dmodel}
           base_out_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'}
 
@@ -60,7 +61,7 @@ model:
           _target_: src.projected_compression.model.ProjectedLinear
           _partial_: true
           result_in_features: ${common.dmodel}
-          result_out_features: ${eval:'${model.encoder.block_fn.attention_fn.kv_heads} * ${common.dhead}'}  #dev
+          result_out_features: null
           base_in_features: ${common.base_dmodel}
           base_out_features: ${eval:'${model.encoder.block_fn.attention_fn.kv_heads} * ${common.dhead}'}
 
@@ -69,13 +70,17 @@ model:
         o_proj_fn:
           _target_: src.projected_compression.model.ProjectedLinear
           _partial_: true
-          result_in_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'} #dev
+          result_in_features: null
           result_out_features: ${common.dmodel}
           base_in_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'}
           base_out_features: ${common.base_dmodel}
 
-        rope_base: 500_000
+        rope_base: 10000
         rope_scale_freqs: true
+        factor: 32
+        low_freq_factor: 1
+        high_freq_factor: 4
+        original_max_position_embeddings: 8192
 
       ff_layer_fn:
         _target_: src.projected_compression.model.ProjectedLlamaFeedForward
@@ -102,8 +107,7 @@ model:
       _target_: src.projected_compression.model.ProjectedLinear
       _partial_: true
       result_in_features: ${common.dmodel}
-      result_out_features: null #dev
-      # result_out_features: ${model.embedding.embedding.num_embeddings} #dev
+      result_out_features: null
       base_in_features: ${common.base_dmodel}
       base_out_features: ${model.embedding.embedding.num_embeddings}
     norm_fn:

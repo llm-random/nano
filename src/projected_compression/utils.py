@@ -41,7 +41,7 @@ def svd_g(a):
     return P1, P2
 
 
-def _norm_index(idx, dim_size: int, device: torch.device):
+def norm_index(idx, device: torch.device):
     # None → full range
     if idx is None:
         # return torch.arange(dim_size, device=device)
@@ -61,8 +61,8 @@ def _norm_index(idx, dim_size: int, device: torch.device):
     raise TypeError(f"Unsupported index type: {type(idx)}")
 
 def smart_projections(t, iy, ix, fun=svd_g):
-    iy = _norm_index(iy, t.shape[0], t.device)
-    ix = _norm_index(ix, t.shape[1], t.device)
+    iy = norm_index(iy, t.device)
+    ix = norm_index(ix, t.device)
     assert not (iy is None and ix is None)
     
     if iy is None:
@@ -102,35 +102,77 @@ def smart_projections(t, iy, ix, fun=svd_g):
 def transfer_selected(
     W_from: torch.Tensor,
     W: torch.Tensor,
-    ix: Optional[torch.Tensor] = None,
     iy: Optional[torch.Tensor] = None,
+    ix: Optional[torch.Tensor] = None,
 ):
     """
-    Copy selected rows/columns/submatrix from A → B with minimal extra memory.
+    Copy selected rows/columns/submatrix from A → B.
 
     - If both proj_in_topk_indices and proj_out_topk_indices are given:
-        copy A[i, proj_out...] → B[i, proj_out...] for each i in proj_in...
-        (loop over rows, no R×C temporary)
-    - If only proj_in_topk_indices: copy whole rows
-    - If only proj_out_topk_indices: copy whole columns
+        copy submatrix A[R, C] → B[R, C]  (Cartesian product of indices)
+    - If only proj_in_topk_indices: copy rows
+    - If only proj_out_topk_indices: copy columns
     """
+    device = W.device
+    iy = norm_index(iy, device)
+    ix = norm_index(ix, device)
+    W_from = W_from.to(device)
 
-    # Both rows and columns: submatrix, row by row (no R×C tensor)
-    if ix is not None and iy is not None:
-        for i in ix:
-            W[i, iy] = W_from[i, iy]
+    # Both rows and columns: submatrix
+    if iy is not None and ix is not None:
+        # Create index grids for Cartesian product R × C
+        rows, cols = torch.meshgrid(
+            iy, ix, indexing="ij"
+        )
+        W[rows, cols] = W_from[rows, cols]
         return W
 
     # Only rows
-    if ix is not None:
-        W[ix] = W_from[ix]
+    if iy is not None:
+        W[iy, :] = W_from[iy, :]
         return W
 
     # Only columns
-    if iy is not None:
-        W[:, iy] = W_from[:, iy]
+    if ix is not None:
+        W[:, ix] = W_from[:, ix]
         return W
 
     return W
+
+# def transfer_selected(
+#     W_from: torch.Tensor,
+#     W: torch.Tensor,
+#     ix: Optional[torch.Tensor] = None,
+#     iy: Optional[torch.Tensor] = None,
+# ):
+#     """
+#     Copy selected rows/columns/submatrix from A → B with minimal extra memory.
+
+#     - If both proj_in_topk_indices and proj_out_topk_indices are given:
+#         copy A[i, proj_out...] → B[i, proj_out...] for each i in proj_in...
+#         (loop over rows, no R×C temporary)
+#     - If only proj_in_topk_indices: copy whole rows
+#     - If only proj_out_topk_indices: copy whole columns
+#     """
+#     ix = norm_index(ix, W.device)
+#     iy = norm_index(iy, W.device)
+
+#     # Both rows and columns: submatrix, row by row (no R×C tensor)
+#     if ix is not None and iy is not None:
+#         for i in ix:
+#             W[i, iy] = W_from[i, iy]
+#         return W
+
+#     # Only rows
+#     if ix is not None:
+#         W[ix] = W_from[ix]
+#         return W
+
+#     # Only columns
+#     if iy is not None:
+#         W[:, iy] = W_from[:, iy]
+#         return W
+
+#     return W
 
 

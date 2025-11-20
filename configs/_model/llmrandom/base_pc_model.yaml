@@ -2,21 +2,14 @@ common:
   _target_: src.definitions.Common
   dmodel: ???
   dff: ???
-  dhead: ???
   sequence_length: ???
   base_dmodel: ???
   base_dff: ???
   n_blocks: ???
   q_heads: ???
   kv_heads: ???
+  vocab_size: 50257
   smart_init: False
-
-apply_functions:
-  - _target_: src.projected_compression.compression.init_compression
-    _partial_: true
-    dimensions_importances_path: ???
-    target_dmodel: ${common.dmodel}
-    target_dff: ${common.dff}
 
 model:
   _target_: src.projected_compression.model.LLM
@@ -25,9 +18,9 @@ model:
     _target_: src.projected_compression.model.ProjectedEmbedding
     embedding:
       _target_: src.projected_compression.model.Embedding
-      num_embeddings: 128256
+      num_embeddings: ${common.vocab_size}
       embedding_dim: ${common.base_dmodel}
-    result_out_features: ${common.dmodel}
+    result_out_features: ${common.dmodel} 
 
   encoder:
     _target_: src.projected_compression.model.TransformerEncoder
@@ -35,11 +28,12 @@ model:
     block_fn:
       _target_: src.projected_compression.model.TransformerBlock
       _partial_: true
-      norm_fn:
-        _target_: src.core.model.RMSNorm
+      norm_fn: 
+        _target_: src.core.model.LayerNorm
         _partial_: true
         eps: 1e-5
         normalized_shape: ${common.base_dmodel}
+        bias: false
 
       attention_fn:
         _target_: src.projected_compression.model.RoPEAttention
@@ -52,49 +46,48 @@ model:
           _target_: src.projected_compression.model.ProjectedLinear
           _partial_: true
           result_in_features: ${common.dmodel}
-          result_out_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'}  #dev
+          result_out_features: null
           base_in_features: ${common.base_dmodel}
-          base_out_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'}
+          base_out_features: ${common.datt}
 
         k_proj_fn:
           _target_: src.projected_compression.model.ProjectedLinear
           _partial_: true
           result_in_features: ${common.dmodel}
-          result_out_features: ${eval:'${model.encoder.block_fn.attention_fn.kv_heads} * ${common.dhead}'}  #dev
+          result_out_features: null
           base_in_features: ${common.base_dmodel}
-          base_out_features: ${eval:'${model.encoder.block_fn.attention_fn.kv_heads} * ${common.dhead}'}
+          base_out_features: ${common.datt}
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
         o_proj_fn:
           _target_: src.projected_compression.model.ProjectedLinear
           _partial_: true
-          result_in_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'} #dev
+          result_in_features: null
           result_out_features: ${common.dmodel}
-          base_in_features: ${eval:'${model.encoder.block_fn.attention_fn.q_heads} * ${common.dhead}'}
+          base_in_features: ${common.datt}
           base_out_features: ${common.base_dmodel}
 
-        rope_base: 500_000
-        rope_scale_freqs: true
+        rope_base: 10000
+        rope_scale_freqs: false
 
       ff_layer_fn:
-        _target_: src.projected_compression.model.ProjectedLlamaFeedForward
+        _target_: src.projected_compression.model.FeedForward
         _partial_: true
         ff_pre_act_fn:
           _target_: src.projected_compression.model.ProjectedLinear
           _partial_: true
-          result_in_features: ${common.dmodel}
-          result_out_features: ${common.dff}
+          result_in_features: ${common.dmodel} 
+          result_out_features: ${common.dff}  
           base_in_features: ${common.base_dmodel}
           base_out_features: ${common.base_dff}
-        ff_post_act_fn:
+        ff_post_act_fn: 
           _target_: src.projected_compression.model.ProjectedLinear
           _partial_: true
           result_in_features: ${common.dff}
-          result_out_features: ${common.dmodel}
+          result_out_features: ${common.dmodel} 
           base_in_features: ${common.base_dff}
           base_out_features: ${common.base_dmodel}
-        gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
 
   head:
     _target_: src.projected_compression.model.TransformerHead
@@ -102,12 +95,12 @@ model:
       _target_: src.projected_compression.model.ProjectedLinear
       _partial_: true
       result_in_features: ${common.dmodel}
-      result_out_features: null #dev
-      # result_out_features: ${model.embedding.embedding.num_embeddings} #dev
+      result_out_features: null
       base_in_features: ${common.base_dmodel}
-      base_out_features: ${model.embedding.embedding.num_embeddings}
-    norm_fn:
-        _target_: src.core.model.RMSNorm
+      base_out_features: ${common.vocab_size}
+    norm_fn: 
+        _target_: src.core.model.LayerNorm
         _partial_: true
         eps: 1e-5
-        normalized_shape: ${common.base_dmodel} # after projection_init it becames ${common.dmodel}
+        normalized_shape: ${common.base_dmodel}
+        bias: false
