@@ -10,6 +10,7 @@ common:
   q_heads: ???
   kv_heads: ???
   vocab_size: 49152
+  smart_init: False
 
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
@@ -108,7 +109,7 @@ model:
       result_in_features: ${common.dmodel}
       result_out_features: null
       base_in_features: ${common.base_dmodel}
-      base_out_features: ${model.embedding.num_embeddings}
+      base_out_features: ${model.embedding.embedding.num_embeddings}
     norm_fn:
         _target_: src.core.model.RMSNorm
         _partial_: true

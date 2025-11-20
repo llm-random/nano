@@ -15,9 +15,9 @@ from torchtune.modules.position_embeddings import (
 
 from torch.nn import Embedding as Embedding
 
-from src.projected_compression.utils import mpp, smart_projections, svd_g
+from src.projected_compression.utils import mpp, smart_projections, svd_g, transfer_selected
 from src.core.llama import repeat_kv
-from src.core.model import AttentionMechanism
+from src.core.model import AttentionMechanism, get_init_weight
 from torch.nn.init import trunc_normal_
 from torch import zeros as zeros
 import torch.distributed as dist
@@ -536,6 +536,10 @@ class ProjectedLinear(nn.Module):
                 )
                 self.auxiliary_weight = nn.Parameter(weight, requires_grad=True)
 
+        # occlusion_weight = torch.zeros(self.weight.shape) #dev
+        # occlusion_weight = get_init_weight(self.weight.shape, fan_in=self.weight.shape[0], init_type="truncated_normal_fixed", scale=1.0) #dev
+        # self.weight =  nn.Parameter(transfer_selected(self.weight, occlusion_weight, proj_out_topk_indices, proj_in_topk_indices)) #dev Occlusion
+
         self.initialized_compression = True
 
     def finalize(self):
@@ -572,8 +576,11 @@ class ProjectedLinear(nn.Module):
         if self.result_out_features is not None:
             weight = self.projection_out_weight @ weight
 
-        if self.result_in_features is not None or self.result_out_features is not None:
-            weight += self.auxiliary_weight
+        if (
+            self.result_in_features is not None
+            or self.result_out_features is not None
+        ):
+            weight += self.auxiliary_weight # dev Wa
 
         return F.linear(input, weight, bias=None)
 
@@ -620,7 +627,7 @@ class ProjectedEmbedding(nn.Module):
         result = self.embedding(x)
         if self.initialized_compression:
             result = F.linear(result, self.projection, bias=None)
-            result += self.auxiliary_weight(x)
+            result += self.auxiliary_weight(x) # dev Wa
         return result
 
     def init_projection(self, topk_dmodel_indices, smart_init, **factory_kwargs):
@@ -639,5 +646,10 @@ class ProjectedEmbedding(nn.Module):
             self.auxiliary_weight = nn.Embedding(
                 vocab_size, self.result_out_features, _weight=zeros
             )
+
+        # occlusion_weight = torch.zeros(self.embedding.weight.shape) #dev
+        # occlusion_weight = get_init_weight(self.embedding.weight.shape, fan_in=self.embedding.weight.shape[0], init_type="truncated_normal_fixed", scale=1.0) #dev
+        # self.embedding.weight = nn.Parameter(transfer_selected(self.embedding.weight, occlusion_weight, None, topk_dmodel_indices)) #dev Occlusion
+
         self.projection = nn.Parameter(weight, requires_grad=True)
         self.initialized_compression = True

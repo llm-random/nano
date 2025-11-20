@@ -10,7 +10,9 @@ common:
   q_heads: ???
   kv_heads: ???
   # rope_sequence_length: 128000 #dev
-  rope_sequence_length: 1024
+  # rope_sequence_length: 1024 #dev
+  rope_sequence_length: ${common.sequence_length} #dev
+  smart_init: False
 
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression

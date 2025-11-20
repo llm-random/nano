@@ -1,0 +1,100 @@
+defaults:
+  # - ../_cluster@_here_: helios #helios
+  - ../_cluster@_here_: entropy
+  - ../_model/smollm@_here_: def_360
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 512
+  batch_size: 1024
+  # batch_size: 8 
+
+  target_dmodel: 640 # 50
+  target_dff: 2560
+
+trainer:
+  gradient_accumulation_steps: 4
+  ^n_steps: 
+    - 201
+    # - 2048
+    # - 4096
+    # - 6144
+    # - 8192
+    # - 12288
+    # - 16384
+
+
+  learning_rate: 8 # 50 1B
+  # learning_rate: 7 # 35 1B
+  # learning_rate: 7 # 20 1B
+  # ^learning_rate: 
+    # - 6
+    # - 7
+    # - 8
+    # - 9
+    # - 10
+    # - 11
+
+
+  scheduler:
+    warmup_steps: 40
+
+  checkpoint:
+   load:
+    type: huggingface
+    path: "HuggingFaceTB/SmolLM-360M"
+   save:  
+    type: nano
+    path: null #dev
+    # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
+    # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/tem # #helios
+
+  train_dataloader:
+    tokenize_fn: 
+      _target_: src.core.datasets.smollm_360_tokenize_fn
+
+  eval_dataloader:
+    tokenize_fn: 
+      _target_: src.core.datasets.smollm_360_tokenize_fn
+
+infrastructure:
+  metric_logger:
+    name: SLLM_360_prune
+    tags:
+      - nano
+      - pc
+      - hard_pruning
+      - smollm_360
+      - 50p
+      # - 35p
+      # - 20p
+      - REBUTAL
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:4
+    # gres: gpu:2
+    time: "0-2:00:00"
+    # time: "0-8:00:00"
+    # time: "0-12:00:00"
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune
+    _partial_: true
+    dimensions_importances_path: /home/mstefaniak/checkpoints/importances/67992/0/minitron_dimensions_importances.pt # activations entropy 
+    # dimensions_importances_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/smollm360_importances/minitron_dimensions_importances.pt # activations #helios
+
+    # # # # dimensions_importances_path: /home/mstefaniak/checkpoints/importances/67992/0/random_dimensions_importances.pt # random entropy
+    # # # # dimensions_importances_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/smollm360_importances/random_dimensions_importances.pt # random #helios
+    target_dmodel: ${common.target_dmodel}
+    target_dff: ${common.target_dff}
+
+    # target_dmodel: 630 # 50
+    # target_dff: 1680
+    # target_dmodel: 480 # 35
+    # target_dff: 1280
+    # target_dmodel: 330 # 20
+    # target_dff: 880
