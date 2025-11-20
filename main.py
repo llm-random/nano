@@ -216,8 +216,11 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             ),
             neptune_run_id=training_state["run_id"],
         )
-        npt_handler = NeptuneHandler(run=metric_logger.run)
-        logger.addHandler(npt_handler)
+
+        # Other loggers do not have `run` method
+        if isinstance(metric_logger, NeptuneLogger):
+            npt_handler = NeptuneHandler(run=metric_logger.run)
+            logger.addHandler(npt_handler)
 
     learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
 
