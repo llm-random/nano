@@ -46,12 +46,19 @@ def create_program_call(config_folder):
 
 
 def generate_sbatch_script(
-    slurm_config, config_folder, n_experiments, script
+    slurm_config, config_folder, n_experiments, max_concurrent_jobs, script
 ) -> list[str]:
     lines = ["#!/bin/bash -l", ""]
 
     slurm_parameters = create_slurm_parameters(slurm_config)
-    lines.append(f"#SBATCH --array=0-{n_experiments - 1}")
+
+    # Optional concurrency limit for the array:
+    if max_concurrent_jobs is not None:
+        array_spec = f"0-{n_experiments - 1}%{max_concurrent_jobs}"
+    else:
+        array_spec = f"0-{n_experiments - 1}"
+
+    lines.append(f"#SBATCH --array={array_spec}")
 
     lines.extend(slurm_parameters)
 
