@@ -179,8 +179,6 @@ multirun
 experiment.yaml
 
 #data for tests
-data 
-data_eval
 generated_configs
 exp.job
 

@@ -1,0 +1,32 @@
+name: Tiny Test Run
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  tiny-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m pip freeze
+
+      - name: Run tiny test
+        if: success() || failure()
+        run: |
+          python main.py --config-path configs/github_check_runs --config-name test_core
+        env:
+          NEPTUNE_API_TOKEN: ${{ secrets.NEPTUNE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HYDRA_FULL_ERROR: 1
