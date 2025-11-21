@@ -1,0 +1,15 @@
+defaults:
+  - base_pc_model
+  - _self_
+
+common:
+  _target_: src.definitions.Common
+  dmodel: 630
+  dff: 1680
+  dhead: 64
+  sequence_length: 2048
+  base_dmodel: 960
+  base_dff: 2560
+  n_blocks: 32
+  q_heads: 15
+  kv_heads: 5
