@@ -1,5 +1,6 @@
 infrastructure:
   server: helios
+  max_concurrent_jobs: null
   slurm:
     cpus_per_gpu: 12
     gres: ???
