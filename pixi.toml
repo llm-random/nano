@@ -24,6 +24,9 @@ black = "==25.1.0"
 torchao = "==0.11.0"
 torchtune = "==0.6.1"
 lm-eval = ">=0.4.0"
+jupyter = "*"
+ipykernel = "*"
+matplotlib = "*"
 
 [target.linux-64.pypi-dependencies]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
@@ -33,4 +36,4 @@ torch = { version = "==2.6", index = "https://download.pytorch.org/whl/cu126"}
 
 # macOS (Apple Silicon): CPU wheels (PyPI has arm64 wheels)
 [target.osx-arm64.pypi-dependencies]
-torch = "==2.5.1"
+torch = "==2.6.0"
