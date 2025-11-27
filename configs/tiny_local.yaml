@@ -6,6 +6,7 @@ defaults:
   - _checkpoints@_here_: none
   - _misc@_here_: default
   - _eval@_here_: default
+  - _self_
 
 common:
   sequence_length: 16
@@ -29,6 +30,9 @@ infrastructure:
       - local
       - tiny
 
-evaluator:
-  limit: 1
-  device: cpu
+# evaluator:
+#   limit: 1
+#   device: cpu
+
+evaluator: none
+

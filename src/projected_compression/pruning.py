@@ -9,9 +9,11 @@ logger = logging.getLogger(__name__)
 def prune(model: nn.Module, dimensions_importances_path, target_dmodel, target_dff):
     device = get_device()
 
-    dimensions_importances = torch.load(dimensions_importances_path)
-    dmodel_importances = dimensions_importances["dmodel_importances"]
-    dff_importances = dimensions_importances["dff_importances"]
+    # dimensions_importances = torch.load(dimensions_importances_path)
+    # dmodel_importances = dimensions_importances["dmodel_importances"]
+    # dff_importances = dimensions_importances["dff_importances"]
+    dmodel_importances = torch.arange(target_dmodel)
+    dff_importances = [ torch.arange(target_dff) for _ in range(len(model.encoder.blocks)) ]
 
     dmodel_indices = torch.topk(
         dmodel_importances, dim=0, largest=True, k=target_dmodel

@@ -14,11 +14,12 @@ common:
 
 
 trainer:
-  gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 1
   n_steps: 2048
 
-  ^learning_rate: 
-    - 0.0001220703125
+  learning_rate: 0.001
+  # ^learning_rate: 
+  #   - 0.0001220703125
 
   checkpoint:
    load:
@@ -40,10 +41,10 @@ infrastructure:
   slurm:
     gres: gpu:4
 
-apply_functions:
-  - _target_: src.projected_compression.pruning.prune
-    _partial_: true
-    dimensions_importances_path: /storage_nvme_3/crewtool/nano_checkpoints/tmp/65575/0/minitron_dimensions_importances.pt
-    target_dmodel: 1344
-    target_dff: 5376
+# apply_functions:
+#   - _target_: src.projected_compression.pruning.prune
+#     _partial_: true
+#     dimensions_importances_path: /storage_nvme_3/crewtool/nano_checkpoints/tmp/65575/0/minitron_dimensions_importances.pt
+#     target_dmodel: 1344
+#     target_dff: 5376
 

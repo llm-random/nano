@@ -101,7 +101,9 @@ class Trainer:
             self.step = step
             self.metric_logger.set_step(step)
             self.model.train()
+            self.model.prepare_compressed_weights()
             loss = self.calculate_loss(batch)
+            self.model.pass_gradient_to_projections()
 
             grad_norm = self.clip_gradient()
 
