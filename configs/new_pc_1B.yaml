@@ -1,0 +1,284 @@
+defaults:
+  - _misc@_here_: default
+
+  - _cluster@_here_: local
+  # - _model@_here_: tiny
+  - _trainer@_here_: llama
+  - _dataset@_here_: local_dummy
+  - _checkpoints@_here_: none
+
+  # - _eval@_here_: default
+  - _self_
+
+
+common:
+  # _target_: src.definitions.Common
+  # dmodel: 128
+  # dff: 512
+  # dmodel: 64
+  # dff: 256
+  # dhead: 32
+  # sequence_length: 1024
+  # base_dmodel: 128
+  # base_dff: 512 
+  # n_blocks: 2
+  # q_heads: 4
+  # kv_heads: 2
+  # batch_size: 2
+
+  dmodel: 1344 # 50% parameter compression
+  dff: 5376 # 50% parameter compression
+  dhead: 64
+  sequence_length: 512
+  base_dmodel: 2048
+  base_dff: 8192
+  n_blocks: 16
+  q_heads: 32
+  kv_heads: 8
+  batch_size: 64
+
+
+trainer:
+  learning_rate: 1e-3
+  n_steps: 1000
+
+  checkpoint:
+    load:
+      type: huggingface_v2
+      path: pc-project/tiny-llama-16M
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+
+
+  # train_dataloader:
+  #   dataset_path: data
+  #   dataset_split: train
+  #   dataset_type: c4
+  #   num_workers: 0
+  #   tokenize_fn: 
+  #     _target_: src.core.datasets.gpt2_tokenize_fn
+
+  # eval_dataloader:
+  #   dataset_path: data_eval
+  #   dataset_split: validation
+  #   dataset_type: c4
+  #   num_workers: 0
+  #   tokenize_fn: 
+  #     _target_: src.core.datasets.gpt2_tokenize_fn
+
+# apply_functions:
+#   - _target_: src.projected_compression.compression.init_compression
+#     _partial_: true
+#     dimensions_importances_path: ???
+#     target_dmodel: ${common.dmodel}
+#     target_dff: ${common.dff}
+
+model:
+  _target_: src.projected_compression.mem_eff_model.ProjectedCompressionModel
+  source_model:
+    _target_: src.projected_compression.mem_eff_model.PretrainedLLM
+    embedding:
+      _target_: src.projected_compression.model.Embedding
+      num_embeddings: 128256
+      embedding_dim: ${common.base_dmodel}
+
+    encoder:
+      _target_: src.projected_compression.model.TransformerEncoder
+      n_blocks: ${common.n_blocks}
+      block_fn:
+        _target_: src.projected_compression.model.TransformerBlock
+        _partial_: true
+        norm_fn:
+          _target_: src.core.model.RMSNorm
+          _partial_: true
+          eps: 1e-5
+          normalized_shape: ${common.base_dmodel}
+
+        attention_fn:
+          _target_: src.projected_compression.model.RoPEAttention
+          _partial_: true
+          dmodel: ${common.base_dmodel}
+          q_heads: ${common.q_heads}
+          kv_heads: ${common.kv_heads}
+          seq_len: ${common.sequence_length}
+          q_proj_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common.base_dmodel}
+            out_features: ${eval:'${common.dhead} * ${model.source_model.encoder.block_fn.attention_fn.q_heads}'}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+
+          k_proj_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common.base_dmodel}
+            out_features: ${eval:'${common.dhead} * ${model.source_model.encoder.block_fn.attention_fn.kv_heads}'}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+
+          v_proj_fn: ${model.source_model.encoder.block_fn.attention_fn.k_proj_fn}
+
+          o_proj_fn: 
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${eval:'${common.dhead} * ${model.source_model.encoder.block_fn.attention_fn.q_heads}'}
+            out_features: ${common.base_dmodel}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+
+          rope_base: 500000
+          rope_scale_freqs: true
+
+        ff_layer_fn:
+          _target_: src.projected_compression.model.ProjectedLlamaFeedForward
+          _partial_: true
+          ff_pre_act_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common.base_dmodel}
+            out_features: ${common.base_dff}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+          ff_post_act_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common.base_dff}
+            out_features: ${common.base_dmodel}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+          gate_fn: ${model.source_model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
+
+    head:
+      _target_: src.projected_compression.model.TransformerHead
+      linear_fn:
+        _target_: src.projected_compression.model.Linear
+        _partial_: true
+        in_features: ${common.base_dmodel}
+        out_features: ${model.source_model.embedding.num_embeddings}
+        partial_init_fn:
+          _target_: src.projected_compression.model.llm_random_weight_init
+          _partial_: true
+          scale: 1
+      norm_fn:
+        _target_: src.core.model.RMSNorm
+        _partial_: true
+        eps: 1e-5
+        normalized_shape: ${common.base_dmodel}
+
+    initialize_weights:
+      _target_: src.core.llama.copy_llama_model_weights_from_HF
+      _partial_: true
+      # path: meta-llama/Llama-3.1-8B
+      path: meta-llama/Llama-3.2-1B
+      
+
+  target_model:
+    _target_: src.projected_compression.model.LLM
+    embedding:
+      _target_: src.projected_compression.model.Embedding
+      num_embeddings: 128256
+      embedding_dim: ${common.dmodel}
+
+    encoder:
+      _target_: src.projected_compression.model.TransformerEncoder
+      n_blocks: ${common.n_blocks}
+      block_fn:
+        _target_: src.projected_compression.model.TransformerBlock
+        _partial_: true
+        norm_fn:
+          _target_: src.core.model.RMSNorm
+          _partial_: true
+          eps: 1e-5
+          normalized_shape: ${common.dmodel}
+
+        attention_fn:
+          _target_: src.projected_compression.model.RoPEAttention
+          _partial_: true
+          dmodel: ${common.dmodel}
+          q_heads: ${common.q_heads}
+          kv_heads: ${common.kv_heads}
+          seq_len: ${common.sequence_length}
+          q_proj_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common.dmodel}
+            out_features: ${eval:'${common.dhead} * ${model.target_model.encoder.block_fn.attention_fn.q_heads}'}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+
+          k_proj_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common.dmodel}
+            out_features: ${eval:'${common.dhead} * ${model.target_model.encoder.block_fn.attention_fn.kv_heads}'}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+
+          v_proj_fn: ${model.target_model.encoder.block_fn.attention_fn.k_proj_fn}
+
+          o_proj_fn: 
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${eval:'${common.dhead} * ${model.target_model.encoder.block_fn.attention_fn.q_heads}'}
+            out_features: ${common.dmodel}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+
+          rope_base: 500000
+          rope_scale_freqs: true
+
+        ff_layer_fn:
+          _target_: src.projected_compression.model.ProjectedLlamaFeedForward
+          _partial_: true
+          ff_pre_act_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common.dmodel}
+            out_features: ${common.dff}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+          ff_post_act_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common.dff}
+            out_features: ${common.dmodel}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+          gate_fn: ${model.target_model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
+
+    head:
+      _target_: src.projected_compression.model.TransformerHead
+      linear_fn:
+        _target_: src.projected_compression.model.Linear
+        _partial_: true
+        in_features: ${common.dmodel}
+        out_features: ${model.target_model.embedding.num_embeddings}
+        partial_init_fn:
+          _target_: src.projected_compression.model.llm_random_weight_init
+          _partial_: true
+          scale: 1
+      norm_fn:
+        _target_: src.core.model.RMSNorm
+        _partial_: true
+        eps: 1e-5
+        normalized_shape: ${common.dmodel}

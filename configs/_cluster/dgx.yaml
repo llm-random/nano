@@ -1,0 +1,26 @@
+infrastructure:
+  server: entropy
+  slurm:
+    cpus_per_gpu: 16
+    gres: gpu:ampere:2
+    job-name: test
+    mem_per_gpu: 30G
+    nodes: 2
+    # partition: h100
+    time: "2-00:00:00"
+
+
+trainer:
+  checkpoint:
+    save:
+      path: "/raid/NFS_SHARE/home/michal.krutul/projected_compression"
+
+
+cluster_switch:
+  train_path_c4: "/raid/NFS_SHARE/datasets/c4/train/c4_train"
+  eval_path_c4: "/raid/NFS_SHARE/datasets/c4/validation/c4_validation"
+  # train_path_c4: "data"
+  # eval_path_c4: "data_eval"
+  train_path_fineweb: null
+  eval_path_fineweb: null
+  num_workers: 0

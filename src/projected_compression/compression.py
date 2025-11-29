@@ -141,18 +141,21 @@ def init_compression(
 
     device = get_device()
 
-    dimensions_importances = torch.load(dimensions_importances_path)
-    dmodel_importances = dimensions_importances["dmodel_importances"]
-    dff_importances = dimensions_importances["dff_importances"]
+    # dimensions_importances = torch.load(dimensions_importances_path)
+    # dmodel_importances = dimensions_importances["dmodel_importances"]
+    # dff_importances = dimensions_importances["dff_importances"]
+    
+    dmodel_importances = torch.arange(target_dmodel)
+    dff_importances = [ torch.arange(target_dff) for _ in range(len(model.encoder.blocks)) ]
 
     dmodel_indices = torch.topk(
         dmodel_importances, dim=0, largest=True, k=target_dmodel
-    ).indices.to(device)
+    ).indices
     dff_indices = []
     for i in range(len(dff_importances)):
         dff_top_indices_current = torch.topk(
             dff_importances[i], dim=0, largest=True, k=target_dff
-        ).indices.to(device)
+        ).indices
         dff_indices.append(dff_top_indices_current)
 
     initialize_projection_weights(model, dmodel_indices, dff_indices)

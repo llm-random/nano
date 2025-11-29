@@ -1,6 +1,6 @@
 
 defaults:
-  - _cluster@_here_: entropy
+  - _cluster@_here_: local
   - _model/llama@_here_: projected_1B
   - _trainer@_here_: llama
   - _dataset@_here_: c4
@@ -9,12 +9,12 @@ defaults:
 
 
 common:
-  sequence_length: 1024
-  batch_size: 512
+  sequence_length: 512
+  batch_size: 64
 
 
 trainer:
-  gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 1
   n_steps: 2048
 
   learning_rate: 6.103515625e-05
@@ -40,6 +40,9 @@ infrastructure:
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
     _partial_: true
-    dimensions_importances_path: ??? # change
+    # dimensions_importances_path: ??? # change
+    dimensions_importances_path: "XD"
     target_dmodel: ${common.dmodel}
     target_dff: ${common.dff}
+
+

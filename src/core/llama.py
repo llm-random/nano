@@ -175,7 +175,8 @@ def remap_llamahf_state_dict_to_nano(llama_state_dict):
 
         # Embedding
         new_key = new_key.replace(
-            "model.embed_tokens.weight", "embedding.embedding.weight"
+            # "model.embed_tokens.weight", "embedding.embedding.weight"
+            "model.embed_tokens.weight", "embedding.weight"
         )
 
         # Final norm and lm head
@@ -236,4 +237,4 @@ def copy_llama_model_weights_from_HF(model: nn.Module, path: str):
 
     remapped_state_dict = remap_llamahf_state_dict_to_nano(llama_state_dict)
 
-    model.load_state_dict(remapped_state_dict)
+    model.load_state_dict(remapped_state_dict, assign=True)

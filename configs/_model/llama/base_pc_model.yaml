@@ -13,7 +13,7 @@ common:
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
     _partial_: true
-    dimensions_importances_path: ???
+    dimensions_importances_path: "cokolwiek" #TODO
     target_dmodel: ${common.dmodel}
     target_dff: ${common.dff}
 

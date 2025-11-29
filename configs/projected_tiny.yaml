@@ -1,0 +1,43 @@
+defaults:
+  - _misc@_here_: default
+
+  - _cluster@_here_: local
+  - _model/llama@_here_: projected_tiny
+  - _trainer@_here_: llama
+  - _dataset@_here_: local_dummy
+  - _checkpoints@_here_: none
+
+
+common:
+  # _target_: src.definitions.Common
+  dmodel: 64
+  dff: 256
+  dhead: 32
+  sequence_length: 1024
+  base_dmodel: 128
+  base_dff: 512
+  n_blocks: 2
+  q_heads: 4
+  kv_heads: 2
+  batch_size: 2
+
+
+trainer:
+  learning_rate: 1e-3
+  n_steps: 1000
+
+
+  checkpoint:
+    save:
+      type: nano
+      interval: -1
+      path: null
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: __training_state_filename.pt
+
+    load:
+      type: huggingface
+      path: pc-project/tiny-llama-16M
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      # training_state_filename: null # not tested
+      # only_weights: true # false not tested

@@ -28,6 +28,16 @@ from src.core.metric_loggers import NeptuneLogger, get_metric_logger
 from src.core.model import Residual
 import platform
 
+from torch.distributed.checkpoint.state_dict import (
+    _init_optim_state,
+    get_model_state_dict,
+    get_optimizer_state_dict,
+    set_model_state_dict,
+    set_optimizer_state_dict,
+    StateDictOptions,
+)
+from torch.distributed.tensor import distribute_tensor, DTensor
+
 logger = logging.getLogger(__name__)
 logger.propagate = False
 ch = logging.StreamHandler()
@@ -203,7 +213,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         training_state["run_id"] is None
         or cfg.infrastructure.metric_logger.new_neptune_job
     ):
-        metric_logger.run["job_config"] = cfg
+        # metric_logger.run["job_config"] = cfg
         upload_config_file(metric_logger)
         log_environs(metric_logger)
         metric_logger.run[f"job/full_save_checkpoints_path"] = get_full_checkpoint_path(
@@ -216,8 +226,57 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
     device = get_device()
 
-    logger.info(f"Creating model...")
-    model = instantiate(cfg.model, _convert_="all").to(device)
+    # logger.info(f"Creating model...")
+    # with torch.device('meta'):
+    #     modelek = instantiate(cfg.source_model, _convert_="all")
+    # model2 = instantiate(cfg.target_model, _convert_="all").to(device)
+    # pep3 = instantiate(cfg.pep3, _convert_="all")
+
+    # modelek = instantiate(cfg.eloszka, _convert_="all")
+    # torch.save(modelek.state_dict(), "/storage_nvme_3/crewtool/llama_8b_nano.pt")
+
+
+
+    with torch.device('meta'):
+        modelek = instantiate(cfg.source_model, _convert_="all")
+        model2 = instantiate(cfg.target_model, _convert_="all")
+        pep3 = instantiate(cfg.pep3, _convert_="all")
+
+        model = pep3(
+                modelek,
+                model2,
+            )
+
+
+    model = setup_distributed_training(model, cfg.trainer.distributed)
+
+    model.target_model.to_empty(device="cuda")
+    model.projections.to_empty(device="cuda")
+
+    model.source_model.to_empty(device="cuda")
+    thestate = torch.load("/storage_nvme_3/crewtool/llama_8b_nano.pt", mmap=True, weights_only=True, map_location="cpu")
+
+
+    meta_sharded_sd = model.source_model.state_dict()
+    sharded_sd = {}
+    for param_name, full_tensor in thestate.items():
+        sharded_meta_param = meta_sharded_sd.get(param_name)
+        sharded_tensor = distribute_tensor(
+            full_tensor,
+            sharded_meta_param.device_mesh,
+            sharded_meta_param.placements,
+        )
+        sharded_sd[param_name] = torch.nn.Parameter(sharded_tensor)
+    # choose `assign=True` since we cannot call `copy_` on meta tensor
+    model.source_model.load_state_dict(sharded_sd, strict=False, assign=True)
+    # model.load_state_dict(thestate, assign=True)
+
+
+    # torch.save(model.state_dict(), "/net/scratch/hscra/plgrid/plgcrewtool/dawaj/llama_8b_nano.pt")
+
+    # source_model = instantiate(cfg.source, _convert_="all").to(device)
+    # model.move_weights_from_source_model(source_model)
+
     logger.info(
         f"Model {model.__class__.__name__} created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters"
     )
@@ -237,6 +296,23 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),
+            lr=learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
+        )
+        scheduler = instantiate(cfg.trainer.scheduler)(
+            optimizer=optimizer, n_steps=cfg.trainer.n_steps
+        )
+    elif cfg.trainer.checkpoint.load.type == "huggingface_v2":
+        # copy_llama_model_weights_from_HF_v2(model, cfg.trainer.checkpoint.load.path)
+        # if cfg.get("apply_functions", None):
+        #     for fn in instantiate(cfg.apply_functions):
+        #         res = fn(model)
+        #         if res == False:
+        #             logger.info("Initialization failed, exiting...")
+        #             return None, None, None, None, None
+        # model = setup_distributed_training(model, cfg.trainer.distributed)
+        optimizer = torch.optim.AdamW(
+            model.projections.parameters(), 
             lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
@@ -324,7 +400,7 @@ def run(cfg: OmegaConf, metric_logger=None):
         initialize_training_components(cfg, metric_logger)
     )
 
-    common_config = instantiate(cfg.common)
+    # common_config = instantiate(cfg.common)
 
     if model is not None:
         logger.info(f"Model initialized")
