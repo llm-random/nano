@@ -1,0 +1,95 @@
+defaults:
+  - _cluster@_here_: helios
+  - _model@_here_: tiny
+  - _trainer@_here_: llama
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+  - _eval@_here_: default
+
+common:
+  sequence_length: 512
+  batch_size: 128
+  dmodel: 768
+  dff: 2042
+  datt: ${common.dmodel}
+  n_blocks: 12
+  q_heads: 12
+  kv_heads: 12
+  vocab_size: 128256
+
+trainer:
+  gradient_accumulation_steps: 2
+  n_steps: 56000
+  learning_rate: 1e-4
+
+  checkpoint:
+    save:
+      type: huggingface
+      path: checkpoint
+
+infrastructure:
+  metric_logger:
+    name: top_k_attention
+    project_name: pmtest/tml-bgw
+    tags:
+      - nano
+      - top_k_attention
+      - "top_k=${model.encoder.block_fn.attention_fn.top_k}"
+      - "lr=${trainer.learning_rate}"
+  slurm:
+    gres: gpu:1
+    time: "1-00:00:00"
+    job-name: ${infrastructure.metric_logger.name}
+
+evaluator:
+  limit: 1
+  device: cpu
+
+model:
+  encoder:
+    block_fn:
+      attention_fn:
+        _target_: src.product_keys.model.RoPETopKAttention
+        _partial_: true
+        dmodel: ${common.dmodel}
+        q_heads: ${common.q_heads}
+        kv_heads: ${common.kv_heads}
+        seq_len: ${common.sequence_length}
+
+        q_proj_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${common.datt}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: 1
+
+        k_proj_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: 1
+
+        v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
+
+        # o_proj_fn: ${model.encoder.block_fn.attention_fn.q_proj_fn} # TODO check have I done it right pls
+        o_proj_fn: 
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.datt}
+          out_features: ${common.dmodel}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: 1
+
+        rope_base: 500000
+        rope_scale_freqs: true
+        top_k: 16
