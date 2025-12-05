@@ -23,7 +23,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 
 
-def trunc_normal_(fan_in, scale):
+def llm_random_weight_init(fan_in, scale):
     std = scale * (1 / fan_in) ** 0.5
     low = -2 * std
     high = 2 * std
