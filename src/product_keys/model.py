@@ -156,20 +156,22 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
     def __get_topk_candidates(self, query, key):
         scores = torch.matmul(query, key.transpose(-2, -1))
-        
+
         _, indices = torch.topk(scores, k=self.top_k, dim=-1)
-        
+
         key_expanded = key.unsqueeze(2).expand(-1, -1, self.seq_len, -1, -1)
         ind_expanded = indices.unsqueeze(-1).expand(-1, -1, -1, -1, self.dhead_half)
         selected_vecs = torch.gather(key_expanded, 3, ind_expanded)
-        
+
         return selected_vecs, indices
-    
+
     @staticmethod
     def __gather_selected(source_tensor, idx_tensor):
         # source: (..., num_Candidates, D)
         # idx:    (..., K) -> expand to (..., K, D)
-        idx_expanded = idx_tensor.unsqueeze(-1).expand(-1, -1, -1, -1, source_tensor.size(-1))
+        idx_expanded = idx_tensor.unsqueeze(-1).expand(
+            -1, -1, -1, -1, source_tensor.size(-1)
+        )
         return torch.gather(source_tensor, 3, idx_expanded)
 
     def forward(self, x):
@@ -199,19 +201,25 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         q1 = q[..., : self.dhead_half]  # (B, H, S, d/2)
         q2 = q[..., self.dhead_half :]  # (B, H, S, d/2)
 
-        # --- First Retrieval (get top-k from each half) --- 
+        # --- First Retrieval (get top-k from each half) ---
         k1_vecs, k1_idxs = self.__get_topk_candidates(q1, k1)
         k2_vecs, k2_idxs = self.__get_topk_candidates(q2, k2)
 
         # --- Second Retrieval (find closest among combinations) ---
         # Expand to form a grid of all combinations of the selected K neighbors from both halves
         # Size after expansion: (B, H, S, K, K, D/2)
-        c1 = k1_vecs.unsqueeze(-2).expand(-1, -1, -1, self.top_k, self.top_k, self.dhead_half)
-        c2 = k2_vecs.unsqueeze(-3).expand(-1, -1, -1, self.top_k, self.top_k, self.dhead_half)
+        c1 = k1_vecs.unsqueeze(-2).expand(
+            -1, -1, -1, self.top_k, self.top_k, self.dhead_half
+        )
+        c2 = k2_vecs.unsqueeze(-3).expand(
+            -1, -1, -1, self.top_k, self.top_k, self.dhead_half
+        )
 
         # Concatenate halves to form full candidate vectors
         # candidates shape: (B, H, S, K*K, D)
-        candidates = torch.cat([c1, c2], dim=-1).view(batch, self.q_heads, seq_len, -1, self.dhead)
+        candidates = torch.cat([c1, c2], dim=-1).view(
+            batch, self.q_heads, seq_len, -1, self.dhead
+        )
 
         # Calculate similarity between full Q and the reconstructed candidates
         # q needs unsqueeze to broadcast: (B, H, S, 1, D) @ (B, H, S, K*K, D).T
@@ -233,10 +241,12 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         v_indices = (final_row_idxs * self.m) + final_col_idxs
         v_flat_exp = v.unsqueeze(2).expand(-1, -1, seq_len, -1, -1)
         final_v = self.__gather_selected(v_flat_exp, v_indices)  # (B, H, S, K, D)
-        
+
         # --- Attention: Softmax(Q @ K.T) @ V ---
         # q needs unsqueeze to broadcast: (B, H, S, 1, D) @ (B, H, S, K, D).T
-        attn_scores = torch.matmul(q.unsqueeze(-2), final_k.transpose(-2, -1)) / math.sqrt(self.dhead)
+        attn_scores = torch.matmul(
+            q.unsqueeze(-2), final_k.transpose(-2, -1)
+        ) / math.sqrt(self.dhead)
 
         # ! no causal mask as we work in encoder-only setting
         # causal_mask = torch.triu(
