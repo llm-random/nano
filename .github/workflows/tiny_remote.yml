@@ -1,0 +1,27 @@
+name: Run tiny_remote on PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  tiny_remote:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Submit tiny_remote to SLURM
+        run: |
+          chmod +x .github/scripts/run_tiny_remote.sh
+          sbatch --wait .github/scripts/run_tiny_remote.sh
+
+      - name: Check results
+        if: always()
+        run: |
+          # Display the latest slurm output file
+          latest_out=$(ls -t slurm-*.out 2>/dev/null | head -1)
+          if [ -n "$latest_out" ]; then
+            echo "=== SLURM Job Output ==="
+            cat "$latest_out"
+          fi
