@@ -186,5 +186,8 @@ exp.job
 
 checkpoints
 
+# pixi
+.pixi/*
+
 # MAS (madragonse)
 *mastest*

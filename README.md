@@ -1,17 +1,42 @@
 # Nano
 
+## Setup
+
+### Local
+Firstly install pixi, then run:
+```bash
+pixi install
+```
+### Remote
+Run to create / update pixi on cluster:
+```bash
+python update_pixi.py --config-path configs --config-name tiny_remote
+```
+
+**Requirements:**
+- Config file must specify `infrastructure.server` (target cluster)
+- `infrastructure.slurm.script` must contain `export PIXI_HOME=...` line
+- Only affects the cluster specified in the config file
+
+**What it does:**
+1. Copies local `pixi.toml` and `pixi.lock` to remote cluster
+2. Runs `pixi install` on compute node via SLURM (GPU params auto-removed)
+3. Archives old pixi files before installing new environment
+
 ## Running Experiments
 
 ### Local
 ```bash
-source venv/bin/activate
+pixi shell
 python main.py --config-path configs --config-name tiny_local
 ```
 
 ### Remote
 ```bash
-python run_exp.py --config-path configs --config-name tiny_local
+python run_exp.py --config-path configs --config-name tiny_remote
 ```
+
+**Note:** `run_exp.py` does not copy pixi files (`pixi.toml`, `pixi.lock`) to the cluster to avoid inflating memory and file count in `$HOME`. Use `update_pixi.py` (see Setup > Remote) to update the pixi environment on the cluster first.
 
 ## Hydra
 Uses [Hydra](https://hydra.cc/) for configuration management. Classes are instantiated via `_target_`:
