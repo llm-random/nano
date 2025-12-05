@@ -1,7 +1,7 @@
 defaults:
   - _cluster@_here_: local
   - _model@_here_: tiny
-  - _trainer@_here_: llama
+  - _trainer@_here_: core_llama
   - _dataset@_here_: local_dummy
   - _checkpoints@_here_: none
   - _misc@_here_: default

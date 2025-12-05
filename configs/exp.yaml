@@ -3,7 +3,7 @@ defaults:
   - _dataset@_here_: c4
   - _cluster@_here_: entropy
   - _model/llama@_here_: projected_1B
-  - _trainer@_here_: llama
+  - _trainer@_here_: core_llama
 
   - _checkpoints@_here_: none
 
