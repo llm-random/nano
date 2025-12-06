@@ -1,0 +1,23 @@
+defaults:
+  - default
+  - _self_
+
+trainer:
+  train_dataloader:
+    _target_: src.core.datasets.get_mixture_of_datasets_dataloader
+#    dataset_type: mixture-of-datasets
+    datasets:
+      path/to/fineweb-edu-dedup: 0.7
+      path/to/cosmopedia-v2: 0.15
+      path/to/python-edu: 0.08
+      path/to/open-web-math: 0.07
+    dataset_split: train
+    num_workers: 8
+    tokenize_fn:
+      _target_: src.core.datasets.smollm_1700_tokenize_fn
+
+  eval_dataloader:
+    dataset_path: data_eval
+    dataset_split: validation
+    dataset_type: c4
+    num_workers: 8
