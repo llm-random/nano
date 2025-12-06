@@ -31,6 +31,7 @@ def get_tokenize_fn(model_name: str):
         model_name,
         add_bos_token=True,
         add_eos_token=True,
+        legacy=False,
     )
 
     # Lazy initialization to avoid using tokenizer before DataLoader forks workers
