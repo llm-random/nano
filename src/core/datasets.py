@@ -108,18 +108,28 @@ def smollm_1700_tokenize_fn():
     return tokenize_function
 
 
-class AbstractDataset(IterableDataset):
+class GenericDataset(IterableDataset):
+    """
+    world_size_independent - if True, we take the whole dataset and take every 'mod rank' element. If world_size == 1 it does not matter.
+    shuffle - if True, we shuffle the dataset independently on each rank part (unless world_size_independent is True)
+
+
+    world_size_independent should be 'True' for tests and eval
+    """
+
+    BUFFER_SIZE = 10000
+    NUM_SHARDS = 64
 
     def __init__(
-        self,
-        sequence_length,
-        tokenize_fn: Callable,
-        path: Optional[str] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
-        use_new_sampling_method: bool = True,
-        shuffle: bool = True,
-        world_size_independent: bool = False,
+            self,
+            sequence_length,
+            tokenize_fn: Callable,
+            path: Optional[str] = None,
+            split: Optional[str] = None,
+            seed: Optional[int] = None,
+            use_new_sampling_method: bool = True,
+            shuffle: bool = True,
+            world_size_independent: bool = False,
     ):
         self.world_size = int(os.environ.get("WORLD_SIZE"))
         self.rank = int(os.environ.get("RANK"))
@@ -132,6 +142,27 @@ class AbstractDataset(IterableDataset):
         self.use_new_sampling_method = use_new_sampling_method
         self.shuffle = shuffle
         self.world_size_independent = world_size_independent
+        self.data_generator = None
+        self._load_dataset(path, split, seed, tokenize_fn, shuffle)
+
+    def _load_hf_dataset(self, path, split):
+        logger.debug(f"Loading dataset from path '{path}'")
+        hf_dataset = load_from_disk(path)
+        hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
+        return hf_dataset
+
+    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
+        hf_dataset = self._load_hf_dataset(path, split)
+
+        if not self.world_size_independent:
+            hf_dataset = split_dataset_by_node(
+                hf_dataset, rank=self.rank, world_size=self.world_size
+            )
+
+        if shuffle:
+            hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
+
+        self.data_generator = hf_dataset.map(tokenize_fn, batched=True)
 
     def sample_packer(self):
         buffer: List[int] = []
@@ -158,7 +189,7 @@ class AbstractDataset(IterableDataset):
 
                 document_lengths.append(len(tokens))
                 if (
-                    sum(document_lengths) - max(document_lengths)
+                        sum(document_lengths) - max(document_lengths)
                 ) > self.sequence_length:
                     sample_start = self.rng.randint(0, len(buffer) - 1)
                     sample_end = sample_start + self.sequence_length
@@ -175,53 +206,6 @@ class AbstractDataset(IterableDataset):
         else:
             return self.sample_packer()
 
-
-class FineWebEduDataset(AbstractDataset):
-
-    BUFFER_SIZE = 10000
-    NUM_SHARDS = 64
-
-    def __init__(
-        self,
-        sequence_length,
-        tokenize_fn: Callable,
-        path: Optional[str] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
-        use_new_sampling_method: bool = True,
-        shuffle: bool = True,
-        world_size_independent: bool = False,
-    ):
-        super().__init__(
-            sequence_length,
-            tokenize_fn,
-            path,
-            split,
-            seed,
-            use_new_sampling_method,
-            shuffle,
-            world_size_independent,
-        )
-        self._load_dataset(path, seed, tokenize_fn, shuffle)
-
-    def _load_dataset(self, path, seed, tokenize_fn, shuffle: bool):
-        if path is None:
-            raise ValueError("Path to dataset must be provided for FineWebEduDataset")
-        else:
-            logger.debug(f"Loading dataset from path '{path}'")
-            hf_dataset = load_from_disk(path)
-            hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
-
-        if not self.world_size_independent:
-            hf_dataset = split_dataset_by_node(
-                hf_dataset, rank=self.rank, world_size=self.world_size
-            )
-
-        if shuffle:
-            hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
-
-        self.data_generator = hf_dataset.map(tokenize_fn, batched=True)
-
     def get_infinite_sampler(self):
         epoch = 0
         while True:
@@ -231,42 +215,8 @@ class FineWebEduDataset(AbstractDataset):
             epoch += 1
 
 
-class C4Dataset(AbstractDataset):
-    """
-    world_size_independent - if True, we take the whole dataset and take every 'mod rank' element. If world_size == 1 it does not matter.
-    shuffle - if True, we shuffle the dataset independently on each rank part (unless world_size_independent is True)
-
-
-    world_size_independent should be 'True' for tests and eval
-    """
-
-    BUFFER_SIZE = 10000
-    NUM_SHARDS = 64
-
-    def __init__(
-        self,
-        sequence_length,
-        tokenize_fn: Callable,
-        path: Optional[str] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
-        use_new_sampling_method: bool = True,
-        shuffle: bool = True,
-        world_size_independent: bool = False,
-    ):
-        super().__init__(
-            sequence_length,
-            tokenize_fn,
-            path,
-            split,
-            seed,
-            use_new_sampling_method,
-            shuffle,
-            world_size_independent,
-        )
-        self._load_dataset(path, split, seed, tokenize_fn, shuffle)
-
-    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
+class C4Dataset(GenericDataset):
+    def _load_hf_dataset(self, path, split):
         if path is None:
             logger.debug(
                 f"Loading 'allenai/c4' dataset from HuggingFace with split={split}"
@@ -283,39 +233,69 @@ class C4Dataset(AbstractDataset):
             hf_dataset = load_from_disk(path)
             hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
 
-        if not self.world_size_independent:
-            hf_dataset = split_dataset_by_node(
-                hf_dataset, rank=self.rank, world_size=self.world_size
-            )
+        return hf_dataset
 
-        if shuffle:
-            hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
 
-        self.data_generator = hf_dataset.map(tokenize_fn, batched=True)
-
-    def get_infinite_sampler(self):
-        epoch = 0
-        while True:
-            self.data_generator.set_epoch(epoch)
-            for next_sample in self.data_generator:
-                yield next_sample
-            epoch += 1
+class FineWebDataset(GenericDataset):
+    """Thin alias so callers can reference fineweb explicitly."""
+    pass
 
 
 def collate_wrapper(examples):
     return torch.from_numpy(np.array(examples))
 
 
+def get_mixture_of_datasets_dataloader(datasets: dict[str, int], dataset_split, tokenize_fn, total_batch_size, sequence_length,
+                                       num_workers, seed, shuffle, use_new_sampling_method, world_size_independent,
+                                       collate_fn: Callable = collate_wrapper):
+    print(datasets)
+    dataset_paths, dataset_weights = zip(*datasets.items())
+    assert abs(sum(dataset_weights) - 1) < 1e-6, "Dataset weights must sum to 1"
+
+
+
 def get_dataloader(
-    dataset: AbstractDataset,
-    total_batch_size: int,
-    num_workers: int,
-    collate_fn: Callable = collate_wrapper,
+        dataset_type: str,
+        dataset_path: str,
+        dataset_split: str,
+        tokenize_fn: str,
+        total_batch_size: int,
+        sequence_length: int,
+        num_workers: int,
+        seed: int,
+        shuffle: bool,
+        use_new_sampling_method: bool,
+        world_size_independent: bool,
+        collate_fn: Callable = collate_wrapper,
 ):
     world_size = int(os.environ["WORLD_SIZE"])
     batch_size_per_device = total_batch_size // world_size
     logger.debug(f"Batch size per device: {batch_size_per_device}")
     logger.debug(f"Total: {total_batch_size}")
+    if dataset_type == "c4":
+        dataset = C4Dataset(
+            sequence_length=sequence_length + 1,
+            split=dataset_split,
+            tokenize_fn=tokenize_fn,
+            path=dataset_path,
+            seed=seed,
+            use_new_sampling_method=use_new_sampling_method,
+            shuffle=shuffle,
+            world_size_independent=world_size_independent,
+        )
+    elif dataset_type == "fineweb-edu":
+        dataset = FineWebDataset(
+            sequence_length=sequence_length + 1,
+            split=dataset_split,
+            tokenize_fn=tokenize_fn,
+            path=dataset_path,
+            seed=seed,
+            use_new_sampling_method=use_new_sampling_method,
+            shuffle=shuffle,
+            world_size_independent=world_size_independent,
+        )
+    else:
+        raise ValueError(f"Unsupported dataset type: '{dataset_type}'")
 
     dataloader = DataLoader(
         dataset,
