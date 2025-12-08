@@ -33,7 +33,7 @@ export XDG_STATE_HOME="$PIXI_HOME/state"
 ORIGINAL_DIR="$(pwd)"
 cd "$PIXI_HOME" || { echo "Failed to cd to $PIXI_HOME"; exit 1; }
 eval "$(pixi shell-hook)" || { echo "Failed to run pixi shell-hook"; exit 1; }
-cd "$ORIGINAL_DIR" || { echo "Failed to return to original directory"; exit 1; }
+cd -
 #-------- SCRIPT END --------
 
 # Change to project directory
