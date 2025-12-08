@@ -30,15 +30,10 @@ export XDG_CACHE_HOME="$PIXI_HOME/cache"
 export XDG_STATE_HOME="$PIXI_HOME/state"
 
 # Save current directory and setup pixi
-ORIGINAL_DIR="$(pwd)"
 cd "$PIXI_HOME" || { echo "Failed to cd to $PIXI_HOME"; exit 1; }
 eval "$(pixi shell-hook)" || { echo "Failed to run pixi shell-hook"; exit 1; }
 cd -
 #-------- SCRIPT END --------
-
-# Change to project directory
-echo "Changing to project directory: $PROJECT_HOME_PATH"
-cd "$PROJECT_HOME_PATH" || { echo "Failed to cd to $PROJECT_HOME_PATH"; exit 1; }
 
 export MASTER_ADDR=$(scontrol show hostname ${SLURM_NODELIST} | head -n 1)
 export MASTER_PORT=$((40000 + ${SLURM_JOB_ID} % 10000))
