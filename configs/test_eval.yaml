@@ -24,12 +24,12 @@ trainer:
 infrastructure:
 
   metric_logger:
-    name: test_core
+    name: test_core2
     tags:
       - nano
       - pr_test
       - core
-      - eval_1gpu
+      - core2
 
   slurm:
     time: "00:10:00"
