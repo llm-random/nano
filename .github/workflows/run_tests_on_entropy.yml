@@ -1,0 +1,50 @@
+name: PR Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  # First, discover all PR test configs
+  discover-configs:
+    runs-on: [self-hosted, entropy]
+    outputs:
+      configs: ${{ steps.find-configs.outputs.configs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find PR test configs
+        id: find-configs
+        run: |
+          # Find all yaml files in configs/pr_tests/ and output as JSON array
+          configs=$(ls configs/pr_tests/*.yaml 2>/dev/null | xargs -I {} basename {} .yaml | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "configs=$configs" >> $GITHUB_OUTPUT
+          echo "Found configs: $configs"
+
+  # Run each config as a separate job
+  run-pr-test:
+    needs: discover-configs
+    runs-on: [self-hosted, entropy]
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJson(needs.discover-configs.outputs.configs) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run PR test - ${{ matrix.config }}
+        run: |
+          chmod +x .github/scripts/run_remote_pr_check.sh
+          export PR_TEST_CONFIG_NAME="${{ matrix.config }}"
+          sbatch --wait --job-name="pr_test_${{ matrix.config }}" --export=ALL .github/scripts/run_remote_pr_check.sh
+
+      - name: Display SLURM output
+        if: always()
+        run: |
+          latest_out=$(ls -t slurm-*.out 2>/dev/null | head -1)
+          if [ -n "$latest_out" ]; then
+            echo "=== SLURM Output for ${{ matrix.config }} ==="
+            cat "$latest_out"
+          fi

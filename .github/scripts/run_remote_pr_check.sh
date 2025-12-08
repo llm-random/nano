@@ -1,12 +1,20 @@
 #!/bin/bash -l
 
 #SBATCH --cpus-per-gpu=16
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=tiny_remote_ci
+#SBATCH --gres=gpu:2
+#SBATCH --job-name=pr_check_entropy
 #SBATCH --mem-per-gpu=125G
 #SBATCH --nodes=1
 #SBATCH --partition=a100
 #SBATCH --time=00:10:00
+
+# PR_TEST_CONFIG_NAME is passed from the workflow via --export=ALL
+if [ -z "$PR_TEST_CONFIG_NAME" ]; then
+    echo "Error: PR_TEST_CONFIG_NAME not set"
+    exit 1
+fi
+
+echo "Running CI check for config: $PR_TEST_CONFIG_NAME"
 
 #---------- SCRIPT ----------
 export PROJECT_HOME_PATH=/storage_ssd_1/nano
@@ -31,5 +39,5 @@ srun torchrun --nnodes=${SLURM_NNODES}\
   --rdzv-backend=c10d \
   --rdzv-endpoint=${MASTER_ADDR}:${MASTER_PORT} \
   main.py \
-    --config-path=configs \
-    --config-name=tiny_remote
+    --config-path=configs/pr_tests \
+    --config-name=$PR_TEST_CONFIG_NAME
