@@ -5,7 +5,7 @@ defaults:
   - ../_dataset@_here_: c4
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
-  - ../_eval@_here_: default
+  - ../_eval@_here_: none
 
 common:
   sequence_length: 128
@@ -34,6 +34,3 @@ infrastructure:
     time: "00:10:00"
     gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}
-
-evaluator:
-  limit: 5
