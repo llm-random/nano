@@ -46,6 +46,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run PR test - ${{ matrix.config }}
+        id: run-test
         run: |
           echo "=== Starting PR test for config: ${{ matrix.config }} ==="
           echo "Current directory: $(pwd)"
@@ -60,6 +61,7 @@ jobs:
 
           echo "$job_output"
           echo "Job ID: $job_id"
+          echo "job_id=$job_id" >> $GITHUB_OUTPUT
           echo "SLURM job completed with exit code: $exit_code"
 
           # Try to display the output immediately
@@ -73,6 +75,12 @@ jobs:
           fi
 
           exit $exit_code
+
+      - name: Cancel SLURM job on workflow cancellation
+        if: cancelled() && steps.run-test.outputs.job_id
+        run: |
+          echo "Workflow cancelled, cancelling SLURM job ${{ steps.run-test.outputs.job_id }}"
+          scancel ${{ steps.run-test.outputs.job_id }} || echo "Failed to cancel SLURM job (may have already completed)"
 
       - name: Display SLURM output
         if: always()
