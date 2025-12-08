@@ -43,11 +43,31 @@ jobs:
       - name: Run PR test - ${{ matrix.config }}
         run: |
           echo "=== Starting PR test for config: ${{ matrix.config }} ==="
+          echo "Current directory: $(pwd)"
           chmod +x .github/scripts/run_remote_pr_check.sh
           export PR_TEST_CONFIG_NAME="${{ matrix.config }}"
           echo "Submitting SLURM job..."
-          sbatch --wait --job-name="pr_test_${{ matrix.config }}" --export=ALL .github/scripts/run_remote_pr_check.sh
-          echo "SLURM job completed with exit code: $?"
+
+          # Submit job and capture the job ID
+          job_output=$(sbatch --wait --job-name="pr_test_${{ matrix.config }}" --output="slurm-%j.out" --export=ALL .github/scripts/run_remote_pr_check.sh)
+          exit_code=$?
+          job_id=$(echo "$job_output" | grep -oP 'Submitted batch job \K\d+')
+
+          echo "$job_output"
+          echo "Job ID: $job_id"
+          echo "SLURM job completed with exit code: $exit_code"
+
+          # Try to display the output immediately
+          if [ -f "slurm-${job_id}.out" ]; then
+            echo "=== SLURM Output (slurm-${job_id}.out) ==="
+            cat "slurm-${job_id}.out"
+          else
+            echo "Warning: SLURM output file slurm-${job_id}.out not found in $(pwd)"
+            echo "Looking for any slurm output files..."
+            ls -la slurm-*.out 2>/dev/null || echo "No slurm output files found"
+          fi
+
+          exit $exit_code
 
       - name: Display SLURM output
         if: always()
