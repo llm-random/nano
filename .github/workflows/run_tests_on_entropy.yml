@@ -16,7 +16,6 @@ jobs:
     runs-on: [self-hosted, entropy]
     outputs:
       configs: ${{ steps.find-configs.outputs.configs }}
-
     steps:
       - uses: actions/checkout@v4
 
