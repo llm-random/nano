@@ -16,6 +16,7 @@ jobs:
     runs-on: [self-hosted, entropy]
     outputs:
       configs: ${{ steps.find-configs.outputs.configs }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -110,7 +111,8 @@ jobs:
                 ;;
               *)
                 echo "Unknown state: $state"
-                sleep 10
+                echo "Array job ended with state: $state"
+                exit 1
                 ;;
             esac
           done
