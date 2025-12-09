@@ -139,18 +139,37 @@ jobs:
             state=$(sacct -j "$task_job" --format=State --noheader | head -1 | awk '{print $1}')
             echo "[$i] config=${cfg}  state=${state}"
 
-            if [ "$state" != "COMPLETED" ]; then
-              failures=$((failures + 1))
-              out_file="slurm-${job_id}_${i}.out"
+            out_file="slurm-${job_id}_${i}.out"
 
-              echo "---- BEGIN log for FAILED config: ${cfg} (task ${i}) ----"
-              if [ -f "$out_file" ]; then
-                cat "$out_file"
-              else
-                echo "No slurm output file found (expected: ${out_file})"
-              fi
-              echo "---- END log for FAILED config: ${cfg} ----"
-            fi
+            case "$state" in
+              COMPLETED)
+                # ok, nothing to do
+                ;;
+              FAILED|CANCELLED|TIMEOUT|OUT_OF_MEMORY)
+                failures=$((failures + 1))
+                echo "---- BEGIN log for FAILED config: ${cfg} (task ${i}) ----"
+                if [ -f "$out_file" ]; then
+                  cat "$out_file"
+                else
+                  echo "No slurm output file found (expected: ${out_file})"
+                fi
+                echo "---- END log for FAILED config: ${cfg} ----"
+                ;;
+              RUNNING|PENDING|"")
+                echo "Task $i ($cfg) still ${state:-<no state>} at summarize time; not counting as failure."
+                ;;
+              *)
+                echo "Task $i ($cfg) in unexpected state $state; counting as failure."
+                failures=$((failures + 1))
+                echo "---- BEGIN log for FAILED config: ${cfg} (task ${i}) ----"
+                if [ -f "$out_file" ]; then
+                  cat "$out_file"
+                else
+                  echo "No slurm output file found (expected: ${out_file})"
+                fi
+                echo "---- END log for FAILED config: ${cfg} ----"
+                ;;
+            esac
 
             i=$((i + 1))
           done < "$configs_file"
