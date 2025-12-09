@@ -44,44 +44,70 @@ jobs:
         config: ${{ fromJson(needs.discover-configs.outputs.configs) }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Run PR test - ${{ matrix.config }}
-        id: run-test
+      # 1) Submit SLURM job and expose job_id
+      - name: Submit SLURM job - ${{ matrix.config }}
+      - id: submit
         run: |
-          echo "=== Starting PR test for config: ${{ matrix.config }} ==="
-          echo "Current directory: $(pwd)"
+          echo "=== Submitting PR test for config: ${{ matrix.config }} ==="
           chmod +x .github/scripts/run_remote_pr_check.sh
-          export PR_TEST_CONFIG_NAME="${{ matrix.config }}"
-          echo "Submitting SLURM job..."
 
-          # Submit job and capture the job ID
-          job_output=$(sbatch --wait --job-name="pr_test_${{ matrix.config }}" --output="slurm-%j.out" --export=ALL .github/scripts/run_remote_pr_check.sh)
-          exit_code=$?
-          job_id=$(echo "$job_output" | grep -oP 'Submitted batch job \K\d+')
+          # --parsable makes sbatch output just the job ID (or jobID;something)
+          job_output=$(sbatch \
+            --parsable \
+            --job-name="pr_test_${{ matrix.config }}" \
+            --output="slurm-%j.out" \
+            --export=ALL \
+            .github/scripts/run_remote_pr_check.sh)
 
-          echo "$job_output"
-          echo "Job ID: $job_id"
-          echo "job_id=$job_id" >> $GITHUB_OUTPUT
-          echo "SLURM job completed with exit code: $exit_code"
+          # Usually it's either "12345" or "12345;stuff"
+          job_id="${job_output%%;*}"
 
-          # Try to display the output immediately
-          if [ -f "slurm-${job_id}.out" ]; then
-            echo "=== SLURM Output (slurm-${job_id}.out) ==="
-            cat "slurm-${job_id}.out"
-          else
-            echo "Warning: SLURM output file slurm-${job_id}.out not found in $(pwd)"
-            echo "Looking for any slurm output files..."
-            ls -la slurm-*.out 2>/dev/null || echo "No slurm output files found"
-          fi
+          echo "Submitted job: $job_output"
+          echo "Parsed job_id: $job_id"
 
-          exit $exit_code
+          # Expose as step output
+          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
 
-      - name: Cancel SLURM job on workflow cancellation
-        if: cancelled() && steps.run-test.outputs.job_id
+      # 2) Wait for SLURM job to finish (polling)
+      - name: Wait for SLURM job
+        id: wait
         run: |
-          echo "Workflow cancelled, cancelling SLURM job ${{ steps.run-test.outputs.job_id }}"
-          scancel ${{ steps.run-test.outputs.job_id }} || echo "Failed to cancel SLURM job (may have already completed)"
+          job_id="${{ steps.submit.outputs.job_id }}"
+          echo "Waiting for job $job_id to finish..."
 
+          # Simple polling loop; you can tune sleep / commands as you like
+          while true; do
+            state=$(sacct -j "$job_id" --format=State --noheader | head -1 | awk '{print $1}')
+            echo "Current state: $state"
+
+            case "$state" in
+              COMPLETED)
+                echo "Job completed successfully."
+                exit 0
+                ;;
+              FAILED|CANCELLED|TIMEOUT)
+                echo "Job ended with state: $state"
+                exit 1
+                ;;
+              ""|PENDING|RUNNING|CONFIGURING|SUSPENDED)
+                sleep 10
+                ;;
+              *)
+                echo "Unknown state: $state"
+                sleep 10
+                ;;
+            esac
+          done
+
+      # 3) Cancel SLURM job if workflow is cancelled
+      - name: Cancel SLURM job on workflow cancellation
+        if: cancelled() && steps.submit.outputs.job_id
+        run: |
+          job_id="${{ steps.submit.outputs.job_id }}"
+          echo "Workflow cancelled, cancelling SLURM job $job_id"
+          scancel "$job_id" || echo "Failed to cancel SLURM job (may have already completed)"
+
+      # 4) Always try to show SLURM output
       - name: Display SLURM output
         if: always()
         run: |
@@ -89,4 +115,6 @@ jobs:
           if [ -n "$latest_out" ]; then
             echo "=== SLURM Output for ${{ matrix.config }} ==="
             cat "$latest_out"
+          else
+            echo "No slurm-*.out files found."
           fi
