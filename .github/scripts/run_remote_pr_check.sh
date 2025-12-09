@@ -35,10 +35,14 @@ fi
 echo "Running CI check for config: $PR_TEST_CONFIG_NAME"
 
 #---------- SCRIPT ----------
-export PROJECT_HOME_PATH=/storage_ssd_1/nano
-export HF_HOME=$PROJECT_HOME_PATH/hf_cache
+export PROJECT_HOME_PATH=/storage_nvme_4/nano
+export HF_HOME="$PROJECT_HOME_PATH/hf_cache"
+
+# hydra errors
 export HYDRA_FULL_ERROR=1
-export PIXI_HOME=/storage_ssd_1/nano/pixi
+
+# pixi variables
+export PIXI_HOME=/storage_nvme_4/nano/pixi
 export PATH="$PIXI_HOME/bin:$PATH"
 export XDG_DATA_HOME="$PIXI_HOME/data"
 export XDG_CACHE_HOME="$PIXI_HOME/cache"
