@@ -43,12 +43,11 @@ jobs:
       fail-fast: false
       matrix:
         config: ${{ fromJson(needs.discover-configs.outputs.configs) }}
-
     steps:
       - uses: actions/checkout@v4
       # 1) Submit SLURM job and expose job_id
       - name: Submit SLURM job - ${{ matrix.config }}
-      - id: submit
+        id: submit
         run: |
           echo "=== Submitting PR test for config: ${{ matrix.config }} ==="
           chmod +x .github/scripts/run_remote_pr_check.sh
