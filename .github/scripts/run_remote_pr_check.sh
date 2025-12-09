@@ -5,7 +5,7 @@
 #SBATCH --job-name=pr_check_entropy
 #SBATCH --mem-per-gpu=125G
 #SBATCH --nodes=1
-#SBATCH --partition=a100
+#SBATCH --partition=h100
 #SBATCH --time=00:10:00
 
 set -euo pipefail  # exit on error, treat unset vars as error
