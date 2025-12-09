@@ -57,7 +57,7 @@ jobs:
             --parsable \
             --job-name="pr_test_${{ matrix.config }}" \
             --output="slurm-%j.out" \
-            --export=ALL \
+            --export=ALL,PR_TEST_CONFIG_NAME=${{ matrix.config }} \
             .github/scripts/run_remote_pr_check.sh)
 
           # Usually it's either "12345" or "12345;stuff"
