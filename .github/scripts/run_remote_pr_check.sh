@@ -3,7 +3,7 @@
 #SBATCH --cpus-per-gpu=16
 #SBATCH --gres=gpu:2
 #SBATCH --job-name=pr_check_entropy
-#SBATCH --mem-per-gpu=125G
+#SBATCH --mem-per-gpu=100G
 #SBATCH --nodes=1
 #SBATCH --partition=h100
 #SBATCH --time=00:10:00
