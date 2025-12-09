@@ -17,6 +17,7 @@ jobs:
     runs-on: [self-hosted, entropy]
     outputs:
       configs: ${{ steps.find-configs.outputs.configs }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +43,7 @@ jobs:
       fail-fast: false
       matrix:
         config: ${{ fromJson(needs.discover-configs.outputs.configs) }}
+
     steps:
       - uses: actions/checkout@v4
       # 1) Submit SLURM job and expose job_id
