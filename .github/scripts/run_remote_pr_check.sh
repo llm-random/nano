@@ -8,12 +8,27 @@
 #SBATCH --partition=a100
 #SBATCH --time=00:10:00
 
-set -e  # Exit on error
-set -x  # Print commands for debugging
+set -euo pipefail  # exit on error, treat unset vars as error
+set -x             # print commands for debugging
 
-# PR_TEST_CONFIG_NAME is passed from the workflow via --export=ALL
+# --- Resolve PR_TEST_CONFIG_NAME from array index ---
+
+if [ -z "${PR_TEST_CONFIGS_FILE:-}" ]; then
+    echo "Error: PR_TEST_CONFIGS_FILE not set"
+    exit 1
+fi
+
+if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
+    echo "Error: SLURM_ARRAY_TASK_ID not set (are you running as an array job?)"
+    exit 1
+fi
+
+# SLURM_ARRAY_TASK_ID is 0-based; sed is 1-based
+line=$((SLURM_ARRAY_TASK_ID + 1))
+PR_TEST_CONFIG_NAME=$(sed -n "${line}p" "$PR_TEST_CONFIGS_FILE" || true)
+
 if [ -z "$PR_TEST_CONFIG_NAME" ]; then
-    echo "Error: PR_TEST_CONFIG_NAME not set"
+    echo "Error: failed to resolve config for SLURM_ARRAY_TASK_ID=$SLURM_ARRAY_TASK_ID from $PR_TEST_CONFIGS_FILE"
     exit 1
 fi
 
@@ -35,18 +50,18 @@ eval "$(pixi shell-hook)" || { echo "Failed to run pixi shell-hook"; exit 1; }
 cd -
 #-------- SCRIPT END --------
 
-export MASTER_ADDR=$(scontrol show hostname ${SLURM_NODELIST} | head -n 1)
+export MASTER_ADDR=$(scontrol show hostname "${SLURM_NODELIST}" | head -n 1)
 export MASTER_PORT=$((40000 + ${SLURM_JOB_ID} % 10000))
 
 echo "Running training with config: $PR_TEST_CONFIG_NAME"
 echo "MASTER_ADDR: $MASTER_ADDR"
 echo "MASTER_PORT: $MASTER_PORT"
 
-srun torchrun --nnodes=${SLURM_NNODES}\
-  --nproc-per-node=${SLURM_GPUS_ON_NODE} \
-  --rdzv-id=${SLURM_JOBID} \
+srun torchrun --nnodes="${SLURM_NNODES}" \
+  --nproc-per-node="${SLURM_GPUS_ON_NODE}" \
+  --rdzv-id="${SLURM_JOBID}" \
   --rdzv-backend=c10d \
-  --rdzv-endpoint=${MASTER_ADDR}:${MASTER_PORT} \
+  --rdzv-endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
   main.py \
     --config-path=configs/pr_tests \
-    --config-name=$PR_TEST_CONFIG_NAME
+    --config-name="$PR_TEST_CONFIG_NAME"
