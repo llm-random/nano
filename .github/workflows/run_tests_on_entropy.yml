@@ -71,10 +71,17 @@ jobs:
             --export=ALL,PR_TEST_CONFIGS_FILE="$configs_file" \
             .github/scripts/run_remote_pr_check.sh)
 
-          job_id="${job_output%%;*}"
+          echo "Raw sbatch output: $job_output"
 
-          echo "Submitted array job: $job_output"
-          echo "Parsed job_id: $job_id"
+          # Handle cases like:
+          #   123456
+          #   123456;cluster
+          #   123456_0
+          #   123456_0;cluster
+          tmp="${job_output%%;*}"   # strip anything after ';'
+          job_id="${tmp%%_*}"       # strip anything after '_' (array task suffix)
+
+          echo "Parsed base job_id: $job_id"
 
           echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
 
