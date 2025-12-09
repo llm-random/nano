@@ -35,3 +35,4 @@ infrastructure:
     time: "00:10:00"
     gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}
+    mem_per_gpu: 100G
