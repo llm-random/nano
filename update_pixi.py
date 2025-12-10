@@ -34,44 +34,6 @@ def get_project_root() -> Path:
     raise FileNotFoundError("Could not find pixi.toml in parent directories")
 
 
-def resolve_pixi_ci(connection, shared_pixi_bin: str, shared_pixi_bin_dir: str):
-    # Ensure shared Pixi CLI exists on the cluster
-    print(f"\nEnsuring shared Pixi CLI at {shared_pixi_bin} ...")
-
-    check_cli = connection.run(
-        f'[ -x "{shared_pixi_bin}" ] && echo OK || echo MISSING',
-        hide=True,
-    )
-
-    if check_cli.stdout.strip() == "MISSING":
-        print("Shared Pixi CLI missing, bootstrapping from $HOME/.pixi/bin/pixi ...")
-
-        bootstrap_cmd = f"""
-            set -e
-            mkdir -p "{shared_pixi_bin_dir}"
-            if [ ! -x "$HOME/.pixi/bin/pixi" ]; then
-                echo "ERROR: $HOME/.pixi/bin/pixi not found; install pixi for your user first."
-                exit 1
-            fi
-            cp "$HOME/.pixi/bin/pixi" "{shared_pixi_bin}"
-            chmod a+rx "{shared_pixi_bin}"
-        """
-        connection.run(bootstrap_cmd, pty=True)
-
-        verify_cli = connection.run(
-            f'[ -x "{shared_pixi_bin}" ] && echo OK || echo MISSING',
-            hide=True,
-        )
-        if verify_cli.stdout.strip() != "OK":
-            print(
-                f"ERROR: Failed to bootstrap shared Pixi CLI at {shared_pixi_bin}. "
-                "Please check permissions / paths."
-            )
-            sys.exit(1)
-
-    print("✔ Shared Pixi CLI available.")
-
-
 @hydra.main(version_base=None)
 def update_remote_pixi(cfg: OmegaConf):
     """
@@ -93,14 +55,6 @@ def update_remote_pixi(cfg: OmegaConf):
         print(f"Error: {e}")
         sys.exit(1)
 
-    # Derive shared Pixi CLI location from PIXI_HOME:
-    # PIXI_HOME = /storage_hdd_1/llm-random/nano/pixi
-    # SHARED_CLI = /storage_hdd_1/llm-random/nano/pixi_cli/bin/pixi
-    pixi_home_path = Path(pixi_home)
-    shared_pixi_root = pixi_home_path.parent / "pixi_cli"
-    shared_pixi_bin_dir = shared_pixi_root / "bin"
-    shared_pixi_bin = shared_pixi_bin_dir / "pixi"
-
     # This job is just "pixi install" → no GPU needed.
     # Remove GPU-related keys inherited from the main cluster config.
     for key in ("gres", "cpus_per_gpu", "mem_per_gpu"):
@@ -120,6 +74,10 @@ def update_remote_pixi(cfg: OmegaConf):
     project_root = get_project_root()
     pixi_toml = project_root / "pixi.toml"
     pixi_lock = project_root / "pixi.lock"
+
+    if not pixi_toml.exists():
+        print(f"Error: pixi.toml not found at {pixi_toml}")
+        sys.exit(1)
 
     print(f"\nLocal pixi files:")
     print(f"  - {pixi_toml}")
@@ -149,13 +107,6 @@ def update_remote_pixi(cfg: OmegaConf):
     with ConnectWithPassphrase(host=server, inline_ssh_env=True) as connection:
         print("Connected successfully!")
 
-        # verifies existence of pixi ci, creates it if empty
-        resolve_pixi_ci(
-            connection,
-            shared_pixi_bin=shared_pixi_bin,
-            shared_pixi_bin_dir=shared_pixi_bin_dir,
-        )
-
         # Figure out remote $HOME and temp dir for pixi config
         home_dir = connection.run("cd && pwd", hide=True).stdout.strip()
         timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
@@ -178,8 +129,6 @@ def update_remote_pixi(cfg: OmegaConf):
         # Run pixi install on compute node using srun
         print(f"\nRunning 'pixi install' on compute node...")
 
-        print(f"ts: {timestamp}")
-
         # Build srun command with SLURM parameters
         slurm_params = create_slurm_parameters(slurm_config)
         # Convert #SBATCH flags to srun flags (remove #SBATCH prefix)
@@ -189,10 +138,6 @@ def update_remote_pixi(cfg: OmegaConf):
         # Set up PATH and other environment variables from the cluster config
         text = "\n".join(script_lines)
         env_setup = []
-
-        # Always put shared Pixi CLI first on PATH
-        env_setup.append(f'export PATH="{shared_pixi_bin_dir}:$PATH"')
-
         for raw in text.splitlines():
             line = raw.strip()
 
@@ -212,11 +157,6 @@ def update_remote_pixi(cfg: OmegaConf):
                 env_setup.append(line)
                 continue
 
-            # # keep pixi shell-hook if present in config
-            # if "pixi shell-hook" in line:
-            #     env_setup.append(line)
-            #     continue
-
         env_commands = " && ".join(env_setup) if env_setup else ""
 
         # mkdir + copy happen on the compute node, via srun
@@ -228,26 +168,18 @@ def update_remote_pixi(cfg: OmegaConf):
             f"mkdir -p {pixi_home}/old_pixi_files/obsolete_since_${{ts}}; "
             f"if [ -f {pixi_home}/pixi.toml ]; then "
             f"mv -f {pixi_home}/pixi.toml {pixi_home}/old_pixi_files/obsolete_since_${{ts}}/; "
-            "fi; "
+            f"fi; "
             f"if [ -f {pixi_home}/pixi.lock ]; then "
             f"mv -f {pixi_home}/pixi.lock {pixi_home}/old_pixi_files/obsolete_since_${{ts}}/; "
-            "fi; "
+            f"fi; "
             "fi && "
-            # move new files from $HOME temp dir into PIXI_HOME (cross-FS safe)
-            f"cp {remote_tmp_dir}/pixi.toml {pixi_home}/ && "
-            f"rm -f {remote_tmp_dir}/pixi.toml && "
+            # move new files from $HOME temp dir into PIXI_HOME
+            f"mv -f {remote_tmp_dir}/pixi.toml {pixi_home}/ && "
             f"if [ -f {remote_tmp_dir}/pixi.lock ]; then "
-            f"cp {remote_tmp_dir}/pixi.lock {pixi_home}/ && "
-            f"rm -f {remote_tmp_dir}/pixi.lock; "
-            "fi && "
+            f"mv -f {remote_tmp_dir}/pixi.lock {pixi_home}/; "
+            f"fi && "
             # run pixi install
             f"cd {pixi_home} && "
-            "echo dupa &&"
-            "ls -a &&"
-            "echo pixi version &&"
-            "echo path $PATH &&"
-            "command -v pixi || { echo 'ERROR: pixi not found in PATH'; exit 127; } && "
-            "pixi --version && "
             "pixi install"
         )
 
@@ -257,7 +189,6 @@ def update_remote_pixi(cfg: OmegaConf):
             install_command = base_command
 
         cmd_quoted = shlex.quote(install_command)
-        print(f"command:\n{cmd_quoted}")
         full_command = f"{srun_cmd} bash -lc {cmd_quoted}"
 
         result = connection.run(full_command, pty=True)
