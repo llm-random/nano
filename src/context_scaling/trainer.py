@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 @define(slots=False)
-class Trainer:
+class ContextScalingTrainer:
     model: torch.nn.Module
     optimizer: torch.optim.Optimizer
     scheduler: torch.optim.lr_scheduler.LRScheduler
@@ -35,8 +35,10 @@ class Trainer:
     n_steps: int
     train_dataloader: IterableDataset
     eval_dataloader: IterableDataset
+    eval_long_ctx_dataloader: IterableDataset
     metric_logger: MetricLogger
     eval_interval: int
+    eval_long_ctx_interval: int
     n_eval_steps: int
     gradient_clipping: Optional[float]
     checkpoint: Optional[dict]
@@ -51,6 +53,7 @@ class Trainer:
         self.device = next(self.model.parameters()).device
         self.loss_interval_100 = 0.0
         self.eval_iterator = iter(self.eval_dataloader)
+        self.eval_long_ctx_batch = next(iter(self.eval_long_ctx_dataloader))
         self.step = self.start_step - 1
 
         if self.start_step > 0:
@@ -69,6 +72,14 @@ class Trainer:
         return (
             self.eval_interval > 0
             and self.step % self.eval_interval == 0
+            and self.step != 0
+        )
+
+    @property
+    def _should_evaluate_long_ctx(self) -> bool:
+        return (
+            self.eval_long_ctx_interval > 0
+            and self.step % self.eval_long_ctx_interval == 0
             and self.step != 0
         )
 
@@ -115,6 +126,9 @@ class Trainer:
 
             if self._should_evaluate:
                 self.eval()
+
+            if self._should_evaluate_long_ctx:
+                self.eval_long_ctx()
 
         if self._should_save_final_checkpoint:
             if self.checkpoint.save.type == "nano":
@@ -213,7 +227,24 @@ class Trainer:
         self.step = saved_step  # Restore step
 
     def eval_long_ctx(self):
-        pass
+        self.model.eval()
+        saved_step = self.step
+        self.metric_logger.set_step(None)  # disables heavy logging
+        losses = []
+        with torch.no_grad():
+            for _ in range(self.n_eval_steps):
+                batch = self.eval_long_ctx_batch
+                batch = batch.to(self.device)
+                loss = self.calculate_loss(batch)
+                losses.append(loss.item())
+                self.metric_logger.flush_accumulated_metrics(self.step)
+            avg_loss = torch.tensor(losses).mean()
+            self.metric_logger.log("steps/eval_long_context/loss", self.step, avg_loss.item())
+            self.metric_logger.log(
+                "tokens/eval_long_context/loss", self.processed_tokens, avg_loss.item()
+            )
+
+        self.step = saved_step  # Restore step
 
     def clip_gradient(self):
         if self.gradient_clipping is not None:

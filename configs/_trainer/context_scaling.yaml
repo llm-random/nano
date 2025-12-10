@@ -1,0 +1,49 @@
+trainer:
+  _partial_: true
+  _target_: src.context_scaling.trainer.ContextScalingTrainer
+  eval_interval: 100
+  eval_long_ctx_interval: 10
+  n_eval_steps: 10
+  gradient_accumulation_steps: 1
+  gradient_clipping: 1.0
+  n_steps: null
+  exp_learning_rate: null
+  learning_rate: null
+  weight_decay: 0.1
+
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
+
+  distributed:
+    fsdp2:
+      modules_to_shard: 
+        - ${model.embedding._target_}
+        - ${model.encoder.block_fn._target_}
+        - ${model.head._target_}
+  
+  train_dataloader:
+    tokenize_fn:
+      _target_: src.core.datasets.llama_tokenize_fn
+      
+
+  eval_dataloader:
+    tokenize_fn:
+      _target_: src.core.datasets.llama_tokenize_fn
+
+  eval_long_ctx_dataloader:
+    _target_: src.core.datasets.get_dataloader
+    dataset_path: data_long_ctx
+    dataset_split: validation
+    dataset_type: c4
+    num_workers: 1
+    seed: 123
+    sequence_length: ${common.sequence_length}
+    total_batch_size: ${common.batch_size}
+    shuffle: false
+    use_new_sampling_method: true
+    world_size_independent: false
+    tokenize_fn: 
+      _target_: src.core.datasets.gpt2_tokenize_fn
