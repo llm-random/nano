@@ -1,7 +1,9 @@
 from datasets import load_from_disk
 import os
+import numpy as np
 from argparse import ArgumentParser
 from transformers import AutoTokenizer
+import csv
 
 
 def plot_token_length_hist(
@@ -10,7 +12,8 @@ def plot_token_length_hist(
     min_length=0,
     text_field="text",
     save_batch_size=None,
-    save_dir=None,
+    save_data_dir=None,
+    save_hist_dir=None,
     num_workers=1,
 ):
     ds = load_from_disk(dataset_path)
@@ -28,6 +31,21 @@ def plot_token_length_hist(
         keep_in_memory=True,
     )
 
+    hist, bin_edges = np.histogram(np.log(ds["length"]), bins=200)
+    bin_edges = np.exp(bin_edges)
+
+    if save_hist_dir is not None:
+        os.makedirs(save_hist_dir, exist_ok=True)
+        save_hist_path = os.path.join(save_hist_dir, "hist.csv")
+
+        with open(save_hist_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["bin_left", "bin_right", "count"])
+            for left, right, count in zip(bin_edges[:-1], bin_edges[1:], hist):
+                writer.writerow([left, right, count])
+
+        print(f"Saved histogram CSV to: {save_hist_path}")
+
     # Filter by minimum token length
     if min_length > 0:
         ds = ds.filter(lambda x: x["length"] >= min_length)
@@ -36,11 +54,11 @@ def plot_token_length_hist(
     print(f"number of documents ≥ {min_length} tokens: {len(lengths)}")
 
     # ---- SAVE FIRST BATCH ----
-    if save_batch_size is not None and save_dir is not None:
-        os.makedirs(save_dir, exist_ok=True)
+    if save_batch_size is not None and save_data_dir is not None:
+        os.makedirs(save_data_dir, exist_ok=True)
         subset = ds.select(range(min(save_batch_size, len(ds))))
-        subset.save_to_disk(save_dir)
-        print(f"Saved {len(subset)} documents to: {save_dir}")
+        subset.save_to_disk(save_data_dir)
+        print(f"Saved {len(subset)} documents to: {save_data_dir}")
 
 
 if __name__ == "__main__":
@@ -66,9 +84,13 @@ if __name__ == "__main__":
         "--save_batch_size", type=int, required=True, help="Number of documents to save"
     )
     parser.add_argument(
-        "--save_dir",
+        "--save_data_dir",
         type=str,
-        required=True,
+        help="Directory to save the filtered dataset",
+    )
+    parser.add_argument(
+        "--save_hist_dir",
+        type=str,
         help="Directory to save the filtered dataset",
     )
     parser.add_argument(
@@ -93,5 +115,7 @@ if __name__ == "__main__":
         min_length=args.min_length,
         text_field=args.text_field,
         save_batch_size=args.save_batch_size,
-        save_dir=args.save_dir,
+        save_data_dir=args.save_data_dir,
+        save_hist_dir=args.save_hist_dir,
+        num_workers=args.num_workers,
     )
