@@ -3,9 +3,16 @@ import os
 from argparse import ArgumentParser
 from transformers import AutoTokenizer
 
-def plot_token_length_hist(dataset_path, tokenizer, min_length=0,
-                           text_field="text",
-                           save_batch_size=None, save_dir=None):
+
+def plot_token_length_hist(
+    dataset_path,
+    tokenizer,
+    min_length=0,
+    text_field="text",
+    save_batch_size=None,
+    save_dir=None,
+    num_workers=1,
+):
     ds = load_from_disk(dataset_path)
 
     # Compute token lengths
@@ -16,7 +23,7 @@ def plot_token_length_hist(dataset_path, tokenizer, min_length=0,
     ds = ds.map(
         _token_len,
         batched=True,
-        num_proc=1,
+        num_proc=num_workers,
         load_from_cache_file=False,
         keep_in_memory=True,
     )
@@ -40,41 +47,41 @@ if __name__ == "__main__":
     parser = ArgumentParser()
 
     parser.add_argument(
-        "--dataset_path",
-        type=str,
-        required=True,
-        help="Path to the dataset directory"
+        "--dataset_path", type=str, required=True, help="Path to the dataset directory"
     )
     parser.add_argument(
         "--tokenizer",
         type=str,
         required=True,
         default="gpt2",
-        help="Tokenizer model name or path"
+        help="Tokenizer model name or path",
     )
     parser.add_argument(
         "--min_length",
         type=int,
         required=True,
-        help="Minimum token length to filter documents"
+        help="Minimum token length to filter documents",
     )
     parser.add_argument(
-        "--save_batch_size",
-        type=int,
-        required=True,
-        help="Number of documents to save"
+        "--save_batch_size", type=int, required=True, help="Number of documents to save"
     )
     parser.add_argument(
         "--save_dir",
         type=str,
         required=True,
-        help="Directory to save the filtered dataset"
+        help="Directory to save the filtered dataset",
     )
     parser.add_argument(
         "--text_field",
         type=str,
         default="text",
-        help="Name of the text field in the dataset (default: text)"
+        help="Name of the text field in the dataset (default: text)",
+    )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=1,
+        help="Name of the text field in the dataset (default: text)",
     )
 
     args = parser.parse_args()
@@ -86,5 +93,5 @@ if __name__ == "__main__":
         min_length=args.min_length,
         text_field=args.text_field,
         save_batch_size=args.save_batch_size,
-        save_dir=args.save_dir
+        save_dir=args.save_dir,
     )
