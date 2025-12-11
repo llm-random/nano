@@ -4,13 +4,13 @@ defaults:
 
 trainer:
   train_dataloader:
-    dataset_path: ${cluster_switch.train_path_fineweb}
+    datasets:
+      ${cluster_switch.train_path_fineweb}: 1.0
     dataset_split: train
-    dataset_type: fineweb-edu
     num_workers: 2
 
   eval_dataloader:
-    dataset_path: ${cluster_switch.eval_path_fineweb}
+    datasets:
+      ${cluster_switch.eval_path_fineweb}: 1.0
     dataset_split: train
-    dataset_type: fineweb-edu
     num_workers: 2
