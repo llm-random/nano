@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 from torch.nn.modules.normalization import RMSNorm
 
 from src.core.model import LLM
-
+import gc
 
 class MemoryEfficientProjectedCompression(nn.Module):
     def __init__(
@@ -91,7 +91,15 @@ class PC2(nn.Module):
                 block_target.ff_layer.layer.ff_post_act.weight.copy_(block_proj.compressible_ff_post.get_projected_weight( block_source.ff_layer.layer.ff_post_act.weight))
 
     # def pass_gradient_to_projections(self):
-    #     for block_target, block_source, block_proj in zip(self.target_model.encoder.blocks,self.source_model.encoder.blocks, self.projections.blocks ):
+    #     # for block_target, block_source, block_proj in zip(self.target_model.encoder.blocks,self.source_model.encoder.blocks, self.projections.blocks ):
+    #     for i, (block_target, block_source, block_proj) in enumerate(
+    #         zip(
+    #             self.target_model.encoder.blocks,
+    #             self.source_model.encoder.blocks,
+    #             self.projections.blocks
+    #         )
+    #     ):
+    #         print(i)
     #         self.backward_compressed_weights(block_proj.compressible_q, block_source.attention_layer.layer.q_proj.weight, block_target.attention_layer.layer.q_proj.weight.grad)
     #         self.backward_compressed_weights(block_proj.compressible_k, block_source.attention_layer.layer.k_proj.weight, block_target.attention_layer.layer.k_proj.weight.grad)
     #         self.backward_compressed_weights(block_proj.compressible_v, block_source.attention_layer.layer.v_proj.weight, block_target.attention_layer.layer.v_proj.weight.grad)
@@ -103,90 +111,123 @@ class PC2(nn.Module):
     # def backward_compressed_weights(self, proj, weight, gradient):
     #     weight = weight.detach()   
     #     weights = proj.get_projected_weight(weight)
-    #     # weights.backward(gradient)
-    #     # weight = O1.detach()        # important
-    #     # weights = P1 @ weight @ P2  # graph created
+    #     weights.backward(gradient)
+        
 
-    #     (weights * gradient).sum().backward()
-
-    def pass_gradient_to_projections(self):
-        """
-        After target_model.backward() is done,
-        propagate gradients into projection parameters
-        using ONE single backward graph.
-        """
-
-        total_loss = 0.0    # scalar used to accumulate gradient contributions
-
-        for block_target, block_source, block_proj in zip(
-            self.target_model.encoder.blocks,
-            self.source_model.encoder.blocks,
-            self.projections.blocks
-        ):
-
-            # ---- Q ----
-            total_loss = (
-                total_loss
-                + self._projection_contrib(
-                    block_proj.compressible_q,
-                    block_source.attention_layer.layer.q_proj.weight,
-                    block_target.attention_layer.layer.q_proj.weight.grad,
-                )
-                + self._projection_contrib(
-                    block_proj.compressible_k,
-                    block_source.attention_layer.layer.k_proj.weight,
-                    block_target.attention_layer.layer.k_proj.weight.grad,
-                )
-                + self._projection_contrib(
-                    block_proj.compressible_v,
-                    block_source.attention_layer.layer.v_proj.weight,
-                    block_target.attention_layer.layer.v_proj.weight.grad,
-                )
-                + self._projection_contrib(
-                    block_proj.compressible_o,
-                    block_source.attention_layer.layer.o_proj.weight,
-                    block_target.attention_layer.layer.o_proj.weight.grad,
-                )
-
-                # ---- FF ----
-                + self._projection_contrib(
-                    block_proj.compressible_ff_pre,
-                    block_source.ff_layer.layer.ff_pre_act.weight,
-                    block_target.ff_layer.layer.ff_pre_act.weight.grad
-                )
-                + self._projection_contrib(
-                    block_proj.compressible_ff_gate,
-                    block_source.ff_layer.layer.gate.weight,
-                    block_target.ff_layer.layer.gate.weight.grad
-                )
-                + self._projection_contrib(
-                    block_proj.compressible_ff_post,
-                    block_source.ff_layer.layer.ff_post_act.weight,
-                    block_target.ff_layer.layer.ff_post_act.weight.grad
-                )
+    def pass_gradient_to_projections(self, optimizers: List):
+        # for block_target, block_source, block_proj in zip(self.target_model.encoder.blocks,self.source_model.encoder.blocks, self.projections.blocks ):
+        for i, (block_target, block_source, block_proj, optimizer) in enumerate(
+            zip(
+                self.target_model.encoder.blocks,
+                self.source_model.encoder.blocks,
+                self.projections.blocks,
+                optimizers
             )
+        ):
+            print(i)
+            self.backward_compressed_weights(block_proj.compressible_q, block_source.attention_layer.layer.q_proj.weight, block_target.attention_layer.layer.q_proj.weight.grad)
+            self.backward_compressed_weights(block_proj.compressible_k, block_source.attention_layer.layer.k_proj.weight, block_target.attention_layer.layer.k_proj.weight.grad)
+            self.backward_compressed_weights(block_proj.compressible_v, block_source.attention_layer.layer.v_proj.weight, block_target.attention_layer.layer.v_proj.weight.grad)
+            self.backward_compressed_weights(block_proj.compressible_o, block_source.attention_layer.layer.o_proj.weight, block_target.attention_layer.layer.o_proj.weight.grad)
+            self.backward_compressed_weights(block_proj.compressible_ff_pre, block_source.ff_layer.layer.ff_pre_act.weight, block_target.ff_layer.layer.ff_pre_act.weight.grad)
+            self.backward_compressed_weights(block_proj.compressible_ff_gate, block_source.ff_layer.layer.gate.weight, block_target.ff_layer.layer.gate.weight.grad)
+            self.backward_compressed_weights(block_proj.compressible_ff_post, block_source.ff_layer.layer.ff_post_act.weight, block_target.ff_layer.layer.ff_post_act.weight.grad)
+            optimizer.step()
+            optimizer.zero_grad()
 
-        # ---- perform ONE backward pass ----
-        total_loss.backward()
+            
+    def backward_compressed_weights(self, proj, weight, gradient):
+        weight = weight.detach()   
+        weights = proj.get_projected_weight(weight)
+        weights.backward(gradient)
 
-    def _projection_contrib(self, proj, base_weight, upstream_grad):
-        """
-        base_weight: frozen weight in source_model (no grad)
-        upstream_grad: gradient from target_model backward
-                    (same shape as projected weight)
-        proj: CompressibleLinear for this path
+        
 
-        Returns a scalar representing dot(W_proj, grad)
-        """
+        # torch.cuda.empty_cache() #TO DAJE MALUTKO
+        # gc.collect()
+        # weight = O1.detach()        # important
+        # weights = P1 @ weight @ P2  # graph created
 
-        if upstream_grad is None:
-            return 0.0
+        # (weights * gradient).sum().backward()
 
-        # compute projected weights WITH computational graph
-        W_proj = proj.get_projected_weight(base_weight)  # base_weight requires_grad=False
+    # def pass_gradient_to_projections(self):
+    #     """
+    #     After target_model.backward() is done,
+    #     propagate gradients into projection parameters
+    #     using ONE single backward graph.
+    #     """
 
-        # contraction → scalar loss contribution
-        return (W_proj * upstream_grad).sum()
+    #     total_loss = 0.0    # scalar used to accumulate gradient contributions
+
+    #     for block_target, block_source, block_proj in zip(
+    #         self.target_model.encoder.blocks,
+    #         self.source_model.encoder.blocks,
+    #         self.projections.blocks
+    #     ):
+
+    #         # ---- Q ----
+    #         total_loss = (
+    #             total_loss
+    #             + self._projection_contrib(
+    #                 block_proj.compressible_q,
+    #                 block_source.attention_layer.layer.q_proj.weight,
+    #                 block_target.attention_layer.layer.q_proj.weight.grad,
+    #             )
+    #             + self._projection_contrib(
+    #                 block_proj.compressible_k,
+    #                 block_source.attention_layer.layer.k_proj.weight,
+    #                 block_target.attention_layer.layer.k_proj.weight.grad,
+    #             )
+    #             + self._projection_contrib(
+    #                 block_proj.compressible_v,
+    #                 block_source.attention_layer.layer.v_proj.weight,
+    #                 block_target.attention_layer.layer.v_proj.weight.grad,
+    #             )
+    #             + self._projection_contrib(
+    #                 block_proj.compressible_o,
+    #                 block_source.attention_layer.layer.o_proj.weight,
+    #                 block_target.attention_layer.layer.o_proj.weight.grad,
+    #             )
+
+    #             # ---- FF ----
+    #             + self._projection_contrib(
+    #                 block_proj.compressible_ff_pre,
+    #                 block_source.ff_layer.layer.ff_pre_act.weight,
+    #                 block_target.ff_layer.layer.ff_pre_act.weight.grad
+    #             )
+    #             + self._projection_contrib(
+    #                 block_proj.compressible_ff_gate,
+    #                 block_source.ff_layer.layer.gate.weight,
+    #                 block_target.ff_layer.layer.gate.weight.grad
+    #             )
+    #             + self._projection_contrib(
+    #                 block_proj.compressible_ff_post,
+    #                 block_source.ff_layer.layer.ff_post_act.weight,
+    #                 block_target.ff_layer.layer.ff_post_act.weight.grad
+    #             )
+    #         )
+
+    #         # ---- perform ONE backward pass ----
+    #         total_loss.backward()
+
+    # def _projection_contrib(self, proj, base_weight, upstream_grad):
+    #     """
+    #     base_weight: frozen weight in source_model (no grad)
+    #     upstream_grad: gradient from target_model backward
+    #                 (same shape as projected weight)
+    #     proj: CompressibleLinear for this path
+
+    #     Returns a scalar representing dot(W_proj, grad)
+    #     """
+
+    #     if upstream_grad is None:
+    #         return 0.0
+
+    #     # compute projected weights WITH computational graph
+    #     W_proj = proj.get_projected_weight(base_weight)  # base_weight requires_grad=False
+
+    #     # contraction → scalar loss contribution
+    #     return (W_proj * upstream_grad).sum()
 
     # def pass_gradient_to_projections(self):
     #     for block, block_proj in zip(self.encoder.blocks, self.projections.blocks):
@@ -253,7 +294,87 @@ class CompressibleLinear(nn.Module):
             weight = torch.zeros(
                 final_out_features, final_in_features
             )
-            self.auxiliary_weight = nn.Parameter(weight, requires_grad=True)
+            self.auxiliary_weight = nn.Parameter(weight,requires_grad=True)
+
+    def initialize_projections(self):
+        if self.base_in_features != self.result_in_features:
+            assert self.proj_in_topk_indices is not None, "proj_in_topk_indices must be provided if result_in_features is specified."
+            # weight = torch.zeros( 
+            #     self.base_in_features, self.result_in_features, 
+            #     # self.base_in_features, self.result_in_features, device='cuda'
+            # )
+            self.projection_in_weight.data[self.proj_in_topk_indices, torch.arange(self.result_in_features)] = 1
+
+        if self.base_out_features != self.result_out_features:
+            assert self.proj_out_topk_indices is not None, "proj_out_topk_indices must be provided if result_out_features is specified."
+            # weight = torch.zeros(
+            #     self.base_out_features, self.result_out_features
+            # )
+            # weight[self.proj_out_topk_indices, torch.arange(self.result_out_features)] = 1
+            
+            # weight = torch.zeros(
+            #     self.result_out_features, self.base_out_features,
+            #     # self.result_out_features, self.base_out_features,device='cuda'
+            # )
+            self.projection_out_weight.data[torch.arange(self.result_out_features), self.proj_out_topk_indices ] = 1
+
+        # if self.result_in_features is not None or self.result_out_features is not None:
+        #     final_in_features = (
+        #         self.result_in_features
+        #         if self.result_in_features is not None
+        #         else self.base_in_features
+        #     )
+        #     final_out_features = (
+        #         self.result_out_features
+        #         if self.result_out_features is not None
+        #         else self.base_out_features
+        #     )
+        #     weight = torch.zeros(
+        #         final_out_features, final_in_features,
+        #         # final_out_features, final_in_features,device='cuda'
+        #     )
+        #     self.auxiliary_weight = nn.Parameter(weight,requires_grad=True)
+        
+    # def initialize_projections(self):
+    #     if self.base_in_features != self.result_in_features:
+    #         assert self.proj_in_topk_indices is not None, "proj_in_topk_indices must be provided if result_in_features is specified."
+    #         weight = torch.zeros( 
+    #             self.base_in_features, self.result_in_features, 
+    #             # self.base_in_features, self.result_in_features, device='cuda'
+    #         )
+    #         weight[self.proj_in_topk_indices, torch.arange(self.result_in_features)] = 1
+    #         self.projection_in_weight = nn.Parameter(weight, requires_grad=True)
+
+    #     if self.base_out_features != self.result_out_features:
+    #         assert self.proj_out_topk_indices is not None, "proj_out_topk_indices must be provided if result_out_features is specified."
+    #         # weight = torch.zeros(
+    #         #     self.base_out_features, self.result_out_features
+    #         # )
+    #         # weight[self.proj_out_topk_indices, torch.arange(self.result_out_features)] = 1
+            
+    #         weight = torch.zeros(
+    #             self.result_out_features, self.base_out_features,
+    #             # self.result_out_features, self.base_out_features,device='cuda'
+    #         )
+    #         weight[torch.arange(self.result_out_features), self.proj_out_topk_indices ] = 1
+    #         self.projection_out_weight = nn.Parameter(weight, requires_grad=True)
+            
+    #     if self.result_in_features is not None or self.result_out_features is not None:
+    #         final_in_features = (
+    #             self.result_in_features
+    #             if self.result_in_features is not None
+    #             else self.base_in_features
+    #         )
+    #         final_out_features = (
+    #             self.result_out_features
+    #             if self.result_out_features is not None
+    #             else self.base_out_features
+    #         )
+    #         weight = torch.zeros(
+    #             final_out_features, final_in_features,
+    #             # final_out_features, final_in_features,device='cuda'
+    #         )
+    #         self.auxiliary_weight = nn.Parameter(weight,requires_grad=True)
             
     def get_projected_weight(self, ok):
         # weight = self.weight
@@ -454,6 +575,16 @@ class Projections(nn.Module):
         # )
         self.head_norm = RMSNorm(normalized_shape=base_dmodel, eps=1e-5)
         
+    def initialize_with_ones(self):
+        self.head.initialize_projections()   
+        for block in self.blocks:
+            block.compressible_q.initialize_projections()
+            block.compressible_k.initialize_projections()
+            block.compressible_v.initialize_projections()
+            block.compressible_o.initialize_projections()
+            block.compressible_ff_pre.initialize_projections()
+            block.compressible_ff_gate.initialize_projections()
+            block.compressible_ff_post.initialize_projections()
         
         
         # weight = torch.zeros(len(dmodel_topk_indices), base_dmodel)

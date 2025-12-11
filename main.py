@@ -242,20 +242,26 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         model2 = instantiate(cfg.target_model, _convert_="all")
         pep3 = instantiate(cfg.pep3, _convert_="all")
 
-    model = pep3(
-            modelek,
-            model2,
-        )
+        model = pep3(
+                modelek,
+                model2,
+            )
 
 
+    # torch.save(model.projections.state_dict(), "/storage_nvme_3/crewtool/llama_8b_proj.pt")
     model = setup_distributed_training(model, cfg.trainer.distributed)
+    
 
     model.target_model.to_empty(device="cuda")
+
     model.projections.to_empty(device="cuda")
+    # model.projections.initialize_with_ones()
+    
 
+    
     # model.source_model.to_empty(device="cuda")
-    thestate = torch.load("llama_rooo_tiny.pt", mmap=True, weights_only=True, map_location="cpu")
-
+    # thestate = torch.load("llama_rooo_tiny.pt", mmap=True, weights_only=True, map_location="cpu")
+    thestate = torch.load("/storage_nvme_3/crewtool/llama_8b_nano.pt", mmap=True, weights_only=True, map_location="cpu")
 
     meta_sharded_sd = model.source_model.state_dict()
     sharded_sd = {}
@@ -269,6 +275,31 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         sharded_sd[param_name] = torch.nn.Parameter(sharded_tensor)
     # choose `assign=True` since we cannot call `copy_` on meta tensor
     model.source_model.load_state_dict(sharded_sd, strict=False, assign=True)
+
+
+
+
+    thestate = torch.load("/storage_nvme_3/crewtool/llama_8b_proj.pt", mmap=True, weights_only=True, map_location="cpu")
+
+    meta_sharded_sd = model.projections.state_dict()
+    sharded_sd = {}
+    for param_name, full_tensor in thestate.items():
+        sharded_meta_param = meta_sharded_sd.get(param_name)
+        sharded_tensor = distribute_tensor(
+            full_tensor,
+            sharded_meta_param.device_mesh,
+            sharded_meta_param.placements,
+        )
+        sharded_sd[param_name] = torch.nn.Parameter(sharded_tensor)
+    # choose `assign=True` since we cannot call `copy_` on meta tensor
+    model.projections.load_state_dict(sharded_sd, strict=False, assign=True)
+
+
+
+    model.target_model.embedding.weight._local_tensor.uniform_() #TODO USUN
+    model.target_model.head.linear.weight._local_tensor.uniform_() #TODO USUN
+
+
     # model.load_state_dict(thestate, assign=True)
 
 
@@ -311,11 +342,28 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         #             logger.info("Initialization failed, exiting...")
         #             return None, None, None, None, None
         # model = setup_distributed_training(model, cfg.trainer.distributed)
+
+        optimizers = []
+        for proj in model.projections.blocks:
+            optimizers.append(
+                torch.optim.AdamW(
+                    proj.parameters(), 
+                    lr=learning_rate,
+                    weight_decay=cfg.trainer.weight_decay,
+                )
+            )
         optimizer = torch.optim.AdamW(
-            model.projections.parameters(), 
+            model.target_model.head.parameters(), 
             lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
+
+
+        # optimizer = torch.optim.AdamW(
+        #     model.projections.parameters(), 
+        #     lr=learning_rate,
+        #     weight_decay=cfg.trainer.weight_decay,
+        # )
         scheduler = instantiate(cfg.trainer.scheduler)(
             optimizer=optimizer, n_steps=cfg.trainer.n_steps
         )
@@ -387,7 +435,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}"
         )
 
-    return model, optimizer, scheduler, training_state, metric_logger
+    return model, optimizer, scheduler, training_state, metric_logger, optimizers
 
 
 def run(cfg: OmegaConf, metric_logger=None):
@@ -396,7 +444,7 @@ def run(cfg: OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
-    model, optimizer, scheduler, training_state, metric_logger = (
+    model, optimizer, scheduler, training_state, metric_logger, optimizers = (
         initialize_training_components(cfg, metric_logger)
     )
 
@@ -412,6 +460,7 @@ def run(cfg: OmegaConf, metric_logger=None):
             scheduler=scheduler,
             training_state=training_state,
             metric_logger=metric_logger,
+            optimizers=optimizers,
         ).train()
 
         # TODO

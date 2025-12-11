@@ -45,6 +45,7 @@ class Trainer:
     exp_learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
+    optimizers: Optional[list]
 
     def __attrs_post_init__(self):
         self.processed_tokens = self.training_state["processed_tokens"]
@@ -64,6 +65,7 @@ class Trainer:
 
         self.loss_averaged_100 = AveMetric(100, "steps/100/train/loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "steps/100/time", time.time())
+        self.optimizers = self.optimizers
 
     @property
     def _should_evaluate(self) -> bool:
@@ -103,7 +105,7 @@ class Trainer:
             self.model.train()
             self.model.prepare_compressed_weights()
             loss = self.calculate_loss(batch)
-            self.model.pass_gradient_to_projections()
+            self.model.pass_gradient_to_projections(self.optimizers)
 
             grad_norm = self.clip_gradient()
 
@@ -169,7 +171,8 @@ class Trainer:
             return loss
 
         losses = []
-        for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
+        for chunk_num, batch_chunk in enumerate(batch.chunk(self.gradient_accumulation_steps)):
+            print("Processing chunk ", chunk_num, flush=True)
             input_ids, target_ids = self._preprocess_input(batch_chunk)
             input_ids = input_ids.to(self.device)
             if self.model.training:

@@ -394,7 +394,7 @@ class TransformerHead(nn.Module):
         self.linear = linear_fn()
 
     def forward(self, x):
-        x = self.norm(x)
+        # x = self.norm(x)
         x = self.linear(x)
         return x
 

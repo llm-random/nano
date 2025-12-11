@@ -35,16 +35,28 @@ common:
   # q_heads: 4
   # kv_heads: 2
 
-  dmodel: 64
-  dff: 256
-  dhead: 32
-  sequence_length: 1024
-  base_dmodel: 128
-  base_dff: 512
-  n_blocks: 2
-  q_heads: 4
-  kv_heads: 2
+  # dmodel: 64
+  # dff: 256
+  # dhead: 32
+  # sequence_length: 1024
+  # base_dmodel: 128
+  # base_dff: 512
+  # n_blocks: 2
+  # q_heads: 4
+  # kv_heads: 2
 
+
+  dmodel: 3072 # 50% parameter compression
+  dff: 9216 # 50% parameter compression
+  dhead: 128
+  sequence_length: 2048
+  base_dmodel: 4096
+  base_dff: 14336
+  n_blocks: 32
+  q_heads: 32
+  kv_heads: 8
+
+  # batch_size: 8
 
 
   # dmodel: 3072 # 50% parameter compression
@@ -57,12 +69,14 @@ common:
   # q_heads: 32
   # kv_heads: 8
 
-  batch_size: 4
+  batch_size: 512
+  
 
 
 trainer:
   learning_rate: 1e-3
   n_steps: 1000
+  gradient_accumulation_steps: 32
 
   checkpoint:
     load:
