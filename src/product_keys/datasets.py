@@ -3,6 +3,9 @@ from transformers import GPT2TokenizerFast
 
 def gpt2_mask_tokenize_fn():
     tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+
+    # Add additional special tokens so that the vocab size is a multiple of 64
+    # https://x.com/karpathy/status/1621578354024677377
     additional_special_tokens = [f"<|extra_token_{i}|>" for i in range(46)]
     tokenizer.add_special_tokens(
         {
