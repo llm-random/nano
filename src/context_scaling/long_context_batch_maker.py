@@ -43,13 +43,13 @@ def plot_token_length_hist(
         with open(save_hist_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["bin_left", "bin_right", "count"])
-            for left, right, count in zip(bin_edges[:-1], bin_edges[1:], hist_log):
+            for left, right, count in zip(bin_edges[:-1], bin_edges[1:], hist):
                 writer.writerow([left, right, count])
 
         with open(save_hist_log_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["bin_left", "bin_right", "count"])
-            for left, right, count in zip(bin_edges_log[:-1], bin_edges_log[1:], hist):
+            for left, right, count in zip(bin_edges_log[:-1], bin_edges_log[1:], hist_log):
                 writer.writerow([left, right, count])
 
         print(f"Saved histogram CSV to: {save_hist_path}")
