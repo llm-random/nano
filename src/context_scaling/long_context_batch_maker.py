@@ -31,17 +31,25 @@ def plot_token_length_hist(
         keep_in_memory=True,
     )
 
-    hist, bin_edges = np.histogram(np.log(ds["length"]), bins=200)
-    bin_edges = np.exp(bin_edges)
+    hist, bin_edges = np.histogram(ds["length"], bins=200)
+    hist, bin_edges_log = np.histogram(np.log(ds["length"]), bins=200)
+    bin_edges_log = np.exp(bin_edges_log)
 
     if save_hist_dir is not None:
         os.makedirs(save_hist_dir, exist_ok=True)
-        save_hist_path = os.path.join(save_hist_dir, "hist.csv")
+        save_hist_path = os.path.join(save_hist_dir, "hist_normal.csv")
+        save_hist_log_path = os.path.join(save_hist_dir, "hist_log.csv")
 
         with open(save_hist_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["bin_left", "bin_right", "count"])
             for left, right, count in zip(bin_edges[:-1], bin_edges[1:], hist):
+                writer.writerow([left, right, count])
+
+        with open(save_hist_log_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["bin_left", "bin_right", "count"])
+            for left, right, count in zip(bin_edges_log[:-1], bin_edges_log[1:], hist):
                 writer.writerow([left, right, count])
 
         print(f"Saved histogram CSV to: {save_hist_path}")
