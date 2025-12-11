@@ -257,19 +257,7 @@ def get_mixture_of_datasets_dataloader(datasets: dict[str, int], dataset_split, 
     logger.debug(f"Batch size per device: {batch_size_per_device}")
     logger.debug(f"Total: {total_batch_size}")
 
-    if len(dataset_paths) == 1:
-        dataset = GenericDataset(
-            sequence_length=sequence_length + 1,
-            split=dataset_split,
-            tokenize_fn=tokenize_fn,
-            path=dataset_paths[0],
-            seed=seed,
-            use_new_sampling_method=use_new_sampling_method,
-            shuffle=shuffle,
-            world_size_independent=world_size_independent,
-        )
-    else:
-        dataset = MixtureOfDatasets(
+    dataset = MixtureOfDatasets(
             sequence_length=sequence_length + 1,
             split=dataset_split,
             tokenize_fn=tokenize_fn,
@@ -279,7 +267,7 @@ def get_mixture_of_datasets_dataloader(datasets: dict[str, int], dataset_split, 
             use_new_sampling_method=use_new_sampling_method,
             shuffle=shuffle,
             world_size_independent=world_size_independent,
-        )
+    )
 
     dataloader = DataLoader(
         dataset,
