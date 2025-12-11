@@ -32,7 +32,7 @@ def plot_token_length_hist(
     )
 
     hist, bin_edges = np.histogram(ds["length"], bins=200)
-    hist, bin_edges_log = np.histogram(np.log(ds["length"]), bins=200)
+    hist_log, bin_edges_log = np.histogram(np.log(ds["length"]), bins=200)
     bin_edges_log = np.exp(bin_edges_log)
 
     if save_hist_dir is not None:
@@ -43,7 +43,7 @@ def plot_token_length_hist(
         with open(save_hist_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["bin_left", "bin_right", "count"])
-            for left, right, count in zip(bin_edges[:-1], bin_edges[1:], hist):
+            for left, right, count in zip(bin_edges[:-1], bin_edges[1:], hist_log):
                 writer.writerow([left, right, count])
 
         with open(save_hist_log_path, "w", newline="") as f:
