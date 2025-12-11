@@ -4,27 +4,13 @@ defaults:
 
 trainer:
   train_dataloader:
-    dataset:
-      _target_: src.core.datasets.C4Dataset
-      sequence_length: ${common.sequence_length}
-      tokenize_fn: ???
-      path: ${cluster_switch.train_path_c4}
-      split: train
-      seed: 123
-      use_new_sampling_method: true
-      shuffle: true
-      world_size_independent: false
+    datasets:
+      ${cluster_switch.train_path_c4}: 1.0
+    dataset_split: train
     num_workers: 8
 
   eval_dataloader:
-    dataset:
-      _target_: src.core.datasets.C4Dataset
-      sequence_length: ${common.sequence_length}
-      tokenize_fn: ???
-      path: ${cluster_switch.eval_path_c4}
-      split: validation
-      seed: 123
-      use_new_sampling_method: true
-      shuffle: true
-      world_size_independent: false
+    datasets:
+      ${cluster_switch.eval_path_c4}: 1.0
+    dataset_split: validation
     num_workers: 8

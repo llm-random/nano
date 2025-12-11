@@ -1,9 +1,8 @@
 trainer:
   train_dataloader:
-    _target_: src.core.datasets.get_dataloader
-#    dataset_path: ???
+    _target_: src.core.datasets.get_mixture_of_datasets_dataloader
+    datasets: ???
     dataset_split: ???
-#    dataset_type: ???
     num_workers: ???
     seed: 1000
     sequence_length: ${common.sequence_length}
@@ -14,10 +13,9 @@ trainer:
     tokenize_fn: ???
 
   eval_dataloader:
-    _target_: src.core.datasets.get_dataloader
-    dataset_path: ???
+    _target_: src.core.datasets.get_mixture_of_datasets_dataloader
+    datasets: ???
     dataset_split: ???
-    dataset_type: ???
     num_workers: ???
     seed: 123
     sequence_length: ${common.sequence_length}

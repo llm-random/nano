@@ -25,12 +25,12 @@ trainer:
         - ${model.head._target_}
   
   train_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.core.datasets.llama_tokenize_fn
-      
+    tokenize_fn:
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: meta-llama/Llama-3.1-8B
+
 
   eval_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.core.datasets.llama_tokenize_fn
+    tokenize_fn:
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: meta-llama/Llama-3.1-8B
