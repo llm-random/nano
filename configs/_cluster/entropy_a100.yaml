@@ -9,7 +9,7 @@ infrastructure:
     nodes: 1
     partition: a100
     time: "2-00:00:00"
-    
+
   script:
     - 'export PROJECT_HOME_PATH=/storage_ssd_1/nano'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
@@ -23,7 +23,7 @@ infrastructure:
     - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
     - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
     - 'export XDG_STATE_HOME="$PIXI_HOME/state"'
-    
+
     # activate pixi
     - 'cd "$PIXI_HOME"'
     - 'eval "$(pixi shell-hook)"'
