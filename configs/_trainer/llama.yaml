@@ -28,9 +28,9 @@ trainer:
 
         # - src.projected_compression.mem_eff_model.CompressibleBlock
 
-        - ${model.target_model.embedding._target_}
-        - ${model.target_model.encoder.block_fn._target_}
-        - ${model.target_model.head._target_}
+        - ${target_model.embedding._target_}
+        - ${target_model.encoder.block_fn._target_}
+        - ${target_model.head._target_}
         - src.projected_compression.mem_eff_model.CompressibleBlock
         # - src.projected_compression.model.TransformerBlock
         

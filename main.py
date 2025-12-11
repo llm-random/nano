@@ -242,10 +242,10 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         model2 = instantiate(cfg.target_model, _convert_="all")
         pep3 = instantiate(cfg.pep3, _convert_="all")
 
-        model = pep3(
-                modelek,
-                model2,
-            )
+    model = pep3(
+            modelek,
+            model2,
+        )
 
 
     model = setup_distributed_training(model, cfg.trainer.distributed)
@@ -253,8 +253,8 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
     model.target_model.to_empty(device="cuda")
     model.projections.to_empty(device="cuda")
 
-    model.source_model.to_empty(device="cuda")
-    thestate = torch.load("/storage_nvme_3/crewtool/llama_8b_nano.pt", mmap=True, weights_only=True, map_location="cpu")
+    # model.source_model.to_empty(device="cuda")
+    thestate = torch.load("llama_rooo_tiny.pt", mmap=True, weights_only=True, map_location="cpu")
 
 
     meta_sharded_sd = model.source_model.state_dict()
@@ -303,7 +303,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             optimizer=optimizer, n_steps=cfg.trainer.n_steps
         )
     elif cfg.trainer.checkpoint.load.type == "huggingface_v2":
-        # copy_llama_model_weights_from_HF_v2(model, cfg.trainer.checkpoint.load.path)
+        # copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)  
         # if cfg.get("apply_functions", None):
         #     for fn in instantiate(cfg.apply_functions):
         #         res = fn(model)

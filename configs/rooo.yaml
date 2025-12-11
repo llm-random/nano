@@ -1,0 +1,168 @@
+defaults:
+  - _misc@_here_: default
+
+  - _cluster@_here_: local
+  # - _model@_here_: tiny
+  - _trainer@_here_: llama
+  - _dataset@_here_: local_dummy
+  - _checkpoints@_here_: none
+
+  # - _eval@_here_: default
+  - _self_
+
+
+common:
+  # _target_: src.definitions.Common
+  # dmodel: 128
+  # dff: 512
+  # dmodel: 64
+  # dff: 256
+  # dhead: 32
+  # sequence_length: 1024
+  # base_dmodel: 128
+  # base_dff: 512 
+  # n_blocks: 2
+  # q_heads: 4
+  # kv_heads: 2
+  # batch_size: 2
+
+  dmodel: 3072 # 50% parameter compression
+  dff: 9216 # 50% parameter compression
+  dhead: 128
+  sequence_length: 1024
+  base_dmodel: 4096
+  base_dff: 14336
+  n_blocks: 32
+  q_heads: 32
+  kv_heads: 8
+
+  batch_size: 4
+
+
+trainer:
+  learning_rate: 1e-3
+  n_steps: 1000
+
+  checkpoint:
+    load:
+      type: huggingface_v2
+      path: pc-project/tiny-llama-16M
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+
+
+  # train_dataloader:
+  #   dataset_path: data
+  #   dataset_split: train
+  #   dataset_type: c4
+  #   num_workers: 0
+  #   tokenize_fn: 
+  #     _target_: src.core.datasets.gpt2_tokenize_fn
+
+  # eval_dataloader:
+  #   dataset_path: data_eval
+  #   dataset_split: validation
+  #   dataset_type: c4
+  #   num_workers: 0
+  #   tokenize_fn: 
+  #     _target_: src.core.datasets.gpt2_tokenize_fn
+
+# apply_functions:
+#   - _target_: src.projected_compression.compression.init_compression
+#     _partial_: true
+#     dimensions_importances_path: ???
+#     target_dmodel: ${common.dmodel}
+#     target_dff: ${common.dff}
+
+hej_model:
+  _target_: src.projected_compression.model.LLM
+  embedding:
+    _target_: src.projected_compression.model.ProjectedEmbedding2
+    vocab_size: 128256
+    result_embedding: ${common.dmodel}
+    base_embedding: ${common.base_dmodel}
+
+  encoder:
+    _target_: src.projected_compression.model.TransformerEncoder
+    n_blocks: ${common.n_blocks}
+    block_fn:
+      _target_: src.projected_compression.model.TransformerBlock
+      _partial_: true
+      norm_fn:
+        _target_: src.core.model.RMSNorm
+        _partial_: true
+        eps: 1e-5
+        normalized_shape: ${common.dmodel}
+
+      attention_fn:
+        _target_: src.projected_compression.model.RoPEAttention
+        _partial_: true
+        dmodel: ${common.dmodel}
+        q_heads: ${common.q_heads}
+        kv_heads: ${common.kv_heads}
+        seq_len: ${common.sequence_length}
+        q_proj_fn:
+          _target_: src.projected_compression.model.ProjectedLinear2
+          _partial_: true
+          result_in_features: ${common.dmodel}
+          result_out_features: ${eval:'${common.dhead} * ${common.q_heads}'}
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${eval:'${common.dhead} * ${common.q_heads}'}
+          
+        k_proj_fn:
+          _target_: src.projected_compression.model.ProjectedLinear2
+          _partial_: true
+          result_in_features: ${common.dmodel}
+          result_out_features: ${eval:'${common.dhead} * ${common.kv_heads}'}
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${eval:'${common.dhead} * ${common.kv_heads}'}
+
+
+        v_proj_fn: ${hej_model.encoder.block_fn.attention_fn.k_proj_fn}
+
+        o_proj_fn: 
+          _target_: src.projected_compression.model.ProjectedLinear2
+          _partial_: true
+          result_in_features: ${eval:'${common.dhead} * ${common.q_heads}'}
+          result_out_features: ${common.dmodel}
+          base_in_features: ${eval:'${common.dhead} * ${common.q_heads}'}
+          base_out_features: ${common.base_dmodel}
+
+        rope_base: 500000
+        rope_scale_freqs: true
+
+      ff_layer_fn:
+        _target_: src.projected_compression.model.ProjectedLlamaFeedForward
+        _partial_: true
+        ff_pre_act_fn:
+          _target_: src.projected_compression.model.ProjectedLinear2
+          _partial_: true
+          result_in_features: ${common.dmodel}
+          result_out_features: ${common.dff}
+          base_in_features: ${common.base_dmodel}
+          base_out_features: ${common.base_dff}
+
+        ff_post_act_fn:
+          _target_: src.projected_compression.model.ProjectedLinear2
+          _partial_: true
+          result_in_features: ${common.dff}
+          result_out_features: ${common.dmodel}
+          base_in_features: ${common.base_dff}
+          base_out_features: ${common.base_dmodel}
+
+        gate_fn: ${hej_model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
+
+  head:
+    _target_: src.projected_compression.model.TransformerHead
+    linear_fn:
+      _target_: src.projected_compression.model.ProjectedLinear2
+      _partial_: true
+      result_in_features: ${common.dmodel}
+      result_out_features: ${hej_model.embedding.vocab_size}
+      base_in_features: ${common.base_dmodel}
+      base_out_features: ${hej_model.embedding.vocab_size}
+
+    norm_fn:
+      _target_: src.core.model.RMSNorm
+      _partial_: true
+      eps: 1e-5
+      normalized_shape: ${common.dmodel}
