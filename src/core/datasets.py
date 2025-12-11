@@ -7,7 +7,7 @@ import itertools
 import numpy as np
 import random
 from torch.utils.data import IterableDataset, DataLoader
-from transformers import GPT2TokenizerFast, AutoTokenizer
+from transformers import AutoTokenizer
 from datasets import load_dataset
 from datasets.distributed import split_dataset_by_node
 import logging
@@ -20,86 +20,48 @@ def take_circular(iterable, start, stop):
     return itertools.islice(cycle, start, stop)
 
 
-def gpt2_tokenize_fn():
-    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+def get_tokenize_fn(model_name: str):
+    """
+    Factory function to create a tokenize function for a given model.
+
+    Args:
+        model_name: The HuggingFace model name/path to load the tokenizer from.
+    """
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        add_bos_token=True,
+        add_eos_token=True,
+    )
+
+    # Lazy initialization to avoid using tokenizer before DataLoader forks workers
+    manual_add_eos = None
 
     def tokenize_function(examples):
-        texts = [text + tokenizer.eos_token for text in examples["text"]]
+        nonlocal manual_add_eos
+
+        # Check if tokenizer actually respects add_eos_token (only once)
+        # Some tokenizers (e.g., GPT-2) silently ignore this option
+        if manual_add_eos is None:
+            _test_tokens = tokenizer("test")["input_ids"]
+            manual_add_eos = tokenizer.eos_token_id is not None and _test_tokens[-1] != tokenizer.eos_token_id
+
+        if "text" in examples and "content" in examples:
+            raise KeyError("Both 'text' and 'content' found in examples.")
+        elif "text" in examples:
+            source_col = "text"
+        elif "content" in examples:
+            source_col = "content"
+        else:
+            raise KeyError(f"Neither 'text' nor 'content' found. Available keys: {list(examples.keys())}")
+
+        texts = examples[source_col]
+
+        # Manually add EOS token for tokenizers that don't support it natively (e.g., GPT-2)
+        if manual_add_eos:
+            texts = [text + tokenizer.eos_token for text in texts]
+
         batch_encodings = tokenizer(
             texts,
-            truncation=False,
-            max_length=int(1e10),
-        )
-        return batch_encodings
-
-    return tokenize_function
-
-
-def llama_tokenize_fn():
-    tokenizer = AutoTokenizer.from_pretrained(
-        "meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False
-    )
-
-    def tokenize_function(examples):
-        batch_encodings = tokenizer(
-            examples["text"],
-            truncation=False,
-            max_length=int(1e10),
-        )
-        return batch_encodings
-
-    return tokenize_function
-
-
-def smollm_135_tokenize_fn():
-    tokenizer = AutoTokenizer.from_pretrained(
-        "HuggingFaceTB/SmolLM-135M",
-        add_bos_token=True,
-        add_eos_token=True,
-        legacy=False,
-    )
-
-    def tokenize_function(examples):
-        batch_encodings = tokenizer(
-            examples["text"],
-            truncation=False,
-            max_length=int(1e10),
-        )
-        return batch_encodings
-
-    return tokenize_function
-
-
-def smollm_360_tokenize_fn():
-    tokenizer = AutoTokenizer.from_pretrained(
-        "HuggingFaceTB/SmolLM-360M",
-        add_bos_token=True,
-        add_eos_token=True,
-        legacy=False,
-    )
-
-    def tokenize_function(examples):
-        batch_encodings = tokenizer(
-            examples["text"],
-            truncation=False,
-            max_length=int(1e10),
-        )
-        return batch_encodings
-
-    return tokenize_function
-
-
-def smollm_1700_tokenize_fn():
-    tokenizer = AutoTokenizer.from_pretrained(
-        "HuggingFaceTB/SmolLM-1.7B",
-        add_bos_token=True,
-        add_eos_token=True,
-        legacy=False,
-    )
-
-    def tokenize_function(examples):
-        batch_encodings = tokenizer(
-            examples["text"],
             truncation=False,
             max_length=int(1e10),
         )
@@ -215,87 +177,108 @@ class GenericDataset(IterableDataset):
             epoch += 1
 
 
-class C4Dataset(GenericDataset):
-    def _load_hf_dataset(self, path, split):
-        if path is None:
-            logger.debug(
-                f"Loading 'allenai/c4' dataset from HuggingFace with split={split}"
-            )
-            hf_dataset = load_dataset(
-                "allenai/c4",
-                "en",
-                split=split,
-                streaming=True,
-                trust_remote_code=True,
-            )
-        else:
-            logger.debug(f"Loading dataset from path '{path}'")
-            hf_dataset = load_from_disk(path)
-            hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
+class MixtureOfDatasets(IterableDataset):
+    BUFFER_SIZE = 10000
+    NUM_SHARDS = 64
 
-        return hf_dataset
+    def __init__(
+            self,
+            sequence_length,
+            tokenize_fn: Callable,
+            paths: Optional[List[str]] = None,
+            weights: Optional[List[float]] = None,
+            split: Optional[str] = None,
+            seed: Optional[int] = None,
+            use_new_sampling_method: bool = True,
+            shuffle: bool = True,
+            world_size_independent: bool = False,
+    ):
+        self.world_size = int(os.environ.get("WORLD_SIZE"))
+        self.rank = int(os.environ.get("RANK"))
+        self.rng = random.Random(seed)
+        self.sequence_length = sequence_length
+        self.tokenize_fn = tokenize_fn
+        self.paths = paths
+        self.weights = weights
+        self.split = split
+        self.seed = seed
+        self.use_new_sampling_method = use_new_sampling_method
+        self.shuffle = shuffle
+        self.world_size_independent = world_size_independent
+        self.data_generator = None
+        self.datasets = [GenericDataset(
+            sequence_length=sequence_length,
+            split=split,
+            tokenize_fn=tokenize_fn,
+            path=path,
+            seed=seed,
+            use_new_sampling_method=use_new_sampling_method,
+            shuffle=shuffle,
+            world_size_independent=world_size_independent,
+        ) for path in paths]
 
+    def __iter__(self):
+        rng = random.Random(self.seed)
+        dataset_iterators = [iter(dataset) for dataset in self.datasets]
+        used = np.zeros(len(self.datasets), dtype=np.int64)
+        step = 0
 
-class FineWebDataset(GenericDataset):
-    """Thin alias so callers can reference fineweb explicitly."""
-    pass
+        while True:
+            step += 1
+            expected = (step * np.array(self.weights)).astype(np.int64)
+            diffs = expected - used
+            max_diff = np.max(diffs)
+            candidate_indices = [i for i, diff in enumerate(diffs) if diff == max_diff]
+            chosen_index = rng.choice(candidate_indices)
+            used[chosen_index] += 1
+            try:
+                sample = next(dataset_iterators[chosen_index])
+            except StopIteration:
+                dataset_iterators[chosen_index] = iter(self.datasets[chosen_index])
+                sample = next(dataset_iterators[chosen_index])
+            print(f"{self.split}, step {step}: Chose dataset {self.paths[chosen_index]}")
+            yield sample
 
 
 def collate_wrapper(examples):
     return torch.from_numpy(np.array(examples))
 
 
-def get_mixture_of_datasets_dataloader(datasets: dict[str, int], dataset_split, tokenize_fn, total_batch_size, sequence_length,
+def get_mixture_of_datasets_dataloader(datasets: dict[str, int], dataset_split, tokenize_fn, total_batch_size,
+                                       sequence_length,
                                        num_workers, seed, shuffle, use_new_sampling_method, world_size_independent,
                                        collate_fn: Callable = collate_wrapper):
-    print(datasets)
+    # print(datasets)
     dataset_paths, dataset_weights = zip(*datasets.items())
-    assert abs(sum(dataset_weights) - 1) < 1e-6, "Dataset weights must sum to 1"
-
-
-
-def get_dataloader(
-        dataset_type: str,
-        dataset_path: str,
-        dataset_split: str,
-        tokenize_fn: str,
-        total_batch_size: int,
-        sequence_length: int,
-        num_workers: int,
-        seed: int,
-        shuffle: bool,
-        use_new_sampling_method: bool,
-        world_size_independent: bool,
-        collate_fn: Callable = collate_wrapper,
-):
+    assert abs(sum(dataset_weights) - 1) < 1e-6, f"Dataset weights must sum to 1, current sum: {sum(dataset_weights)}"
     world_size = int(os.environ["WORLD_SIZE"])
     batch_size_per_device = total_batch_size // world_size
     logger.debug(f"Batch size per device: {batch_size_per_device}")
     logger.debug(f"Total: {total_batch_size}")
-    if dataset_type == "c4":
-        dataset = C4Dataset(
+
+    if len(dataset_paths) == 1:
+        dataset = GenericDataset(
             sequence_length=sequence_length + 1,
             split=dataset_split,
             tokenize_fn=tokenize_fn,
-            path=dataset_path,
-            seed=seed,
-            use_new_sampling_method=use_new_sampling_method,
-            shuffle=shuffle,
-            world_size_independent=world_size_independent,
-        )
-    elif dataset_type == "fineweb-edu":
-        dataset = FineWebDataset(
-            sequence_length=sequence_length + 1,
-            split=dataset_split,
-            tokenize_fn=tokenize_fn,
-            path=dataset_path,
+            path=dataset_paths[0],
             seed=seed,
             use_new_sampling_method=use_new_sampling_method,
             shuffle=shuffle,
             world_size_independent=world_size_independent,
         )
     else:
-        raise ValueError(f"Unsupported dataset type: '{dataset_type}'")
+        dataset = MixtureOfDatasets(
+            sequence_length=sequence_length + 1,
+            split=dataset_split,
+            tokenize_fn=tokenize_fn,
+            paths=list(dataset_paths),
+            weights=list(dataset_weights),
+            seed=seed,
+            use_new_sampling_method=use_new_sampling_method,
+            shuffle=shuffle,
+            world_size_independent=world_size_independent,
+        )
 
     dataloader = DataLoader(
         dataset,
@@ -306,3 +289,4 @@ def get_dataloader(
     )
 
     return dataloader
+
