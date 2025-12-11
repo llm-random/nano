@@ -37,11 +37,13 @@ trainer:
 
   train_dataloader:
     tokenize_fn: 
-      _target_: src.core.datasets.smollm_1700_tokenize_fn
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B
 
   eval_dataloader:
     tokenize_fn: 
-      _target_: src.core.datasets.smollm_1700_tokenize_fn
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B
 
 
 infrastructure:
