@@ -239,7 +239,9 @@ class ContextScalingTrainer:
                 losses.append(loss.item())
                 self.metric_logger.flush_accumulated_metrics(self.step)
             avg_loss = torch.tensor(losses).mean()
-            self.metric_logger.log("steps/eval_long_context/loss", self.step, avg_loss.item())
+            self.metric_logger.log(
+                "steps/eval_long_context/loss", self.step, avg_loss.item()
+            )
             self.metric_logger.log(
                 "tokens/eval_long_context/loss", self.processed_tokens, avg_loss.item()
             )
