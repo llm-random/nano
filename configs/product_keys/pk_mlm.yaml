@@ -10,8 +10,8 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 2048
-  batch_size: 32
+  sequence_length: 1024
+  batch_size: 64
   dmodel: 1024
   dff: 2724
   datt: ${common.dmodel}
@@ -97,5 +97,5 @@ model:
 
         rope_base: 500000
         rope_scale_freqs: true
-        top_k: 600000
+        top_k: 16
         top_k_before_softmax: true
