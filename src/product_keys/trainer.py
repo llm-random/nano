@@ -20,15 +20,17 @@ class MaskedLMTrainer(Trainer):
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
-        # Use -100 as the ignore index for the loss function, a common practice for MLM.
+        # Use -100 as the ignore index for the loss function
         self.ignore_index = -100
 
     def _preprocess_and_mask_input(self, batch):
         """
         Prepares a batch for MLM by masking a percentage of tokens.
         """
-        input_ids = batch[:, :-1].contiguous()  # remove last token for compatibility with next token prediction
-        labels = batch[:, :-1].contiguous()  # remove last token for compatibility with next token prediction
+        # remove last token for compatibility with next token prediction
+        # here we do not shift labels, as we want to predict the masked tokens in place
+        input_ids = batch[:, :-1].contiguous()
+        labels = batch[:, :-1].contiguous()
 
         # Determine which tokens to mask based on the masking percentage.
         prob = torch.full(labels.shape, self.masking_percentage, device=labels.device)
