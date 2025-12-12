@@ -18,7 +18,7 @@ common:
   n_blocks: 16
   q_heads: 16
   kv_heads: 16
-  vocab_size: 128256
+  vocab_size: 50304
 
 trainer:
   _target_: src.product_keys.trainer.MaskedLMTrainer
@@ -26,7 +26,7 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
-  n_steps: 101410
+  n_steps: 77050
   learning_rate: 5e-4
   train_dataloader:
     tokenize_fn:
@@ -40,11 +40,11 @@ trainer:
 
 infrastructure:
   metric_logger:
-    name: masked_language_modeling
+    name: pk_mlm
     project_name: pmtest/tml-bgw
     tags:
       - nano
-      - masked_language_modeling
+      - pk_mlm
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
   slurm:
