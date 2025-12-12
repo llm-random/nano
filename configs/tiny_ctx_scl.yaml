@@ -17,6 +17,13 @@ trainer:
   n_steps: 100
   learning_rate: 1e-3
 
+  eval_long_ctx_dataloader:
+    dataset_path: data_long_ctx
+    num_workers: 8
+    total_batch_size: 2
+    tokenize_fn: 
+      _target_: src.core.datasets.gpt2_tokenize_fn
+
 infrastructure:
   metric_logger:
     name: tiny_Local

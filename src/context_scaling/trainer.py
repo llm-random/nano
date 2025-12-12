@@ -53,7 +53,7 @@ class ContextScalingTrainer:
         self.device = next(self.model.parameters()).device
         self.loss_interval_100 = 0.0
         self.eval_iterator = iter(self.eval_dataloader)
-        self.eval_long_ctx_batch = next(iter(self.eval_long_ctx_dataloader))
+        self.eval_long_ctx_iterator = iter(self.eval_long_ctx_dataloader)
         self.step = self.start_step - 1
 
         if self.start_step > 0:
@@ -232,8 +232,7 @@ class ContextScalingTrainer:
         self.metric_logger.set_step(None)  # disables heavy logging
         losses = []
         with torch.no_grad():
-            for _ in range(self.n_eval_steps):
-                batch = self.eval_long_ctx_batch
+            for batch in self.eval_long_ctx_iterator:
                 batch = batch.to(self.device)
                 loss = self.calculate_loss(batch)
                 losses.append(loss.item())
@@ -246,6 +245,8 @@ class ContextScalingTrainer:
                 "tokens/eval_long_context/loss", self.processed_tokens, avg_loss.item()
             )
 
+        # Reset iterator for next evaluation
+        self.eval_long_ctx_iterator = iter(self.eval_long_ctx_dataloader)
         self.step = saved_step  # Restore step
 
     def clip_gradient(self):

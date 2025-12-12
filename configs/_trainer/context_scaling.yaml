@@ -26,16 +26,15 @@ trainer:
   
   train_dataloader:
     tokenize_fn:
-      _target_: src.core.datasets.llama_tokenize_fn
-      
+      _target_: src.core.datasets.gpt2_tokenize_fn      
 
   eval_dataloader:
     tokenize_fn:
-      _target_: src.core.datasets.llama_tokenize_fn
+      _target_: src.core.datasets.gpt2_tokenize_fn
 
   eval_long_ctx_dataloader:
     _target_: src.core.datasets.get_dataloader
-    dataset_path: data_long_ctx
+    dataset_path: ???
     dataset_split: validation
     dataset_type: c4
     num_workers: 1
