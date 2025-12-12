@@ -249,6 +249,9 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
 
     # torch.save(model.projections.state_dict(), "/storage_nvme_3/crewtool/llama_8b_proj.pt")
+    # torch.save(model.projections.state_dict(), "/net/scratch/hscra/plgrid/plgcrewtool/dawaj/llama_8b_proj.pt")
+
+    
     model = setup_distributed_training(model, cfg.trainer.distributed)
     
 
@@ -261,7 +264,8 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
     
     # model.source_model.to_empty(device="cuda")
     # thestate = torch.load("llama_rooo_tiny.pt", mmap=True, weights_only=True, map_location="cpu")
-    thestate = torch.load("/storage_nvme_3/crewtool/llama_8b_nano.pt", mmap=True, weights_only=True, map_location="cpu")
+    # thestate = torch.load("/storage_nvme_3/crewtool/llama_8b_nano.pt", mmap=True, weights_only=True, map_location="cpu")
+    thestate = torch.load("//net/scratch/hscra/plgrid/plgcrewtool/dawaj/llama_8b_nano.pt", mmap=True, weights_only=True, map_location="cpu")
 
     meta_sharded_sd = model.source_model.state_dict()
     sharded_sd = {}
@@ -277,9 +281,10 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
     model.source_model.load_state_dict(sharded_sd, strict=False, assign=True)
 
 
+    print("Source model loaded.")
 
-
-    thestate = torch.load("/storage_nvme_3/crewtool/llama_8b_proj.pt", mmap=True, weights_only=True, map_location="cpu")
+    # thestate = torch.load("/storage_nvme_3/crewtool/llama_8b_proj.pt", mmap=True, weights_only=True, map_location="cpu")
+    thestate = torch.load("/net/scratch/hscra/plgrid/plgcrewtool/dawaj/llama_8b_proj.pt", mmap=True, weights_only=True, map_location="cpu")
 
     meta_sharded_sd = model.projections.state_dict()
     sharded_sd = {}
@@ -294,11 +299,15 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
     # choose `assign=True` since we cannot call `copy_` on meta tensor
     model.projections.load_state_dict(sharded_sd, strict=False, assign=True)
 
+    print("Projections loaded.")
+
 
 
     model.target_model.embedding.weight._local_tensor.uniform_() #TODO USUN
     model.target_model.head.linear.weight._local_tensor.uniform_() #TODO USUN
+    print("Weights initialized.")
 
+    
 
     # model.load_state_dict(thestate, assign=True)
 
@@ -479,4 +488,5 @@ def main(config: OmegaConf):
 
 
 if __name__ == "__main__":
+    print("Starting training...")
     main()
