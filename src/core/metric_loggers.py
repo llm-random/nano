@@ -147,12 +147,12 @@ def get_metric_logger(
                 with_id=neptune_run_id,
             )
             _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
-            
+
             if int(os.environ["WORLD_SIZE"]) > 1:
                 run_id_container = [None]
                 if neptune_run_id is None:
                     neptune_run_id = neptune_logger["sys/id"].fetch()
-                
+
                 run_id_container[0] = neptune_run_id
                 dist.broadcast_object_list(run_id_container, src=0)
         else:
@@ -167,9 +167,7 @@ def get_metric_logger(
                 name=metric_logger_config.name,
                 tags=metric_logger_config.tags,
             )
-            _metric_log ger = NeptuneLogger(
-                neptune_logger, rank, metric_logger_config
-            )
+            _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
 
     elif metric_logger_config.type == "stdout":
         _metric_logger = StdoutLogger(metric_logger_config)
@@ -238,4 +236,3 @@ class AveDiffMetric(AveMetric):
         metric_val_diff = metric_val - self.last_metric_val
         self.last_metric_val = metric_val
         super().log(mlogger, step, metric_val_diff)
-
