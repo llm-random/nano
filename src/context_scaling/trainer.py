@@ -228,7 +228,6 @@ class ContextScalingTrainer:
 
         return avg_loss_per_tokenid / float(os.environ["WORLD_SIZE"])
 
-
     def eval(self):
         self.model.eval()
         saved_step = self.step
@@ -263,7 +262,9 @@ class ContextScalingTrainer:
         self.metric_logger.set_step(None)  # disables heavy logging
         losses = []
         with torch.no_grad():
-            for batch in itertools.islice(self.eval_long_ctx_dataloader, self.n_eval_long_ctx_steps):
+            for batch in itertools.islice(
+                self.eval_long_ctx_dataloader, self.n_eval_long_ctx_steps
+            ):
                 batch = batch.to(self.device)
                 loss = self.calculate_per_tokenid_loss(batch)
                 losses.append(loss)
@@ -271,10 +272,14 @@ class ContextScalingTrainer:
             avg_loss_per_token = torch.stack(losses).mean(dim=0)  # shape: (n_tokens,)
             for token_idx, token_loss in enumerate(avg_loss_per_token):
                 self.metric_logger.log(
-                    f"steps/eval_long_context/loss/token_{token_idx}", self.step, token_loss.item()
+                    f"steps/eval_long_context/loss/token_{token_idx}",
+                    self.step,
+                    token_loss.item(),
                 )
             self.metric_logger.log(
-                "steps/eval_long_context/loss_mean", self.step, avg_loss_per_token.mean().item()
+                "steps/eval_long_context/loss_mean",
+                self.step,
+                avg_loss_per_token.mean().item(),
             )
 
         self.step = saved_step  # Restore step
