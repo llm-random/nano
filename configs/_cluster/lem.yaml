@@ -1,5 +1,5 @@
 infrastructure:
-  server: lem
+  server: lem_via_localhost
   max_concurrent_jobs: null
   slurm:
     cpus_per_gpu: 16
