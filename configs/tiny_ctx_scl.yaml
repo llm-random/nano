@@ -16,11 +16,13 @@ trainer:
   gradient_accumulation_steps: 1
   n_steps: 100
   learning_rate: 1e-3
+  eval_interval: 10
+  eval_long_ctx_interval: 20
 
   eval_long_ctx_dataloader:
     dataset_path: data_long_ctx
-    num_workers: 8
-    total_batch_size: 2
+    num_workers: 1
+    total_batch_size: 32
     tokenize_fn: 
       _target_: src.core.datasets.gpt2_tokenize_fn
 

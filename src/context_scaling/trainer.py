@@ -1,3 +1,4 @@
+import itertools
 import os
 import time
 from attr import define
@@ -40,6 +41,7 @@ class ContextScalingTrainer:
     eval_interval: int
     eval_long_ctx_interval: int
     n_eval_steps: int
+    n_eval_long_ctx_steps: int
     gradient_clipping: Optional[float]
     checkpoint: Optional[dict]
     learning_rate: float
@@ -53,7 +55,6 @@ class ContextScalingTrainer:
         self.device = next(self.model.parameters()).device
         self.loss_interval_100 = 0.0
         self.eval_iterator = iter(self.eval_dataloader)
-        self.eval_long_ctx_iterator = iter(self.eval_long_ctx_dataloader)
         self.step = self.start_step - 1
 
         if self.start_step > 0:
@@ -198,6 +199,36 @@ class ContextScalingTrainer:
 
         return avg_loss / float(os.environ["WORLD_SIZE"])
 
+    def calculate_per_tokenid_loss(self, batch):
+        assert not self.model.training
+
+        losses = []
+        for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
+            input_ids, target_ids = self._preprocess_input(batch_chunk)
+            input_ids = input_ids.to(self.device)
+            target_ids = target_ids.to(self.device)
+
+            predicted_ids = self.model(input_ids)
+
+            mask_loss = F.cross_entropy(
+                predicted_ids.flatten(0, -2),
+                target_ids.reshape(-1).long(),
+                reduction="none",
+            )
+
+            mask_loss_correct_shape = mask_loss.reshape(target_ids.shape)
+            mask_loss_per_tokenid = mask_loss_correct_shape.mean(dim=0)
+
+            losses.append(mask_loss_per_tokenid)
+
+        # (optional) DDP average across all ranks
+        avg_loss_per_tokenid = torch.stack(losses).sum(dim=0)
+        if dist.is_initialized():
+            dist.all_reduce(avg_loss_per_tokenid, op=dist.ReduceOp.SUM)
+
+        return avg_loss_per_tokenid / float(os.environ["WORLD_SIZE"])
+
+
     def eval(self):
         self.model.eval()
         saved_step = self.step
@@ -232,21 +263,20 @@ class ContextScalingTrainer:
         self.metric_logger.set_step(None)  # disables heavy logging
         losses = []
         with torch.no_grad():
-            for batch in self.eval_long_ctx_iterator:
+            for batch in itertools.islice(self.eval_long_ctx_dataloader, self.n_eval_long_ctx_steps):
                 batch = batch.to(self.device)
-                loss = self.calculate_loss(batch)
-                losses.append(loss.item())
+                loss = self.calculate_per_tokenid_loss(batch)
+                losses.append(loss)
                 self.metric_logger.flush_accumulated_metrics(self.step)
-            avg_loss = torch.tensor(losses).mean()
+            avg_loss_per_token = torch.stack(losses).mean(dim=0)  # shape: (n_tokens,)
+            for token_idx, token_loss in enumerate(avg_loss_per_token):
+                self.metric_logger.log(
+                    f"steps/eval_long_context/loss/token_{token_idx}", self.step, token_loss.item()
+                )
             self.metric_logger.log(
-                "steps/eval_long_context/loss", self.step, avg_loss.item()
-            )
-            self.metric_logger.log(
-                "tokens/eval_long_context/loss", self.processed_tokens, avg_loss.item()
+                "steps/eval_long_context/loss_mean", self.step, avg_loss_per_token.mean().item()
             )
 
-        # Reset iterator for next evaluation
-        self.eval_long_ctx_iterator = iter(self.eval_long_ctx_dataloader)
         self.step = saved_step  # Restore step
 
     def clip_gradient(self):

@@ -2,8 +2,9 @@ trainer:
   _partial_: true
   _target_: src.context_scaling.trainer.ContextScalingTrainer
   eval_interval: 100
-  eval_long_ctx_interval: 10
+  eval_long_ctx_interval: 100
   n_eval_steps: 10
+  n_eval_long_ctx_steps: 2
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
   n_steps: null
@@ -40,7 +41,7 @@ trainer:
     num_workers: 1
     seed: 123
     sequence_length: ${common.sequence_length}
-    total_batch_size: ${common.batch_size}
+    total_batch_size: ???
     shuffle: false
     use_new_sampling_method: true
     world_size_independent: false
