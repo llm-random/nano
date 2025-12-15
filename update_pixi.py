@@ -57,15 +57,17 @@ def update_remote_pixi(cfg: OmegaConf):
 
     # This job is just "pixi install" → no GPU needed.
     # Remove GPU-related keys inherited from the main cluster config.
-    for key in ("gres", "cpus_per_gpu", "mem_per_gpu"):
-        slurm_config.pop(key, None)
+    if server != "lem":
+        for key in ("gres", "cpus_per_gpu", "mem_per_gpu"):
+            slurm_config.pop(key, None)
 
-    # Optionally set simple CPU-only params (tune if you like)
+        # Optionally set simple CPU-only params (tune if you like)
+        slurm_config["cpus-per-task"] = (
+            4  # requires your create_slurm_parameters to map this
+        )
+        slurm_config["mem"] = "8G"  # normal mem, not mem-per-gpu
+
     slurm_config["job-name"] = "update_pixi"
-    slurm_config["cpus-per-task"] = (
-        4  # requires your create_slurm_parameters to map this
-    )
-    slurm_config["mem"] = "8G"  # normal mem, not mem-per-gpu
 
     print(f"Cluster: {server}")
     print(f"PIXI_HOME: {pixi_home}")
@@ -161,6 +163,7 @@ def update_remote_pixi(cfg: OmegaConf):
 
         # mkdir + copy happen on the compute node, via srun
         base_command = (
+            "echo PIXI_HOME: $PIXI_HOME"
             "ts=$(date +%Y_%m_%d_%H_%M_%S) && "
             f"mkdir -p {pixi_home} && "
             # archive old pixi.toml / pixi.lock if present
