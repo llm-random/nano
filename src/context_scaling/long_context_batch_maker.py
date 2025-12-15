@@ -127,3 +127,5 @@ if __name__ == "__main__":
         save_hist_dir=args.save_hist_dir,
         num_workers=args.num_workers,
     )
+
+# python src/context_scaling/long_context_batch_maker.py --dataset_path /storage_nvme_1/llm-random/datasets/c4/validation --save_data_dir /storage_nvme_1/llm-random/datasets/c4/long_context --tokenizer gpt2 --min_length 3072 --save_batch_size 4096 --save_hist_dir tmp --num_workers 16
