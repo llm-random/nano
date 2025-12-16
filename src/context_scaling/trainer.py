@@ -14,8 +14,12 @@ from attr import define
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import IterableDataset
 
-from src.core.checkpointing import (TrainingState, get_full_checkpoint_path,
-                                    save_training_state, step_checkpoint_path)
+from src.core.checkpointing import (
+    TrainingState,
+    get_full_checkpoint_path,
+    save_training_state,
+    step_checkpoint_path,
+)
 from src.core.conversion_to_hf import save_to_llama_3_hf
 from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
