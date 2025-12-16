@@ -1,25 +1,22 @@
 import itertools
-import os
-import time
-from attr import define
-import torch
-import torch.nn.functional as F
-from typing import Optional
-from torch.utils.data import IterableDataset
-import torch.distributed as dist
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-
-from src.projected_compression.compression import finalize_projection_weights
-from src.core.conversion_to_hf import save_to_llama_3_hf
-import torch.distributed.checkpoint as dcp
+import json
 import logging
+import os
+import random
+import time
+from typing import Optional
 
-from src.core.checkpointing import (
-    TrainingState,
-    get_full_checkpoint_path,
-    save_training_state,
-    step_checkpoint_path,
-)
+import torch
+import torch.distributed as dist
+import torch.distributed.checkpoint as dcp
+import torch.nn.functional as F
+from attr import define
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.utils.data import IterableDataset
+
+from src.core.checkpointing import (TrainingState, get_full_checkpoint_path,
+                                    save_training_state, step_checkpoint_path)
+from src.core.conversion_to_hf import save_to_llama_3_hf
 from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
 
@@ -256,6 +253,37 @@ class ContextScalingTrainer:
 
         self.step = saved_step  # Restore step
 
+    def get_job_path(self, path):
+        slurm_array_task_id = os.getenv("SLURM_ARRAY_TASK_ID")
+        slurm_job_id = os.getenv("SLURM_JOB_ID")
+
+        if slurm_array_task_id and slurm_job_id:
+            return f"{path}/{slurm_job_id}/{slurm_array_task_id}"
+        else:
+            return f"{path}"
+
+    def upload_long_ctx_json(self, avg_loss_per_token, saved_step):
+        tmp_dict = {
+            "step": int(saved_step),
+            "loss_per_token": [
+                float(x) for x in avg_loss_per_token.detach().cpu().tolist()
+            ],
+        }
+
+        tmp_dir = self.get_job_path("tmp/long_ctx_jsons")
+        os.makedirs(tmp_dir, exist_ok=True)
+
+        tmp_path = os.path.join(tmp_dir, f"step_{saved_step}.json")
+
+        with open(tmp_path, "w") as f:
+            json.dump(tmp_dict, f)
+
+            self.metric_logger.run[f"eval_long_context/step_{saved_step}.json"].upload(
+                tmp_path
+            )
+
+        # os.remove(path)
+
     def eval_long_ctx(self):
         self.model.eval()
         saved_step = self.step
@@ -269,18 +297,12 @@ class ContextScalingTrainer:
                 loss = self.calculate_per_tokenid_loss(batch)
                 losses.append(loss)
                 self.metric_logger.flush_accumulated_metrics(self.step)
-            avg_loss_per_token = torch.stack(losses).mean(dim=0)  # shape: (n_tokens,)
-            for token_idx, token_loss in enumerate(avg_loss_per_token):
-                self.metric_logger.log(
-                    f"steps/eval_long_context/loss/token_{token_idx}",
-                    self.step,
-                    token_loss.item(),
-                )
-            self.metric_logger.log(
-                "steps/eval_long_context/loss_mean",
-                self.step,
-                avg_loss_per_token.mean().item(),
-            )
+
+            losses_tensor = torch.stack(losses)
+            logger.info(f"step: {saved_step}, long eval shape: {losses_tensor.shape}")
+            avg_loss_per_token = losses_tensor.mean(dim=0)  # shape: (n_tokens,)
+
+            self.upload_long_ctx_json(avg_loss_per_token, saved_step)
 
         self.step = saved_step  # Restore step
 
