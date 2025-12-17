@@ -4,7 +4,7 @@ defaults:
 
 trainer:
   train_dataloader:
-  dataset:
+    dataset:
       _target_: src.core.datasets.C4Dataset
       sequence_length: ${common.sequence_length}
       tokenize_fn: ???
