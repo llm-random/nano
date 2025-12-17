@@ -1,4 +1,4 @@
-from src.core.datasets import AbstractDataset
+from src.core.datasets import AbstractDataset, get_dataloader
 
 
 class WholeDocumentDataset(AbstractDataset):
@@ -26,3 +26,12 @@ class WholeDocumentDataset(AbstractDataset):
 
             start = self.rng.randint(0, len(tokens) - self.sequence_length)
             yield tokens[start : start + self.sequence_length]
+
+def wrap_dataloader(
+    get_dataloader_fun
+):
+    dataset = get_dataloader_fun
+    wrapped_dataset = WholeDocumentDataset(
+        base_dataset=dataset
+    )
+    return wrapped_dataset
