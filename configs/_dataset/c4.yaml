@@ -6,7 +6,7 @@ trainer:
   train_dataloader:
   dataset:
       _target_: src.core.datasets.C4Dataset
-      sequence_length: ???
+      sequence_length: ${common.sequence_length}
       tokenize_fn: ???
       path: ${cluster_switch.train_path_c4}
       split: train
@@ -19,7 +19,7 @@ trainer:
   eval_dataloader:
     dataset:
       _target_: src.core.datasets.C4Dataset
-      sequence_length: ???
+      sequence_length: ${common.sequence_length}
       tokenize_fn: ???
       path: ${cluster_switch.eval_path_c4}
       split: validation
