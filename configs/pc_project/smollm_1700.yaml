@@ -36,12 +36,14 @@ trainer:
     path: ??? # CHANGE
 
   train_dataloader:
-    tokenize_fn: 
-      _target_: src.core.datasets.smollm_1700_tokenize_fn
+    dataset:
+      tokenize_fn: 
+        _target_: src.core.datasets.smollm_1700_tokenize_fn
 
   eval_dataloader:
-    tokenize_fn: 
-      _target_: src.core.datasets.smollm_1700_tokenize_fn
+    dataset:
+      tokenize_fn: 
+        _target_: src.core.datasets.smollm_1700_tokenize_fn
 
 
 infrastructure:

@@ -2,15 +2,29 @@ defaults:
   - default
   - _self_
 
+
 trainer:
   train_dataloader:
-    dataset_path: ${cluster_switch.train_path_fineweb}
-    dataset_split: train
-    dataset_type: fineweb-edu
+    dataset:
+      _target_: src.core.datasets.C4Dataset
+      sequence_length: ${common.sequence_length}
+      tokenize_fn: Callable,
+      path: ${cluster_switch.train_path_fineweb}
+      split: train
+      seed: 123
+      use_new_sampling_method: true
+      shuffle: true
+      world_size_independent: false
     num_workers: 2
 
   eval_dataloader:
-    dataset_path: ${cluster_switch.eval_path_fineweb}
-    dataset_split: train
-    dataset_type: fineweb-edu
+      _target_: src.core.datasets.C4Dataset
+      sequence_length: ${common.sequence_length}
+      tokenize_fn: Callable,
+      path: ${cluster_switch.eval_path_fineweb}
+      split: train
+      seed: 123
+      use_new_sampling_method: true
+      shuffle: true
+      world_size_independent: false
     num_workers: 2
