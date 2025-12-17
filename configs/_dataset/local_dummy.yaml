@@ -4,17 +4,27 @@ defaults:
 
 trainer:
   train_dataloader:
-    dataset_path: data
-    dataset_split: train
-    dataset_type: c4
+    dataset:
+      _target_: src.core.datasets.C4Dataset
+      sequence_length: 16
+      tokenize_fn: ???
+      path: data
+      split: train
+      seed: 123
+      use_new_sampling_method: true
+      shuffle: true
+      world_size_independent: false
     num_workers: 0
-    tokenize_fn: 
-      _target_: src.core.datasets.gpt2_tokenize_fn
 
   eval_dataloader:
-    dataset_path: data_eval
-    dataset_split: validation
-    dataset_type: c4
+    dataset:
+      _target_: src.core.datasets.C4Dataset
+      sequence_length: 16
+      tokenize_fn: ???
+      path: data_eval
+      split: validation
+      seed: 123
+      use_new_sampling_method: true
+      shuffle: true
+      world_size_independent: false
     num_workers: 0
-    tokenize_fn: 
-      _target_: src.core.datasets.gpt2_tokenize_fn

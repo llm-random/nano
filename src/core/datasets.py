@@ -307,60 +307,22 @@ def collate_wrapper(examples):
 
 
 def get_dataloader(
-    dataset_type: str,
-    dataset_path: str,
-    dataset_split: str,
-    tokenize_fn: str,
+    dataset: AbstractDataset,
     total_batch_size: int,
-    sequence_length: int,
     num_workers: int,
-    seed: int,
-    shuffle: bool,
-    use_new_sampling_method: bool,
-    world_size_independent: bool,
     collate_fn: Callable = collate_wrapper,
 ):
     world_size = int(os.environ["WORLD_SIZE"])
     batch_size_per_device = total_batch_size // world_size
     logger.debug(f"Batch size per device: {batch_size_per_device}")
     logger.debug(f"Total: {total_batch_size}")
-    if dataset_type == "c4":
-        dataset = C4Dataset(
-            sequence_length=sequence_length + 1,
-            split=dataset_split,
-            tokenize_fn=tokenize_fn,
-            path=dataset_path,
-            seed=seed,
-            use_new_sampling_method=use_new_sampling_method,
-            shuffle=shuffle,
-            world_size_independent=world_size_independent,
-        )
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size_per_device,
-            collate_fn=collate_fn,
-            pin_memory=True,
-            num_workers=num_workers,
-        )
-    elif dataset_type == "fineweb-edu":
-        dataset = FineWebEduDataset(
-            sequence_length=sequence_length + 1,
-            split=dataset_split,
-            tokenize_fn=tokenize_fn,
-            path=dataset_path,
-            seed=seed,
-            use_new_sampling_method=use_new_sampling_method,
-            shuffle=shuffle,
-            world_size_independent=world_size_independent,
-        )
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size_per_device,
-            collate_fn=collate_fn,
-            pin_memory=True,
-            num_workers=num_workers,
-        )
-    else:
-        raise ValueError(f"Unsupported dataset type: '{dataset_type}'")
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size_per_device,
+        collate_fn=collate_fn,
+        pin_memory=True,
+        num_workers=num_workers,
+    )
 
     return dataloader
