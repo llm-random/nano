@@ -20,11 +20,12 @@ trainer:
   eval_long_ctx_interval: 20
 
   eval_long_ctx_dataloader:
-    dataset_path: /storage_nvme_1/llm-random/datasets/c4/long_context_2048n8192
     num_workers: 16
     total_batch_size: 32
-    tokenize_fn: 
-      _target_: src.core.datasets.gpt2_tokenize_fn
+    dataset:
+      path: /storage_nvme_1/llm-random/datasets/c4/long_context_2048n8192
+      tokenize_fn: 
+        _target_: src.core.datasets.gpt2_tokenize_fn
 
 infrastructure:
   metric_logger:

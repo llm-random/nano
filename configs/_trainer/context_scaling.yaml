@@ -26,24 +26,26 @@ trainer:
         - ${model.head._target_}
   
   train_dataloader:
-    tokenize_fn:
-      _target_: src.core.datasets.gpt2_tokenize_fn      
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
 
   eval_dataloader:
-    tokenize_fn:
-      _target_: src.core.datasets.gpt2_tokenize_fn
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
 
   eval_long_ctx_dataloader:
     _target_: src.core.datasets.get_dataloader
-    dataset_path: ???
-    dataset_split: validation
-    dataset_type: c4
-    num_workers: 1
-    seed: 123
-    sequence_length: ${common.sequence_length}
+    dataset:
+      _target_: src.core.datasets.C4Dataset
+      sequence_length: ${common.sequence_length}
+      tokenize_fn: ???
+      path: ${cluster_switch.eval_path_c4}
+      split: validation
+      seed: 123
+      use_new_sampling_method: true
+      shuffle: true
+      world_size_independent: false
+    num_workers: 8
     total_batch_size: ???
-    shuffle: false
-    use_new_sampling_method: true
-    world_size_independent: false
-    tokenize_fn: 
-      _target_: src.core.datasets.gpt2_tokenize_fn
