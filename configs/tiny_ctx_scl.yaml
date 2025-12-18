@@ -2,7 +2,7 @@ defaults:
   - _cluster@_here_: local
   - _model@_here_: tiny
   - _trainer@_here_: context_scaling
-  - _dataset@_here_: local_dummy
+  - _dataset@_here_: ctx_scl_dataset
   - _checkpoints@_here_: none
   - _misc@_here_: default
   - _eval@_here_: none
@@ -18,14 +18,7 @@ trainer:
   learning_rate: 1e-3
   eval_interval: 10
   eval_long_ctx_interval: 20
-
-  eval_long_ctx_dataloader:
-    num_workers: 1
-    total_batch_size: 32
-    dataset:
-      path: data_long_ctx
-      tokenize_fn: 
-        _target_: src.core.datasets.gpt2_tokenize_fn
+  n_eval_long_ctx_steps: 2
 
 infrastructure:
   metric_logger:

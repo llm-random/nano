@@ -297,9 +297,13 @@ def run(cfg: OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
-    model, optimizer, scheduler, training_state, metric_logger = (
-        initialize_training_components(cfg, metric_logger)
-    )
+    (
+        model,
+        optimizer,
+        scheduler,
+        training_state,
+        metric_logger,
+    ) = initialize_training_components(cfg, metric_logger)
 
     if model is not None:
         logger.info(f"Model initialized")

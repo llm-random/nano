@@ -1,0 +1,55 @@
+defaults:
+  - _cluster@_here_: entropy
+  - _model@_here_: k16
+  - _trainer@_here_: context_scaling
+  - _dataset@_here_: ctx_scl_dataset
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+  - _eval@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 32
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 101
+  learning_rate: 2e-3
+  eval_interval: 50
+  eval_long_ctx_interval: 50
+  n_eval_long_ctx_steps: 64
+
+  train_dataloader:
+    num_workers: 8
+    dataset:
+      load_dataset_fn:
+        path: ${cluster_switch.train_path_c4}
+
+  eval_dataloader:
+    num_workers: 8
+    dataset:
+      load_dataset_fn:
+        path: ${cluster_switch.eval_path_c4}
+
+  eval_long_ctx_dataloader:
+    num_workers: 8
+    dataset:
+      load_dataset_fn:
+        path: /storage_nvme_1/llm-random/datasets/c4/long_context_2048n8192
+
+infrastructure:
+  metric_logger:
+    name: context_scaling
+    tags:
+      - nano
+      - k16
+      - context_scaling
+      - find_batch
+
+  slurm:
+    time: "00:30:00"
+    gres: gpu:1
+    job-name: ${infrastructure.metric_logger.name}
+
+    # python src/context_scaling/long_context_batch_maker.py --dataset_path /net/scratch/hscra/plgrid/plgmaciejpioro/c4/validation --save_data_dir //net/scratch/hscra/plgrid/plgmaciejpioro/c4/long_context --tokenizer gpt2 --min_length 3072 --save_batch_size 4096 --save_hist_dir tmp --num_workers 16

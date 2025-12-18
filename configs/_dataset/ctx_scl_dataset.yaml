@@ -1,0 +1,70 @@
+defaults:
+  - default
+  - _self_
+
+trainer:
+  train_dataloader:
+    _target_: src.context_scaling.dataset.get_dataloader
+    total_batch_size: ${common.batch_size}
+    num_workers: 0
+    dataset:
+      _target_: src.context_scaling.dataset.AbstractDataset
+      sequence_length: ${common.sequence_length}
+      seed: 123
+      use_new_sampling_method: true
+      world_size_independent: false
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+      sample_packer_fn:
+        _target_: src.context_scaling.dataset.new_packer
+        _partial_: true
+      load_dataset_fn:
+        _target_: src.context_scaling.dataset.get_dataset
+        _partial_: true
+        path: data
+        load_dataset_fn: null
+        shuffle: true
+
+  eval_dataloader:
+    _target_: src.context_scaling.dataset.get_dataloader
+    total_batch_size: ${common.batch_size}
+    num_workers: 0
+    dataset:
+      _target_: src.context_scaling.dataset.AbstractDataset
+      sequence_length: ${common.sequence_length}
+      seed: 123
+      use_new_sampling_method: true
+      world_size_independent: false
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+      sample_packer_fn:
+        _target_: src.context_scaling.dataset.new_packer
+        _partial_: true
+      load_dataset_fn:
+        _target_: src.context_scaling.dataset.get_dataset
+        _partial_: true
+        path: data_eval
+        load_dataset_fn: null
+        shuffle: true
+
+  eval_long_ctx_dataloader:
+    _target_: src.context_scaling.dataset.get_dataloader
+    total_batch_size: ${common.batch_size}
+    num_workers: 0
+    dataset:
+      _target_: src.context_scaling.dataset.AbstractDataset
+      sequence_length: ${common.sequence_length}
+      seed: 123
+      use_new_sampling_method: true
+      world_size_independent: false
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+      sample_packer_fn:
+        _target_: src.context_scaling.dataset.long_context_packer
+        _partial_: true
+      load_dataset_fn:
+        _target_: src.context_scaling.dataset.get_dataset
+        _partial_: true
+        path: data_long_ctx
+        load_dataset_fn: null
+        shuffle: true
