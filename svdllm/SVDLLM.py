@@ -95,22 +95,55 @@ def profle_svdllm_low_resource(model_name, model, calib_loader, dev):
         (len(calib_loader), model.seqlen, model.config.hidden_size), dtype=dtype, device=dev
     )
     cache = {'i': 0, 'attention_mask': None, "position_ids": None}
+    # class Catcher(nn.Module):
+    #     def __init__(self, module):
+    #         super().__init__()
+    #         self.module = module
+    #     def forward(self, inp, **kwargs):
+    #         inps[cache['i']] = inp.cpu()
+    #         cache['i'] += 1
+    #         if cache['attention_mask'] is None:
+    #             cache['attention_mask'] = kwargs['attention_mask'].cpu()
+    #             if "opt" not in model_name:
+    #                 cache['position_ids'] = kwargs['position_ids'].cpu()
+    #         else:
+    #             cache['attention_mask'] = torch.cat((cache['attention_mask'], kwargs['attention_mask'].cpu()), dim=0)
+    #             if "opt" not in model_name:
+    #                 cache['position_ids'] = torch.cat((cache['position_ids'], kwargs['position_ids'].cpu()), dim=0)
+    #         raise ValueError
+
     class Catcher(nn.Module):
         def __init__(self, module):
             super().__init__()
             self.module = module
+
         def forward(self, inp, **kwargs):
+            # 1. Save the hidden states (input to the first layer)
             inps[cache['i']] = inp.cpu()
             cache['i'] += 1
-            if cache['attention_mask'] is None:
-                cache['attention_mask'] = kwargs['attention_mask'].cpu()
-                if "opt" not in model_name:
-                    cache['position_ids'] = kwargs['position_ids'].cpu()
-            else:
-                cache['attention_mask'] = torch.cat((cache['attention_mask'], kwargs['attention_mask'].cpu()), dim=0)
-                if "opt" not in model_name:
-                    cache['position_ids'] = torch.cat((cache['position_ids'], kwargs['position_ids'].cpu()), dim=0)
+            
+            # 2. Capture all the essential metadata for Llama 3
+            # Use .get() to prevent errors if a specific model version doesn't use a key
+            for key in ['attention_mask', 'position_ids', 'position_embeddings', 'cache_position']:
+                val = kwargs.get(key)
+                if val is not None:
+                    # If we haven't stored this metadata yet, initialize it
+                    if key not in cache or cache[key] is None:
+                        # position_embeddings is usually a tuple (cos, sin)
+                        if isinstance(val, tuple):
+                            cache[key] = tuple(v.cpu() for v in val)
+                        else:
+                            cache[key] = val.cpu()
+                    else:
+                        # If we already have metadata, append/concat if necessary 
+                        # Note: Usually mask/pos_ids are identical across batches in calibration,
+                        # but for safety, we often just need the first set or to concat along batch dim.
+                        if key == 'attention_mask' or key == 'position_ids':
+                            cache[key] = torch.cat((cache[key], val.cpu()), dim=0)
+            
+            # 3. Stop the model immediately to save GPU memory
             raise ValueError
+        
     layers[0] = Catcher(layers[0])
     for batch in calib_loader:
         try:
