@@ -175,8 +175,10 @@ def update_remote_pixi(cfg: OmegaConf):
             "fi && "
             # move new files from $HOME temp dir into PIXI_HOME
             f"mv -f {remote_tmp_dir}/pixi.toml {pixi_home}/ && "
+            f"chmod 775 {pixi_home}/pixi.toml && "
             f"if [ -f {remote_tmp_dir}/pixi.lock ]; then "
             f"mv -f {remote_tmp_dir}/pixi.lock {pixi_home}/; "
+            f"chmod 775 {pixi_home}/pixi.lock; "
             f"fi && "
             # run pixi install
             f"cd {pixi_home} && "
