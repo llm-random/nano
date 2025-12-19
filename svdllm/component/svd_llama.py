@@ -464,36 +464,52 @@ class SVD_LlamaMLP(nn.Module):
 #             attn_weights = None
 
 
-#         return attn_output, None
+#         return attn_output, Noneimport torch
 
-import torch
+
+
+
+
+
+
+
 import torch.nn as nn
 import math
 from typing import Optional, Tuple
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import repeat_kv
 
-# --- 1. SIMPLIFIED ROTATION HELPERS ---
+# --- 1. ROPE HELPERS (Standard Manual Implementation) ---
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
-def apply_direct_rope(q, k, cos, sin):
+def apply_rope_with_ids(q, k, cos, sin, position_ids):
     """
-    Applies RoPE using direct broadcasting. 
-    Assumes q, k are [Batch, Heads, Seq, Dim]
-    Assumes cos, sin are [1, 1, Seq, Dim]
-    Ignores position_ids (assumes linear sequence 0..N)
+    Applies RoPE by gathering cosine/sine based on position_ids.
+    
+    Args:
+        q, k: [Batch, Heads, Seq, Dim]
+        cos, sin: [Max_Seq, Dim] (The raw cache)
+        position_ids: [Batch, Seq]
     """
-    # Force float32 for high precision rotation (critical for PPL)
-    # q, k might be fp16, but rotation should happen in fp32
-    # checking shapes for safety
-    # q: [B, H, S, D] * cos: [1, 1, S, D] -> Broadcasts correctly
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-    k_embed = (k * cos) + (rotate_half(k) * sin)
-    return q_embed, k_embed
+    # 1. Gather the correct embeddings for each position in the batch
+    # cos shape becomes: [Batch, Seq, Dim]
+    cos = cos[position_ids]
+    sin = sin[position_ids]
+
+    # 2. Unsqueeze to add Head dimension for broadcasting
+    # shape becomes: [Batch, 1, Seq, Dim]
+    cos = cos.unsqueeze(1)
+    sin = sin.unsqueeze(1)
+
+    # 3. Apply rotation (fp32 for stability)
+    q_embed = (q.float() * cos.float()) + (rotate_half(q.float()) * sin.float())
+    k_embed = (k.float() * cos.float()) + (rotate_half(k.float()) * sin.float())
+    
+    return q_embed.to(q.dtype), k_embed.to(k.dtype)
 
 # --- 2. ROBUST LLAMA 3.2 ROPE CLASS ---
 class Llama3RotaryEmbedding(nn.Module):
@@ -524,6 +540,7 @@ class Llama3RotaryEmbedding(nn.Module):
         final_inv_freq = (1.0 / wavelen) * (1 - ratio) + (1.0 / new_wavelen) * ratio
         self.register_buffer("inv_freq", final_inv_freq, persistent=False)
         
+        # Initialize Cache
         self._set_cos_sin_cache(seq_len=max_position_embeddings, device=device, dtype=torch.get_default_dtype())
 
     def _set_cos_sin_cache(self, seq_len, device, dtype):
@@ -532,16 +549,20 @@ class Llama3RotaryEmbedding(nn.Module):
         freqs = torch.outer(t, self.inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1)
         
-        # CRITICAL: Prepare 4D tensors for direct broadcasting [1, 1, Seq, Dim]
-        self.register_buffer("cos_cached", emb.cos()[None, None, :, :].to(dtype), persistent=False)
-        self.register_buffer("sin_cached", emb.sin()[None, None, :, :].to(dtype), persistent=False)
+        # Store as 2D [Seq, Dim] - The gather function will handle dimensions
+        self.register_buffer("cos_cached", emb.cos().to(dtype), persistent=False)
+        self.register_buffer("sin_cached", emb.sin().to(dtype), persistent=False)
 
     def forward(self, x, seq_len=None):
+        # Ensure cache is large enough
         if seq_len > self.max_seq_len_cached:
             self._set_cos_sin_cache(seq_len=seq_len + 1024, device=x.device, dtype=x.dtype)
+            
+        # Return the raw cache up to the needed length (or full cache if using gather)
+        # We return the whole thing or a large slice to ensure position_ids can index into it
         return (
-            self.cos_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
-            self.sin_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
+            self.cos_cached.to(dtype=x.dtype),
+            self.sin_cached.to(dtype=x.dtype),
         )
 
 # --- 3. SVD ATTENTION CLASS ---
@@ -572,11 +593,10 @@ class SVD_LlamaAttention(nn.Module):
         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
 
-        # Use our Robust Class with Correct Base
+        # Robust Llama 3 Class
         self.rotary_emb = Llama3RotaryEmbedding(
             self.head_dim, 
-            max_position_embeddings=2048, 
-            # max_position_embeddings=self.max_position_embeddings, 
+            max_position_embeddings=self.max_position_embeddings, 
             base=500000.0
         )
 
@@ -597,21 +617,21 @@ class SVD_LlamaAttention(nn.Module):
             else:
                 kv_seq_len += past_key_value[0].shape[-2]
 
-        # --- EXECUTE DIRECT ROPE ---
-        # 1. Get Cos/Sin (4D: [1, 1, Seq, Dim])
+        # --- FIX: ROBUST POSITION HANDLING ---
+        # 1. Ensure position_ids exist (Eval often provides them, but fallback is needed)
+        if position_ids is None:
+            # Generate [0, 1, ... kv_seq_len]
+            position_ids = torch.arange(kv_seq_len, dtype=torch.long, device=hidden_states.device)
+            position_ids = position_ids.unsqueeze(0).expand(bsz, -1)
+            # Slice to match the current query length
+            position_ids = position_ids[:, -q_len:]
+
+        # 2. Get Full Cache from Custom Class (2D: [MaxSeq, Dim])
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
         
-        # 2. Slice to current query length if necessary (Usually for inference, safe for eval)
-        # If we are just processing a chunk, we likely want the last q_len positions
-        # But for linear eval, we often want the *whole* block.
-        # Check logic: q_len usually equals kv_seq_len in non-cached eval.
-        # If cos is longer than q, we take the slice corresponding to the current positions.
-        # For simplicity in 'ppl_eval' (which sends full blocks), we take the end slice.
-        cos = cos[:, :, -q_len:, :]
-        sin = sin[:, :, -q_len:, :]
-        
-        # 3. Apply via Broadcasting (Fixes shapes, ignores position_ids)
-        query_states, key_states = apply_direct_rope(query_states, key_states, cos, sin)
+        # 3. Apply using IDs (Gather -> Broadcast)
+        # This uses our correct Llama 3 math AND respects the evaluation positions
+        query_states, key_states = apply_rope_with_ids(query_states, key_states, cos, sin, position_ids)
 
         if past_key_value is not None:
              if isinstance(past_key_value, tuple):
@@ -619,7 +639,6 @@ class SVD_LlamaAttention(nn.Module):
                  value_states = torch.cat([past_key_value[1], value_states], dim=2)
                  past_key_value = (key_states, value_states)
 
-        # 4. Repeat KV (Now safely 4D)
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
