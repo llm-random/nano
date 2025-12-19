@@ -15,7 +15,7 @@ common:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 40_000
+  n_steps: 40_001
   ^learning_rate: [9, 10, 11, 12, 13]
   eval_interval: 100
   eval_long_ctx_interval: 1000
