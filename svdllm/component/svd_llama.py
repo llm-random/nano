@@ -370,7 +370,7 @@ class SVD_LlamaAttention(nn.Module):
         output_attentions: bool = False,
         use_cache: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        
+        past_key_value = None
         bsz, q_len, _ = hidden_states.size()
 
         # 1. SVD Projections
@@ -443,4 +443,4 @@ class SVD_LlamaAttention(nn.Module):
         if not output_attentions:
             attn_weights = None
 
-        return attn_output, attn_weights, past_key_value
+        return attn_output, None
