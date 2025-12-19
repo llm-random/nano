@@ -256,7 +256,7 @@ class SVD_LlamaAttention(nn.Module):
         # 1. Projections (SVD)
         query_states = self.q_u_proj(self.q_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
         key_states = self.k_u_proj(self.k_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
-        value_states = self.v_u_proj(self.v_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
+        v = self.v_u_proj(self.v_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
 
         # 2. Reshape & Transpose: [batch, heads, seq, dim]
         # q = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -264,7 +264,7 @@ class SVD_LlamaAttention(nn.Module):
         # v = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
         cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        q, k = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         # # 3. Apply RoPE (In-Place on Q and K)
         # q = self.rope(q)
