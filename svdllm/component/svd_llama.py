@@ -38,37 +38,103 @@ class LlamaRMSNorm(nn.Module):
         return self.weight * hidden_states
 
 
-class LlamaRotaryEmbedding(torch.nn.Module):
-    def __init__(self, dim, max_position_embeddings=2048, base=500000, device=None):
-        super().__init__()
-        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float().to(device) / dim))
-        self.register_buffer("inv_freq", inv_freq)
+# class LlamaRotaryEmbedding(torch.nn.Module):
+#     def __init__(self, dim, max_position_embeddings=2048, base=500000, device=None):
+#         super().__init__()
+#         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float().to(device) / dim))
+#         self.register_buffer("inv_freq", inv_freq)
 
-        # Build here to make `torch.jit.trace` work.
-        self.max_seq_len_cached = max_position_embeddings
-        t = torch.arange(self.max_seq_len_cached, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
-        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-        # Different from paper, but it uses a different permutation in order to obtain the same calculation
+#         # Build here to make `torch.jit.trace` work.
+#         self.max_seq_len_cached = max_position_embeddings
+#         t = torch.arange(self.max_seq_len_cached, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
+#         freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+#         # Different from paper, but it uses a different permutation in order to obtain the same calculation
+#         emb = torch.cat((freqs, freqs), dim=-1)
+#         self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
+#         self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+
+#     def forward(self, x, seq_len=None):
+#         # x: [bs, num_attention_heads, seq_len, head_size]
+#         # This `if` block is unlikely to be run after we build sin/cos in `__init__`. Keep the logic here just in case.
+#         if seq_len > self.max_seq_len_cached:
+#             self.max_seq_len_cached = seq_len
+#             t = torch.arange(self.max_seq_len_cached, device=x.device, dtype=self.inv_freq.dtype)
+#             freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+#             # Different from paper, but it uses a different permutation in order to obtain the same calculation
+#             emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
+#             self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
+#             self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+#         return (
+#             self.cos_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
+#             self.sin_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
+#         )
+
+class Llama3RotaryEmbedding(nn.Module):
+    def __init__(self, dim, max_position_embeddings=131072, base=500000.0, device=None):
+        super().__init__()
+        self.dim = dim
+        self.max_position_embeddings = max_position_embeddings
+        self.base = base
+        
+        # --- LLAMA 3.2 SCALING LOGIC (Manual Implementation) ---
+        # Parameters from Llama 3.2 config
+        factor = 32.0
+        low_freq_factor = 1.0
+        high_freq_factor = 4.0
+        original_max_position_embeddings = 8192
+        
+        # 1. Generate Standard Frequencies
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.float32).to(device) / self.dim))
+        
+        # 2. Apply Llama 3 Scaling Laws
+        # Calculate wavelengths
+        wavelen = 2 * math.pi / inv_freq
+        
+        # Calculate boundaries
+        low_freq_wavelen = original_max_position_embeddings / low_freq_factor
+        high_freq_wavelen = original_max_position_embeddings / high_freq_factor
+        
+        # Create masks for different frequency bands
+        # wavelen > low_freq_wavelen -> Always scale
+        # wavelen < high_freq_wavelen -> Never scale
+        # In between -> Smooth interpolation
+        
+        # A. Frequencies that need full scaling (Low Freq / Long Wavelength)
+        new_wavelen = wavelen * factor
+        
+        # B. Smooth Interpolation Factor
+        ratio = (wavelen - high_freq_wavelen) / (low_freq_wavelen - high_freq_wavelen)
+        ratio = torch.clamp(ratio, 0.0, 1.0)
+        
+        # Interpolate between original and scaled
+        # Note: We interpolate the inverse frequency
+        new_inv_freq = 1.0 / new_wavelen
+        original_inv_freq = 1.0 / wavelen
+        
+        # Combine:
+        # If ratio=0 (High Freq): Keep original
+        # If ratio=1 (Low Freq): Use scaled
+        # In between: Mix
+        final_inv_freq = original_inv_freq * (1 - ratio) + new_inv_freq * ratio
+        
+        self.register_buffer("inv_freq", final_inv_freq, persistent=False)
+        self._set_cos_sin_cache(seq_len=max_position_embeddings, device=device, dtype=torch.float32)
+
+    def _set_cos_sin_cache(self, seq_len, device, dtype):
+        self.max_seq_len_cached = seq_len
+        t = torch.arange(self.max_seq_len_cached, device=device, dtype=self.inv_freq.dtype)
+        freqs = torch.outer(t, self.inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1)
-        self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
-        self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+        self.register_buffer("cos_cached", emb.cos().to(dtype), persistent=False)
+        self.register_buffer("sin_cached", emb.sin().to(dtype), persistent=False)
 
     def forward(self, x, seq_len=None):
-        # x: [bs, num_attention_heads, seq_len, head_size]
-        # This `if` block is unlikely to be run after we build sin/cos in `__init__`. Keep the logic here just in case.
         if seq_len > self.max_seq_len_cached:
-            self.max_seq_len_cached = seq_len
-            t = torch.arange(self.max_seq_len_cached, device=x.device, dtype=self.inv_freq.dtype)
-            freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-            # Different from paper, but it uses a different permutation in order to obtain the same calculation
-            emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
-            self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
-            self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+            self._set_cos_sin_cache(seq_len=seq_len + 1024, device=x.device, dtype=x.dtype)
         return (
-            self.cos_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
-            self.sin_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
+            self.cos_cached[:seq_len].to(dtype=x.dtype),
+            self.sin_cached[:seq_len].to(dtype=x.dtype),
         )
-
 
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
@@ -269,12 +335,19 @@ class SVD_LlamaAttention(nn.Module):
         
         print(f"rope_theta {rope_theta}") #dev
         print(f"Scaling {rope_scaling}") #dev
+        print(f"max_position_embeddings {self.max_position_embeddings}") #dev
         # 3. Instantiate the OFFICIAL class with all parameters
-        self.rotary_emb = LlamaRotaryEmbedding(
+        # self.rotary_emb = LlamaRotaryEmbedding(
+        #     self.head_dim, 
+        #     max_position_embeddings=self.max_position_embeddings,
+        #     base=rope_theta
+        # )
+        self.rotary_emb = Llama3RotaryEmbedding(
             self.head_dim, 
             max_position_embeddings=self.max_position_embeddings,
             base=rope_theta
         )
+        
         # self.rotary_emb = LlamaRotaryEmbedding(self.config)
 
     def forward(
