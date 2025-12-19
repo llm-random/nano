@@ -267,14 +267,17 @@ class SVD_LlamaAttention(nn.Module):
         # 2. Get the scaling configuration (Critical for Llama 3.2!)
         rope_scaling = getattr(config, "rope_scaling", None)
         
+        print(f"rope_theta {rope_theta}") #dev
+        print(f"Scaling {rope_scaling}") #dev
         # 3. Instantiate the OFFICIAL class with all parameters
-        self.rotary_emb = LlamaRotaryEmbedding(
-            self.head_dim, 
-            max_position_embeddings=self.max_position_embeddings,
-            base=rope_theta,
-            scaling=rope_scaling, # <--- This was missing in your custom class
-            device=None
-        )
+        # self.rotary_emb = LlamaRotaryEmbedding(
+        #     self.head_dim, 
+        #     max_position_embeddings=self.max_position_embeddings,
+        #     base=rope_theta,
+        #     scaling=rope_scaling, # <--- This was missing in your custom class
+        #     device=None
+        # )
+        self.rotary_emb = LlamaRotaryEmbedding(self.config)
 
     def forward(
         self,
