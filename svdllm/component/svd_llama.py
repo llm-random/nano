@@ -136,19 +136,48 @@ class Llama3RotaryEmbedding(nn.Module):
         )
     
 
+# def rotate_half(x):
+#     """Rotates half the hidden dims of the input."""
+#     x1 = x[..., : x.shape[-1] // 2]
+#     x2 = x[..., x.shape[-1] // 2 :]
+#     return torch.cat((-x2, x1), dim=-1)
+
+
+# def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+#     gather_indices = position_ids[:, None, :, None]  # [bs, 1, seq_len, 1]
+#     gather_indices = gather_indices.repeat(1, cos.shape[1], 1, cos.shape[3])
+#     cos = torch.gather(cos.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
+#     sin = torch.gather(sin.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
+    
+#     q_embed = (q * cos) + (rotate_half(q) * sin)
+#     k_embed = (k * cos) + (rotate_half(k) * sin)
+#     return q_embed, k_embed
+
+# --- 1. HELPER: Rotate Half Function ---
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
-
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
-    gather_indices = position_ids[:, None, :, None]  # [bs, 1, seq_len, 1]
-    gather_indices = gather_indices.repeat(1, cos.shape[1], 1, cos.shape[3])
-    cos = torch.gather(cos.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
-    sin = torch.gather(sin.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
+# --- 2. HELPER: Custom Apply RoPE (Replaces Library Function) ---
+def apply_custom_rope(q, k, cos, sin, position_ids):
+    # This function handles the exact shapes produced by our Llama3RotaryEmbedding
+    # q, k: [Batch, Heads, Seq, Dim]
+    # cos, sin: [MaxSeq, Dim] (Raw Cache)
+    # position_ids: [Batch, Seq]
     
+    # 1. Select embeddings for the specific positions in this batch
+    # Output shape: [Batch, Seq, Dim]
+    cos = cos[position_ids]
+    sin = sin[position_ids]
+    
+    # 2. Unsqueeze to broadcast over heads
+    # Output shape: [Batch, 1, Seq, Dim]
+    cos = cos.unsqueeze(1)
+    sin = sin.unsqueeze(1)
+    
+    # 3. Apply rotation
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
