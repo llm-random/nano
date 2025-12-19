@@ -393,12 +393,13 @@ class SVD_LlamaAttention(nn.Module):
 
         print(f"kwargs {kwargs}") #dev
         
-        # Check if 'position_embeddings' was passed in kwargs (Llama 3 style)
-        if "position_embeddings" in kwargs:
-            cos, sin = kwargs["position_embeddings"]
-        else:
-            # Fallback to internal calculation
-            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        # # Check if 'position_embeddings' was passed in kwargs (Llama 3 style)
+        # if "position_embeddings" in kwargs:
+        #     cos, sin = kwargs["position_embeddings"]
+        # else:
+        #     # Fallback to internal calculation
+        #     cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        cos, sin = kwargs["position_embeddings"]
 
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
