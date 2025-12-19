@@ -78,7 +78,8 @@ class Llama3RotaryEmbedding(nn.Module):
         
         # --- LLAMA 3.2 SCALING LOGIC (Manual Implementation) ---
         # Parameters from Llama 3.2 config
-        factor = 32.0
+        # factor = 32.0
+        factor = 132.0 #dev
         low_freq_factor = 1.0
         high_freq_factor = 4.0
         original_max_position_embeddings = 8192
