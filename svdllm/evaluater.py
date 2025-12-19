@@ -33,6 +33,7 @@ def ppl_eval(model, tokenizer, datasets=['wikitext2', 'ptb', 'c4'], model_seq_le
         ppl = np.exp(torch.cat(nlls, dim=-1).mean().item())
         ppls[dataset] = ppl
     print("PPL after pruning: {}".format(ppls))
+    print("CE after pruning: {}".format(torch.cat(nlls, dim=-1).mean().item()))
     print("Weight Memory: {} MiB\n".format(torch.cuda.memory_allocated()/1024/1024))
 
 # only call this function when for 65b or more model    
