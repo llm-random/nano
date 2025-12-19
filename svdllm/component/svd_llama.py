@@ -371,9 +371,9 @@ class SVD_LlamaAttention(nn.Module):
         # print(f"inside lol: {attn_output}") #dev
 
         # return attn_output, attn_weights, past_key_value
-        # return attn_output, past_key_value
+        return attn_output, ["xd"]
 
-        return rand_attn_output, ["xd"]
+        # return (torch.rand_like(attn_output) * 2) - 1, past_key_value
 
 
 
