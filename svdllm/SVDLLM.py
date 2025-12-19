@@ -782,55 +782,8 @@ if __name__ == '__main__':
         model = model.float()
         model = model.to(args.DEV)
 
-        # # ==================== INSERT THIS PATCH ====================
-        # # This fixes the "unexpected keyword argument" error for Llama 3
-        # print("Patching SVD attention layers for Llama 3 compatibility...")
-        # try:
-        #     # 1. Grab the specific custom class used for attention in your SVD model
-        #     first_layer = model.model.layers[0]
-        #     attn_class = first_layer.self_attn.__class__
-            
-        #     # 2. Save the original forward method so we can call it later
-        #     if not hasattr(attn_class, '_original_forward'):
-        #         attn_class._original_forward = attn_class.forward
-
-        #     # 3. Define a new forward that filters out the incompatible arguments
-        #     def patched_forward(self, *args, **kwargs):
-        #         # Remove Llama 3 specific args that the SVD code doesn't know about
-        #         kwargs.pop('past_key_values', None)
-        #         kwargs.pop('cache_position', None)
-        #         kwargs.pop('position_embeddings', None)
-        #         return self._original_forward(*args, **kwargs)
-  
-
-        #     # 4. Apply the patch globally to the class
-        #     attn_class.forward = patched_forward
-        #     print(f"Successfully patched {attn_class.__name__} forward method.")
-        # except Exception as e:
-        #     print(f"Warning: Could not patch attention layer. Error: {e}")
-        # # ===========================================================
 
         if args.step == 4:
             ppl_eval(model, tokenizer, datasets=['wikitext2'], model_seq_len=args.model_seq_len, batch_size=args.eval_batch_size, device=args.DEV)
-        # elif args.step >= 4:
-        #     print(f"evaluating {args.model_path}...")
-        #     if args.model_path == "original":
-        #         model, tokenizer = get_model_from_huggingface(args.model)
-        #     else:
-        #         model, tokenizer = get_model_from_local(args.model_path)
-        #         if args.lora is not None:
-        #             from utils.peft import PeftModel
-        #             model = PeftModel.from_pretrained(
-        #                 model,
-        #                 args.lora,
-        #                 torch_dtype=torch.float16,
-        #             )
-        #             model = model.merge_and_unload()
-        #             torch.save({'model': model, 'tokenizer': tokenizer}, args.lora + '/merge.pt')
-        #     model.eval()
-        #     model = model.float()
-        #     model = model.to(args.DEV)
-        #     if args.step == 4:
-        #         ppl_eval(model, tokenizer, datasets=['wikitext2'], model_seq_len=args.model_seq_len, batch_size=args.eval_batch_size, device=args.DEV)
         elif args.step == 5:
             eff_eval(model, tokenizer, generated_len=args.gen_seq_len, batch_size=args.eval_batch_size, device=args.DEV)
