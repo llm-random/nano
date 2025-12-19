@@ -795,12 +795,31 @@ if __name__ == '__main__':
                 attn_class._original_forward = attn_class.forward
 
             # 3. Define a new forward that filters out the incompatible arguments
+            # def patched_forward(self, *args, **kwargs):
+            #     # Remove Llama 3 specific args that the SVD code doesn't know about
+            #     kwargs.pop('past_key_values', None)
+            #     kwargs.pop('cache_position', None)
+            #     kwargs.pop('position_embeddings', None)
+            #     return self._original_forward(*args, **kwargs)
             def patched_forward(self, *args, **kwargs):
-                # Remove Llama 3 specific args that the SVD code doesn't know about
-                kwargs.pop('past_key_values', None)
+                # 1. Clean Inputs
+                # WE MUST REMOVE these two because SVD_LlamaAttention doesn't handle them:
+                kwargs.pop('past_key_values', None) 
                 kwargs.pop('cache_position', None)
-                kwargs.pop('position_embeddings', None)
-                return self._original_forward(*args, **kwargs)
+                
+                # CRITICAL FIX: DO NOT REMOVE 'position_embeddings'. 
+                # We need them to pass through so Llama 3.2 RoPE works correctly!
+                # kwargs.pop('position_embeddings', None)  <-- DELETED THIS LINE
+                
+                # 2. Run Original SVD Forward
+                outputs = self._original_forward(*args, **kwargs)
+                
+                # 3. Fix Output for "expected 2" error
+                # If we have 3 items (output, weights, kv) but caller wants 2...
+                if isinstance(outputs, tuple) and len(outputs) > 2:
+                    return outputs[0], outputs[2] 
+                    
+                return outputs
 
             # 4. Apply the patch globally to the class
             attn_class.forward = patched_forward
