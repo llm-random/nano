@@ -72,14 +72,15 @@ from transformers.models.llama.configuration_llama import LlamaConfig
 # --- 1. HELPER: Repeat KV for GQA ---
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
-    Equivalent to torch.repeat_interleave(x, dim=1, repeats=n_rep).
-    Input:  (batch, num_key_value_heads, seqlen, head_dim)
-    Output: (batch, num_attention_heads, seqlen, head_dim)
+    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
+    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)
     """
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
         return hidden_states
-    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    hidden_states = hidden_states[:, :, None, :, :].expand(
+        batch, num_key_value_heads, n_rep, slen, head_dim
+    )
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 # --- 2. YOUR WORKING ROPE CLASS (Llama 3.2 Logic) ---
@@ -157,6 +158,7 @@ class RoPE(nn.Module):
 # --- 3. SVD ATTENTION CLASS (Using your exact flow) ---
 class SVD_LlamaAttention(nn.Module):
     def __init__(self, config: LlamaConfig, ratio=1):
+        print(f"init in SVD_LlamaAttention --------------------------------------------------------------") #dev
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
@@ -209,6 +211,9 @@ class SVD_LlamaAttention(nn.Module):
         position_ids: Optional[torch.LongTensor] = None,
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        
+        print(f"forward in SVD_LlamaAttention --------------------------------------------------------------") #dev
+        print(f"kwargs {kwargs}") #dev
         
         bsz, q_len, _ = hidden_states.size()
 
