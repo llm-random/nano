@@ -465,6 +465,12 @@ class SVD_LlamaMLP(nn.Module):
 
 
 #         return attn_output, Noneimport torch
+############################################################################################################################################################################
+
+
+
+
+
 
 
 import torch
@@ -472,78 +478,94 @@ import torch.nn as nn
 import math
 from typing import Optional, Tuple
 from transformers.models.llama.configuration_llama import LlamaConfig
-from transformers.models.llama.modeling_llama import repeat_kv, LlamaRotaryEmbedding, apply_rotary_pos_emb
+from transformers.models.llama.modeling_llama import repeat_kv
 
-# --- 1. HIJACKED ROPE CLASS (Self-Contained Logic + Library Signature) ---
-class Llama32RotaryEmbedding(LlamaRotaryEmbedding):
-    """
-    Inherits from transformers LlamaRotaryEmbedding to pass type checks/init signature,
-    but implements ALL logic internally to avoid missing attribute errors in newer libs.
-    """
-    def __init__(self, config: LlamaConfig, device=None):
-        # 1. Initialize Parent to satisfy library checks
-        # We catch potential errors if parent init tries to do something fancy
-        try:
-            super().__init__(config=config, device=device)
-        except Exception:
-            # Fallback if parent is extremely different, just init as nn.Module
-            nn.Module.__init__(self)
-        
-        # 2. Extract dimensions explicitly
-        self.head_dim = config.hidden_size // config.num_attention_heads
-        base = getattr(config, "rope_theta", 500000.0)
-        max_position_embeddings = config.max_position_embeddings
-        
-        # --- LLAMA 3.2 MATH OVERWRITE ---
-        factor = 32.0
-        low_freq_factor = 1.0
-        high_freq_factor = 4.0
-        original_max_position_embeddings = 8192
+# --- 1. HELPER: ROTATE HALF ---
+def rotate_half(x):
+    """Rotates half the hidden dims of the input."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
 
-        # 3. Generate Frequencies
-        inv_freq = 1.0 / (base ** (torch.arange(0, self.head_dim, 2, dtype=torch.float32).to(device) / self.head_dim))
+# --- 2. HELPER: CUSTOM ROPE APPLICATION (Fixes the Crash) ---
+def apply_custom_rope(q, k, cos, sin, position_ids):
+    """
+    Manually applies RoPE to guarantee correct broadcasting shapes.
+    
+    Args:
+        q, k: [Batch, Heads, Seq, Dim]
+        cos, sin: [MaxSeq, Dim] (Raw Cache)
+        position_ids: [Batch, Seq]
+    """
+    # 1. Gather the correct embeddings for each position
+    #    [MaxSeq, Dim] -> [Batch, Seq, Dim]
+    cos = cos[position_ids]
+    sin = sin[position_ids]
+
+    # 2. Unsqueeze to add Head dimension for broadcasting
+    #    [Batch, Seq, Dim] -> [Batch, 1, Seq, Dim]
+    cos = cos.unsqueeze(1)
+    sin = sin.unsqueeze(1)
+
+    # 3. Apply rotation (fp32 for stability)
+    #    [Batch, Heads, Seq, Dim] * [Batch, 1, Seq, Dim] -> Broadcasts perfectly
+    q_embed = (q.float() * cos.float()) + (rotate_half(q.float()) * sin.float())
+    k_embed = (k.float() * cos.float()) + (rotate_half(k.float()) * sin.float())
+    
+    return q_embed.to(q.dtype), k_embed.to(k.dtype)
+
+# --- 3. CLASS: ROBUST LLAMA 3.2 MATH ---
+class Llama3RotaryEmbedding(nn.Module):
+    def __init__(self, dim, max_position_embeddings=131072, base=500000.0, device=None):
+        super().__init__()
+        self.dim = dim
+        self.base = base
+        self.max_position_embeddings = max_position_embeddings
         
-        # 4. Apply Scaling
+        # Hardcoded Llama 3.2 Scaling Factors (Fixes 138 PPL)
+        self.factor = 32.0
+        self.low_freq_factor = 1.0
+        self.high_freq_factor = 4.0
+        self.original_max_position_embeddings = 8192
+
+        # Generate Frequencies
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.float32).to(device) / self.dim))
+        
+        # Apply Llama 3 Scaling Logic
         wavelen = 2 * math.pi / inv_freq
-        low_freq_wavelen = original_max_position_embeddings / low_freq_factor
-        high_freq_wavelen = original_max_position_embeddings / high_freq_factor
+        low_freq_wavelen = self.original_max_position_embeddings / self.low_freq_factor
+        high_freq_wavelen = self.original_max_position_embeddings / self.high_freq_factor
         
-        new_wavelen = wavelen * factor
+        new_wavelen = wavelen * self.factor
         ratio = (wavelen - high_freq_wavelen) / (low_freq_wavelen - high_freq_wavelen)
         ratio = torch.clamp(ratio, 0.0, 1.0)
         
         final_inv_freq = (1.0 / wavelen) * (1 - ratio) + (1.0 / new_wavelen) * ratio
-        
-        # 5. Register Buffers
         self.register_buffer("inv_freq", final_inv_freq, persistent=False)
         
-        # 6. Initialize Cache (Defining the method below avoids the AttributeError)
+        # Initialize Cache
         self._set_cos_sin_cache(seq_len=max_position_embeddings, device=device, dtype=torch.get_default_dtype())
 
-    # --- MISSING METHOD 1: Explicitly define cache generation ---
     def _set_cos_sin_cache(self, seq_len, device, dtype):
         self.max_seq_len_cached = seq_len
         t = torch.arange(self.max_seq_len_cached, device=device, dtype=self.inv_freq.dtype)
         freqs = torch.outer(t, self.inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1)
         
-        # Register standard 2D cache [Seq, Dim]
-        # We let the apply function handle broadcasting
+        # Store as standard 2D [Seq, Dim]
         self.register_buffer("cos_cached", emb.cos().to(dtype), persistent=False)
         self.register_buffer("sin_cached", emb.sin().to(dtype), persistent=False)
 
-    # --- MISSING METHOD 2: Explicitly define forward ---
     def forward(self, x, seq_len=None):
-        # Handle cache expansion if needed
         if seq_len > self.max_seq_len_cached:
             self._set_cos_sin_cache(seq_len=seq_len + 1024, device=x.device, dtype=x.dtype)
-            
+        # Return raw cache, the custom apply function handles the rest
         return (
-            self.cos_cached[:seq_len].to(dtype=x.dtype),
-            self.sin_cached[:seq_len].to(dtype=x.dtype),
+            self.cos_cached.to(dtype=x.dtype),
+            self.sin_cached.to(dtype=x.dtype),
         )
 
-# --- 2. SVD ATTENTION CLASS ---
+# --- 4. CLASS: SVD ATTENTION ---
 class SVD_LlamaAttention(nn.Module):
     def __init__(self, config: LlamaConfig, ratio=1):
         super().__init__()
@@ -571,8 +593,12 @@ class SVD_LlamaAttention(nn.Module):
         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
 
-        # Instantiate Hijacked Class
-        self.rotary_emb = Llama32RotaryEmbedding(config=self.config)
+        # Robust Llama 3 Class
+        self.rotary_emb = Llama3RotaryEmbedding(
+            self.head_dim, 
+            max_position_embeddings=self.max_position_embeddings, 
+            base=500000.0
+        )
 
     def forward(self, hidden_states, attention_mask=None, position_ids=None, past_key_value=None, output_attentions=False, use_cache=False, **kwargs):
         bsz, q_len, _ = hidden_states.size()
@@ -591,18 +617,20 @@ class SVD_LlamaAttention(nn.Module):
             else:
                 kv_seq_len += past_key_value[0].shape[-2]
 
-        # --- ENSURE POSITION IDS ---
+        # --- FIX: ENSURE POSITION IDS EXIST (Fixes 11k PPL) ---
         if position_ids is None:
+            # Generate IDs [0...kv_seq_len]
             position_ids = torch.arange(kv_seq_len, dtype=torch.long, device=hidden_states.device)
             position_ids = position_ids.unsqueeze(0).expand(bsz, -1)
+            # Slice to match the current query
             position_ids = position_ids[:, -q_len:]
 
-        # --- EXECUTE ROPE ---
-        # 1. Get Embeddings (from our hijacked class)
+        # --- EXECUTE CUSTOM ROPE (Fixes 138 PPL + Crash) ---
+        # 1. Get raw cache [MaxSeq, Dim]
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
         
-        # 2. Apply (transformers function handles the 2D->4D broadcasting for us)
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+        # 2. Apply using OUR LOCAL FUNCTION (guarantees broadcasting)
+        query_states, key_states = apply_custom_rope(query_states, key_states, cos, sin, position_ids)
 
         if past_key_value is not None:
              if isinstance(past_key_value, tuple):
@@ -624,3 +652,10 @@ class SVD_LlamaAttention(nn.Module):
         attn_output = self.o_u_proj(self.o_v_proj(attn_output))
 
         return attn_output, None
+
+
+
+
+
+
+
