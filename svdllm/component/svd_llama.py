@@ -244,16 +244,18 @@ class SVD_LlamaAttention(nn.Module):
         # print(f"attention_mask {attention_mask}") #dev
         
         bsz, q_len, _ = hidden_states.size()
+        input_shape = hidden_states.shape[:-1]
+        hidden_shape = (*input_shape, -1, self.head_dim)
 
         # 1. Projections (SVD)
-        query_states = self.q_u_proj(self.q_v_proj(hidden_states))
-        key_states = self.k_u_proj(self.k_v_proj(hidden_states))
-        value_states = self.v_u_proj(self.v_v_proj(hidden_states))
+        query_states = self.q_u_proj(self.q_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
+        key_states = self.k_u_proj(self.k_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
+        value_states = self.v_u_proj(self.v_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
 
         # 2. Reshape & Transpose: [batch, heads, seq, dim]
-        q = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        k = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        v = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        # q = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        # k = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        # v = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
