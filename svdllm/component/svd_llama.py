@@ -39,7 +39,7 @@ class LlamaRMSNorm(nn.Module):
 
 
 class LlamaRotaryEmbedding(torch.nn.Module):
-    def __init__(self, dim, max_position_embeddings=2048, base=500000, device=None):
+    def __init__(self, dim, max_position_embeddings=2048, base=7, device=None):
         super().__init__()
         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float().to(device) / dim))
         self.register_buffer("inv_freq", inv_freq)
