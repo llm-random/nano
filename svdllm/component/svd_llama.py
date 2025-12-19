@@ -215,12 +215,12 @@ import math
 from typing import Optional, Tuple
 from transformers.models.llama.configuration_llama import LlamaConfig
 
-# --- 1. Helper: Repeat KV for GQA ---
+# --- 1. HELPER: Repeat KV for GQA ---
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
-    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep).
-    The hidden states go from (batch, num_key_value_heads, seqlen, head_dim)
-    to (batch, num_attention_heads, seqlen, head_dim)
+    Equivalent to torch.repeat_interleave(x, dim=1, repeats=n_rep).
+    Input:  (batch, num_key_value_heads, seqlen, head_dim)
+    Output: (batch, num_attention_heads, seqlen, head_dim)
     """
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
@@ -228,7 +228,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
-# --- 2. Your Provided RoPE Class (Llama 3.2 Logic) ---
+# --- 2. YOUR WORKING ROPE CLASS (Llama 3.2 Logic) ---
 class RoPE(nn.Module):
     def __init__(
         self,
@@ -290,23 +290,18 @@ class RoPE(nn.Module):
         return inv_freq_llama
 
     def forward(self, x):
+        # x shape: [batch, heads, seq, dim]
         [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
         x_rotated = torch.cat([-y2, y1], dim=-1)
-        # Ensure we slice to the current sequence length of x
-        seq_len = x.shape[1] # Assumes [batch, seq, heads, dim]
-        cos_scaler = self.cos[:seq_len, :].to(x.device, dtype=x.dtype)
-        sin_scaler = self.sin[:seq_len, :].to(x.device, dtype=x.dtype)
         
-        # Reshape scalers for broadcasting: [seq, dim] -> [1, seq, 1, dim]
-        cos_scaler = cos_scaler.view(1, seq_len, 1, -1)
-        sin_scaler = sin_scaler.view(1, seq_len, 1, -1)
+        # We slice based on the -2 dimension (seq_len)
+        cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
+        sin_scaler = self.sin[: x.shape[-2], :].to(x.device, dtype=x.dtype)
         
         return x * cos_scaler + x_rotated * sin_scaler
 
-# --- 3. SVD Attention for Llama 3 (GQA + New RoPE) ---
+# --- 3. SVD ATTENTION CLASS (Using your exact flow) ---
 class SVD_LlamaAttention(nn.Module):
-    """Llama 3 Attention with SVD Compression and GQA support"""
-
     def __init__(self, config: LlamaConfig, ratio=1):
         super().__init__()
         self.config = config
@@ -314,40 +309,32 @@ class SVD_LlamaAttention(nn.Module):
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
         
-        # --- Llama 3 GQA Setup ---
-        self.num_key_value_heads = config.num_key_value_heads
+        # GQA Settings
+        self.num_key_value_heads = config.num_key_value_heads if hasattr(config, "num_key_value_heads") else self.num_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         self.max_position_embeddings = config.max_position_embeddings
         self.ratio = ratio
 
         if (self.head_dim * self.num_heads) != self.hidden_size:
-            raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-                f" and `num_heads`: {self.num_heads})."
-            )
+            raise ValueError(f"hidden_size {self.hidden_size} not divisible by num_heads {self.num_heads}")
 
-        # Calculate low rank dimension
         low_rank = int(self.hidden_size * self.ratio / 2)
 
-        # --- Query Projections (Uses full num_heads) ---
+        # 1. Initialize SVD Projections
         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
 
-        # --- Key/Value Projections (Uses num_key_value_heads for GQA) ---
         self.k_u_proj = nn.Linear(low_rank, self.num_key_value_heads * self.head_dim, bias=False)
         self.k_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
 
         self.v_u_proj = nn.Linear(low_rank, self.num_key_value_heads * self.head_dim, bias=False)
         self.v_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
 
-        # --- Output Projection (Uses full hidden size) ---
         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
 
-        # --- Initialize Your Custom RoPE ---
-        # Note: Llama 3.2 defaults
+        # 2. Initialize RoPE with Llama 3.2 Defaults
         rope_base = getattr(config, "rope_theta", 500000.0)
-        # Check config for scaling, default to True for Llama 3.1/3.2
         use_scaling = True 
         
         self.rope = RoPE(
@@ -355,7 +342,7 @@ class SVD_LlamaAttention(nn.Module):
             length=self.max_position_embeddings,
             base=rope_base,
             apply_freq_scaling=use_scaling,
-            factor=32.0, # Llama 3 standard
+            factor=32.0,
             low_freq_factor=1.0,
             high_freq_factor=4.0,
             original_max_position_embeddings=8192,
@@ -366,81 +353,43 @@ class SVD_LlamaAttention(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
-        output_attentions: bool = False,
-        use_cache: bool = False,
+        **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        past_key_value = None
+        
         bsz, q_len, _ = hidden_states.size()
 
-        # 1. SVD Projections
-        # Q: [bsz, q_len, num_heads, head_dim]
+        # 1. Projections (SVD)
         query_states = self.q_u_proj(self.q_v_proj(hidden_states))
-        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim)
-
-        # K/V: [bsz, q_len, num_key_value_heads, head_dim] (Smaller due to GQA)
         key_states = self.k_u_proj(self.k_v_proj(hidden_states))
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-
         value_states = self.v_u_proj(self.v_v_proj(hidden_states))
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
 
-        # 2. Apply RoPE (Your custom class handles Q and K rotation)
-        # Note: Your RoPE expects [batch, seq, heads, dim], which matches our view above
-        query_states = self.rope(query_states)
-        key_states = self.rope(key_states)
+        # 2. Reshape & Transpose: [batch, heads, seq, dim]
+        q = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        k = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        v = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
-        # [bsz, heads, seq, dim] for attention math
-        query_states = query_states.transpose(1, 2)
-        key_states = key_states.transpose(1, 2)
-        value_states = value_states.transpose(1, 2)
+        # 3. Apply RoPE (In-Place on Q and K)
+        q = self.rope(q)
+        k = self.rope(k)
 
-        # 3. Handle KV Cache
-        if past_key_value is not None:
-            # reuse k, v, self_attention
-            key_states = torch.cat([past_key_value[0], key_states], dim=2)
-            value_states = torch.cat([past_key_value[1], value_states], dim=2)
+        # 5. Repeat KV for GQA
+        k = repeat_kv(k, self.num_heads // self.num_key_value_heads)
+        v = repeat_kv(v, self.num_heads // self.num_key_value_heads)
 
-        past_key_value = (key_states, value_states) if use_cache else None
-
-        # 4. Repeat KV for GQA (Expand K/V heads to match Q heads)
-        key_states = repeat_kv(key_states, self.num_key_value_groups)
-        value_states = repeat_kv(value_states, self.num_key_value_groups)
-
-        # 5. Attention Mechanism
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-
-        if attn_weights.size() != (bsz, self.num_heads, q_len, key_states.size(2)):
-            raise ValueError(
-                f"Attention weights should be of size {(bsz, self.num_heads, q_len, key_states.size(2))}, but is"
-                f" {attn_weights.size()}"
-            )
+        # 6. Attention Mechanism (Standard Scaled Dot Product)
+        # q, k, v are now all [bsz, num_heads, seq_len, head_dim]
+        attn_weights = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.head_dim)
 
         if attention_mask is not None:
-            # Ensure mask broadcasting matches
-            if attention_mask.size() != (bsz, 1, q_len, key_states.size(2)):
-                # You might need logic here to handle different mask shapes depending on your pipeline
-                pass 
             attn_weights = attn_weights + attention_mask
             attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
 
-        # Upcast attention to fp32 for stability
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_output = torch.matmul(attn_weights, value_states)
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(q.dtype)
+        attn_output = torch.matmul(attn_weights, v)
 
-        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-            raise ValueError(
-                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-                f" {attn_output.size()}"
-            )
-
-        attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
-
-        # 6. Output Projection (SVD)
+        # 7. Output Projection
+        attn_output = attn_output.transpose(1, 2).contiguous().reshape(bsz, q_len, -1)
         attn_output = self.o_u_proj(self.o_v_proj(attn_output))
 
-        if not output_attentions:
-            attn_weights = None
 
         return attn_output, None
