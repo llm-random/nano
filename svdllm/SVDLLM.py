@@ -799,7 +799,7 @@ if __name__ == '__main__':
                 # Remove Llama 3 specific args that the SVD code doesn't know about
                 kwargs.pop('past_key_values', None)
                 kwargs.pop('cache_position', None)
-                kwargs.pop('position_embeddings', None)
+                # kwargs.pop('position_embeddings', None)
                 return self._original_forward(*args, **kwargs)
   
 
