@@ -289,6 +289,11 @@ class SVD_LlamaAttention(nn.Module):
         use_cache: bool = False,
         **kwargs, # --- FIX 3: Catch-all for Llama 3 extra args (position_embeddings, cache_position) ---
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        attention_mask = None
+        position_ids = None
+        past_key_value = None
+        output_attentions = False
+        use_cache = False
         bsz, q_len, _ = hidden_states.size()
 
         # 1. Project Queries (Standard SVD)
