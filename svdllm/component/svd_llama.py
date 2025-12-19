@@ -368,6 +368,8 @@ class SVD_LlamaAttention(nn.Module):
         if not output_attentions:
             attn_weights = None
 
+        print(f"inside lol: {attn_output}")
+
         # return attn_output, attn_weights, past_key_value
         return attn_output, past_key_value
 
