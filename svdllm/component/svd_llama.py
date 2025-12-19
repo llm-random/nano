@@ -419,9 +419,9 @@ class SVD_LlamaAttention(nn.Module):
 
         # 2. Apply RoPE
         if "position_embeddings" in kwargs:
-            cos, sin = kwargs["position_embeddings"]
+            cos, sin = kwargs["position_embeddings"] # This will now work!
         else:
-            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len) # We want to avoid this fallback
             
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
