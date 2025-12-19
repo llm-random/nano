@@ -9,7 +9,7 @@ from transformers.activations import ACT2FN
 from transformers.utils import logging
 from transformers import LlamaConfig
 
-from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding, apply_rotary_pos_emb, repeat_kv
+from transformers.models.llama.modeling_llama import repeat_kv
 from typing import Optional, Tuple
 import math
 
@@ -155,6 +155,32 @@ class RoPE(nn.Module):
         
         return x * cos_scaler + x_rotated * sin_scaler
 
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
+    """Applies Rotary Position Embedding to the query and key tensors.
+
+    Args:
+        q (`torch.Tensor`): The query tensor.
+        k (`torch.Tensor`): The key tensor.
+        cos (`torch.Tensor`): The cosine part of the rotary embedding.
+        sin (`torch.Tensor`): The sine part of the rotary embedding.
+        position_ids (`torch.Tensor`, *optional*):
+            Deprecated and unused.
+        unsqueeze_dim (`int`, *optional*, defaults to 1):
+            The 'unsqueeze_dim' argument specifies the dimension along which to unsqueeze cos[position_ids] and
+            sin[position_ids] so that they can be properly broadcasted to the dimensions of q and k. For example, note
+            that cos[position_ids] and sin[position_ids] have the shape [batch_size, seq_len, head_dim]. Then, if q and
+            k have the shape [batch_size, heads, seq_len, head_dim], then setting unsqueeze_dim=1 makes
+            cos[position_ids] and sin[position_ids] broadcastable to the shapes of q and k. Similarly, if q and k have
+            the shape [batch_size, seq_len, heads, head_dim], then set unsqueeze_dim=2.
+    Returns:
+        `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
+    """
+    cos = cos.unsqueeze(unsqueeze_dim)
+    sin = sin.unsqueeze(unsqueeze_dim)
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
+
 # --- 3. SVD ATTENTION CLASS (Using your exact flow) ---
 class SVD_LlamaAttention(nn.Module):
     def __init__(self, config: LlamaConfig, ratio=1):
@@ -209,6 +235,7 @@ class SVD_LlamaAttention(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
+        position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         
@@ -228,9 +255,12 @@ class SVD_LlamaAttention(nn.Module):
         k = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         v = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
-        # 3. Apply RoPE (In-Place on Q and K)
-        q = self.rope(q)
-        k = self.rope(k)
+        cos, sin = position_embeddings
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        # # 3. Apply RoPE (In-Place on Q and K)
+        # q = self.rope(q)
+        # k = self.rope(k)
 
         # 5. Repeat KV for GQA
         k = repeat_kv(k, self.num_heads // self.num_key_value_heads)
