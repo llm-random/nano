@@ -336,19 +336,16 @@ class SVD_LlamaAttention(nn.Module):
         print(f"rope_theta {rope_theta}") #dev
         print(f"Scaling {rope_scaling}") #dev
         print(f"max_position_embeddings {self.max_position_embeddings}") #dev
-        # 3. Instantiate the OFFICIAL class with all parameters
-        # self.rotary_emb = LlamaRotaryEmbedding(
-        #     self.head_dim, 
-        #     max_position_embeddings=self.max_position_embeddings,
-        #     base=rope_theta
-        # )
-        # self.rotary_emb = Llama3RotaryEmbedding(
-        #     self.head_dim, 
-        #     max_position_embeddings=self.max_position_embeddings,
-        #     base=rope_theta
-        # )
+
         
-        self.rotary_emb = LlamaRotaryEmbedding(self.config)
+        # self.rotary_emb = LlamaRotaryEmbedding(self.config)
+        # self.rotary_emb = Llama3RotaryEmbedding(self.config)
+        self.rotary_emb = Llama3RotaryEmbedding(
+            self.head_dim, 
+            max_position_embeddings=self.max_position_embeddings,
+            base=rope_theta
+        )
+        
 
     def forward(
         self,
@@ -360,16 +357,6 @@ class SVD_LlamaAttention(nn.Module):
         use_cache: bool = False,
         **kwargs, # --- FIX 3: Catch-all for Llama 3 extra args (position_embeddings, cache_position) ---
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        # attention_mask = None #dev
-        # position_ids = None #dev
-        # past_key_value = None #dev
-        # output_attentions = False #dev
-        # use_cache = False #dev
-        # print(f"attention_mask {attention_mask}") #dev
-        # print(f"position_ids {position_ids}") #dev
-        # print(f"past_key_value {past_key_value}") #dev
-        # print(f"output_attentions {output_attentions}") #dev
-        # print(f"use_cache {use_cache}") #dev
 
         bsz, q_len, _ = hidden_states.size()
 
@@ -389,17 +376,9 @@ class SVD_LlamaAttention(nn.Module):
             kv_seq_len += past_key_value[0].shape[-2]
 
         # --- FIX 4: Handle Llama 3 RoPE (Use passed embeddings if available) ---
-        cos, sin = None, None
 
-        # print(f"kwargs {kwargs}") #dev
-        
-        # # Check if 'position_embeddings' was passed in kwargs (Llama 3 style)
-        # if "position_embeddings" in kwargs:
-        #     cos, sin = kwargs["position_embeddings"]
-        # else:
-        #     # Fallback to internal calculation
-        #     cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-        cos, sin = self.rotary_emb(value_states, position_ids=position_ids)
+        # cos, sin = self.rotary_emb(value_states, position_ids=position_ids)
+        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
 
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
@@ -453,12 +432,9 @@ class SVD_LlamaAttention(nn.Module):
         if not output_attentions:
             attn_weights = None
 
-        # print(f"inside lol: {attn_output}") #dev
 
-        # return attn_output, attn_weights, past_key_value
         return attn_output, None
 
-        # return (torch.rand_like(attn_output) * 2) - 1, past_key_value
 
 
 
