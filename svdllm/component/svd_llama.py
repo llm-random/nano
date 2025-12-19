@@ -127,7 +127,7 @@ class Llama3RotaryEmbedding(nn.Module):
         self.register_buffer("sin_cached", emb.sin().to(dtype), persistent=False)
 
     def forward(self, x, seq_len=None):
-        print("LOL CALLED ---------------------------------")
+        # print("LOL CALLED ---------------------------------")
         if seq_len > self.max_seq_len_cached:
             self._set_cos_sin_cache(seq_len=seq_len + 1024, device=x.device, dtype=x.dtype)
         return (
