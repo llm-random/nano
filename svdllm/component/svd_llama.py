@@ -342,13 +342,13 @@ class SVD_LlamaAttention(nn.Module):
         #     max_position_embeddings=self.max_position_embeddings,
         #     base=rope_theta
         # )
-        self.rotary_emb = Llama3RotaryEmbedding(
-            self.head_dim, 
-            max_position_embeddings=self.max_position_embeddings,
-            base=rope_theta
-        )
+        # self.rotary_emb = Llama3RotaryEmbedding(
+        #     self.head_dim, 
+        #     max_position_embeddings=self.max_position_embeddings,
+        #     base=rope_theta
+        # )
         
-        # self.rotary_emb = LlamaRotaryEmbedding(self.config)
+        self.rotary_emb = LlamaRotaryEmbedding(self.config)
 
     def forward(
         self,
