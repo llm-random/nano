@@ -460,7 +460,7 @@ class SVD_LlamaAttention(nn.Module):
             attn_weights = None
 
         # return attn_output, attn_weights, past_key_value
-        return attn_output, attn_weights
+        return attn_output, past_key_value
     
 
 
