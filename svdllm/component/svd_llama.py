@@ -399,7 +399,7 @@ class SVD_LlamaAttention(nn.Module):
         # else:
         #     # Fallback to internal calculation
         #     cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-        cos, sin = kwargs["position_embeddings"]
+        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
 
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
