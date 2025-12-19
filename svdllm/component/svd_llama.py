@@ -76,56 +76,53 @@ class Llama3RotaryEmbedding(nn.Module):
         self.max_position_embeddings = max_position_embeddings
         self.base = base
         
-        # --- LLAMA 3.2 SCALING LOGIC (Manual Implementation) ---
-        # Parameters from Llama 3.2 config
-        # factor = 32.0
-        factor = 132.0 #dev
-        low_freq_factor = 1.0
-        high_freq_factor = 4.0
-        original_max_position_embeddings = 8192
+        # --- LLAMA 3.2 SCALING CONFIGURATION ---
+        # Hardcoded from standard Llama 3.2 1B/3B config
+        self.factor = 32.0
+        self.low_freq_factor = 1.0
+        self.high_freq_factor = 4.0
+        self.original_max_position_embeddings = 8192
         
-        # 1. Generate Standard Frequencies
+        # 1. Generate Standard Inverse Frequencies
+        # Use float32 for stability
         inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.float32).to(device) / self.dim))
         
-        # 2. Apply Llama 3 Scaling Laws
-        # Calculate wavelengths
+        # 2. Apply "llama3" Scaling Math
+        # Calculate Wavelengths: 2 * pi / freq
         wavelen = 2 * math.pi / inv_freq
         
-        # Calculate boundaries
-        low_freq_wavelen = original_max_position_embeddings / low_freq_factor
-        high_freq_wavelen = original_max_position_embeddings / high_freq_factor
+        # Calculate Thresholds
+        low_freq_wavelen = self.original_max_position_embeddings / self.low_freq_factor
+        high_freq_wavelen = self.original_max_position_embeddings / self.high_freq_factor
         
-        # Create masks for different frequency bands
-        # wavelen > low_freq_wavelen -> Always scale
-        # wavelen < high_freq_wavelen -> Never scale
-        # In between -> Smooth interpolation
+        # Calculate Scaled Wavelengths
+        new_wavelen = wavelen * self.factor
         
-        # A. Frequencies that need full scaling (Low Freq / Long Wavelength)
-        new_wavelen = wavelen * factor
-        
-        # B. Smooth Interpolation Factor
+        # Determine which frequencies to scale (Smooth Interpolation)
+        # Ratio: 0 = High Freq (Keep Original), 1 = Low Freq (Scale Fully)
         ratio = (wavelen - high_freq_wavelen) / (low_freq_wavelen - high_freq_wavelen)
         ratio = torch.clamp(ratio, 0.0, 1.0)
         
-        # Interpolate between original and scaled
-        # Note: We interpolate the inverse frequency
+        # Interpolate Inverse Frequencies
+        # (1 - ratio) * old + ratio * new
         new_inv_freq = 1.0 / new_wavelen
         original_inv_freq = 1.0 / wavelen
-        
-        # Combine:
-        # If ratio=0 (High Freq): Keep original
-        # If ratio=1 (Low Freq): Use scaled
-        # In between: Mix
         final_inv_freq = original_inv_freq * (1 - ratio) + new_inv_freq * ratio
         
         self.register_buffer("inv_freq", final_inv_freq, persistent=False)
-        self._set_cos_sin_cache(seq_len=max_position_embeddings, device=device, dtype=torch.float32)
+        self._set_cos_sin_cache(seq_len=max_position_embeddings, device=device, dtype=torch.get_default_dtype())
 
     def _set_cos_sin_cache(self, seq_len, device, dtype):
         self.max_seq_len_cached = seq_len
         t = torch.arange(self.max_seq_len_cached, device=device, dtype=self.inv_freq.dtype)
+        
+        # Outer product to generate freq matrix
         freqs = torch.outer(t, self.inv_freq)
+        
+        # Cat to match Llama format (cos, cos)
         emb = torch.cat((freqs, freqs), dim=-1)
+        
+        # Store as standard dtype (usually bf16/fp16 for the model)
         self.register_buffer("cos_cached", emb.cos().to(dtype), persistent=False)
         self.register_buffer("sin_cached", emb.sin().to(dtype), persistent=False)
 
@@ -136,12 +133,13 @@ class Llama3RotaryEmbedding(nn.Module):
             self.cos_cached[:seq_len].to(dtype=x.dtype),
             self.sin_cached[:seq_len].to(dtype=x.dtype),
         )
+    
 
-def rotate_half(x):
-    """Rotates half the hidden dims of the input."""
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
+# def rotate_half(x):
+#     """Rotates half the hidden dims of the input."""
+#     x1 = x[..., : x.shape[-1] // 2]
+#     x2 = x[..., x.shape[-1] // 2 :]
+#     return torch.cat((-x2, x1), dim=-1)
 
 
 # def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
