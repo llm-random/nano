@@ -38,36 +38,36 @@ class LlamaRMSNorm(nn.Module):
         return self.weight * hidden_states
 
 
-class LlamaRotaryEmbedding(torch.nn.Module):
-    def __init__(self, dim, max_position_embeddings=2048, base=500000, device=None):
-        super().__init__()
-        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float().to(device) / dim))
-        self.register_buffer("inv_freq", inv_freq)
+# class LlamaRotaryEmbedding(torch.nn.Module):
+#     def __init__(self, dim, max_position_embeddings=2048, base=500000, device=None):
+#         super().__init__()
+#         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float().to(device) / dim))
+#         self.register_buffer("inv_freq", inv_freq)
 
-        # Build here to make `torch.jit.trace` work.
-        self.max_seq_len_cached = max_position_embeddings
-        t = torch.arange(self.max_seq_len_cached, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
-        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-        # Different from paper, but it uses a different permutation in order to obtain the same calculation
-        emb = torch.cat((freqs, freqs), dim=-1)
-        self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
-        self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+#         # Build here to make `torch.jit.trace` work.
+#         self.max_seq_len_cached = max_position_embeddings
+#         t = torch.arange(self.max_seq_len_cached, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
+#         freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+#         # Different from paper, but it uses a different permutation in order to obtain the same calculation
+#         emb = torch.cat((freqs, freqs), dim=-1)
+#         self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
+#         self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
 
-    def forward(self, x, seq_len=None):
-        # x: [bs, num_attention_heads, seq_len, head_size]
-        # This `if` block is unlikely to be run after we build sin/cos in `__init__`. Keep the logic here just in case.
-        if seq_len > self.max_seq_len_cached:
-            self.max_seq_len_cached = seq_len
-            t = torch.arange(self.max_seq_len_cached, device=x.device, dtype=self.inv_freq.dtype)
-            freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-            # Different from paper, but it uses a different permutation in order to obtain the same calculation
-            emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
-            self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
-            self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
-        return (
-            self.cos_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
-            self.sin_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
-        )
+#     def forward(self, x, seq_len=None):
+#         # x: [bs, num_attention_heads, seq_len, head_size]
+#         # This `if` block is unlikely to be run after we build sin/cos in `__init__`. Keep the logic here just in case.
+#         if seq_len > self.max_seq_len_cached:
+#             self.max_seq_len_cached = seq_len
+#             t = torch.arange(self.max_seq_len_cached, device=x.device, dtype=self.inv_freq.dtype)
+#             freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+#             # Different from paper, but it uses a different permutation in order to obtain the same calculation
+#             emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
+#             self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
+#             self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+#         return (
+#             self.cos_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
+#             self.sin_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
+#         )
 
 
 def rotate_half(x):
@@ -259,7 +259,22 @@ class SVD_LlamaAttention(nn.Module):
         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
 
-        self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings, base=500000)
+        # self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings, base=500000)
+        # --- FINAL FIX: Load RoPE config properly ---
+        # 1. Get the base frequency (500,000 for Llama 3.2)
+        rope_theta = getattr(config, "rope_theta", 10000.0)
+        
+        # 2. Get the scaling configuration (Critical for Llama 3.2!)
+        rope_scaling = getattr(config, "rope_scaling", None)
+        
+        # 3. Instantiate the OFFICIAL class with all parameters
+        self.rotary_emb = LlamaRotaryEmbedding(
+            self.head_dim, 
+            max_position_embeddings=self.max_position_embeddings,
+            base=rope_theta,
+            scaling=rope_scaling, # <--- This was missing in your custom class
+            device=None
+        )
 
     def forward(
         self,
