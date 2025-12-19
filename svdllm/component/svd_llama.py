@@ -183,31 +183,31 @@ class LlamaRMSNorm(nn.Module):
 #     return q_embed, k_embed
 
 
-# class SVD_LlamaMLP(nn.Module):
-#     def __init__(
-#         self,
-#         hidden_size: int,
-#         intermediate_size: int,
-#         hidden_act: str,
-#         ratio=1
-#     ):
-#         super().__init__()
-#         self.ratio = ratio
-#         low_rank = int(intermediate_size * hidden_size * self.ratio / (intermediate_size + hidden_size))
-#         self.gate_u_proj = nn.Linear(low_rank, intermediate_size, bias=False)
-#         self.gate_v_proj = nn.Linear(hidden_size, low_rank, bias=False)
+class SVD_LlamaMLP(nn.Module):
+    def __init__(
+        self,
+        hidden_size: int,
+        intermediate_size: int,
+        hidden_act: str,
+        ratio=1
+    ):
+        super().__init__()
+        self.ratio = ratio
+        low_rank = int(intermediate_size * hidden_size * self.ratio / (intermediate_size + hidden_size))
+        self.gate_u_proj = nn.Linear(low_rank, intermediate_size, bias=False)
+        self.gate_v_proj = nn.Linear(hidden_size, low_rank, bias=False)
         
-#         self.down_u_proj = nn.Linear(low_rank, hidden_size, bias=False)
-#         self.down_v_proj = nn.Linear(intermediate_size, low_rank, bias=False)
+        self.down_u_proj = nn.Linear(low_rank, hidden_size, bias=False)
+        self.down_v_proj = nn.Linear(intermediate_size, low_rank, bias=False)
         
-#         self.up_u_proj = nn.Linear(low_rank, intermediate_size, bias=False)
-#         self.up_v_proj = nn.Linear(hidden_size, low_rank, bias=False)
-#         self.act_fn = ACT2FN[hidden_act]
+        self.up_u_proj = nn.Linear(low_rank, intermediate_size, bias=False)
+        self.up_v_proj = nn.Linear(hidden_size, low_rank, bias=False)
+        self.act_fn = ACT2FN[hidden_act]
 
-#     def forward(self, x):
-#         up = self.up_u_proj(self.up_v_proj(x))
-#         gate = self.gate_u_proj(self.gate_v_proj(x))
-#         return self.down_u_proj(self.down_v_proj(self.act_fn(gate) * up))
+    def forward(self, x):
+        up = self.up_u_proj(self.up_v_proj(x))
+        gate = self.gate_u_proj(self.gate_v_proj(x))
+        return self.down_u_proj(self.down_v_proj(self.act_fn(gate) * up))
 
 
 # # class SVD_LlamaAttention(nn.Module):
