@@ -391,7 +391,7 @@ class SVD_LlamaAttention(nn.Module):
         # --- FIX 4: Handle Llama 3 RoPE (Use passed embeddings if available) ---
         cos, sin = None, None
 
-        print(f"kwargs {kwargs}") #dev
+        # print(f"kwargs {kwargs}") #dev
         
         # # Check if 'position_embeddings' was passed in kwargs (Llama 3 style)
         # if "position_embeddings" in kwargs:
