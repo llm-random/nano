@@ -575,7 +575,8 @@ class SVD_LlamaAttention(nn.Module):
         # Use our Robust Class with Correct Base
         self.rotary_emb = Llama3RotaryEmbedding(
             self.head_dim, 
-            max_position_embeddings=self.max_position_embeddings, 
+            max_position_embeddings=2048, 
+            # max_position_embeddings=self.max_position_embeddings, 
             base=500000.0
         )
 
