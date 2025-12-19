@@ -6,7 +6,10 @@ def gpt2_mask_tokenize_fn():
 
     # Add additional special tokens so that the vocab size is a multiple of 64
     # https://x.com/karpathy/status/1621578354024677377
-    additional_special_tokens = [f"<|extra_token_{i}|>" for i in range(46)]
+    current_size = tokenizer.vocab_size
+    diff_multiple_64 = (((current_size // 64) + 1) * 64 - current_size) % 64
+    tokens_to_add = diff_multiple_64 - 1  # -1 for the mask token
+    additional_special_tokens = [f"<|extra_token_{i}|>" for i in range(tokens_to_add)]
     tokenizer.add_special_tokens(
         {
             "mask_token": "<|mask|>",
