@@ -214,6 +214,7 @@ class SVD_LlamaAttention(nn.Module):
         
         print(f"forward in SVD_LlamaAttention --------------------------------------------------------------") #dev
         print(f"kwargs {kwargs}") #dev
+        print(f"attention_mask {attention_mask}") #dev
         
         bsz, q_len, _ = hidden_states.size()
 
