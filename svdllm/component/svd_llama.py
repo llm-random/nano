@@ -220,161 +220,36 @@ class SVD_LlamaMLP(nn.Module):
 
 
 
-# class SVD_LlamaAttention(nn.Module):
-#     """Multi-headed attention from 'Attention Is All You Need' paper, updated for SVD and GQA (Llama 3)"""
-
-#     def __init__(self, config: LlamaConfig, ratio=1):
-#         super().__init__()
-#         self.config = config
-#         self.hidden_size = config.hidden_size
-#         self.num_heads = config.num_attention_heads
-#         self.head_dim = self.hidden_size // self.num_heads
-        
-#         # --- FIX 1: Support Grouped Query Attention (GQA) ---
-#         self.num_key_value_heads = config.num_key_value_heads if hasattr(config, "num_key_value_heads") else self.num_heads
-#         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-        
-#         self.max_position_embeddings = config.max_position_embeddings
-#         self.ratio = ratio 
-
-#         if (self.head_dim * self.num_heads) != self.hidden_size:
-#             raise ValueError(
-#                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-#                 f" and `num_heads`: {self.num_heads})."
-#             )
-            
-#         low_rank = int(self.hidden_size * self.ratio/2)
-        
-#         # Query Projections (Uses full num_heads)
-#         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
-#         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
-
-#         # --- FIX 2: Key/Value Projections use num_key_value_heads ---
-#         self.k_u_proj = nn.Linear(low_rank, self.num_key_value_heads * self.head_dim, bias=False)
-#         self.k_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
-
-#         self.v_u_proj = nn.Linear(low_rank, self.num_key_value_heads * self.head_dim, bias=False)
-#         self.v_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
-
-#         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
-#         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
-
-#         self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
-
-#     def forward(
-#         self,
-#         hidden_states: torch.Tensor,
-#         attention_mask: Optional[torch.Tensor] = None,
-#         position_ids: Optional[torch.LongTensor] = None,
-#         past_key_value: Optional[Tuple[torch.Tensor]] = None,
-#         output_attentions: bool = False,
-#         use_cache: bool = False,
-#         **kwargs, # --- FIX 3: Catch-all for Llama 3 extra args (position_embeddings, cache_position) ---
-#     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-#         bsz, q_len, _ = hidden_states.size()
-
-#         # 1. Project Queries (Standard SVD)
-#         query_states = self.q_u_proj(self.q_v_proj(hidden_states))
-#         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-
-#         # 2. Project Keys/Values (Standard SVD + GQA Dimensions)
-#         key_states = self.k_u_proj(self.k_v_proj(hidden_states))
-#         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
-#         value_states = self.v_u_proj(self.v_v_proj(hidden_states))
-#         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
-#         kv_seq_len = key_states.shape[-2]
-#         if past_key_value is not None:
-#             kv_seq_len += past_key_value[0].shape[-2]
-
-#         # --- FIX 4: Handle Llama 3 RoPE (Use passed embeddings if available) ---
-#         cos, sin = None, None
-        
-#         # Check if 'position_embeddings' was passed in kwargs (Llama 3 style)
-#         if "position_embeddings" in kwargs:
-#             cos, sin = kwargs["position_embeddings"]
-#         else:
-#             # Fallback to internal calculation
-#             cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-
-#         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-
-#         if past_key_value is not None:
-#             # reuse k, v, self_attention
-#             key_states = torch.cat([past_key_value[0], key_states], dim=2)
-#             value_states = torch.cat([past_key_value[1], value_states], dim=2)
-
-#         past_key_value = (key_states, value_states) if use_cache else None
-
-#         # --- FIX 5: Repeat KV heads for GQA (The critical fix for the shape error) ---
-#         # If KV heads < Query Heads, we must repeat them
-#         key_states = repeat_kv(key_states, self.num_key_value_groups)
-#         value_states = repeat_kv(value_states, self.num_key_value_groups)
-
-#         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-
-#         if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
-#             raise ValueError(
-#                 f"Attention weights should be of size {(bsz * self.num_heads, q_len, kv_seq_len)}, but is"
-#                 f" {attn_weights.size()}"
-#             )
-
-#         if attention_mask is not None:
-#             # Basic broadcast check
-#             if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-#                  # Llama 3 sometimes passes 4D masks that match, or 2D masks that need reshape.
-#                  # We trust the model/pipeline to pass correct masks usually, but strictly speaking
-#                  # this check was breaking on valid 4D masks in some versions. 
-#                  # We'll leave it but warn if it might be the cause of future issues.
-#                  pass 
-            
-#             attn_weights = attn_weights + attention_mask
-#             attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
-
-#         # upcast attention to fp32
-#         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-#         attn_output = torch.matmul(attn_weights, value_states)
-
-#         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-#             raise ValueError(
-#                 f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-#                 f" {attn_output.size()}"
-#             )
-
-#         attn_output = attn_output.transpose(1, 2)
-#         attn_output = attn_output.reshape(bsz, q_len, -1)
-
-#         attn_output = self.o_u_proj(self.o_v_proj(attn_output))
-
-#         if not output_attentions:
-#             attn_weights = None
-
-#         # return attn_output, attn_weights, past_key_value
-#         return attn_output, attn_weights
-
-
-
 class SVD_LlamaAttention(nn.Module):
-    def __init__(self, config, ratio=1, layer_idx=None): # Added layer_idx for Cache support
+    """Multi-headed attention from 'Attention Is All You Need' paper, updated for SVD and GQA (Llama 3)"""
+
+    def __init__(self, config: LlamaConfig, ratio=1):
         super().__init__()
         self.config = config
-        self.layer_idx = layer_idx # distinct index needed for Cache object
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
         
+        # --- FIX 1: Support Grouped Query Attention (GQA) ---
         self.num_key_value_heads = config.num_key_value_heads if hasattr(config, "num_key_value_heads") else self.num_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        
         self.max_position_embeddings = config.max_position_embeddings
         self.ratio = ratio 
 
-        low_rank = int(self.hidden_size * self.ratio / 2)
+        if (self.head_dim * self.num_heads) != self.hidden_size:
+            raise ValueError(
+                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
+                f" and `num_heads`: {self.num_heads})."
+            )
+            
+        low_rank = int(self.hidden_size * self.ratio/2)
         
-        # SVD Layers (Q, K, V, O)
+        # Query Projections (Uses full num_heads)
         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
 
+        # --- FIX 2: Key/Value Projections use num_key_value_heads ---
         self.k_u_proj = nn.Linear(low_rank, self.num_key_value_heads * self.head_dim, bias=False)
         self.k_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
 
@@ -385,24 +260,24 @@ class SVD_LlamaAttention(nn.Module):
         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
 
         self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
-        # self.rotary_emb = LlamaRotaryEmbedding(config)
 
     def forward(
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[object] = None, # Type relaxed to support Cache object
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: bool = False,
         use_cache: bool = False,
-        **kwargs,
+        **kwargs, # --- FIX 3: Catch-all for Llama 3 extra args (position_embeddings, cache_position) ---
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
 
-        # 1. Project Q/K/V via SVD
+        # 1. Project Queries (Standard SVD)
         query_states = self.q_u_proj(self.q_v_proj(hidden_states))
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
 
+        # 2. Project Keys/Values (Standard SVD + GQA Dimensions)
         key_states = self.k_u_proj(self.k_v_proj(hidden_states))
         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
@@ -410,58 +285,183 @@ class SVD_LlamaAttention(nn.Module):
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
         kv_seq_len = key_states.shape[-2]
-        
-        # Determine sequence length for RoPE (Handle Cache Object vs Tuple)
         if past_key_value is not None:
-            if hasattr(past_key_value, "get_seq_length"): # Modern HF Cache
-                kv_seq_len += past_key_value.get_seq_length(self.layer_idx)
-            elif isinstance(past_key_value, tuple): # Legacy
-                kv_seq_len += past_key_value[0].shape[-2]
+            kv_seq_len += past_key_value[0].shape[-2]
 
-        # 2. Apply RoPE
+        # --- FIX 4: Handle Llama 3 RoPE (Use passed embeddings if available) ---
+        cos, sin = None, None
+        
+        # Check if 'position_embeddings' was passed in kwargs (Llama 3 style)
         if "position_embeddings" in kwargs:
-            cos, sin = kwargs["position_embeddings"] # This will now work!
+            cos, sin = kwargs["position_embeddings"]
         else:
-            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len) # We want to avoid this fallback
-            
+            # Fallback to internal calculation
+            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
-        # 3. Update KV Cache (Critical Fix)
         if past_key_value is not None:
-            if hasattr(past_key_value, "update"): # Modern HF Cache
-                key_states, value_states = past_key_value.update(
-                    key_states, value_states, self.layer_idx, {"sin": sin, "cos": cos}
-                )
-            elif isinstance(past_key_value, tuple): # Legacy
-                key_states = torch.cat([past_key_value[0], key_states], dim=2)
-                value_states = torch.cat([past_key_value[1], value_states], dim=2)
-                past_key_value = (key_states, value_states)
+            # reuse k, v, self_attention
+            key_states = torch.cat([past_key_value[0], key_states], dim=2)
+            value_states = torch.cat([past_key_value[1], value_states], dim=2)
 
-        # 4. Repeat KV for GQA
+        past_key_value = (key_states, value_states) if use_cache else None
+
+        # --- FIX 5: Repeat KV heads for GQA (The critical fix for the shape error) ---
+        # If KV heads < Query Heads, we must repeat them
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
-        # 5. Attention
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
 
-        if attention_mask is not None:
-            attn_weights = attn_weights + attention_mask
-            # Removed redundant torch.max clamp here
+        if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
+            raise ValueError(
+                f"Attention weights should be of size {(bsz * self.num_heads, q_len, kv_seq_len)}, but is"
+                f" {attn_weights.size()}"
+            )
 
+        if attention_mask is not None:
+            # Basic broadcast check
+            if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
+                 # Llama 3 sometimes passes 4D masks that match, or 2D masks that need reshape.
+                 # We trust the model/pipeline to pass correct masks usually, but strictly speaking
+                 # this check was breaking on valid 4D masks in some versions. 
+                 # We'll leave it but warn if it might be the cause of future issues.
+                 pass 
+            
+            attn_weights = attn_weights + attention_mask
+            attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
+
+        # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         attn_output = torch.matmul(attn_weights, value_states)
 
-        attn_output = attn_output.transpose(1, 2).contiguous()
+        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+            raise ValueError(
+                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+                f" {attn_output.size()}"
+            )
+
+        attn_output = attn_output.transpose(1, 2)
         attn_output = attn_output.reshape(bsz, q_len, -1)
 
-        # Output Projection via SVD
         attn_output = self.o_u_proj(self.o_v_proj(attn_output))
 
         if not output_attentions:
             attn_weights = None
 
         # return attn_output, attn_weights, past_key_value
-        return attn_output, past_key_value
+        return attn_output, attn_weights
+
+
+
+# class SVD_LlamaAttention(nn.Module):
+#     def __init__(self, config, ratio=1, layer_idx=None): # Added layer_idx for Cache support
+#         super().__init__()
+#         self.config = config
+#         self.layer_idx = layer_idx # distinct index needed for Cache object
+#         self.hidden_size = config.hidden_size
+#         self.num_heads = config.num_attention_heads
+#         self.head_dim = self.hidden_size // self.num_heads
+        
+#         self.num_key_value_heads = config.num_key_value_heads if hasattr(config, "num_key_value_heads") else self.num_heads
+#         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+#         self.max_position_embeddings = config.max_position_embeddings
+#         self.ratio = ratio 
+
+#         low_rank = int(self.hidden_size * self.ratio / 2)
+        
+#         # SVD Layers (Q, K, V, O)
+#         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
+#         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+
+#         self.k_u_proj = nn.Linear(low_rank, self.num_key_value_heads * self.head_dim, bias=False)
+#         self.k_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+
+#         self.v_u_proj = nn.Linear(low_rank, self.num_key_value_heads * self.head_dim, bias=False)
+#         self.v_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+
+#         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
+#         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
+
+#         self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
+#         # self.rotary_emb = LlamaRotaryEmbedding(config)
+
+#     def forward(
+#         self,
+#         hidden_states: torch.Tensor,
+#         attention_mask: Optional[torch.Tensor] = None,
+#         position_ids: Optional[torch.LongTensor] = None,
+#         past_key_value: Optional[object] = None, # Type relaxed to support Cache object
+#         output_attentions: bool = False,
+#         use_cache: bool = False,
+#         **kwargs,
+#     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+#         bsz, q_len, _ = hidden_states.size()
+
+#         # 1. Project Q/K/V via SVD
+#         query_states = self.q_u_proj(self.q_v_proj(hidden_states))
+#         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+#         key_states = self.k_u_proj(self.k_v_proj(hidden_states))
+#         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+
+#         value_states = self.v_u_proj(self.v_v_proj(hidden_states))
+#         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+
+#         kv_seq_len = key_states.shape[-2]
+        
+#         # Determine sequence length for RoPE (Handle Cache Object vs Tuple)
+#         if past_key_value is not None:
+#             if hasattr(past_key_value, "get_seq_length"): # Modern HF Cache
+#                 kv_seq_len += past_key_value.get_seq_length(self.layer_idx)
+#             elif isinstance(past_key_value, tuple): # Legacy
+#                 kv_seq_len += past_key_value[0].shape[-2]
+
+#         # 2. Apply RoPE
+#         if "position_embeddings" in kwargs:
+#             cos, sin = kwargs["position_embeddings"] # This will now work!
+#         else:
+#             cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len) # We want to avoid this fallback
+            
+#         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+
+#         # 3. Update KV Cache (Critical Fix)
+#         if past_key_value is not None:
+#             if hasattr(past_key_value, "update"): # Modern HF Cache
+#                 key_states, value_states = past_key_value.update(
+#                     key_states, value_states, self.layer_idx, {"sin": sin, "cos": cos}
+#                 )
+#             elif isinstance(past_key_value, tuple): # Legacy
+#                 key_states = torch.cat([past_key_value[0], key_states], dim=2)
+#                 value_states = torch.cat([past_key_value[1], value_states], dim=2)
+#                 past_key_value = (key_states, value_states)
+
+#         # 4. Repeat KV for GQA
+#         key_states = repeat_kv(key_states, self.num_key_value_groups)
+#         value_states = repeat_kv(value_states, self.num_key_value_groups)
+
+#         # 5. Attention
+#         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+
+#         if attention_mask is not None:
+#             attn_weights = attn_weights + attention_mask
+#             # Removed redundant torch.max clamp here
+
+#         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+#         attn_output = torch.matmul(attn_weights, value_states)
+
+#         attn_output = attn_output.transpose(1, 2).contiguous()
+#         attn_output = attn_output.reshape(bsz, q_len, -1)
+
+#         # Output Projection via SVD
+#         attn_output = self.o_u_proj(self.o_v_proj(attn_output))
+
+#         if not output_attentions:
+#             attn_weights = None
+
+#         # return attn_output, attn_weights, past_key_value
+#         return attn_output, past_key_value
     
 
 
