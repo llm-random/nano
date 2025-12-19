@@ -289,11 +289,11 @@ class SVD_LlamaAttention(nn.Module):
         use_cache: bool = False,
         **kwargs, # --- FIX 3: Catch-all for Llama 3 extra args (position_embeddings, cache_position) ---
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        # attention_mask = None #dev
-        position_ids = None #dev
-        # past_key_value = None #dev
-        # output_attentions = False #dev
-        # use_cache = False #dev
+        attention_mask = None #dev
+        # position_ids = None #dev
+        past_key_value = None #dev
+        output_attentions = False #dev
+        use_cache = False #dev
         print(f"attention_mask {attention_mask}") #dev
         print(f"position_ids {position_ids}") #dev
         print(f"past_key_value {past_key_value}") #dev
