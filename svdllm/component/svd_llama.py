@@ -187,6 +187,16 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
+# def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+#     gather_indices = position_ids[:, None, :, None]  # [bs, 1, seq_len, 1]
+#     gather_indices = gather_indices.repeat(1, cos.shape[1], 1, cos.shape[3])
+#     cos = torch.gather(cos.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
+#     sin = torch.gather(sin.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
+    
+#     q_embed = (q * cos) + (rotate_half(q) * sin)
+#     k_embed = (k * cos) + (rotate_half(k) * sin)
+#     return q_embed, k_embed
+
 # --- 3. SVD ATTENTION CLASS (Using your exact flow) ---
 class SVD_LlamaAttention(nn.Module):
     def __init__(self, config: LlamaConfig, ratio=1):
@@ -205,18 +215,19 @@ class SVD_LlamaAttention(nn.Module):
 
         if (self.head_dim * self.num_heads) != self.hidden_size:
             raise ValueError(f"hidden_size {self.hidden_size} not divisible by num_heads {self.num_heads}")
+        
+        num_s_after_trunc = int(W.shape[0] * W.shape[1] * ratio / (W.shape[0] + W.shape[1]))
 
-        low_rank = int(self.hidden_size * self.ratio / 2)
-
-        # 1. Initialize SVD Projections
+        low_rank = int(self.hidden_size * self.ratio/2)
+        kv_low_rank = int(655)
         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
 
-        self.k_u_proj = nn.Linear(low_rank, self.num_key_value_heads * self.head_dim, bias=False)
-        self.k_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+        self.k_u_proj = nn.Linear(kv_low_rank, self.num_key_value_heads * self.head_dim, bias=False)
+        self.k_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
 
-        self.v_u_proj = nn.Linear(low_rank, self.num_key_value_heads * self.head_dim, bias=False)
-        self.v_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+        self.v_u_proj = nn.Linear(kv_low_rank, self.num_key_value_heads * self.head_dim, bias=False)
+        self.v_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
 
         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
@@ -299,3 +310,120 @@ class SVD_LlamaAttention(nn.Module):
 
 
         return attn_output, None
+    
+
+
+
+# class SVD_LlamaAttention(nn.Module):
+#     """Multi-headed attention from 'Attention Is All You Need' paper"""
+
+#     def __init__(self, config: LlamaConfig, ratio=1):
+#         super().__init__()
+#         self.config = config
+#         self.hidden_size = config.hidden_size
+#         self.num_heads = config.num_attention_heads
+#         self.head_dim = self.hidden_size // self.num_heads
+#         self.max_position_embeddings = config.max_position_embeddings
+#         self.ratio = ratio # 1 means no truncate, just keep normal attn
+
+#         if (self.head_dim * self.num_heads) != self.hidden_size:
+#             raise ValueError(
+#                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
+#                 f" and `num_heads`: {self.num_heads})."
+#             )
+#         low_rank = int(self.hidden_size * self.ratio/2)
+#         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
+#         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+
+#         self.k_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
+#         self.k_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+
+#         self.v_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
+#         self.v_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+
+#         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
+#         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
+
+#         self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
+
+#     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
+#         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
+
+#     def forward(
+#         self,
+#         hidden_states: torch.Tensor,
+#         attention_mask: Optional[torch.Tensor] = None,
+#         position_ids: Optional[torch.LongTensor] = None,
+#         past_key_value: Optional[Tuple[torch.Tensor]] = None,
+#         output_attentions: bool = False,
+#         use_cache: bool = False,
+#     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+#         bsz, q_len, _ = hidden_states.size()
+    
+#         query_states = self.q_u_proj(self.q_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+#         key_states = self.k_u_proj(self.k_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+#         value_states = self.v_u_proj(self.v_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+#         kv_seq_len = key_states.shape[-2]
+#         if past_key_value is not None:
+#             kv_seq_len += past_key_value[0].shape[-2]
+#         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+ 
+#         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+#         # [bsz, nh, t, hd]
+
+#         if past_key_value is not None:
+#             # reuse k, v, self_attention
+#             key_states = torch.cat([past_key_value[0], key_states], dim=2)
+#             value_states = torch.cat([past_key_value[1], value_states], dim=2)
+
+#         past_key_value = (key_states, value_states) if use_cache else None
+
+#         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+
+#         if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
+#             raise ValueError(
+#                 f"Attention weights should be of size {(bsz * self.num_heads, q_len, kv_seq_len)}, but is"
+#                 f" {attn_weights.size()}"
+#             )
+
+#         if attention_mask is not None:
+#             if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
+#                 raise ValueError(
+#                     f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
+#                 )
+#             attn_weights = attn_weights + attention_mask
+#             attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
+
+#         # upcast attention to fp32
+#         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+#         attn_output = torch.matmul(attn_weights, value_states)
+
+#         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+#             raise ValueError(
+#                 f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+#                 f" {attn_output.size()}"
+#             )
+
+#         attn_output = attn_output.transpose(1, 2)
+#         attn_output = attn_output.reshape(bsz, q_len, -1)
+
+#         attn_output = self.o_u_proj(self.o_v_proj(attn_output))
+
+#         if not output_attentions:
+#             attn_weights = None
+
+#         return attn_output, attn_weights, past_key_value
+
+
+
+
+
+
+
+
+
+
+
