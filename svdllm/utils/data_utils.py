@@ -219,7 +219,7 @@ def get_test_data(name, tokenizer, seq_len=2048, batch_size = 4):
     ####
     if 'wikitext2' in name:
         test_data = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
-        test_dataset = process_data(test_data, tokenizer, seq_len, 'text')
+        test_dataset = process_data(test_data[0:100], tokenizer, seq_len, 'text')
     if 'ptb' in name:
         test_data = load_dataset('ptb_text_only', 'penn_treebank', split='test')
         test_dataset = process_data(test_data, tokenizer, seq_len, 'sentence')
