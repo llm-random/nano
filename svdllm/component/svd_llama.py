@@ -358,7 +358,7 @@ class SVD_LlamaAttention(nn.Module):
                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                 f" and `num_heads`: {self.num_heads})."
             )
-        low_rank = int(self.hidden_size * self.ratio/2)
+        low_rank = int(self.hidden_size * ratio/2)
         kv_low_rank = int(self.hidden_size * self.num_key_value_heads * self.head_dim * ratio / (self.hidden_size + self.num_key_value_heads * self.head_dim))
 
         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
