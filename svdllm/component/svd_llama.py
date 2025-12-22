@@ -279,16 +279,16 @@ class SVD_LlamaAttention(nn.Module):
         attn_weights = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.head_dim)
 
 
-        print(f"attention_mask FORCED") #dev
-        attn_weights = attn_weights + attention_mask
-        attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
+        # print(f"attention_mask FORCED") #dev
+        # attn_weights = attn_weights + attention_mask
+        # attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
 
         # print(f"attention_mask NO") #dev
-        # if attention_mask is not None: #dev
-        #     attn_weights = attn_weights + attention_mask
-        #     attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
-        # else:
-        #     raise Exception("where attention_mask!")
+        if attention_mask is not None: #dev
+            attn_weights = attn_weights + attention_mask
+            attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
+        else:
+            raise Exception("where attention_mask!")
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(q.dtype)
         attn_output = torch.matmul(attn_weights, v)
