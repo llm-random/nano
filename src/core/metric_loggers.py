@@ -138,40 +138,34 @@ def get_metric_logger(
             None if metric_logger_config.new_neptune_job else neptune_run_id
         )
         rank = int(os.environ["RANK"])
-        if int(os.environ["WORLD_SIZE"]) > 1:
-            if rank == 0:
-                neptune_logger = neptune.init_run(
-                    project=metric_logger_config.project_name,
-                    with_id=neptune_run_id,
-                    name=metric_logger_config.name,
-                    tags=metric_logger_config.tags,
-                )
-                if neptune_run_id is None:
-                    neptune_run_id = neptune_logger["sys/id"].fetch()
-                    broadcast_message(rank, neptune_run_id)
-                _metric_logger = NeptuneLogger(
-                    neptune_logger, rank, metric_logger_config
-                )
-            else:
-                if neptune_run_id is None:
-                    neptune_run_id = broadcast_message(rank)
-                neptune_logger = neptune.init_run(
-                    project=metric_logger_config.project_name,
-                    with_id=neptune_run_id,
-                    capture_hardware_metrics=False,
-                    name=metric_logger_config.name,
-                    tags=metric_logger_config.tags,
-                )
-                _metric_logger = NeptuneLogger(
-                    neptune_logger, rank, metric_logger_config
-                )
 
-        else:
+        if rank == 0:
             neptune_logger = neptune.init_run(
                 project=metric_logger_config.project_name,
                 name=metric_logger_config.name,
                 tags=metric_logger_config.tags,
                 with_id=neptune_run_id,
+            )
+            _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
+
+            if int(os.environ["WORLD_SIZE"]) > 1:
+                run_id_container = [None]
+                if neptune_run_id is None:
+                    neptune_run_id = neptune_logger["sys/id"].fetch()
+
+                run_id_container[0] = neptune_run_id
+                dist.broadcast_object_list(run_id_container, src=0)
+        else:
+            run_id_container = [neptune_run_id]
+            dist.broadcast_object_list(run_id_container, src=0)
+            neptune_run_id = run_id_container[0]
+
+            neptune_logger = neptune.init_run(
+                project=metric_logger_config.project_name,
+                with_id=neptune_run_id,
+                capture_hardware_metrics=False,
+                name=metric_logger_config.name,
+                tags=metric_logger_config.tags,
             )
             _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
 
