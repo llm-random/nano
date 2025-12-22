@@ -247,7 +247,7 @@ class SVD_LlamaAttention(nn.Module):
         
         print(f"forward in SVD_LlamaAttention --------------------------------------------------------------") #dev
         # print(f"kwargs {kwargs}") #dev
-        print(f"attention_mask {attention_mask}") #dev
+        # print(f"attention_mask {attention_mask}") #dev
         
         bsz, q_len, _ = hidden_states.size()
         input_shape = hidden_states.shape[:-1]
@@ -278,11 +278,11 @@ class SVD_LlamaAttention(nn.Module):
         # q, k, v are now all [bsz, num_heads, seq_len, head_dim]
         attn_weights = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.head_dim)
 
-        if attention_mask is not None:
-            attn_weights = attn_weights + attention_mask
-            attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
-        else:
-            raise Exception("where attention_mask!")
+        # if attention_mask is not None: #dev
+        #     attn_weights = attn_weights + attention_mask
+        #     attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
+        # else:
+        #     raise Exception("where attention_mask!")
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(q.dtype)
         attn_output = torch.matmul(attn_weights, v)
