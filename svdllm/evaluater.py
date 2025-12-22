@@ -62,7 +62,7 @@ def ppl_eval(model, tokenizer, datasets=['wikitext2', 'ptb', 'c4'], model_seq_le
             
             output = model(batch, use_cache=False)
             lm_logits = output.logits
-            
+            print(f"lm_logits.shape, batch.shape {lm_logits.shape}, {batch.shape}") #dev
             if torch.isfinite(lm_logits).all():
                 shift_logits = lm_logits[:, :-1, :].contiguous()
                 shift_labels = batch[:, 1:].contiguous()
@@ -72,8 +72,8 @@ def ppl_eval(model, tokenizer, datasets=['wikitext2', 'ptb', 'c4'], model_seq_le
                     shift_labels[shift_labels == tokenizer.pad_token_id] = -100
                 
                 # Calculate loss per token (returns 0.0 for ignored indices)
-                # loss_per_token = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-                loss_per_token = loss_fct(shift_logits, shift_labels)
+                loss_per_token = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                # loss_per_token = loss_fct(shift_logits, shift_labels)
                 
                 # FIX 3: Filter out the zeros!
                 # We only want to average the loss of REAL tokens.
