@@ -282,7 +282,7 @@ def get_test_data(name, tokenizer, seq_len=2048, batch_size=4, stride=512):
     # --- Dataset Loading (Unchanged) ---
     if 'wikitext2' in name:
         test_data = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
-        test_dataset = process_data(test_data[0:100], tokenizer, seq_len, 'text')
+        test_dataset = process_data(test_data, tokenizer, seq_len, 'text')
     elif 'ptb' in name:
         test_data = load_dataset('ptb_text_only', 'penn_treebank', split='test')
         test_dataset = process_data(test_data, tokenizer, seq_len, 'sentence')
@@ -290,5 +290,5 @@ def get_test_data(name, tokenizer, seq_len=2048, batch_size=4, stride=512):
         test_data = load_dataset("json", data_files="utils/c4-validation.json")['train']
         test_dataset = process_data(test_data[0:2000], tokenizer, seq_len, 'text')
         
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     return test_loader
