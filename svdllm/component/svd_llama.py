@@ -302,11 +302,11 @@ class SVD_LlamaAttention(nn.Module):
         # v = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
         cos, sin = position_embeddings
-        q, k = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        # q, k = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         # # 3. Apply RoPE (In-Place on Q and K)
-        # q = self.rope(q)
-        # k = self.rope(k)
+        q = self.rope(query_states)
+        k = self.rope(key_states)
 
         # 5. Repeat KV for GQA
         k = repeat_kv(k, self.num_heads // self.num_key_value_heads)
