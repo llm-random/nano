@@ -366,9 +366,11 @@ def whitening(model_name, model, profiling_mat, ratio, dev):
             svd_attn = SVD_LlamaAttention(config=model.config, ratio=ratio)
             svd_mlp = SVD_LlamaMLP(hidden_size=layer.hidden_size, intermediate_size=model.config.intermediate_size, hidden_act=model.config.hidden_act, ratio=ratio)
         elif "mistral" in model_name:
+            raise Exception("elif mistral in model_name:")
             svd_attn = SVD_MistralAttention(config=model.config, ratio=ratio)
             svd_mlp = SVD_MistralMLP(config=model.config, ratio=ratio)
         elif 'opt' in model_name:
+            raise Exception("elif opt in model_name:")
             svd_decoder = SVDOPTDecoderLayer(model.config, ratio=ratio)
         #### Replace Attn, MLP ####
         for name in subset:
@@ -386,6 +388,9 @@ def whitening(model_name, model, profiling_mat, ratio, dev):
             W_scale = torch.matmul(W, scaling_diag_matrix)
             U, S, VT = torch.linalg.svd(W_scale, full_matrices=False)
             num_s_after_trunc = int(W.shape[0] * W.shape[1] * ratio / (W.shape[0] + W.shape[1]))
+            print(f"ratio {ratio}") #dev
+            print(f"W.shape[0]: {W.shape[0]}, W.shape[1]{W.shape[1]}") #dev
+            print(f"name: {name}, num_s_after_trunc{num_s_after_trunc}") #dev
             truc_s = S[:num_s_after_trunc]
             truc_u = U[:, :num_s_after_trunc]
             truc_v = torch.matmul(VT[:num_s_after_trunc, :], scaling_matrix_inv)
