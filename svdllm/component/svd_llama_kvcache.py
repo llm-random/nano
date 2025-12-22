@@ -132,6 +132,7 @@ class SVD_LlamaAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: LlamaConfig, compression_ratio=1):
+        raise Exception()
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
@@ -182,6 +183,7 @@ class SVD_LlamaAttention(nn.Module):
         output_attentions: bool = False,
         use_cache: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        raise Exception()
         bsz, q_len, _ = hidden_states.size()
     
         if self.compression_ratio != 1:
