@@ -214,235 +214,243 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
-# def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
-#     gather_indices = position_ids[:, None, :, None]  # [bs, 1, seq_len, 1]
-#     gather_indices = gather_indices.repeat(1, cos.shape[1], 1, cos.shape[3])
-#     cos = torch.gather(cos.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
-#     sin = torch.gather(sin.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
-    
-#     q_embed = (q * cos) + (rotate_half(q) * sin)
-#     k_embed = (k * cos) + (rotate_half(k) * sin)
-#     return q_embed, k_embed
-
 # --- 3. SVD ATTENTION CLASS (Using your exact flow) ---
-class SVD_LlamaAttention(nn.Module):
-    def __init__(self, config: LlamaConfig, ratio=1):
-        print(f"init in SVD_LlamaAttention --------------------------------------------------------------") #dev
-        super().__init__()
-        self.config = config
-        self.hidden_size = config.hidden_size
-        self.num_heads = config.num_attention_heads
-        self.head_dim = self.hidden_size // self.num_heads
-        
-        # GQA Settings
-        self.num_key_value_heads = config.num_key_value_heads if hasattr(config, "num_key_value_heads") else self.num_heads
-        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-        self.max_position_embeddings = config.max_position_embeddings
-        self.ratio = ratio
-
-        if (self.head_dim * self.num_heads) != self.hidden_size:
-            raise ValueError(f"hidden_size {self.hidden_size} not divisible by num_heads {self.num_heads}")
-        
-        # num_s_after_trunc = int(W.shape[0] * W.shape[1] * ratio / (W.shape[0] + W.shape[1]))
-
-        low_rank = int(self.hidden_size * self.ratio/2)
-        kv_low_rank = int(self.hidden_size * self.num_key_value_heads * self.head_dim * ratio / (self.hidden_size + self.num_key_value_heads * self.head_dim))
-        self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
-        self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
-
-        self.k_u_proj = nn.Linear(kv_low_rank, self.num_key_value_heads * self.head_dim, bias=False)
-        self.k_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
-
-        self.v_u_proj = nn.Linear(kv_low_rank, self.num_key_value_heads * self.head_dim, bias=False)
-        self.v_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
-
-        self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
-        self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
-
-        # 2. Initialize RoPE with Llama 3.2 Defaults
-        rope_base = getattr(config, "rope_theta", 500000.0)
-        use_scaling = True 
-        
-        self.rope = RoPE(
-            dhead=self.head_dim,
-            length=self.max_position_embeddings,
-            base=rope_base,
-            apply_freq_scaling=use_scaling,
-            factor=32.0,
-            low_freq_factor=1.0,
-            high_freq_factor=4.0,
-            original_max_position_embeddings=8192,
-        )
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
-        **kwargs,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        
-        print(f"forward in SVD_LlamaAttention --------------------------------------------------------------") #dev
-        # print(f"kwargs {kwargs}") #dev
-        # print(f"attention_mask {attention_mask}") #dev
-        
-        bsz, q_len, _ = hidden_states.size()
-        input_shape = hidden_states.shape[:-1]
-        hidden_shape = (*input_shape, -1, self.head_dim)
-
-        # 1. Projections (SVD)
-        query_states = self.q_u_proj(self.q_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
-        key_states = self.k_u_proj(self.k_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
-        v = self.v_u_proj(self.v_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
-
-        # 2. Reshape & Transpose: [batch, heads, seq, dim]
-        # q = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        # k = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        # v = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
-        cos, sin = position_embeddings
-        # q, k = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
-        # # 3. Apply RoPE (In-Place on Q and K)
-        q = self.rope(query_states)
-        k = self.rope(key_states)
-
-        # 5. Repeat KV for GQA
-        k = repeat_kv(k, self.num_heads // self.num_key_value_heads)
-        v = repeat_kv(v, self.num_heads // self.num_key_value_heads)
-
-        # 6. Attention Mechanism (Standard Scaled Dot Product)
-        # q, k, v are now all [bsz, num_heads, seq_len, head_dim]
-        attn_weights = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.head_dim)
-
-
-        # print(f"attention_mask FORCED") #dev
-        # attn_weights = attn_weights + attention_mask
-        # attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
-
-        # print(f"attention_mask NO") #dev
-        if attention_mask is not None: #dev
-            attn_weights = attn_weights + attention_mask
-            attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
-        else:
-            raise Exception("where attention_mask!")
-
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(q.dtype)
-        attn_output = torch.matmul(attn_weights, v)
-
-        # 7. Output Projection
-        attn_output = attn_output.transpose(1, 2).contiguous().reshape(bsz, q_len, -1)
-        attn_output = self.o_u_proj(self.o_v_proj(attn_output))
-
-
-        return attn_output, None
-    
-
-
-
 # class SVD_LlamaAttention(nn.Module):
-#     """Multi-headed attention from 'Attention Is All You Need' paper"""
-
 #     def __init__(self, config: LlamaConfig, ratio=1):
+#         print(f"init in SVD_LlamaAttention --------------------------------------------------------------") #dev
 #         super().__init__()
 #         self.config = config
 #         self.hidden_size = config.hidden_size
 #         self.num_heads = config.num_attention_heads
 #         self.head_dim = self.hidden_size // self.num_heads
+        
+#         # GQA Settings
+#         self.num_key_value_heads = config.num_key_value_heads if hasattr(config, "num_key_value_heads") else self.num_heads
+#         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
 #         self.max_position_embeddings = config.max_position_embeddings
-#         self.ratio = ratio # 1 means no truncate, just keep normal attn
+#         self.ratio = ratio
 
 #         if (self.head_dim * self.num_heads) != self.hidden_size:
-#             raise ValueError(
-#                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-#                 f" and `num_heads`: {self.num_heads})."
-#             )
+#             raise ValueError(f"hidden_size {self.hidden_size} not divisible by num_heads {self.num_heads}")
+        
+#         # num_s_after_trunc = int(W.shape[0] * W.shape[1] * ratio / (W.shape[0] + W.shape[1]))
+
 #         low_rank = int(self.hidden_size * self.ratio/2)
+#         kv_low_rank = int(self.hidden_size * self.num_key_value_heads * self.head_dim * ratio / (self.hidden_size + self.num_key_value_heads * self.head_dim))
 #         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
 #         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
 
-#         self.k_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
-#         self.k_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+#         self.k_u_proj = nn.Linear(kv_low_rank, self.num_key_value_heads * self.head_dim, bias=False)
+#         self.k_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
 
-#         self.v_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
-#         self.v_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+#         self.v_u_proj = nn.Linear(kv_low_rank, self.num_key_value_heads * self.head_dim, bias=False)
+#         self.v_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
 
 #         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
 #         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
 
-#         self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
-
-#     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
-#         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
+#         # 2. Initialize RoPE with Llama 3.2 Defaults
+#         rope_base = getattr(config, "rope_theta", 500000.0)
+#         use_scaling = True 
+        
+#         self.rope = RoPE(
+#             dhead=self.head_dim,
+#             length=self.max_position_embeddings,
+#             base=rope_base,
+#             apply_freq_scaling=use_scaling,
+#             factor=32.0,
+#             low_freq_factor=1.0,
+#             high_freq_factor=4.0,
+#             original_max_position_embeddings=8192,
+#         )
 
 #     def forward(
 #         self,
 #         hidden_states: torch.Tensor,
 #         attention_mask: Optional[torch.Tensor] = None,
 #         position_ids: Optional[torch.LongTensor] = None,
-#         past_key_value: Optional[Tuple[torch.Tensor]] = None,
-#         output_attentions: bool = False,
-#         use_cache: bool = False,
+#         position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
+#         **kwargs,
 #     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        
+#         print(f"forward in SVD_LlamaAttention --------------------------------------------------------------") #dev
+#         # print(f"kwargs {kwargs}") #dev
+#         # print(f"attention_mask {attention_mask}") #dev
+        
 #         bsz, q_len, _ = hidden_states.size()
-    
-#         query_states = self.q_u_proj(self.q_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+#         input_shape = hidden_states.shape[:-1]
+#         hidden_shape = (*input_shape, -1, self.head_dim)
 
-#         key_states = self.k_u_proj(self.k_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+#         # 1. Projections (SVD)
+#         query_states = self.q_u_proj(self.q_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
+#         key_states = self.k_u_proj(self.k_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
+#         v = self.v_u_proj(self.v_v_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
 
-#         value_states = self.v_u_proj(self.v_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+#         # 2. Reshape & Transpose: [batch, heads, seq, dim]
+#         # q = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+#         # k = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+#         # v = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
-#         kv_seq_len = key_states.shape[-2]
-#         if past_key_value is not None:
-#             kv_seq_len += past_key_value[0].shape[-2]
-#         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
- 
-#         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-#         # [bsz, nh, t, hd]
+#         cos, sin = position_embeddings
+#         # q, k = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-#         if past_key_value is not None:
-#             # reuse k, v, self_attention
-#             key_states = torch.cat([past_key_value[0], key_states], dim=2)
-#             value_states = torch.cat([past_key_value[1], value_states], dim=2)
+#         # # 3. Apply RoPE (In-Place on Q and K)
+#         q = self.rope(query_states)
+#         k = self.rope(key_states)
 
-#         past_key_value = (key_states, value_states) if use_cache else None
+#         # 5. Repeat KV for GQA
+#         k = repeat_kv(k, self.num_heads // self.num_key_value_heads)
+#         v = repeat_kv(v, self.num_heads // self.num_key_value_heads)
 
-#         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+#         # 6. Attention Mechanism (Standard Scaled Dot Product)
+#         # q, k, v are now all [bsz, num_heads, seq_len, head_dim]
+#         attn_weights = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.head_dim)
 
-#         if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
-#             raise ValueError(
-#                 f"Attention weights should be of size {(bsz * self.num_heads, q_len, kv_seq_len)}, but is"
-#                 f" {attn_weights.size()}"
-#             )
 
-#         if attention_mask is not None:
-#             if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-#                 raise ValueError(
-#                     f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
-#                 )
+#         # print(f"attention_mask FORCED") #dev
+#         # attn_weights = attn_weights + attention_mask
+#         # attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
+
+#         # print(f"attention_mask NO") #dev
+#         if attention_mask is not None: #dev
 #             attn_weights = attn_weights + attention_mask
 #             attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
+#         else:
+#             raise Exception("where attention_mask!")
 
-#         # upcast attention to fp32
-#         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-#         attn_output = torch.matmul(attn_weights, value_states)
+#         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(q.dtype)
+#         attn_output = torch.matmul(attn_weights, v)
 
-#         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-#             raise ValueError(
-#                 f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-#                 f" {attn_output.size()}"
-#             )
-
-#         attn_output = attn_output.transpose(1, 2)
-#         attn_output = attn_output.reshape(bsz, q_len, -1)
-
+#         # 7. Output Projection
+#         attn_output = attn_output.transpose(1, 2).contiguous().reshape(bsz, q_len, -1)
 #         attn_output = self.o_u_proj(self.o_v_proj(attn_output))
 
-#         if not output_attentions:
-#             attn_weights = None
 
-#         return attn_output, attn_weights, past_key_value
+#         return attn_output, None
+    
+
+
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+    gather_indices = position_ids[:, None, :, None]  # [bs, 1, seq_len, 1]
+    gather_indices = gather_indices.repeat(1, cos.shape[1], 1, cos.shape[3])
+    cos = torch.gather(cos.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
+    sin = torch.gather(sin.repeat(gather_indices.shape[0], 1, 1, 1), 2, gather_indices)
+    
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
+
+
+class SVD_LlamaAttention(nn.Module):
+    """Multi-headed attention from 'Attention Is All You Need' paper"""
+
+    def __init__(self, config: LlamaConfig, ratio=1):
+        super().__init__()
+        self.config = config
+        self.hidden_size = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.hidden_size // self.num_heads
+        self.max_position_embeddings = config.max_position_embeddings
+        self.num_key_value_heads = config.num_key_value_heads # 1 means no truncate, just keep normal attn
+
+        if (self.head_dim * self.num_heads) != self.hidden_size:
+            raise ValueError(
+                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
+                f" and `num_heads`: {self.num_heads})."
+            )
+        low_rank = int(self.hidden_size * self.ratio/2)
+        kv_low_rank = int(self.hidden_size * self.num_key_value_heads * self.head_dim * ratio / (self.hidden_size + self.num_key_value_heads * self.head_dim))
+
+        self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
+        self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
+
+        self.k_u_proj = nn.Linear(kv_low_rank, self.num_heads * self.head_dim, bias=False)
+        self.k_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
+
+        self.v_u_proj = nn.Linear(kv_low_rank, self.num_heads * self.head_dim, bias=False)
+        self.v_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
+
+        self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
+        self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
+
+        self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
+
+    def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
+        return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        output_attentions: bool = False,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        past_key_value = None
+        use_cache = False
+
+        bsz, q_len, _ = hidden_states.size()
+    
+        query_states = self.q_u_proj(self.q_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+        key_states = self.k_u_proj(self.k_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+        value_states = self.v_u_proj(self.v_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+        
+
+
+        kv_seq_len = key_states.shape[-2]
+        if past_key_value is not None:
+            kv_seq_len += past_key_value[0].shape[-2]
+        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+ 
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+        # [bsz, nh, t, hd]
+
+        if past_key_value is not None:
+            # reuse k, v, self_attention
+            key_states = torch.cat([past_key_value[0], key_states], dim=2)
+            value_states = torch.cat([past_key_value[1], value_states], dim=2)
+
+        past_key_value = (key_states, value_states) if use_cache else None
+
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+
+        if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
+            raise ValueError(
+                f"Attention weights should be of size {(bsz * self.num_heads, q_len, kv_seq_len)}, but is"
+                f" {attn_weights.size()}"
+            )
+
+        if attention_mask is not None:
+            if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
+                raise ValueError(
+                    f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
+                )
+            attn_weights = attn_weights + attention_mask
+            attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device))
+
+        # upcast attention to fp32
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        attn_output = torch.matmul(attn_weights, value_states)
+
+        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+            raise ValueError(
+                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+                f" {attn_output.size()}"
+            )
+
+        attn_output = attn_output.transpose(1, 2)
+        attn_output = attn_output.reshape(bsz, q_len, -1)
+
+        attn_output = self.o_u_proj(self.o_v_proj(attn_output))
+
+        if not output_attentions:
+            attn_weights = None
+
+        return attn_output, attn_weights, past_key_value
 
 
 
