@@ -11,31 +11,93 @@ current_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(current_path)
 
+# @torch.no_grad()
+# def ppl_eval(model, tokenizer, datasets=['wikitext2', 'ptb', 'c4'], model_seq_len=2048, batch_size=32, device="cuda"):
+#     model.to(device)
+#     model.eval()
+#     ppls = {}
+#     # loss_fct = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
+#     for dataset in datasets:
+#         test_loader = get_test_data(dataset, tokenizer, seq_len=model_seq_len, batch_size = batch_size)
+#         nlls = []
+#         for batch in tqdm(test_loader):
+#             print(batch) #dev
+#             batch = batch.to(device)
+#             output = model(batch, use_cache=False)
+#             lm_logits = output.logits
+#             if torch.isfinite(lm_logits).all():
+#                 shift_logits = lm_logits[:, :-1, :].contiguous()
+#                 shift_labels = batch[:, 1:].contiguous()
+
+#                 # FIX 2: Ensure we mask padding if the tokenizer has a pad token
+#                 if tokenizer.pad_token_id is not None:
+#                     shift_labels[shift_labels == tokenizer.pad_token_id] = -100
+                
+#                 loss_fct = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
+#                 loss = loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.view(-1))
+#                 nlls.append(loss)
+#         ppl = np.exp(torch.cat(nlls, dim=-1).mean().item())
+#         ppls[dataset] = ppl
+#     print("PPL after pruning: {}".format(ppls))
+#     print("CE after pruning: {}".format(torch.cat(nlls, dim=-1).mean().item()))
+#     print("Weight Memory: {} MiB\n".format(torch.cuda.memory_allocated()/1024/1024))
+
+
 @torch.no_grad()
 def ppl_eval(model, tokenizer, datasets=['wikitext2', 'ptb', 'c4'], model_seq_len=2048, batch_size=32, device="cuda"):
     model.to(device)
     model.eval()
     ppls = {}
+
+    # FIX 1: Explicitly tell PyTorch to ignore -100 labels
+    loss_fct = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
+
     for dataset in datasets:
-        test_loader = get_test_data(dataset, tokenizer, seq_len=model_seq_len, batch_size = batch_size)
+        test_loader = get_test_data(dataset, tokenizer, seq_len=model_seq_len, batch_size=batch_size)
         nlls = []
-        for batch in tqdm(test_loader):
-            print(batch) #dev
+
+        for batch in tqdm(test_loader, desc=f"Eval {dataset}"):
+            # print(batch) # dev - uncomment if needed, but it spams output
             batch = batch.to(device)
+            
             output = model(batch, use_cache=False)
             lm_logits = output.logits
+            
             if torch.isfinite(lm_logits).all():
                 shift_logits = lm_logits[:, :-1, :].contiguous()
                 shift_labels = batch[:, 1:].contiguous()
                 
-                loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
-                loss = loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.view(-1))
-                nlls.append(loss)
-        ppl = np.exp(torch.cat(nlls, dim=-1).mean().item())
+                # FIX 2: Ensure we mask padding if the tokenizer has a pad token
+                if tokenizer.pad_token_id is not None:
+                    shift_labels[shift_labels == tokenizer.pad_token_id] = -100
+                
+                # Calculate loss per token (returns 0.0 for ignored indices)
+                loss_per_token = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                
+                # FIX 3: Filter out the zeros!
+                # We only want to average the loss of REAL tokens.
+                # If we average the zeros, the PPL drops artificially.
+                valid_mask = (shift_labels.view(-1) != -100)
+                valid_loss = loss_per_token[valid_mask]
+
+                nlls.append(valid_loss)
+
+        # FIX 4: Concatenate valid losses first, THEN take the mean
+        if len(nlls) > 0:
+            all_valid_losses = torch.cat(nlls)
+            mean_nll = all_valid_losses.mean().item()
+            ppl = np.exp(mean_nll)
+        else:
+            ppl = float('inf')
+            mean_nll = float('inf')
+            
         ppls[dataset] = ppl
+
     print("PPL after pruning: {}".format(ppls))
-    print("CE after pruning: {}".format(torch.cat(nlls, dim=-1).mean().item()))
-    print("Weight Memory: {} MiB\n".format(torch.cuda.memory_allocated()/1024/1024))
+    print("CE after pruning: {}".format(mean_nll))
+    print("Weight Memory: {:.2f} MiB\n".format(torch.cuda.memory_allocated()/1024/1024))
+    
+    return ppls
 
 # only call this function when for 65b or more model    
 @torch.no_grad()
