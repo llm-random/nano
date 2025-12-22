@@ -207,6 +207,7 @@ def get_test_data(name, tokenizer, seq_len=2048, batch_size = 4):
             return len(self.tensors)
     ####
     def process_data(samples, tokenizer, seq_len, field_name):
+        tokenizer.model_max_length = int(1e9)
         test_ids = tokenizer("\n\n".join(samples[field_name]), return_tensors='pt').input_ids[0]
         test_ids_batch = []
         nsamples = test_ids.numel() // seq_len
@@ -219,7 +220,7 @@ def get_test_data(name, tokenizer, seq_len=2048, batch_size = 4):
     ####
     if 'wikitext2' in name:
         test_data = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
-        test_dataset = process_data(test_data[0:100], tokenizer, seq_len, 'text')
+        test_dataset = process_data(test_data, tokenizer, seq_len, 'text')
     if 'ptb' in name:
         test_data = load_dataset('ptb_text_only', 'penn_treebank', split='test')
         test_dataset = process_data(test_data, tokenizer, seq_len, 'sentence')
