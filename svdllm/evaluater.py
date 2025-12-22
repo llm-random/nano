@@ -71,6 +71,7 @@ def ppl_eval(model, tokenizer, datasets=['wikitext2', 'ptb', 'c4'], model_seq_le
                 if tokenizer.pad_token_id is not None:
                     shift_labels[shift_labels == tokenizer.pad_token_id] = -100
                 
+                print(f"shift_logits.shape, shift_labels.shape {shift_logits.shape}, {shift_labels.shape}") #dev
                 # Calculate loss per token (returns 0.0 for ignored indices)
                 loss_per_token = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
                 # loss_per_token = loss_fct(shift_logits, shift_labels)
