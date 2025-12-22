@@ -389,8 +389,8 @@ def whitening(model_name, model, profiling_mat, ratio, dev):
             U, S, VT = torch.linalg.svd(W_scale, full_matrices=False)
             num_s_after_trunc = int(W.shape[0] * W.shape[1] * ratio / (W.shape[0] + W.shape[1]))
             print(f"ratio {ratio}") #dev
-            print(f"W.shape[0]: {W.shape[0]}, W.shape[1]{W.shape[1]}") #dev
-            print(f"name: {name}, num_s_after_trunc{num_s_after_trunc}") #dev
+            print(f"W.shape[0]: {W.shape[0]}, W.shape[1] {W.shape[1]}") #dev
+            print(f"name: {name}, num_s_after_trunc {num_s_after_trunc}") #dev
             truc_s = S[:num_s_after_trunc]
             truc_u = U[:, :num_s_after_trunc]
             truc_v = torch.matmul(VT[:num_s_after_trunc, :], scaling_matrix_inv)
@@ -429,25 +429,39 @@ def whitening(model_name, model, profiling_mat, ratio, dev):
                     layers[i] = svd_decoder
             else:
                 if "q_proj" in name:
+                    print(f"svd_attn.q_u_proj.weight.data.shape {svd_attn.q_u_proj.weight.data.shape}")
+                    print(f"svd_attn.q_v_proj.weight.data.shape {svd_attn.q_v_proj.weight.data.shape}")
                     svd_attn.q_u_proj.weight.data = svd_u
                     svd_attn.q_v_proj.weight.data = svd_v
                 elif "k_proj" in name:
+                    print(f"svd_attn.k_u_proj.weight.data.shape {svd_attn.k_u_proj.weight.data.shape}")
+                    print(f"svd_attn.k_v_proj.weight.data.shape {svd_attn.k_v_proj.weight.data.shape}")
                     svd_attn.k_u_proj.weight.data = svd_u
                     svd_attn.k_v_proj.weight.data = svd_v
                 elif "v_proj" in name:
+                    print(f"svd_attn.v_u_proj.weight.data.shape {svd_attn.v_u_proj.weight.data.shape}")
+                    print(f"svd_attn.v_v_proj.weight.data.shape {svd_attn.v_v_proj.weight.data.shape}")
                     svd_attn.v_u_proj.weight.data = svd_u
                     svd_attn.v_v_proj.weight.data = svd_v
                 elif "o_proj" in name:
+                    print(f"svd_attn.o_u_proj.weight.data.shape {svd_attn.o_u_proj.weight.data.shape}")
+                    print(f"svd_attn.o_v_proj.weight.data.shape {svd_attn.o_v_proj.weight.data.shape}")
                     svd_attn.o_u_proj.weight.data = svd_u
                     svd_attn.o_v_proj.weight.data = svd_v
                     layer.self_attn =  svd_attn
                 elif "gate_proj" in name:
+                    print(f"svd_mlp.gate_u_proj.weight.data.shape {svd_mlp.gate_u_proj.weight.data.shape}")
+                    print(f"svd_mlp.gate_v_proj.weight.data.shape {svd_mlp.gate_v_proj.weight.data.shape}")
                     svd_mlp.gate_u_proj.weight.data = svd_u
                     svd_mlp.gate_v_proj.weight.data = svd_v
                 elif "down_proj" in name:
+                    print(f"svd_mlp.down_u_proj.weight.data.shape {svd_mlp.down_u_proj.weight.data.shape}")
+                    print(f"svd_mlp.down_v_proj.weight.data.shape {svd_mlp.down_v_proj.weight.data.shape}")
                     svd_mlp.down_u_proj.weight.data = svd_u
                     svd_mlp.down_v_proj.weight.data = svd_v
                 elif "up_proj" in name:
+                    print(f"svd_mlp.up_u_proj.weight.data.shape {svd_mlp.up_u_proj.weight.data.shape}")
+                    print(f"svd_mlp.up_v_proj.weight.data.shape {svd_mlp.up_v_proj.weight.data.shape}")
                     svd_mlp.up_u_proj.weight.data = svd_u
                     svd_mlp.up_v_proj.weight.data = svd_v
                     layer.mlp = svd_mlp
