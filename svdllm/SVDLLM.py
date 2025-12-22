@@ -799,7 +799,7 @@ if __name__ == '__main__':
         # # ===========================================================
 
         if args.step == 4:
-            ppl_eval(model, tokenizer, datasets=['wikitext2'], model_seq_len=args.model_seq_len, batch_size=args.eval_batch_size, device=args.DEV)
+            ppl_eval(model, tokenizer, datasets=['ptb'], model_seq_len=args.model_seq_len, batch_size=args.eval_batch_size, device=args.DEV)
         # elif args.step >= 4:
         #     print(f"evaluating {args.model_path}...")
         #     if args.model_path == "original":
