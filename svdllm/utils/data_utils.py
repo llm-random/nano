@@ -207,7 +207,6 @@ def get_test_data(name, tokenizer, seq_len=2048, batch_size = 4):
             return len(self.tensors)
     ####
     def process_data(samples, tokenizer, seq_len, field_name):
-        tokenizer.model_max_length = int(1e9)
         test_ids = tokenizer("\n\n".join(samples[field_name]), return_tensors='pt').input_ids[0]
         test_ids_batch = []
         nsamples = test_ids.numel() // seq_len
