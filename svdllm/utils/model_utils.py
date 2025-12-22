@@ -26,7 +26,6 @@ def get_model_from_huggingface(model_id):
 def get_model_from_local(model_id):
     pruned_dict = torch.load(model_id, weights_only=False, map_location='cpu')
     tokenizer, model = pruned_dict['tokenizer'], pruned_dict['model']
-    tokenizer.model_max_length = int(1e9) #dev TODO
     return model, tokenizer
 
 def find_layers(module, layers=[nn.Conv2d, nn.Linear], name=''):

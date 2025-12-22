@@ -23,9 +23,11 @@ python SVDLLM.py --model_path $FINE_TUNE_PATH/first_half/merge.pt --lora $FINE_T
 FINE_TUNE_PATH="."
 # run data whitening with 20% compression ratio
 
-python SVDLLM.py --model meta-llama/Llama-2-7b --step 1 --ratio 0.2 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $PROJECT_HOME_PATH/svdllm
+python SVDLLM.py --model meta-llama/Llama-2-7b-hf --step 1 --ratio 0.2 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $PROJECT_HOME_PATH/svdllm
+python SVDLLM.py --model meta-llama/Llama-2-7b-hf --step 1 --ratio 0.0 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $PROJECT_HOME_PATH/svdllm
+python SVDLLM.py --model jeffwan/llama-7b-hf --step 1 --ratio 0.2 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $PROJECT_HOME_PATH/svdllm
 
-python SVDLLM.py --model meta-llama/Meta-Llama-3-8B --step 1 --ratio 0.2 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $PROJECT_HOME_PATH/svdllm
+python SVDLLM.py --model meta-llama/Llama-3.1-8B --step 1 --ratio 0.2 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $PROJECT_HOME_PATH/svdllm
 
 python SVDLLM.py --model meta-llama/Llama-3.2-1B --step 1 --ratio 0.2 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $PROJECT_HOME_PATH/svdllm
 python SVDLLM.py --model meta-llama/Llama-3.2-1B --step 1 --ratio 0.0 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $PROJECT_HOME_PATH/svdllm
@@ -37,7 +39,21 @@ python SVDLLM.py --model meta-llama/Llama-3.2-1B --step 1 --ratio -2.0 --whiteni
 python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_3.2_1B_whitening_only_0.8.pt
 python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_3.2_1B_whitening_only_0.99.pt
 python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_3.2_1B_whitening_only_1.0.pt
+python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_3.2_1B_whitening_only_2.0.pt
 python SVDLLM.py --step 4 --model_path original --model meta-llama/Llama-3.2-1B
+
+python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_3.1_8B_whitening_only_0.5.pt
+python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_3.1_8B_whitening_only_0.8.pt
+python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_3.1_8B_whitening_only_1.0.pt
+python SVDLLM.py --step 4 --model_path original --model meta-llama/Llama-3.1-8B 
+ 
+
+python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_2_7b_hf_whitening_only_0.8.pt
+python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_2_7b_hf_whitening_only_1.0.pt
+python SVDLLM.py --step 4 --model_path $PROJECT_HOME_PATH/svdllm/meta_llama_Llama_2_7b_hf_whitening_only_2.0.pt
+python SVDLLM.py --step 4 --model_path original --model meta-llama/Llama-2-7b-hf
+
+ls -al $PROJECT_HOME_PATH/svdllm
 
 # finetune the compressed model with lora
 
