@@ -219,7 +219,7 @@ class SVD_LlamaAttention(nn.Module):
         # num_s_after_trunc = int(W.shape[0] * W.shape[1] * ratio / (W.shape[0] + W.shape[1]))
 
         low_rank = int(self.hidden_size * self.ratio/2)
-        kv_low_rank = int(655)
+        kv_low_rank = int(self.hidden_size * self.num_key_value_heads * self.head_dim * ratio / (self.hidden_size + self.num_key_value_heads * self.head_dim))
         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
 
