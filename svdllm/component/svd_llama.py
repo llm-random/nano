@@ -216,7 +216,7 @@ class SVD_LlamaAttention(nn.Module):
         if (self.head_dim * self.num_heads) != self.hidden_size:
             raise ValueError(f"hidden_size {self.hidden_size} not divisible by num_heads {self.num_heads}")
         
-        num_s_after_trunc = int(W.shape[0] * W.shape[1] * ratio / (W.shape[0] + W.shape[1]))
+        # num_s_after_trunc = int(W.shape[0] * W.shape[1] * ratio / (W.shape[0] + W.shape[1]))
 
         low_rank = int(self.hidden_size * self.ratio/2)
         kv_low_rank = int(655)
