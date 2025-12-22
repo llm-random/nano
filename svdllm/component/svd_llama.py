@@ -364,10 +364,10 @@ class SVD_LlamaAttention(nn.Module):
         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
 
-        self.k_u_proj = nn.Linear(kv_low_rank, self.num_heads * self.head_dim, bias=False)
+        self.k_u_proj = nn.Linear(kv_low_rank, self.num_key_value_heads * self.head_dim, bias=False)
         self.k_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
 
-        self.v_u_proj = nn.Linear(kv_low_rank, self.num_heads * self.head_dim, bias=False)
+        self.v_u_proj = nn.Linear(kv_low_rank, self.num_key_value_heads * self.head_dim, bias=False)
         self.v_v_proj = nn.Linear(self.hidden_size, kv_low_rank, bias=False)
 
         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
@@ -383,38 +383,40 @@ class SVD_LlamaAttention(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        past_key_values: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: bool = False,
         use_cache: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        past_key_value = None
+        past_key_values = None
         use_cache = False
 
         bsz, q_len, _ = hidden_states.size()
     
         query_states = self.q_u_proj(self.q_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
 
-        key_states = self.k_u_proj(self.k_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = self.k_u_proj(self.k_v_proj(hidden_states)).view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
-        value_states = self.v_u_proj(self.v_v_proj(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = self.v_u_proj(self.v_v_proj(hidden_states)).view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
-        
+        num_key_value_groups = self.num_heads // self.num_key_value_heads
+        key_states = repeat_kv(key_states, num_key_value_groups)
+        value_states = repeat_kv(value_states, num_key_value_groups)
 
 
         kv_seq_len = key_states.shape[-2]
-        if past_key_value is not None:
-            kv_seq_len += past_key_value[0].shape[-2]
+        if past_key_values is not None:
+            kv_seq_len += past_key_values[0].shape[-2]
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
  
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
         # [bsz, nh, t, hd]
 
-        if past_key_value is not None:
+        if past_key_values is not None:
             # reuse k, v, self_attention
-            key_states = torch.cat([past_key_value[0], key_states], dim=2)
-            value_states = torch.cat([past_key_value[1], value_states], dim=2)
+            key_states = torch.cat([past_key_values[0], key_states], dim=2)
+            value_states = torch.cat([past_key_values[1], value_states], dim=2)
 
-        past_key_value = (key_states, value_states) if use_cache else None
+        past_key_values = (key_states, value_states) if use_cache else None
 
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
 
@@ -450,7 +452,7 @@ class SVD_LlamaAttention(nn.Module):
         if not output_attentions:
             attn_weights = None
 
-        return attn_output, attn_weights, past_key_value
+        return attn_output, attn_weights, past_key_values
 
 
 
