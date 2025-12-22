@@ -195,36 +195,100 @@ def get_loaders(name, nsamples=128, seed=0, seqlen=2048, tokenizer=None):
     
     
     
-def get_test_data(name, tokenizer, seq_len=2048, batch_size = 4):
+# def get_test_data(name, tokenizer, seq_len=2048, batch_size = 4):
+#     class IndexDataset(Dataset):
+#         def __init__(self, tensors):
+#             self.tensors = tensors
+
+#         def __getitem__(self, index):
+#             return self.tensors[index]
+
+#         def __len__(self):
+#             return len(self.tensors)
+#     ####
+#     def process_data(samples, tokenizer, seq_len, field_name):
+#         test_ids = tokenizer("\n\n".join(samples[field_name]), return_tensors='pt').input_ids[0]
+#         test_ids_batch = []
+#         nsamples = test_ids.numel() // seq_len
+
+#         for i in range(nsamples):
+#             batch = test_ids[(i * seq_len):((i + 1) * seq_len)]
+#             test_ids_batch.append(batch)
+#         test_ids_batch = torch.stack(test_ids_batch)
+#         return IndexDataset(tensors=test_ids_batch)
+#     ####
+#     if 'wikitext2' in name:
+#         test_data = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
+#         test_dataset = process_data(test_data, tokenizer, seq_len, 'text')
+#     if 'ptb' in name:
+#         test_data = load_dataset('ptb_text_only', 'penn_treebank', split='test')
+#         test_dataset = process_data(test_data, tokenizer, seq_len, 'sentence')
+#     elif 'c4' in name:
+#         test_data = load_dataset("json", data_files="utils/c4-validation.json")['train']
+#         test_dataset = process_data(test_data[0:2000], tokenizer, seq_len, 'text')
+#     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+#     return test_loader
+
+import torch
+from torch.utils.data import Dataset, DataLoader
+from datasets import load_dataset
+
+def get_test_data(name, tokenizer, seq_len=2048, batch_size=4, stride=512):
+    
     class IndexDataset(Dataset):
         def __init__(self, tensors):
             self.tensors = tensors
-
         def __getitem__(self, index):
             return self.tensors[index]
-
         def __len__(self):
             return len(self.tensors)
-    ####
-    def process_data(samples, tokenizer, seq_len, field_name):
-        test_ids = tokenizer("\n\n".join(samples[field_name]), return_tensors='pt').input_ids[0]
-        test_ids_batch = []
-        nsamples = test_ids.numel() // seq_len
 
-        for i in range(nsamples):
-            batch = test_ids[(i * seq_len):((i + 1) * seq_len)]
-            test_ids_batch.append(batch)
+    def process_data(samples, tokenizer, seq_len, field_name):
+        # --- FIX 1: Handle Llama 3's Massive Input Crash ---
+        # We temporarily trick the tokenizer into thinking it has infinite capacity
+        # so it doesn't crash on the 299k token string.
+        original_max_len = tokenizer.model_max_length
+        tokenizer.model_max_length = int(1e9)
+        
+        # Join text
+        raw_text = "\n\n".join(samples[field_name])
+        
+        # --- FIX 2: Ensure BOS Token (Critical for Llama 3) ---
+        # Llama 3 often needs explicit BOS to not hallucinate at the start
+        if tokenizer.bos_token and not raw_text.startswith(tokenizer.bos_token):
+             raw_text = tokenizer.bos_token + raw_text
+        
+        test_ids = tokenizer(raw_text, return_tensors='pt').input_ids[0]
+        
+        # Restore original limit
+        tokenizer.model_max_length = original_max_len
+
+        # --- FIX 3: Sliding Window (Stride) ---
+        # Instead of chopping (0-2048, 2048-4096), we slide (0-2048, 512-2560).
+        # This gives the model context for every prediction.
+        test_ids_batch = []
+        
+        # Start at 0, move forward by 'stride'
+        for i in range(0, test_ids.numel(), stride):
+            # If the remaining chunk is smaller than seq_len, we skip it
+            # (Standard practice for PPL eval to avoid padding noise)
+            if i + seq_len <= test_ids.numel():
+                batch = test_ids[i : i + seq_len]
+                test_ids_batch.append(batch)
+
         test_ids_batch = torch.stack(test_ids_batch)
         return IndexDataset(tensors=test_ids_batch)
-    ####
+
+    # --- Dataset Loading (Unchanged) ---
     if 'wikitext2' in name:
         test_data = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
         test_dataset = process_data(test_data, tokenizer, seq_len, 'text')
-    if 'ptb' in name:
+    elif 'ptb' in name:
         test_data = load_dataset('ptb_text_only', 'penn_treebank', split='test')
         test_dataset = process_data(test_data, tokenizer, seq_len, 'sentence')
     elif 'c4' in name:
         test_data = load_dataset("json", data_files="utils/c4-validation.json")['train']
         test_dataset = process_data(test_data[0:2000], tokenizer, seq_len, 'text')
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     return test_loader
