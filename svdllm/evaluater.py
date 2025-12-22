@@ -20,6 +20,7 @@ def ppl_eval(model, tokenizer, datasets=['wikitext2', 'ptb', 'c4'], model_seq_le
         test_loader = get_test_data(dataset, tokenizer, seq_len=model_seq_len, batch_size = batch_size)
         nlls = []
         for batch in tqdm(test_loader):
+            print(batch) #dev
             batch = batch.to(device)
             output = model(batch, use_cache=False)
             lm_logits = output.logits
