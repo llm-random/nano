@@ -110,109 +110,109 @@ class LlamaRotaryEmbedding(torch.nn.Module):
             self.sin_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
         )
     
-# --- 2. YOUR WORKING ROPE CLASS (Llama 3.2 Logic) ---
-class RoPE(nn.Module):
-    def __init__(
-        self,
-        dhead,
-        length,
-        base,
-        apply_freq_scaling,
-        factor,
-        low_freq_factor,
-        high_freq_factor,
-        original_max_position_embeddings,
-    ):
-        super().__init__()
-        self.dhead = dhead
-        self.length = length
-        self.base = base
-        self.apply_freq_scaling = apply_freq_scaling
-        self.factor = factor
-        self.low_freq_factor = low_freq_factor
-        self.high_freq_factor = high_freq_factor
-        self.original_max_position_embeddings = original_max_position_embeddings
-        self.register_freqs()
+# # --- 2. YOUR WORKING ROPE CLASS (Llama 3.2 Logic) ---
+# class RoPE(nn.Module):
+#     def __init__(
+#         self,
+#         dhead,
+#         length,
+#         base,
+#         apply_freq_scaling,
+#         factor,
+#         low_freq_factor,
+#         high_freq_factor,
+#         original_max_position_embeddings,
+#     ):
+#         super().__init__()
+#         self.dhead = dhead
+#         self.length = length
+#         self.base = base
+#         self.apply_freq_scaling = apply_freq_scaling
+#         self.factor = factor
+#         self.low_freq_factor = low_freq_factor
+#         self.high_freq_factor = high_freq_factor
+#         self.original_max_position_embeddings = original_max_position_embeddings
+#         self.register_freqs()
 
-    def register_freqs(self):
-        angle_exponents = (
-            torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
-        )
-        angles = 1.0 / torch.pow(self.base, angle_exponents).reshape(1, -1)
-        if self.apply_freq_scaling:
-            angles = self.scale_freqs(angles)
+#     def register_freqs(self):
+#         angle_exponents = (
+#             torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
+#         )
+#         angles = 1.0 / torch.pow(self.base, angle_exponents).reshape(1, -1)
+#         if self.apply_freq_scaling:
+#             angles = self.scale_freqs(angles)
 
-        angle_per_token = angles * torch.arange(0, self.length).reshape(-1, 1)
-        self.register_buffer(
-            "sin", torch.sin(angle_per_token).repeat(1, 2), persistent=False
-        )
-        self.register_buffer(
-            "cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False
-        )
+#         angle_per_token = angles * torch.arange(0, self.length).reshape(-1, 1)
+#         self.register_buffer(
+#             "sin", torch.sin(angle_per_token).repeat(1, 2), persistent=False
+#         )
+#         self.register_buffer(
+#             "cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False
+#         )
 
-    def scale_freqs(self, freqs):
-        factor = self.factor
-        low_freq_factor = self.low_freq_factor
-        high_freq_factor = self.high_freq_factor
-        old_context_len = self.original_max_position_embeddings
+#     def scale_freqs(self, freqs):
+#         factor = self.factor
+#         low_freq_factor = self.low_freq_factor
+#         high_freq_factor = self.high_freq_factor
+#         old_context_len = self.original_max_position_embeddings
 
-        low_freq_wavelen = old_context_len / low_freq_factor
-        high_freq_wavelen = old_context_len / high_freq_factor
+#         low_freq_wavelen = old_context_len / low_freq_factor
+#         high_freq_wavelen = old_context_len / high_freq_factor
 
-        wavelen = 2 * math.pi / freqs
-        inv_freq_llama = torch.where(wavelen > low_freq_wavelen, freqs / factor, freqs)
-        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (
-            high_freq_factor - low_freq_factor
-        )
-        smoothed_inv_freq = (
-            1 - smooth_factor
-        ) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
-        is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
-        inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
-        return inv_freq_llama
+#         wavelen = 2 * math.pi / freqs
+#         inv_freq_llama = torch.where(wavelen > low_freq_wavelen, freqs / factor, freqs)
+#         smooth_factor = (old_context_len / wavelen - low_freq_factor) / (
+#             high_freq_factor - low_freq_factor
+#         )
+#         smoothed_inv_freq = (
+#             1 - smooth_factor
+#         ) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
+#         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
+#         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
+#         return inv_freq_llama
 
-    def forward(self, x):
-        # x shape: [batch, heads, seq, dim]
-        [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
-        x_rotated = torch.cat([-y2, y1], dim=-1)
+#     def forward(self, x):
+#         # x shape: [batch, heads, seq, dim]
+#         [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
+#         x_rotated = torch.cat([-y2, y1], dim=-1)
         
-        # We slice based on the -2 dimension (seq_len)
-        cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
-        sin_scaler = self.sin[: x.shape[-2], :].to(x.device, dtype=x.dtype)
+#         # We slice based on the -2 dimension (seq_len)
+#         cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
+#         sin_scaler = self.sin[: x.shape[-2], :].to(x.device, dtype=x.dtype)
         
-        return x * cos_scaler + x_rotated * sin_scaler
+#         return x * cos_scaler + x_rotated * sin_scaler
     
-def rotate_half(x):
-    """Rotates half the hidden dims of the input."""
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
+# def rotate_half(x):
+#     """Rotates half the hidden dims of the input."""
+#     x1 = x[..., : x.shape[-1] // 2]
+#     x2 = x[..., x.shape[-1] // 2 :]
+#     return torch.cat((-x2, x1), dim=-1)
 
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
-    """Applies Rotary Position Embedding to the query and key tensors.
+# def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
+#     """Applies Rotary Position Embedding to the query and key tensors.
 
-    Args:
-        q (`torch.Tensor`): The query tensor.
-        k (`torch.Tensor`): The key tensor.
-        cos (`torch.Tensor`): The cosine part of the rotary embedding.
-        sin (`torch.Tensor`): The sine part of the rotary embedding.
-        position_ids (`torch.Tensor`, *optional*):
-            Deprecated and unused.
-        unsqueeze_dim (`int`, *optional*, defaults to 1):
-            The 'unsqueeze_dim' argument specifies the dimension along which to unsqueeze cos[position_ids] and
-            sin[position_ids] so that they can be properly broadcasted to the dimensions of q and k. For example, note
-            that cos[position_ids] and sin[position_ids] have the shape [batch_size, seq_len, head_dim]. Then, if q and
-            k have the shape [batch_size, heads, seq_len, head_dim], then setting unsqueeze_dim=1 makes
-            cos[position_ids] and sin[position_ids] broadcastable to the shapes of q and k. Similarly, if q and k have
-            the shape [batch_size, seq_len, heads, head_dim], then set unsqueeze_dim=2.
-    Returns:
-        `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
-    """
-    cos = cos.unsqueeze(unsqueeze_dim)
-    sin = sin.unsqueeze(unsqueeze_dim)
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-    k_embed = (k * cos) + (rotate_half(k) * sin)
-    return q_embed, k_embed
+#     Args:
+#         q (`torch.Tensor`): The query tensor.
+#         k (`torch.Tensor`): The key tensor.
+#         cos (`torch.Tensor`): The cosine part of the rotary embedding.
+#         sin (`torch.Tensor`): The sine part of the rotary embedding.
+#         position_ids (`torch.Tensor`, *optional*):
+#             Deprecated and unused.
+#         unsqueeze_dim (`int`, *optional*, defaults to 1):
+#             The 'unsqueeze_dim' argument specifies the dimension along which to unsqueeze cos[position_ids] and
+#             sin[position_ids] so that they can be properly broadcasted to the dimensions of q and k. For example, note
+#             that cos[position_ids] and sin[position_ids] have the shape [batch_size, seq_len, head_dim]. Then, if q and
+#             k have the shape [batch_size, heads, seq_len, head_dim], then setting unsqueeze_dim=1 makes
+#             cos[position_ids] and sin[position_ids] broadcastable to the shapes of q and k. Similarly, if q and k have
+#             the shape [batch_size, seq_len, heads, head_dim], then set unsqueeze_dim=2.
+#     Returns:
+#         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
+#     """
+#     cos = cos.unsqueeze(unsqueeze_dim)
+#     sin = sin.unsqueeze(unsqueeze_dim)
+#     q_embed = (q * cos) + (rotate_half(q) * sin)
+#     k_embed = (k * cos) + (rotate_half(k) * sin)
+#     return q_embed, k_embed
 
 # --- 3. SVD ATTENTION CLASS (Using your exact flow) ---
 # class SVD_LlamaAttention(nn.Module):
@@ -329,6 +329,11 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
 #         return attn_output, None
     
 
+def rotate_half(x):
+    """Rotates half the hidden dims of the input."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
 
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
     gather_indices = position_ids[:, None, :, None]  # [bs, 1, seq_len, 1]
@@ -386,6 +391,7 @@ class SVD_LlamaAttention(nn.Module):
         past_key_values: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: bool = False,
         use_cache: bool = False,
+        **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         past_key_values = None
         use_cache = False
