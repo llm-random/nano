@@ -101,7 +101,7 @@ def profle_svdllm_low_resource(model_name, model, calib_loader, dev):
             super().__init__()
             self.module = module
         def forward(self, inp, **kwargs):
-            print(kwargs)
+            print(kwargs["position_embeddings"].shape)
             inps[cache['i']] = inp.cpu()
             cache['i'] += 1
             if cache['attention_mask'] is None:
