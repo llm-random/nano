@@ -356,7 +356,8 @@ class SVD_LlamaAttention(nn.Module):
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
         self.max_position_embeddings = config.max_position_embeddings
-        self.num_key_value_heads = config.num_key_value_heads # 1 means no truncate, just keep normal attn
+        # self.num_key_value_heads = config.num_key_value_heads
+        self.num_key_value_heads = config.num_key_value_heads if hasattr(config, "num_key_value_heads") else self.num_heads
 
         if (self.head_dim * self.num_heads) != self.hidden_size:
             raise ValueError(
@@ -365,6 +366,7 @@ class SVD_LlamaAttention(nn.Module):
             )
         low_rank = int(self.hidden_size * ratio/2)
         kv_low_rank = int(self.hidden_size * self.num_key_value_heads * self.head_dim * ratio / (self.hidden_size + self.num_key_value_heads * self.head_dim))
+        # kv_low_rank = low_rank
 
         self.q_u_proj = nn.Linear(low_rank, self.num_heads * self.head_dim, bias=False)
         self.q_v_proj = nn.Linear(self.hidden_size, low_rank, bias=False)
@@ -378,17 +380,17 @@ class SVD_LlamaAttention(nn.Module):
         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
 
-        # self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
-        self.rotary_emb = RoPE(
-            dhead=self.head_dim,
-            length=self.max_position_embeddings,
-            base=500000,
-            apply_freq_scaling=True,
-            factor=32.0,
-            low_freq_factor=1.0,
-            high_freq_factor=4.0,
-            original_max_position_embeddings=8192,
-        )
+        self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
+        # self.rotary_emb = RoPE(
+        #     dhead=self.head_dim,
+        #     length=self.max_position_embeddings,
+        #     base=500000,
+        #     apply_freq_scaling=True,
+        #     factor=32.0,
+        #     low_freq_factor=1.0,
+        #     high_freq_factor=4.0,
+        #     original_max_position_embeddings=8192,
+        # )
 
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
@@ -422,12 +424,13 @@ class SVD_LlamaAttention(nn.Module):
         kv_seq_len = key_states.shape[-2]
         if past_key_values is not None:
             kv_seq_len += past_key_values[0].shape[-2]
-        key_states = self.rotary_emb(key_states)
-        value_states = self.rotary_emb(value_states)
+
+        # key_states = self.rotary_emb(key_states)
+        # value_states = self.rotary_emb(value_states)
  
-        # cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-        # query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-        # # [bsz, nh, t, hd]
+        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+        # [bsz, nh, t, hd]
 
         if past_key_values is not None:
             # reuse k, v, self_attention

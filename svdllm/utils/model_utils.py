@@ -14,11 +14,11 @@ dev = torch.device("cuda")
 def get_model_from_huggingface(model_id):
     from transformers import AutoModelForCausalLM, LlamaTokenizer, AutoTokenizer, LlamaForCausalLM
     # if "opt" in model_id or "mistral" in model_id:
-    if True:
+    if False:
         tokenizer = AutoTokenizer.from_pretrained(model_id, device_map="cpu", trust_remote_code=True)
+        tokenizer.model_max_length = int(1e9)
     else:
         tokenizer = LlamaTokenizer.from_pretrained(model_id, device_map="cpu", trust_remote_code=True)
-    tokenizer.model_max_length = int(1e9)
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cpu", torch_dtype=torch.float16, trust_remote_code=True, cache_dir=None)
     model.seqlen = 2048
     return model, tokenizer
@@ -26,7 +26,6 @@ def get_model_from_huggingface(model_id):
 def get_model_from_local(model_id):
     pruned_dict = torch.load(model_id, weights_only=False, map_location='cpu')
     tokenizer, model = pruned_dict['tokenizer'], pruned_dict['model']
-    tokenizer.model_max_length = int(1e9) #dev TODO
     return model, tokenizer
 
 def find_layers(module, layers=[nn.Conv2d, nn.Linear], name=''):
