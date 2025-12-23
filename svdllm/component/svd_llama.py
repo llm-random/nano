@@ -110,77 +110,77 @@ class LlamaRotaryEmbedding(torch.nn.Module):
             self.sin_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
         )
     
-# # --- 2. YOUR WORKING ROPE CLASS (Llama 3.2 Logic) ---
-# class RoPE(nn.Module):
-#     def __init__(
-#         self,
-#         dhead,
-#         length,
-#         base,
-#         apply_freq_scaling,
-#         factor,
-#         low_freq_factor,
-#         high_freq_factor,
-#         original_max_position_embeddings,
-#     ):
-#         super().__init__()
-#         self.dhead = dhead
-#         self.length = length
-#         self.base = base
-#         self.apply_freq_scaling = apply_freq_scaling
-#         self.factor = factor
-#         self.low_freq_factor = low_freq_factor
-#         self.high_freq_factor = high_freq_factor
-#         self.original_max_position_embeddings = original_max_position_embeddings
-#         self.register_freqs()
+# --- 2. YOUR WORKING ROPE CLASS (Llama 3.2 Logic) ---
+class RoPE(nn.Module):
+    def __init__(
+        self,
+        dhead,
+        length,
+        base,
+        apply_freq_scaling,
+        factor,
+        low_freq_factor,
+        high_freq_factor,
+        original_max_position_embeddings,
+    ):
+        super().__init__()
+        self.dhead = dhead
+        self.length = length
+        self.base = base
+        self.apply_freq_scaling = apply_freq_scaling
+        self.factor = factor
+        self.low_freq_factor = low_freq_factor
+        self.high_freq_factor = high_freq_factor
+        self.original_max_position_embeddings = original_max_position_embeddings
+        self.register_freqs()
 
-#     def register_freqs(self):
-#         angle_exponents = (
-#             torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
-#         )
-#         angles = 1.0 / torch.pow(self.base, angle_exponents).reshape(1, -1)
-#         if self.apply_freq_scaling:
-#             angles = self.scale_freqs(angles)
+    def register_freqs(self):
+        angle_exponents = (
+            torch.arange(0, self.dhead, 2, dtype=torch.int64).float() / self.dhead
+        )
+        angles = 1.0 / torch.pow(self.base, angle_exponents).reshape(1, -1)
+        if self.apply_freq_scaling:
+            angles = self.scale_freqs(angles)
 
-#         angle_per_token = angles * torch.arange(0, self.length).reshape(-1, 1)
-#         self.register_buffer(
-#             "sin", torch.sin(angle_per_token).repeat(1, 2), persistent=False
-#         )
-#         self.register_buffer(
-#             "cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False
-#         )
+        angle_per_token = angles * torch.arange(0, self.length).reshape(-1, 1)
+        self.register_buffer(
+            "sin", torch.sin(angle_per_token).repeat(1, 2), persistent=False
+        )
+        self.register_buffer(
+            "cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False
+        )
 
-#     def scale_freqs(self, freqs):
-#         factor = self.factor
-#         low_freq_factor = self.low_freq_factor
-#         high_freq_factor = self.high_freq_factor
-#         old_context_len = self.original_max_position_embeddings
+    def scale_freqs(self, freqs):
+        factor = self.factor
+        low_freq_factor = self.low_freq_factor
+        high_freq_factor = self.high_freq_factor
+        old_context_len = self.original_max_position_embeddings
 
-#         low_freq_wavelen = old_context_len / low_freq_factor
-#         high_freq_wavelen = old_context_len / high_freq_factor
+        low_freq_wavelen = old_context_len / low_freq_factor
+        high_freq_wavelen = old_context_len / high_freq_factor
 
-#         wavelen = 2 * math.pi / freqs
-#         inv_freq_llama = torch.where(wavelen > low_freq_wavelen, freqs / factor, freqs)
-#         smooth_factor = (old_context_len / wavelen - low_freq_factor) / (
-#             high_freq_factor - low_freq_factor
-#         )
-#         smoothed_inv_freq = (
-#             1 - smooth_factor
-#         ) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
-#         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
-#         inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
-#         return inv_freq_llama
+        wavelen = 2 * math.pi / freqs
+        inv_freq_llama = torch.where(wavelen > low_freq_wavelen, freqs / factor, freqs)
+        smooth_factor = (old_context_len / wavelen - low_freq_factor) / (
+            high_freq_factor - low_freq_factor
+        )
+        smoothed_inv_freq = (
+            1 - smooth_factor
+        ) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
+        is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
+        inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
+        return inv_freq_llama
 
-#     def forward(self, x):
-#         # x shape: [batch, heads, seq, dim]
-#         [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
-#         x_rotated = torch.cat([-y2, y1], dim=-1)
+    def forward(self, x):
+        # x shape: [batch, heads, seq, dim]
+        [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
+        x_rotated = torch.cat([-y2, y1], dim=-1)
         
-#         # We slice based on the -2 dimension (seq_len)
-#         cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
-#         sin_scaler = self.sin[: x.shape[-2], :].to(x.device, dtype=x.dtype)
+        # We slice based on the -2 dimension (seq_len)
+        cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
+        sin_scaler = self.sin[: x.shape[-2], :].to(x.device, dtype=x.dtype)
         
-#         return x * cos_scaler + x_rotated * sin_scaler
+        return x * cos_scaler + x_rotated * sin_scaler
     
 # def rotate_half(x):
 #     """Rotates half the hidden dims of the input."""
@@ -378,7 +378,17 @@ class SVD_LlamaAttention(nn.Module):
         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
 
-        self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
+        # self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
+        self.rotary_emb = RoPE(
+            dhead=self.head_dim,
+            length=self.max_position_embeddings,
+            base=500000,
+            apply_freq_scaling=True,
+            factor=32.0,
+            low_freq_factor=1.0,
+            high_freq_factor=4.0,
+            original_max_position_embeddings=8192,
+        )
 
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
@@ -414,7 +424,7 @@ class SVD_LlamaAttention(nn.Module):
             kv_seq_len += past_key_values[0].shape[-2]
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
  
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+        # query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
         # [bsz, nh, t, hd]
 
         if past_key_values is not None:
