@@ -380,17 +380,17 @@ class SVD_LlamaAttention(nn.Module):
         self.o_u_proj = nn.Linear(low_rank, self.hidden_size, bias=False)
         self.o_v_proj = nn.Linear(self.num_heads * self.head_dim, low_rank, bias=False)
 
-        self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
-        # self.rotary_emb = RoPE(
-        #     dhead=self.head_dim,
-        #     length=self.max_position_embeddings,
-        #     base=500000,
-        #     apply_freq_scaling=True,
-        #     factor=32.0,
-        #     low_freq_factor=1.0,
-        #     high_freq_factor=4.0,
-        #     original_max_position_embeddings=8192,
-        # )
+        # self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
+        self.rotary_emb = RoPE(
+            dhead=self.head_dim,
+            length=self.max_position_embeddings,
+            base=500000,
+            apply_freq_scaling=True,
+            factor=32.0,
+            low_freq_factor=1.0,
+            high_freq_factor=4.0,
+            original_max_position_embeddings=8192,
+        )
 
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
@@ -428,8 +428,8 @@ class SVD_LlamaAttention(nn.Module):
         # key_states = self.rotary_emb(key_states)
         # value_states = self.rotary_emb(value_states)
  
-        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+        # cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        # query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
         # [bsz, nh, t, hd]
 
         if past_key_values is not None:
