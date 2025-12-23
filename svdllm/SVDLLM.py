@@ -714,8 +714,8 @@ if __name__ == '__main__':
         if args.profiling_mat_path is None:
             cali_white_data = get_calib_train_data(args.dataset, tokenizer, args.whitening_nsamples, seqlen=args.model_seq_len)
             print("cali_white_data --------") #dev
-            # profiling_mat = profle_svdllm_low_resource(args.model, model, cali_white_data, args.DEV)
-            profiling_mat = profle_svdllm(args.model, model, cali_white_data, args.DEV)
+            profiling_mat = profle_svdllm_low_resource(args.model, model, cali_white_data, args.DEV)
+            # profiling_mat = profle_svdllm(args.model, model, cali_white_data, args.DEV)
             
             print("profiling_mat --------") #dev
             if args.save_path is not None:
