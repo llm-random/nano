@@ -422,7 +422,9 @@ class SVD_LlamaAttention(nn.Module):
         kv_seq_len = key_states.shape[-2]
         if past_key_values is not None:
             kv_seq_len += past_key_values[0].shape[-2]
-        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        # cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        key_states = self.rotary_emb(key_states, seq_len=2048)
+        value_states = self.rotary_emb(value_states, seq_len=2048)
  
         # query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
         # [bsz, nh, t, hd]
