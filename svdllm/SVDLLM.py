@@ -78,68 +78,211 @@ def profle_svdllm(name, model, calib_loader, dev):
     return profiling_mat
         
 
+# @torch.no_grad()
+# def profle_svdllm_low_resource(model_name, model, calib_loader, dev):
+#     if "opt" in model_name:
+#         layers = model.model.decoder.layers
+#         model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev)
+#         model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.to(dev)
+#         model.model.decoder.embed_positions = model.model.decoder.embed_positions.to(dev)
+#     else:
+#         layers = model.model.layers
+#         model.model.embed_tokens = model.model.embed_tokens.to(dev)
+#         model.model.norm = model.model.norm.to(dev)
+#     layers[0] = layers[0].to(dev)
+
+#     dtype = next(iter(model.parameters())).dtype
+#     inps = torch.zeros(
+#         (len(calib_loader), model.seqlen, model.config.hidden_size), dtype=dtype, device=dev
+#     )
+#     cache = {'i': 0, 'attention_mask': None, "position_ids": None}
+#     class Catcher(nn.Module):
+#         def __init__(self, module):
+#             super().__init__()
+#             self.module = module
+#         def forward(self, inp, **kwargs):
+#             print(kwargs["position_embeddings"][0].shape)
+#             print(kwargs["position_embeddings"][1].shape)
+#             inps[cache['i']] = inp.cpu()
+#             cache['i'] += 1
+#             if cache['attention_mask'] is None:
+#                 cache['attention_mask'] = kwargs['attention_mask'].cpu()
+#                 if "opt" not in model_name:
+#                     cache['position_ids'] = kwargs['position_ids'].cpu()
+#             else:
+#                 cache['attention_mask'] = torch.cat((cache['attention_mask'], kwargs['attention_mask'].cpu()), dim=0)
+#                 if "opt" not in model_name:
+#                     cache['position_ids'] = torch.cat((cache['position_ids'], kwargs['position_ids'].cpu()), dim=0)
+#             raise ValueError
+#     layers[0] = Catcher(layers[0])
+#     for batch in calib_loader:
+#         try:
+#             batch = {k: v.to(dev) for k, v in batch.items()}
+#             model(**batch)
+#         except ValueError:
+#             pass
+#     layers[0] = layers[0].module
+#     layers[0] = layers[0].cpu()
+#     if "opt" in model_name:
+#         model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cpu()
+#         model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.cpu()
+#         model.model.decoder.embed_positions = model.model.decoder.embed_positions.cpu()
+#     else:  
+#         model.model.embed_tokens = model.model.embed_tokens.cpu()
+#         model.model.norm = model.model.norm.cpu()
+#     torch.cuda.empty_cache()
+#     outs = torch.zeros_like(inps)
+#     attention_masks = cache['attention_mask']
+#     if "opt" not in model_name:
+#         position_ids = cache['position_ids']
+#     profiling_mat = {}
+#     for i in tqdm(range(len(layers))):
+#         layer_profile = {}
+#         layer = layers[i].to(dev)
+#         subset = find_layers(layer)        
+#         def hook(module, input, output):
+#             inp = input[0].detach().float()
+#             if inp.dim() == 2:  # for opt
+#                 inp = inp.unsqueeze(0)
+#             adds = torch.matmul(inp.transpose(1,2), inp)
+#             adds_sum = torch.sum(adds, dim=0)
+#             module.scaling_diag_matrix += adds_sum
+#             del inp, adds, adds_sum, output
+#             torch.cuda.empty_cache()
+#         handles = []
+#         for name in subset:
+#             subset[name].scaling_diag_matrix = 0
+#             handles.append(subset[name].register_forward_hook(hook))
+#         for j in range(inps.shape[0]):
+#             if "opt" not in model_name:
+#                 outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_masks[j].unsqueeze(0).to(dev), position_ids=position_ids[j].unsqueeze(0).to(dev))[0]
+#             else:
+#                 outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_masks[j].unsqueeze(0).to(dev))[0]
+#         for h in handles:
+#             h.remove()
+#         layer = layer.cpu()
+#         for name in subset:
+#             subset[name].scaling_diag_matrix = subset[name].scaling_diag_matrix.cpu()
+#         torch.cuda.empty_cache()
+#         for name in subset:
+#             raw_scaling_diag_matrix = subset[name].scaling_diag_matrix.double().to(dev)
+#             try:
+#                 scaling_diag_matrix = torch.linalg.cholesky(raw_scaling_diag_matrix)
+#             except Exception as e:
+#                 print("Warning: eigen scaling_diag_matrix is not positive!")
+#                 eigenvalues = torch.linalg.eigvalsh(raw_scaling_diag_matrix)
+#                 raw_scaling_diag_matrix += (- eigenvalues[0] + 1e-6) * torch.eye(raw_scaling_diag_matrix.shape[0]).to(dev)
+#                 scaling_diag_matrix = torch.linalg.cholesky(raw_scaling_diag_matrix)
+#                 eigenvalues = None
+#                 del eigenvalues
+#             layer_profile[name] = scaling_diag_matrix.cpu()
+#             scaling_diag_matrix = raw_scaling_diag_matrix = subset[name].raw_scaling_diag_matrix = None
+#             del scaling_diag_matrix, raw_scaling_diag_matrix, subset[name].raw_scaling_diag_matrix
+#             torch.cuda.empty_cache()
+#         layers[i] = layer.cpu()
+#         profiling_mat[i] = layer_profile
+#         inps = outs
+#         torch.cuda.empty_cache()
+#     return profiling_mat
+
+import torch
+import torch.nn as nn
+from tqdm import tqdm
+
 @torch.no_grad()
-def profle_svdllm_low_resource(model_name, model, calib_loader, dev):
-    if "opt" in model_name:
+def profile_svdllm_low_resource(model_name, model, calib_loader, dev):
+    # Determine layer access based on model type
+    if "opt" in model_name.lower():
         layers = model.model.decoder.layers
         model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev)
         model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.to(dev)
         model.model.decoder.embed_positions = model.model.decoder.embed_positions.to(dev)
     else:
+        # Works for Llama-2 and Llama-3
         layers = model.model.layers
         model.model.embed_tokens = model.model.embed_tokens.to(dev)
         model.model.norm = model.model.norm.to(dev)
+
     layers[0] = layers[0].to(dev)
 
     dtype = next(iter(model.parameters())).dtype
     inps = torch.zeros(
         (len(calib_loader), model.seqlen, model.config.hidden_size), dtype=dtype, device=dev
     )
-    cache = {'i': 0, 'attention_mask': None, "position_ids": None}
+    
+    # Initialize cache with support for Llama-3 specific 'cache_position'
+    cache = {'i': 0, 'attention_mask': None, "position_ids": None, "cache_position": None}
+
     class Catcher(nn.Module):
         def __init__(self, module):
             super().__init__()
             self.module = module
+
         def forward(self, inp, **kwargs):
-            print(kwargs["position_embeddings"][0].shape)
-            print(kwargs["position_embeddings"][1].shape)
             inps[cache['i']] = inp.cpu()
             cache['i'] += 1
+            
+            # Capture attention_mask
             if cache['attention_mask'] is None:
                 cache['attention_mask'] = kwargs['attention_mask'].cpu()
-                if "opt" not in model_name:
-                    cache['position_ids'] = kwargs['position_ids'].cpu()
             else:
                 cache['attention_mask'] = torch.cat((cache['attention_mask'], kwargs['attention_mask'].cpu()), dim=0)
-                if "opt" not in model_name:
-                    cache['position_ids'] = torch.cat((cache['position_ids'], kwargs['position_ids'].cpu()), dim=0)
-            raise ValueError
+            
+            # Capture position_ids (Crucial for Llama RoPE)
+            if "opt" not in model_name.lower():
+                if "position_ids" in kwargs:
+                    if cache['position_ids'] is None:
+                        cache['position_ids'] = kwargs['position_ids'].cpu()
+                    else:
+                        cache['position_ids'] = torch.cat((cache['position_ids'], kwargs['position_ids'].cpu()), dim=0)
+                
+                # Capture cache_position (Crucial for Llama-3 / Transformers >= 4.36)
+                if "cache_position" in kwargs:
+                    if cache['cache_position'] is None:
+                        cache['cache_position'] = kwargs['cache_position'].cpu()
+                    else:
+                        # cache_position usually doesn't need concatenation across batches like inps, 
+                        # but we store the first valid one or update it if needed. 
+                        # Usually it is static per seq length, but we keep the latest.
+                        cache['cache_position'] = kwargs['cache_position'].cpu()
+                        
+            raise ValueError # Abort after capturing first layer inputs
+
     layers[0] = Catcher(layers[0])
+    
     for batch in calib_loader:
         try:
             batch = {k: v.to(dev) for k, v in batch.items()}
             model(**batch)
         except ValueError:
             pass
+            
     layers[0] = layers[0].module
     layers[0] = layers[0].cpu()
-    if "opt" in model_name:
+    
+    # Move embeddings back to CPU to save memory
+    if "opt" in model_name.lower():
         model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cpu()
         model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.cpu()
         model.model.decoder.embed_positions = model.model.decoder.embed_positions.cpu()
     else:  
         model.model.embed_tokens = model.model.embed_tokens.cpu()
         model.model.norm = model.model.norm.cpu()
+        
     torch.cuda.empty_cache()
+    
     outs = torch.zeros_like(inps)
     attention_masks = cache['attention_mask']
-    if "opt" not in model_name:
-        position_ids = cache['position_ids']
+    position_ids = cache['position_ids']
+    cache_position = cache.get('cache_position') # Retrieve cache_position
+
     profiling_mat = {}
+    
     for i in tqdm(range(len(layers))):
         layer_profile = {}
         layer = layers[i].to(dev)
-        subset = find_layers(layer)        
+        subset = find_layers(layer) # Ensure find_layers is defined in your scope       
+        
         def hook(module, input, output):
             inp = input[0].detach().float()
             if inp.dim() == 2:  # for opt
@@ -149,21 +292,38 @@ def profle_svdllm_low_resource(model_name, model, calib_loader, dev):
             module.scaling_diag_matrix += adds_sum
             del inp, adds, adds_sum, output
             torch.cuda.empty_cache()
+
         handles = []
         for name in subset:
             subset[name].scaling_diag_matrix = 0
             handles.append(subset[name].register_forward_hook(hook))
+            
         for j in range(inps.shape[0]):
-            if "opt" not in model_name:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_masks[j].unsqueeze(0).to(dev), position_ids=position_ids[j].unsqueeze(0).to(dev))[0]
-            else:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_masks[j].unsqueeze(0).to(dev))[0]
+            input_args = {
+                'hidden_states': inps[j].unsqueeze(0).to(dev),
+                'attention_mask': attention_masks[j].unsqueeze(0).to(dev)
+            }
+            
+            if "opt" not in model_name.lower():
+                # Add position_ids if captured
+                if position_ids is not None:
+                    input_args['position_ids'] = position_ids[j].unsqueeze(0).to(dev)
+                
+                # Add cache_position if captured (Llama-3 Requirement)
+                if cache_position is not None:
+                    input_args['cache_position'] = cache_position.to(dev)
+
+            # Pass arguments as kwargs to handle variable signatures
+            outs[j] = layer(**input_args)[0]
+
         for h in handles:
             h.remove()
+            
         layer = layer.cpu()
         for name in subset:
             subset[name].scaling_diag_matrix = subset[name].scaling_diag_matrix.cpu()
         torch.cuda.empty_cache()
+        
         for name in subset:
             raw_scaling_diag_matrix = subset[name].scaling_diag_matrix.double().to(dev)
             try:
@@ -175,14 +335,17 @@ def profle_svdllm_low_resource(model_name, model, calib_loader, dev):
                 scaling_diag_matrix = torch.linalg.cholesky(raw_scaling_diag_matrix)
                 eigenvalues = None
                 del eigenvalues
+            
             layer_profile[name] = scaling_diag_matrix.cpu()
             scaling_diag_matrix = raw_scaling_diag_matrix = subset[name].raw_scaling_diag_matrix = None
             del scaling_diag_matrix, raw_scaling_diag_matrix, subset[name].raw_scaling_diag_matrix
             torch.cuda.empty_cache()
+            
         layers[i] = layer.cpu()
         profiling_mat[i] = layer_profile
         inps = outs
         torch.cuda.empty_cache()
+        
     return profiling_mat
 
 # @torch.no_grad()
