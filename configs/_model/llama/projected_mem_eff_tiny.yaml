@@ -1,0 +1,14 @@
+defaults:
+  - base_pc_mem_eff
+  - _self_
+
+common:
+  dmodel: 64
+  dff: 256
+  dhead: 32
+  sequence_length: 1024
+  base_dmodel: 128
+  base_dff: 512
+  n_blocks: 2
+  q_heads: 4
+  kv_heads: 2
