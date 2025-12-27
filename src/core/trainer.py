@@ -41,7 +41,6 @@ class Trainer:
     gradient_clipping: Optional[float]
     checkpoint: Optional[dict]
     learning_rate: float
-    exp_learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
 
