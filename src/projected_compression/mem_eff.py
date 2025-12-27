@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from typing import List, Optional
-from torch.nn.modules.normalization import RMSNorm
 import torch.nn.functional as F
 from src.projected_compression.initialization import get_topk_indices
 from torch.distributed.tensor import distribute_tensor, DTensor
@@ -11,11 +10,13 @@ class MemoryEfficientProjectedCompression(nn.Module):
         self,
         source_model: nn.Module,
         target_model: nn.Module,
-        path_to_importances: str
+        path_to_importances: str,
+        cast_bfloat16: bool
     ):
         super().__init__()
         self.source_model = source_model
         self.target_model = target_model
+        self.cast_bfloat16 = cast_bfloat16
         self.projections = Projections(
             q_heads=target_model.encoder.blocks[0].attention_layer.layer.q_heads,
             kv_heads=target_model.encoder.blocks[0].attention_layer.layer.kv_heads,
@@ -25,7 +26,8 @@ class MemoryEfficientProjectedCompression(nn.Module):
             target_dff=target_model.encoder.blocks[0].ff_layer.layer.ff_pre_act.out_features,
             n_blocks=len(target_model.encoder.blocks),
             vocab_size=target_model.embedding.num_embeddings,
-            path_to_importances=path_to_importances
+            path_to_importances=path_to_importances,
+            cast_bfloat16=cast_bfloat16
         )
 
     def forward(self, *args, **kwargs):
@@ -38,28 +40,36 @@ class MemoryEfficientProjectedCompression(nn.Module):
 
 
     def prepare_compressed_weights(self):
+        """
+        Copies the projected weights from source_model to target_model using the projections.
+        cast_bfloat16: whether to cast the source weights to bfloat16 before projection. This argument only exists to have backward compatibility with previous implementation.
+                       after testing, we can remove it and never cast to bfloat16.
+        """
         with torch.no_grad():
-            for block_target, block_source, block_proj in zip(self.target_model.encoder.blocks,self.source_model.encoder.blocks, self.projections.blocks ):
-                # block_target.attention_layer.layer.q_proj.weight.copy_(block_proj.compressible_q.get_projected_weight( block_source.attention_layer.layer.q_proj.weight))
-                # block_target.attention_layer.layer.k_proj.weight.copy_(block_proj.compressible_k.get_projected_weight( block_source.attention_layer.layer.k_proj.weight))
-                # block_target.attention_layer.layer.v_proj.weight.copy_(block_proj.compressible_v.get_projected_weight( block_source.attention_layer.layer.v_proj.weight))
-                # block_target.attention_layer.layer.o_proj.weight.copy_(block_proj.compressible_o.get_projected_weight( block_source.attention_layer.layer.o_proj.weight))
+            if not self.cast_bfloat16:
+                for block_target, block_source, block_proj in zip(self.target_model.encoder.blocks,self.source_model.encoder.blocks, self.projections.blocks ):
+                    block_target.attention_layer.layer.q_proj.weight.copy_(block_proj.compressible_q.get_projected_weight( block_source.attention_layer.layer.q_proj.weight))
+                    block_target.attention_layer.layer.k_proj.weight.copy_(block_proj.compressible_k.get_projected_weight( block_source.attention_layer.layer.k_proj.weight))
+                    block_target.attention_layer.layer.v_proj.weight.copy_(block_proj.compressible_v.get_projected_weight( block_source.attention_layer.layer.v_proj.weight))
+                    block_target.attention_layer.layer.o_proj.weight.copy_(block_proj.compressible_o.get_projected_weight( block_source.attention_layer.layer.o_proj.weight))
 
-                # block_target.ff_layer.layer.ff_pre_act.weight.copy_(block_proj.compressible_ff_pre.get_projected_weight( block_source.ff_layer.layer.ff_pre_act.weight))
-                # block_target.ff_layer.layer.gate.weight.copy_(block_proj.compressible_ff_gate.get_projected_weight( block_source.ff_layer.layer.gate.weight))
-                # block_target.ff_layer.layer.ff_post_act.weight.copy_(block_proj.compressible_ff_post.get_projected_weight( block_source.ff_layer.layer.ff_post_act.weight))
+                    block_target.ff_layer.layer.ff_pre_act.weight.copy_(block_proj.compressible_ff_pre.get_projected_weight( block_source.ff_layer.layer.ff_pre_act.weight))
+                    block_target.ff_layer.layer.gate.weight.copy_(block_proj.compressible_ff_gate.get_projected_weight( block_source.ff_layer.layer.gate.weight))
+                    block_target.ff_layer.layer.ff_post_act.weight.copy_(block_proj.compressible_ff_post.get_projected_weight( block_source.ff_layer.layer.ff_post_act.weight))
 
-                block_target.attention_layer.layer.q_proj.weight.copy_(block_proj.compressible_q.get_projected_weight( block_source.attention_layer.layer.q_proj.weight.bfloat16()))
-                block_target.attention_layer.layer.k_proj.weight.copy_(block_proj.compressible_k.get_projected_weight( block_source.attention_layer.layer.k_proj.weight.bfloat16()))
-                block_target.attention_layer.layer.v_proj.weight.copy_(block_proj.compressible_v.get_projected_weight( block_source.attention_layer.layer.v_proj.weight.bfloat16()))
-                block_target.attention_layer.layer.o_proj.weight.copy_(block_proj.compressible_o.get_projected_weight( block_source.attention_layer.layer.o_proj.weight.bfloat16()))
+                self.target_model.head.linear.weight.copy_(self.projections.head.get_projected_weight(self.source_model.head.linear.weight))
+            else:
+                for block_target, block_source, block_proj in zip(self.target_model.encoder.blocks,self.source_model.encoder.blocks, self.projections.blocks ):
+                    block_target.attention_layer.layer.q_proj.weight.copy_(block_proj.compressible_q.get_projected_weight( block_source.attention_layer.layer.q_proj.weight.bfloat16()))
+                    block_target.attention_layer.layer.k_proj.weight.copy_(block_proj.compressible_k.get_projected_weight( block_source.attention_layer.layer.k_proj.weight.bfloat16()))
+                    block_target.attention_layer.layer.v_proj.weight.copy_(block_proj.compressible_v.get_projected_weight( block_source.attention_layer.layer.v_proj.weight.bfloat16()))
+                    block_target.attention_layer.layer.o_proj.weight.copy_(block_proj.compressible_o.get_projected_weight( block_source.attention_layer.layer.o_proj.weight.bfloat16()))
 
-                block_target.ff_layer.layer.ff_pre_act.weight.copy_(block_proj.compressible_ff_pre.get_projected_weight( block_source.ff_layer.layer.ff_pre_act.weight.bfloat16()))
-                block_target.ff_layer.layer.gate.weight.copy_(block_proj.compressible_ff_gate.get_projected_weight( block_source.ff_layer.layer.gate.weight.bfloat16()))
-                block_target.ff_layer.layer.ff_post_act.weight.copy_(block_proj.compressible_ff_post.get_projected_weight( block_source.ff_layer.layer.ff_post_act.weight.bfloat16()))
+                    block_target.ff_layer.layer.ff_pre_act.weight.copy_(block_proj.compressible_ff_pre.get_projected_weight( block_source.ff_layer.layer.ff_pre_act.weight.bfloat16()))
+                    block_target.ff_layer.layer.gate.weight.copy_(block_proj.compressible_ff_gate.get_projected_weight( block_source.ff_layer.layer.gate.weight.bfloat16()))
+                    block_target.ff_layer.layer.ff_post_act.weight.copy_(block_proj.compressible_ff_post.get_projected_weight( block_source.ff_layer.layer.ff_post_act.weight.bfloat16()))
 
-            # self.target_model.head.linear.weight.copy_(self.projections.head.get_projected_weight(self.source_model.head.linear.weight))
-            self.target_model.head.linear.weight.copy_(self.projections.head.get_projected_weight(self.source_model.head.linear.weight.bfloat16()))
+                self.target_model.head.linear.weight.copy_(self.projections.head.get_projected_weight(self.source_model.head.linear.weight.bfloat16()))
 
 
     def pass_gradient_to_projections(self, optimizers: List, schedulers, gradient_clipping):
@@ -104,9 +114,11 @@ class CompressibleLinear(nn.Module):
         base_out_features: int,
         result_out_features: int,
         proj_in_topk_indices: Optional[torch.Tensor],
-        proj_out_topk_indices: Optional[torch.Tensor]
+        proj_out_topk_indices: Optional[torch.Tensor],
+        cast_bfloat16: bool
     ):
         super().__init__()
+        self.cast_bfloat16 = cast_bfloat16
         self.base_in_features = base_in_features
         self.result_in_features = result_in_features
         self.base_out_features = base_out_features
@@ -181,26 +193,25 @@ class CompressibleLinear(nn.Module):
                 self.auxiliary_weight.data.copy_(torch.zeros_like(self.auxiliary_weight.data))
 
             
-    def get_projected_weight(self, source_weight, cast_bfloat16: bool):
-        # weight = source_weight
-        # if hasattr(self, 'projection_in_weight'):
-        #     weight = weight @ self.projection_in_weight
-        # if hasattr(self, 'projection_out_weight'):
-        #     weight = self.projection_out_weight @ weight
-        #     # weight = weight.T @ self.projection_out_weight
-        # if hasattr(self, 'auxiliary_weight'):
-        #     weight = weight + self.auxiliary_weight
-        # return weight
-    
-
-        weight = source_weight
-        if hasattr(self, 'projection_in_weight'):
-            weight = weight @ self.projection_in_weight.bfloat16()
-        if hasattr(self, 'projection_out_weight'):
-            weight = self.projection_out_weight.bfloat16() @ weight
-        if hasattr(self, 'auxiliary_weight'):
-            weight =  weight + self.auxiliary_weight.bfloat16()
-        return weight.float()
+    def get_projected_weight(self, source_weight):
+        if not self.cast_bfloat16:
+            weight = source_weight
+            if hasattr(self, 'projection_in_weight'):
+                weight = weight @ self.projection_in_weight
+            if hasattr(self, 'projection_out_weight'):
+                weight = self.projection_out_weight @ weight
+            if hasattr(self, 'auxiliary_weight'):
+                weight = weight + self.auxiliary_weight
+            return weight
+        else:
+            weight = source_weight
+            if hasattr(self, 'projection_in_weight'):
+                weight = weight @ self.projection_in_weight.bfloat16()
+            if hasattr(self, 'projection_out_weight'):
+                weight = self.projection_out_weight.bfloat16() @ weight
+            if hasattr(self, 'auxiliary_weight'):
+                weight =  weight + self.auxiliary_weight.bfloat16()
+            return weight.float()
 
 
     def extra_repr(self) -> str:
@@ -227,7 +238,8 @@ class CompressibleBlock(nn.Module):
         base_dff: int,
         target_dff: int,
         dmodel_topk_indices: Optional[torch.Tensor],
-        dff_topk_indices: Optional[torch.Tensor]
+        dff_topk_indices: Optional[torch.Tensor],
+        cast_bfloat16: bool
     ):
         super().__init__()
 
@@ -237,7 +249,8 @@ class CompressibleBlock(nn.Module):
             base_out_features=q_heads * dhead,
             result_out_features=q_heads * dhead,
             proj_in_topk_indices=dmodel_topk_indices,
-            proj_out_topk_indices=dmodel_topk_indices
+            proj_out_topk_indices=dmodel_topk_indices,
+            cast_bfloat16=cast_bfloat16
         )
         self.compressible_k = CompressibleLinear(
             base_in_features=base_dmodel,
@@ -245,7 +258,8 @@ class CompressibleBlock(nn.Module):
             base_out_features=kv_heads * dhead,
             result_out_features=kv_heads * dhead,   
             proj_in_topk_indices=dmodel_topk_indices,
-            proj_out_topk_indices=None
+            proj_out_topk_indices=None,
+            cast_bfloat16=cast_bfloat16
         )
         self.compressible_v = CompressibleLinear(
             base_in_features=base_dmodel,
@@ -253,7 +267,8 @@ class CompressibleBlock(nn.Module):
             base_out_features=kv_heads * dhead,
             result_out_features=kv_heads * dhead,
             proj_in_topk_indices=dmodel_topk_indices,
-            proj_out_topk_indices=None
+            proj_out_topk_indices=None,
+            cast_bfloat16=cast_bfloat16
         )
         self.compressible_o = CompressibleLinear(
             base_in_features=base_dmodel,
@@ -261,7 +276,8 @@ class CompressibleBlock(nn.Module):
             base_out_features=base_dmodel,
             result_out_features=target_dmodel,
             proj_in_topk_indices=None,
-            proj_out_topk_indices=dmodel_topk_indices
+            proj_out_topk_indices=dmodel_topk_indices,
+            cast_bfloat16=cast_bfloat16
         )
         self.compressible_ff_pre = CompressibleLinear(
             base_in_features=base_dmodel,
@@ -269,7 +285,8 @@ class CompressibleBlock(nn.Module):
             base_out_features=base_dff,
             result_out_features=target_dff,
             proj_in_topk_indices=dmodel_topk_indices,
-            proj_out_topk_indices=dff_topk_indices
+            proj_out_topk_indices=dff_topk_indices,
+            cast_bfloat16=cast_bfloat16
         )      
         self.compressible_ff_gate = CompressibleLinear(
             base_in_features=base_dmodel,
@@ -277,7 +294,8 @@ class CompressibleBlock(nn.Module):
             base_out_features=base_dff,
             result_out_features=target_dff,
             proj_in_topk_indices=dmodel_topk_indices,
-            proj_out_topk_indices=dff_topk_indices
+            proj_out_topk_indices=dff_topk_indices,
+            cast_bfloat16=cast_bfloat16
         )
         self.compressible_ff_post = CompressibleLinear(
             base_in_features=base_dff,
@@ -285,7 +303,8 @@ class CompressibleBlock(nn.Module):
             base_out_features=base_dmodel,
             result_out_features=target_dmodel,
             proj_in_topk_indices=dff_topk_indices,
-            proj_out_topk_indices=dmodel_topk_indices
+            proj_out_topk_indices=dmodel_topk_indices,
+            cast_bfloat16=cast_bfloat16
         )
 
     def init_projection_weights(self, dmodel_topk_indices, dff_topk_indices):
@@ -309,7 +328,8 @@ class Projections(nn.Module):
         target_dff: int,
         n_blocks: int,
         vocab_size: int,
-        path_to_importances: str # TODO
+        path_to_importances: str,
+        cast_bfloat16: bool
     ):
         dmodel_topk_indices, dff_topk_indices = get_topk_indices(path_to_importances, target_dmodel, target_dff)
 
@@ -339,7 +359,8 @@ class Projections(nn.Module):
                 base_dff=base_dff,
                 target_dff=target_dff,
                 dmodel_topk_indices=dmodel_topk_indices,
-                dff_topk_indices=dff_topk_indices[i]
+                dff_topk_indices=dff_topk_indices[i],
+                cast_bfloat16=cast_bfloat16
                 ) for i in range(n_blocks)
             ])
         self.head = CompressibleLinear(
@@ -348,7 +369,8 @@ class Projections(nn.Module):
             base_out_features=vocab_size,
             result_out_features=vocab_size,
             proj_in_topk_indices=dmodel_topk_indices,
-            proj_out_topk_indices=None
+            proj_out_topk_indices=None,
+            cast_bfloat16=cast_bfloat16
         )
 
     def init_projection_weights(self, path_to_importances):
