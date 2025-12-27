@@ -1,0 +1,14 @@
+defaults:
+  - base_pc_mem_eff
+  - _self_
+
+common:
+  dmodel: 3072 # 50% parameter compression
+  dff: 9216 # 50% parameter compression
+  dhead: 128
+  sequence_length: 2048
+  base_dmodel: 4096
+  base_dff: 14336
+  n_blocks: 32
+  q_heads: 32
+  kv_heads: 8
