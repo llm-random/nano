@@ -104,6 +104,8 @@ def create_model(cfg_model, cfg_projected_compression):
  
     model = setup_fsdp2_model(model, cfg_projected_compression)
 
+    dmodel_topk_indices, dff_topk_indices = get_topk_indices(cfg_projected_compression.path_to_importances, model.projections.target_dmodel, model.projections.target_dff)
+
     # Initializing model.source_model
     source_sd = torch.load(cfg_projected_compression.source_model_path, mmap=True, weights_only=True, map_location="cpu")
     sharded_sd = get_sharded_sd(model.source_model.state_dict(), source_sd)
@@ -112,19 +114,46 @@ def create_model(cfg_model, cfg_projected_compression):
     # Initializing model.target_model
     model.target_model.to_empty(device="cuda")
 
-    ones = torch.ones(model.target_model.head.norm.weight.shape, device="cuda")
- 
-    sharded_tensor = distribute_tensor(
-        ones,
-        model.target_model.head.norm.weight.device_mesh,
-        model.target_model.head.norm.weight.placements,
-    )
-    model.target_model.head.norm.weight.data.copy_(sharded_tensor)
+    if cfg_projected_compression.init_norms_with_ones:
+        ones = torch.ones(model.target_model.head.norm.weight.shape, device="cuda")
+    
+        sharded_tensor = distribute_tensor(
+            ones,
+            model.target_model.head.norm.weight.device_mesh,
+            model.target_model.head.norm.weight.placements,
+        )
+        model.target_model.head.norm.weight.data.copy_(sharded_tensor)
 
-    for block in model.target_model.encoder.blocks:
-        block.attention_layer.norm.weight.data.copy_(sharded_tensor)
-        block.ff_layer.norm.weight.data.copy_(sharded_tensor)
-        block.attention_layer.layer.rope.register_freqs()
+        for block in model.target_model.encoder.blocks:
+            block.attention_layer.norm.weight.data.copy_(sharded_tensor)
+            block.ff_layer.norm.weight.data.copy_(sharded_tensor)
+            block.attention_layer.layer.rope.register_freqs()
+    else:
+        weight = source_sd["head.norm.weight"][dmodel_topk_indices]
+        sharded_tensor = distribute_tensor(
+            weight,
+            model.target_model.head.norm.weight.device_mesh,
+            model.target_model.head.norm.weight.placements,
+        )
+        model.target_model.head.norm.weight.data.copy_(sharded_tensor)
+
+        for i, block in enumerate(model.target_model.encoder.blocks):
+            weight = source_sd[f"encoder.blocks.{i}.attention_layer.norm.weight"][dmodel_topk_indices]
+            sharded_tensor = distribute_tensor(
+                weight,
+                model.target_model.head.norm.weight.device_mesh,
+                model.target_model.head.norm.weight.placements,
+            )
+            block.attention_layer.norm.weight.data.copy_(sharded_tensor)
+            weight = source_sd[f"encoder.blocks.{i}.ff_layer.norm.weight"][dmodel_topk_indices]
+            sharded_tensor = distribute_tensor(
+                weight,
+                model.target_model.head.norm.weight.device_mesh,
+                model.target_model.head.norm.weight.placements,
+            )
+            block.ff_layer.norm.weight.data.copy_(sharded_tensor)
+            block.attention_layer.layer.rope.register_freqs()
+
 
     # Initializing model.projections
     model.projections.to_empty(device="cuda")
