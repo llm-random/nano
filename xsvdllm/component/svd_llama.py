@@ -264,7 +264,7 @@ class SVD_LlamaAttention(nn.Module):
 
     def _init_rope(self):
         if self.config.rope_scaling is None:
-            raise
+            # raise
             self.rotary_emb = LlamaRotaryEmbedding(
                 self.head_dim,
                 max_position_embeddings=self.max_position_embeddings,
@@ -398,3 +398,64 @@ class SVD_LlamaAttention(nn.Module):
             attn_weights = None
 
         return attn_output, attn_weights, past_key_value
+    
+
+class SVD_Linear(nn.Module):
+    def __init__(self, dim_in, dim_out, low_rank_dim, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        
+        self.dim_in = dim_in
+        self.dim_out = dim_out
+        self.low_rank_dim = low_rank_dim
+
+        self.v_proj = nn.Linear(self.dim_in, self.low_rank_dim, bias=False)
+        self.u_proj = nn.Linear(self.low_rank_dim, self.dim_out, bias=False)
+
+    def forward(self, x):
+        return self.u_proj(self.v_proj(x))
+    
+# def test_svd(dense_linear, svd_linear, input_shape):
+#     input_x = torch.rand(input_shape, dtype=dense_linear.weight.dtype, device=dense_linear.weight.device)
+#     dx = dense_linear(input_x)
+#     sx = svd_linear(input_x)
+#     print(f"dx: {dx}")
+#     print(f"sx: {sx}")
+#     raise
+
+def test_svd(dense_linear, svd_linear, input_shape):
+    # Create input matching the dense layer's dtype and device
+    input_x = torch.rand(
+        input_shape, 
+        dtype=dense_linear.weight.dtype, 
+        device=dense_linear.weight.device
+    )
+    
+    # Forward pass
+    # Note: using torch.no_grad() is safer for testing to save memory/gradients
+    with torch.no_grad():
+        dx = dense_linear(input_x)
+        sx = svd_linear(input_x)
+    
+    # Calculate errors
+    diff = dx - sx
+    max_diff = diff.abs().max().item()
+    mse_error = torch.nn.functional.mse_loss(dx, sx).item()
+    norm_error = torch.norm(diff) / torch.norm(dx) # Relative error
+    
+    print("-" * 30)
+    print(f"SVD Approximation Test")
+    print("-" * 30)
+    print(f"Input Shape: {input_x.shape}")
+    print(f"Output Shape: {dx.shape}")
+    print(f"Dtype:       {dx.dtype}")
+    print("-" * 30)
+    print(f"Max Absolute Diff:   {max_diff:.6f}")
+    print(f"Mean Squared Error:  {mse_error:.6f}")
+    print(f"Relative Error (norm): {norm_error:.6f}")
+    print("-" * 30)
+    
+    # Optional: Print raw values if you really need to see them
+    # print(f"Dense Output (first 5): {dx.flatten()[:5]}")
+    # print(f"SVD Output   (first 5): {sx.flatten()[:5]}")
+    
+    raise RuntimeError("Test Complete: Stopping execution intentionally.")

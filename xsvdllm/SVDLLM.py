@@ -7,8 +7,9 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 
+from component.svd_llama import SVD_Linear, test_svd
 from utils.data_utils import *
-from component.svd_llama import SVD_LlamaAttention, SVD_LlamaMLP
+# from component.svd_llama import SVD_LlamaAttention, SVD_LlamaMLP
 # from component.svd_mistral import SVD_MistralAttention, SVD_MistralMLP
 # from component.svd_opt import SVDOPTDecoderLayer
 from utils.model_utils import *
@@ -197,8 +198,9 @@ def whitening(model_name, model, profiling_mat, ratio, dev):
         subset = find_layers(layer)
         #### Replace Attn, MLP ####
         if "llama" in model_name or "vicuna" in model_name:
-            svd_attn = SVD_LlamaAttention(config=model.config, ratio=ratio)
-            svd_mlp = SVD_LlamaMLP(hidden_size=layer.hidden_size, intermediate_size=model.config.intermediate_size, hidden_act=model.config.hidden_act, ratio=ratio)
+            # svd_attn = SVD_LlamaAttention(config=model.config, ratio=ratio)
+            # svd_mlp = SVD_LlamaMLP(hidden_size=layer.hidden_size, intermediate_size=model.config.intermediate_size, hidden_act=model.config.hidden_act, ratio=ratio)
+            pass
         elif "mistral" in model_name:
             raise
             # svd_attn = SVD_MistralAttention(config=model.config, ratio=ratio)
@@ -230,6 +232,13 @@ def whitening(model_name, model, profiling_mat, ratio, dev):
             sqrtSigma = torch.sqrt(truc_sigma)
             svd_u = torch.matmul(truc_u, sqrtSigma).cpu().to(dtype)
             svd_v = torch.matmul(sqrtSigma, truc_v).cpu().to(dtype)
+
+            new_linear = SVD_Linear(W.shape[1], W.shape[0], num_s_after_trunc)
+            assert new_linear.u_proj.weight.data.shape == svd_u.shape, "q_proj svd_u shape"
+            assert new_linear.v_proj.weight.data.shape == svd_v.shape, "q_proj svd_v shape"
+            new_linear.u_proj.weight.data = svd_u.to(torch.float16)
+            new_linear.v_proj.weight.data = svd_v.to(torch.float16)
+            
             if 'opt' in model_name:
                 raise
                 if "q_proj" in name:
@@ -260,43 +269,59 @@ def whitening(model_name, model, profiling_mat, ratio, dev):
                     svd_decoder.final_layer_norm = layer.final_layer_norm
                     layers[i] = svd_decoder
             else:
+                # print("name: ", name)
+                # print("subset[name]: ", subset[name])
+                # print("subset")
+                # print(subset)
+                # print("layer")
+                # print(layer)
+                # raise
                 if "q_proj" in name:
-                    assert svd_attn.q_u_proj.weight.data.shape == svd_u.shape, "q_proj svd_u shape"
-                    assert svd_attn.q_v_proj.weight.data.shape == svd_v.shape, "q_proj svd_v shape"
-                    svd_attn.q_u_proj.weight.data = svd_u
-                    svd_attn.q_v_proj.weight.data = svd_v
+                    # assert svd_attn.q_u_proj.weight.data.shape == svd_u.shape, "q_proj svd_u shape"
+                    # assert svd_attn.q_v_proj.weight.data.shape == svd_v.shape, "q_proj svd_v shape"
+                    # svd_attn.q_u_proj.weight.data = svd_u
+                    # svd_attn.q_v_proj.weight.data = svd_v
+                    # print(torch.rand(W.shape[1]))
+                    # test_svd(layer.self_attn.q_proj, new_linear, W.shape[1])
+                    layer.self_attn.q_proj = new_linear
                 elif "k_proj" in name:
-                    assert svd_attn.k_u_proj.weight.data.shape == svd_u.shape, "k_proj svd_u shape"
-                    assert svd_attn.k_v_proj.weight.data.shape == svd_v.shape, "k_proj svd_v shape"
-                    svd_attn.k_u_proj.weight.data = svd_u
-                    svd_attn.k_v_proj.weight.data = svd_v
+                    # assert svd_attn.k_u_proj.weight.data.shape == svd_u.shape, "k_proj svd_u shape"
+                    # assert svd_attn.k_v_proj.weight.data.shape == svd_v.shape, "k_proj svd_v shape"
+                    # svd_attn.k_u_proj.weight.data = svd_u
+                    # svd_attn.k_v_proj.weight.data = svd_v
+                    layer.self_attn.k_proj = new_linear
                 elif "v_proj" in name:
-                    assert svd_attn.v_u_proj.weight.data.shape == svd_u.shape, "v_proj svd_u shape"
-                    assert svd_attn.v_v_proj.weight.data.shape == svd_v.shape, "v_proj svd_v shape"
-                    svd_attn.v_u_proj.weight.data = svd_u
-                    svd_attn.v_v_proj.weight.data = svd_v
+                    # assert svd_attn.v_u_proj.weight.data.shape == svd_u.shape, "v_proj svd_u shape"
+                    # assert svd_attn.v_v_proj.weight.data.shape == svd_v.shape, "v_proj svd_v shape"
+                    # svd_attn.v_u_proj.weight.data = svd_u
+                    # svd_attn.v_v_proj.weight.data = svd_v
+                    layer.self_attn.v_proj = new_linear
                 elif "o_proj" in name:
-                    assert svd_attn.o_u_proj.weight.data.shape == svd_u.shape, "o_proj svd_u shape"
-                    assert svd_attn.o_v_proj.weight.data.shape == svd_v.shape, "o_proj svd_v shape"
-                    svd_attn.o_u_proj.weight.data = svd_u
-                    svd_attn.o_v_proj.weight.data = svd_v
-                    layer.self_attn =  svd_attn
+                    # assert svd_attn.o_u_proj.weight.data.shape == svd_u.shape, "o_proj svd_u shape"
+                    # assert svd_attn.o_v_proj.weight.data.shape == svd_v.shape, "o_proj svd_v shape"
+                    # svd_attn.o_u_proj.weight.data = svd_u
+                    # svd_attn.o_v_proj.weight.data = svd_v
+                    # layer.self_attn =  svd_attn
+                    layer.self_attn.o_proj = new_linear
                 elif "gate_proj" in name:
-                    assert svd_mlp.gate_u_proj.weight.data.shape == svd_u.shape, "gate_proj svd_u shape"
-                    assert svd_mlp.gate_v_proj.weight.data.shape == svd_v.shape, "gate_proj svd_v shape"
-                    svd_mlp.gate_u_proj.weight.data = svd_u
-                    svd_mlp.gate_v_proj.weight.data = svd_v
+                    # assert svd_mlp.gate_u_proj.weight.data.shape == svd_u.shape, "gate_proj svd_u shape"
+                    # assert svd_mlp.gate_v_proj.weight.data.shape == svd_v.shape, "gate_proj svd_v shape"
+                    # svd_mlp.gate_u_proj.weight.data = svd_u
+                    # svd_mlp.gate_v_proj.weight.data = svd_v
+                    layer.mlp.gate_proj = new_linear
                 elif "down_proj" in name:
-                    assert svd_mlp.down_u_proj.weight.data.shape == svd_u.shape, "down_proj svd_u shape"
-                    assert svd_mlp.down_v_proj.weight.data.shape == svd_v.shape, "down_proj svd_v shape"
-                    svd_mlp.down_u_proj.weight.data = svd_u
-                    svd_mlp.down_v_proj.weight.data = svd_v
+                    # assert svd_mlp.down_u_proj.weight.data.shape == svd_u.shape, "down_proj svd_u shape"
+                    # assert svd_mlp.down_v_proj.weight.data.shape == svd_v.shape, "down_proj svd_v shape"
+                    # svd_mlp.down_u_proj.weight.data = svd_u
+                    # svd_mlp.down_v_proj.weight.data = svd_v
+                    layer.mlp.down_proj = new_linear
                 elif "up_proj" in name:
-                    assert svd_mlp.up_u_proj.weight.data.shape == svd_u.shape, "up_proj svd_u shape"
-                    assert svd_mlp.up_v_proj.weight.data.shape == svd_v.shape, "up_proj svd_v shape"
-                    svd_mlp.up_u_proj.weight.data = svd_u
-                    svd_mlp.up_v_proj.weight.data = svd_v
-                    layer.mlp = svd_mlp
+                    # assert svd_mlp.up_u_proj.weight.data.shape == svd_u.shape, "up_proj svd_u shape"
+                    # assert svd_mlp.up_v_proj.weight.data.shape == svd_v.shape, "up_proj svd_v shape"
+                    # svd_mlp.up_u_proj.weight.data = svd_u
+                    # svd_mlp.up_v_proj.weight.data = svd_v
+                    # layer.mlp = svd_mlp
+                    layer.mlp.up_proj = new_linear
             W = W_scale = scaling_matrix_inv = scaling_diag_matrix = U = S = VT  = truc_s = truc_u = truc_v = sqrtSigma = None
             del  W, W_scale, scaling_matrix_inv, scaling_diag_matrix, U, S, VT, truc_s, truc_u, truc_v, sqrtSigma
         del layer
@@ -361,8 +386,9 @@ def whitening_local_update(model_name, model, dataloader, profiling_mat, ratio, 
         subset = find_layers(layer)
         gpts = {}
         if "llama" in model_name or "vicuna" in model_name:
-            svd_attn = SVD_LlamaAttention(config=model.config, ratio=ratio)
-            svd_mlp = SVD_LlamaMLP(hidden_size=layer.hidden_size, intermediate_size=model.config.intermediate_size, hidden_act=model.config.hidden_act, ratio=ratio)
+            # svd_attn = SVD_LlamaAttention(config=model.config, ratio=ratio)
+            # svd_mlp = SVD_LlamaMLP(hidden_size=layer.hidden_size, intermediate_size=model.config.intermediate_size, hidden_act=model.config.hidden_act, ratio=ratio)
+            pass
         elif "mistral" in model_name:
             raise
             # svd_attn = SVD_MistralAttention(config=model.config, ratio=ratio)
@@ -548,8 +574,8 @@ if __name__ == '__main__':
             cali_white_data = get_calib_train_data(args.dataset, tokenizer, args.whitening_nsamples, seqlen=args.model_seq_len)
             # profiling_mat = profle_svdllm_low_resource(args.model, model, cali_white_data, args.DEV)
             profiling_mat = profle_svdllm(args.model, model, cali_white_data, args.DEV)
-            if args.save_path is not None:
-                torch.save(profiling_mat, args.save_path + "/" + args.model.replace("/", "_").replace("-", "_") + '_profiling_'+ args.dataset + '_' + str(args.whitening_nsamples)  + '_' + str(args.seed)+ '.pt')
+            # if args.save_path is not None:
+            #     torch.save(profiling_mat, args.save_path + "/" + args.model.replace("/", "_").replace("-", "_") + '_profiling_'+ args.dataset + '_' + str(args.whitening_nsamples)  + '_' + str(args.seed)+ '.pt')
         else:
             profiling_mat = torch.load(args.profiling_mat_path)
         whitening(args.model, model, profiling_mat, args.ratio, args.DEV)
@@ -563,8 +589,8 @@ if __name__ == '__main__':
         if args.profiling_mat_path is None:
             cali_white_data = get_calib_train_data(args.dataset, tokenizer, args.whitening_nsamples, seqlen=args.model_seq_len)
             profiling_mat = profle_svdllm_low_resource(args.model, model, cali_white_data, args.DEV)
-            if args.save_path is not None:
-                torch.save(profiling_mat, args.save_path + "/" + args.model.replace("/", "_").replace("-", "_") + '_profiling_'+ args.dataset + '_' + str(args.whitening_nsamples)  + '_' + str(args.seed)+ '.pt')
+            # if args.save_path is not None:
+            #     torch.save(profiling_mat, args.save_path + "/" + args.model.replace("/", "_").replace("-", "_") + '_profiling_'+ args.dataset + '_' + str(args.whitening_nsamples)  + '_' + str(args.seed)+ '.pt')
         else:
             profiling_mat = torch.load(args.profiling_mat_path)
         whitening_local_update(args.model, model, dataloader, profiling_mat, args.ratio, args.DEV)
