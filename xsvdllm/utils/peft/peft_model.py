@@ -1162,3 +1162,10 @@ class PeftModelForTokenClassification(PeftModel):
                 hidden_states=outputs.hidden_states,
                 attentions=outputs.attentions,
             )
+
+# ADD THIS AT THE END OF THE FILE:
+class PeftMixedModel(PeftModel):
+    """
+    Dummy class to satisfy newer transformers library imports.
+    """
+    pass

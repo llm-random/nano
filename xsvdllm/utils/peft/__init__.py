@@ -26,6 +26,7 @@ from .peft_model import (
     PeftModelForSeq2SeqLM,
     PeftModelForSequenceClassification,
     PeftModelForTokenClassification,
+    PeftMixedModel,  # <--- Add this line
 )
 from .tuners import (
     LoraConfig,

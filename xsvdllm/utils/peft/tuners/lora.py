@@ -162,6 +162,8 @@ class LoraModel(torch.nn.Module):
             "init_lora_weights": lora_config.init_lora_weights,
         }
         key_list = [key for key, _ in self.model.named_modules()]
+        # print(key_list) #dev
+        # raise
         for key in key_list:
             if isinstance(lora_config.target_modules, str):
                 target_module_found = re.fullmatch(lora_config.target_modules, key)
@@ -171,7 +173,8 @@ class LoraModel(torch.nn.Module):
                 if not is_target_modules_in_base_model:
                     is_target_modules_in_base_model = True
                 parent, target, target_name = _get_submodules(self.model, key)
-                bias = target.bias is not None
+                # bias = target.bias is not None #dev
+                bias = False
                 if isinstance(target, LoraLayer):
                     target.update_layer(
                         adapter_name,
