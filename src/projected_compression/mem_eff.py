@@ -11,12 +11,14 @@ class MemoryEfficientProjectedCompression(nn.Module):
         source_model: nn.Module,
         target_model: nn.Module,
         path_to_importances: str,
-        cast_bfloat16: bool
+        cast_bfloat16: bool,
+        adjust_grad_norm: bool
     ):
         super().__init__()
         self.source_model = source_model
         self.target_model = target_model
         self.cast_bfloat16 = cast_bfloat16
+        self.adjust_grad_norm = adjust_grad_norm
         self.projections = Projections(
             q_heads=target_model.encoder.blocks[0].attention_layer.layer.q_heads,
             kv_heads=target_model.encoder.blocks[0].attention_layer.layer.kv_heads,
@@ -73,37 +75,92 @@ class MemoryEfficientProjectedCompression(nn.Module):
 
 
     def pass_gradient_to_projections(self, optimizers: List, schedulers, gradient_clipping):
-        for block_target, block_source, block_proj, optimizer, scheduler in zip(
-            self.target_model.encoder.blocks,
-            self.source_model.encoder.blocks,
-            self.projections.blocks,
-            optimizers,
-            schedulers
-        ):
-            self.backward_compressed_weights(block_proj.compressible_q, block_source.attention_layer.layer.q_proj.weight, block_target.attention_layer.layer.q_proj.weight.grad)
-            self.backward_compressed_weights(block_proj.compressible_k, block_source.attention_layer.layer.k_proj.weight, block_target.attention_layer.layer.k_proj.weight.grad)
-            self.backward_compressed_weights(block_proj.compressible_v, block_source.attention_layer.layer.v_proj.weight, block_target.attention_layer.layer.v_proj.weight.grad)
-            self.backward_compressed_weights(block_proj.compressible_o, block_source.attention_layer.layer.o_proj.weight, block_target.attention_layer.layer.o_proj.weight.grad)
-            self.backward_compressed_weights(block_proj.compressible_ff_pre, block_source.ff_layer.layer.ff_pre_act.weight, block_target.ff_layer.layer.ff_pre_act.weight.grad)
-            self.backward_compressed_weights(block_proj.compressible_ff_gate, block_source.ff_layer.layer.gate.weight, block_target.ff_layer.layer.gate.weight.grad)
-            self.backward_compressed_weights(block_proj.compressible_ff_post, block_source.ff_layer.layer.ff_post_act.weight, block_target.ff_layer.layer.ff_post_act.weight.grad)
-
-            if gradient_clipping is not None:
-                torch.nn.utils.clip_grad_norm_(
-                    block_proj.parameters(), gradient_clipping
-                )
-
-            optimizer.step()
-            optimizer.zero_grad()
-            scheduler.step()
-
-        self.backward_compressed_weights(self.projections.head, self.source_model.head.linear.weight, self.target_model.head.linear.weight.grad)
-
+        
+        def get_compressed_matrices(block):
+            params = []
+            params.append(block.attention_layer.layer.q_proj)
+            params.append(block.attention_layer.layer.k_proj)
+            params.append(block.attention_layer.layer.v_proj)
+            params.append(block.attention_layer.layer.o_proj)
+            params.append(block.ff_layer.layer.ff_pre_act)
+            params.append(block.ff_layer.layer.gate)
+            params.append(block.ff_layer.layer.ff_post_act)
+            return params
             
-    def backward_compressed_weights(self, proj, weight, gradient):
-        weight = weight.detach()
-        weights = proj.get_projected_weight(weight.bfloat16()).contiguous()
-        weights.backward(gradient)
+        def get_compressed_params_grad_norm(block):
+            compressed_params = get_compressed_matrices(block)
+            grads = [p.weight.grad for p in compressed_params if p.weight.grad is not None]
+            return torch.nn.utils.get_total_norm(grads)
+        
+        def get_module_grad_norm(module: nn.Module):
+            grads = [p.grad for p in module.parameters() if p.grad is not None]
+            return torch.nn.utils.get_total_norm(grads)
+
+
+        self.backward_compressed_weights(self.projections.head, self.source_model.head.linear.weight, self.target_model.head.linear.weight)
+        
+        if optimizers is None:
+            for block_target, block_source, block_proj in zip(
+                self.target_model.encoder.blocks,
+                self.source_model.encoder.blocks,
+                self.projections.blocks,
+            ):
+                self.backward_compressed_weights(block_proj.compressible_q, block_source.attention_layer.layer.q_proj.weight, block_target.attention_layer.layer.q_proj.weight)
+                self.backward_compressed_weights(block_proj.compressible_k, block_source.attention_layer.layer.k_proj.weight, block_target.attention_layer.layer.k_proj.weight)
+                self.backward_compressed_weights(block_proj.compressible_v, block_source.attention_layer.layer.v_proj.weight, block_target.attention_layer.layer.v_proj.weight)
+                self.backward_compressed_weights(block_proj.compressible_o, block_source.attention_layer.layer.o_proj.weight, block_target.attention_layer.layer.o_proj.weight)
+                self.backward_compressed_weights(block_proj.compressible_ff_pre, block_source.ff_layer.layer.ff_pre_act.weight, block_target.ff_layer.layer.ff_pre_act.weight)
+                self.backward_compressed_weights(block_proj.compressible_ff_gate, block_source.ff_layer.layer.gate.weight, block_target.ff_layer.layer.gate.weight)
+                self.backward_compressed_weights(block_proj.compressible_ff_post, block_source.ff_layer.layer.ff_post_act.weight, block_target.ff_layer.layer.ff_post_act.weight)
+
+            grads = [v.grad for v in self.parameters() if v.grad is not None]
+            final_grad_norm = torch.nn.utils.get_total_norm(grads)
+        else:
+            projection_blocks_grad_norms = []
+            grads = [v.grad for v in self.parameters() if v.grad is not None]
+            start_grad_norm = torch.nn.utils.get_total_norm(grads)
+            for block_target, block_source, block_proj, optimizer, scheduler in zip(
+                self.target_model.encoder.blocks,
+                self.source_model.encoder.blocks,
+                self.projections.blocks,
+                optimizers,
+                schedulers
+            ):
+                compressed_params_grad_norm = get_compressed_params_grad_norm(block_target)
+
+                self.backward_compressed_weights(block_proj.compressible_q, block_source.attention_layer.layer.q_proj.weight, block_target.attention_layer.layer.q_proj.weight)
+                self.backward_compressed_weights(block_proj.compressible_k, block_source.attention_layer.layer.k_proj.weight, block_target.attention_layer.layer.k_proj.weight)
+                self.backward_compressed_weights(block_proj.compressible_v, block_source.attention_layer.layer.v_proj.weight, block_target.attention_layer.layer.v_proj.weight)
+                self.backward_compressed_weights(block_proj.compressible_o, block_source.attention_layer.layer.o_proj.weight, block_target.attention_layer.layer.o_proj.weight)
+                self.backward_compressed_weights(block_proj.compressible_ff_pre, block_source.ff_layer.layer.ff_pre_act.weight, block_target.ff_layer.layer.ff_pre_act.weight)
+                self.backward_compressed_weights(block_proj.compressible_ff_gate, block_source.ff_layer.layer.gate.weight, block_target.ff_layer.layer.gate.weight)
+                self.backward_compressed_weights(block_proj.compressible_ff_post, block_source.ff_layer.layer.ff_post_act.weight, block_target.ff_layer.layer.ff_post_act.weight)
+
+                projection_block_grad_norm = get_module_grad_norm(block_proj)
+                projection_blocks_grad_norms.append(projection_block_grad_norm)
+
+                grad_norm_to_use = start_grad_norm
+                if self.adjust_grad_norm:
+                    grad_norm_to_use = (start_grad_norm**2 - compressed_params_grad_norm**2 + projection_block_grad_norm**2)**0.5
+               
+                torch.nn.utils.clip_grads_with_norm_(block_proj.parameters(), gradient_clipping, grad_norm_to_use)
+
+                optimizer.step()
+                optimizer.zero_grad()
+                scheduler.step()
+
+            grads = [v.grad for v in self.parameters() if v.grad is not None]
+            final_grad_norm = torch.nn.utils.get_total_norm(grads + projection_blocks_grad_norms)
+
+        return final_grad_norm
+    
+    def backward_compressed_weights(self, proj, source_weight, target_weight):
+        source_weight = source_weight.detach()
+        if self.cast_bfloat16:
+            source_weight = source_weight.bfloat16()
+        weights = proj.get_projected_weight(source_weight)
+        weights.backward(target_weight.grad)
+        target_weight.grad = None
 
 
 class CompressibleLinear(nn.Module):
