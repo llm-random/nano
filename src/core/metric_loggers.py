@@ -182,35 +182,6 @@ def get_metric_logger(
     return _metric_logger
 
 
-def broadcast_message(rank, message=None):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Broadcast the length of the message
-    if rank == 0:
-        message_length_tensor = torch.tensor(
-            len(message), dtype=torch.int32, device=device
-        )
-    else:
-        message_length_tensor = torch.empty(1, dtype=torch.int32, device=device)
-
-    dist.broadcast(message_length_tensor, src=0)
-
-    # Prepare the tensor to hold the message of the correct length
-    if rank == 0:
-        message_tensor = torch.tensor(
-            list(message.encode("utf-8")), dtype=torch.uint8, device=device
-        )
-    else:
-        message_tensor = torch.empty(
-            message_length_tensor.item(), dtype=torch.uint8, device=device
-        )
-
-    # Broadcast the message string data
-    dist.broadcast(message_tensor, src=0)
-
-    return message_tensor.cpu().numpy().tobytes().decode("utf-8")
-
-
 class AveMetric:
     def __init__(self, average_tail_len, name):
         self.name = name
