@@ -5,7 +5,7 @@ defaults:
   - _dataset@_here_: local_dummy
   - _checkpoints@_here_: none
   - _misc@_here_: default
-  - _eval@_here_: default
+  - _eval@_here_: basic
 
 common:
   sequence_length: 16
