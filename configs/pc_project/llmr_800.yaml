@@ -1,7 +1,7 @@
 defaults:
   - ../_cluster@_here_: entropy
   - ../_model/llmrandom@_here_: def_800
-  - ../_trainer@_here_: llama
+  - ../_trainer@_here_: pc_llama
   - ../_dataset@_here_: c4
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default

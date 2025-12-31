@@ -23,7 +23,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def llm_random_weight_init(fan_in, scale):
+def trunc_normal_init(fan_in, scale):
     std = scale * (1 / fan_in) ** 0.5
     low = -2 * std
     high = 2 * std
@@ -185,7 +185,7 @@ class TransformerBlock(nn.Module):
         return x
 
 
-class TransformerTower(nn.Module):
+class TransformerEncoder(nn.Module):
     def get_model_dimensions(self):
         # Works only for llama3 transforermer architecture
         dmodel = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[1]
@@ -286,12 +286,12 @@ class MLP(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    def __init__(self, dmodel, dff, linear_fn):
+    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn):
         super().__init__()
-        self.ff_pre_act = linear_fn(dmodel, dff)
-        self.gate = linear_fn(dmodel, dff)
         self.silu = nn.SiLU()
-        self.ff_post_act = linear_fn(dff, dmodel)
+        self.ff_pre_act = ff_pre_act_fn()
+        self.ff_post_act = ff_post_act_fn()
+        self.gate = gate_fn()
 
     def forward(self, x):
         gated = self.gate(x)
