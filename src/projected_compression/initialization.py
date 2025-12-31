@@ -53,35 +53,44 @@ def init_pc_attributes(cfg, metric_logger):
         metric_logger.run["learning_rate"] = learning_rate
         metric_logger.run["exp_lr"] = exp_lr
 
-    torch.manual_seed(cfg.trainer.train_dataloader.seed)
+    torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
 
     model = create_model(cfg.model, cfg.projected_compression)
 
-    target_model_optimize_params = get_target_model_optimize_params(model)
+    if cfg.projected_compression.separate_block_optimizers:
+        target_model_optimize_params = get_target_model_optimize_params(model)
 
-    target_model_optimizer = torch.optim.AdamW(
-        target_model_optimize_params,
-        lr=learning_rate,
-        weight_decay=cfg.trainer.weight_decay,
-    )
-    scheduler_fn = instantiate(cfg.trainer.scheduler)
-    target_model_scheduler = scheduler_fn(
-        optimizer=target_model_optimizer, n_steps=cfg.trainer.n_steps
-    )
+        target_model_optimizer = torch.optim.AdamW(
+            target_model_optimize_params,
+            lr=learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
+        )
+        scheduler_fn = instantiate(cfg.trainer.scheduler)
+        target_model_scheduler = scheduler_fn(
+            optimizer=target_model_optimizer, n_steps=cfg.trainer.n_steps
+        )
 
-
-    optimizer = [target_model_optimizer]
-    scheduler = [target_model_scheduler]
-    for block in model.projections.blocks:
-        block_optimizer =torch.optim.AdamW(
-                block.parameters(), 
+        optimizer = [target_model_optimizer]
+        scheduler = [target_model_scheduler]
+        for block in model.projections.blocks:
+            block_optimizer = torch.optim.AdamW(
+                block.parameters(),
                 lr=learning_rate,
                 weight_decay=cfg.trainer.weight_decay,
             )
-        optimizer.append(
-            block_optimizer
+            optimizer.append(block_optimizer)
+            scheduler.append(
+                scheduler_fn(optimizer=block_optimizer, n_steps=cfg.trainer.n_steps)
+            )
+    else:
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
         )
-        scheduler.append(scheduler_fn(optimizer=block_optimizer, n_steps=cfg.trainer.n_steps))
+        scheduler = instantiate(cfg.trainer.scheduler)(
+            optimizer=optimizer, n_steps=cfg.trainer.n_steps
+        )
 
     return model, optimizer, scheduler, training_state, metric_logger
 
@@ -100,16 +109,34 @@ def get_target_model_optimize_params(model):
 
 def create_model(cfg_model, cfg_projected_compression):
     with torch.device('meta'):
-        model = instantiate(cfg_model,path_to_importances=cfg_projected_compression.path_to_importances, _convert_="all")
+        model = instantiate(cfg_model,path_to_importances=cfg_projected_compression.path_to_importances, adjust_grad_norm=cfg_projected_compression.adjust_grad_norm, _convert_="all")
  
+    # Only layer norms from target_model are used
+    for block in model.source_model.encoder.blocks:
+        block.attention_layer.norm = None
+        block.ff_layer.norm = None
+    model.source_model.head.norm = None
+    # embedding from source_model is used
+    model.target_model.embedding = None
+
     model = setup_fsdp2_model(model, cfg_projected_compression)
 
-    dmodel_topk_indices, dff_topk_indices = get_topk_indices(cfg_projected_compression.path_to_importances, model.projections.target_dmodel, model.projections.target_dff)
 
     # Initializing model.source_model
     source_sd = torch.load(cfg_projected_compression.source_model_path, mmap=True, weights_only=True, map_location="cpu")
+    
+    
+    # We have set source_layer to None, so we do not want to 
+    source_norms = {}
+    for k in list(source_sd.keys()):
+        if "norm" in k:
+            source_norms[k] = source_sd.pop(k)
+
     sharded_sd = get_sharded_sd(model.source_model.state_dict(), source_sd)
     model.source_model.load_state_dict(sharded_sd, strict=False, assign=True)
+
+    # It is used in forward step, but we do not need gradient
+    model.source_model.embedding.weight.requires_grad = False
 
     # Initializing model.target_model
     model.target_model.to_empty(device="cuda")
@@ -129,7 +156,8 @@ def create_model(cfg_model, cfg_projected_compression):
             block.ff_layer.norm.weight.data.copy_(sharded_tensor)
             block.attention_layer.layer.rope.register_freqs()
     else:
-        weight = source_sd["head.norm.weight"][dmodel_topk_indices]
+        dmodel_topk_indices, dff_topk_indices = get_topk_indices(cfg_projected_compression.path_to_importances, model.projections.target_dmodel, model.projections.target_dff)
+        weight = source_norms["head.norm.weight"][dmodel_topk_indices]
         sharded_tensor = distribute_tensor(
             weight,
             model.target_model.head.norm.weight.device_mesh,
@@ -138,14 +166,14 @@ def create_model(cfg_model, cfg_projected_compression):
         model.target_model.head.norm.weight.data.copy_(sharded_tensor)
 
         for i, block in enumerate(model.target_model.encoder.blocks):
-            weight = source_sd[f"encoder.blocks.{i}.attention_layer.norm.weight"][dmodel_topk_indices]
+            weight = source_norms[f"encoder.blocks.{i}.attention_layer.norm.weight"][dmodel_topk_indices]
             sharded_tensor = distribute_tensor(
                 weight,
                 model.target_model.head.norm.weight.device_mesh,
                 model.target_model.head.norm.weight.placements,
             )
             block.attention_layer.norm.weight.data.copy_(sharded_tensor)
-            weight = source_sd[f"encoder.blocks.{i}.ff_layer.norm.weight"][dmodel_topk_indices]
+            weight = source_norms[f"encoder.blocks.{i}.ff_layer.norm.weight"][dmodel_topk_indices]
             sharded_tensor = distribute_tensor(
                 weight,
                 model.target_model.head.norm.weight.device_mesh,
