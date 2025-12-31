@@ -7,7 +7,6 @@ trainer:
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
   n_steps: null
-  exp_learning_rate: null
   learning_rate: null
   weight_decay: 0.1
 
