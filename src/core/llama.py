@@ -174,9 +174,7 @@ def remap_llamahf_state_dict_to_nano(llama_state_dict):
         new_key = key
 
         # Embedding
-        new_key = new_key.replace(
-            "model.embed_tokens.weight", "embedding.weight"
-        )
+        new_key = new_key.replace("model.embed_tokens.weight", "embedding.weight")
 
         # Final norm and lm head
         new_key = new_key.replace("model.norm.weight", "head.norm.weight")
