@@ -35,15 +35,17 @@ dummy_weight_init = lambda _: trunc_normal_
 dummy_zeros = lambda _: zeros
 
 
-class TransformerEmbedding(nn.Module):
-    def __init__(self, vocab_size: int, dmodel: int, init_fn: Optional[Callable]):
-        super().__init__()
-        weight = torch.empty(vocab_size, dmodel, dtype=torch.float32)
-        init_fn(weight)
-        self.embedding = nn.Embedding(vocab_size, dmodel, _weight=weight)
+class TransformerEmbedding(nn.Embedding): 
+    def __init__(self, vocab_size: int, dmodel: int, init_fn: Optional[Callable], **kwargs):
+        self.init_fn = init_fn
+        super().__init__(vocab_size, dmodel, **kwargs)
 
-    def forward(self, x):
-        return self.embedding(x)
+    def reset_parameters(self):
+        if hasattr(self, 'init_fn') and self.init_fn is not None:
+            with torch.no_grad():
+                self.init_fn(self.weight)
+        else:
+            super().reset_parameters()
 
 
 class Linear(nn.Linear):
