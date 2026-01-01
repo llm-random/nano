@@ -5,12 +5,18 @@ defaults:
 trainer:
   train_dataloader:
     datasets:
-      ${cluster_switch.train_path_c4}: 1.0
+      - path: /storage_nvme_1/llm-random/datasets/c4/train
+        weight: 0.0
+      - path: /storage_nvme_4/llm-random/datasets/fineweb/train
+        weight: 1.0
     dataset_split: train
-    num_workers: 8
+    num_workers: 2
 
   eval_dataloader:
     datasets:
-      ${cluster_switch.eval_path_c4}: 1.0
+      # - path: /storage_nvme_1/llm-random/datasets/c4/validation
+      #   weight: 0.6
+      - path: /storage_nvme_4/llm-random/datasets/fineweb/train
+        weight: 1.0
     dataset_split: validation
-    num_workers: 8
+    num_workers: 2
