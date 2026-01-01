@@ -237,7 +237,8 @@ class MixtureOfDatasets(IterableDataset):
             except StopIteration:
                 dataset_iterators[chosen_index] = iter(self.datasets[chosen_index])
                 sample = next(dataset_iterators[chosen_index])
-            print(f"{self.split}, step {step}: Chose dataset {self.paths[chosen_index]}")
+            if self.rank == 0:
+                logger.debug(f"{self.split}, step {step}: Chose dataset {self.paths[chosen_index]}")
             yield sample
 
 
@@ -245,12 +246,19 @@ def collate_wrapper(examples):
     return torch.from_numpy(np.array(examples))
 
 
-def get_mixture_of_datasets_dataloader(datasets: dict[str, int], dataset_split, tokenize_fn, total_batch_size,
+def get_mixture_of_datasets_dataloader(datasets: list[dict], dataset_split, tokenize_fn, total_batch_size,
                                        sequence_length,
                                        num_workers, seed, shuffle, use_new_sampling_method, world_size_independent,
                                        collate_fn: Callable = collate_wrapper):
     # print(datasets)
-    dataset_paths, dataset_weights = zip(*datasets.items())
+    dataset_paths = [d["path"] for d in datasets]
+    dataset_weights = [d["weight"] for d in datasets]
+
+    # Validate paths exist
+    for path in dataset_paths:
+        if not os.path.isdir(path):
+            raise FileNotFoundError(f"Directory {path} not found")
+
     assert abs(sum(dataset_weights) - 1) < 1e-6, f"Dataset weights must sum to 1, current sum: {sum(dataset_weights)}"
     world_size = int(os.environ["WORLD_SIZE"])
     batch_size_per_device = total_batch_size // world_size
@@ -261,8 +269,8 @@ def get_mixture_of_datasets_dataloader(datasets: dict[str, int], dataset_split, 
             sequence_length=sequence_length + 1,
             split=dataset_split,
             tokenize_fn=tokenize_fn,
-            paths=list(dataset_paths),
-            weights=list(dataset_weights),
+            paths=dataset_paths,
+            weights=dataset_weights,
             seed=seed,
             use_new_sampling_method=use_new_sampling_method,
             shuffle=shuffle,

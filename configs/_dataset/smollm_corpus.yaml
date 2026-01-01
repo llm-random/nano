@@ -6,14 +6,20 @@ trainer:
   train_dataloader:
     _target_: src.core.datasets.get_mixture_of_datasets_dataloader
     datasets:
-#      ./data/: 0.77
-#      ./data_eval/: 0.23
-      /storage_nvme_1/llm-random/datasets/fineweb-edu-dedup/train: 0.7
-      /storage_nvme_1/llm-random/datasets/cosmopedia-v2/train: 0.15
-      /storage_nvme_2/llm-random/datasets/python-edu: 0.08
-      /storage_nvme_2/llm-random/datasets/open-web-math/train: 0.07
+      # - path: ./data/
+      #   weight: 0.77
+      # - path: ./data_eval/
+      #   weight: 0.23
+      - path: /storage_nvme_1/llm-random/datasets/fineweb-edu-dedup/train
+        weight: 0.7
+      - path: /storage_nvme_1/llm-random/datasets/cosmopedia-v2/train
+        weight: 0.15
+      - path: /storage_nvme_2/llm-random/datasets/python-edu
+        weight: 0.08
+      - path: /storage_nvme_2/llm-random/datasets/open-web-math/train
+        weight: 0.07
     dataset_split: train
-#    num_workers: 8
+    # num_workers: 8
     num_workers: 2
     tokenize_fn:
       _target_: src.core.datasets.get_tokenize_fn
@@ -22,14 +28,20 @@ trainer:
   eval_dataloader:
     _target_: src.core.datasets.get_mixture_of_datasets_dataloader
     datasets:
-#      ./data/: 0.77
-#      ./data_eval/: 0.23
-      /storage_nvme_1/llm-random/datasets/fineweb-edu-dedup/train: 0.7
-      /storage_nvme_1/llm-random/datasets/cosmopedia-v2/train: 0.15
-      /storage_nvme_2/llm-random/datasets/python-edu: 0.08
-      /storage_nvme_2/llm-random/datasets/open-web-math/train: 0.07
+      # - path: ./data/
+      #   weight: 0.77
+      # - path: ./data_eval/
+      #   weight: 0.23
+      - path: /storage_nvme_1/llm-random/datasets/fineweb-edu-dedup/train
+        weight: 0.7
+      - path: /storage_nvme_1/llm-random/datasets/cosmopedia-v2/train
+        weight: 0.15
+      - path: /storage_nvme_2/llm-random/datasets/python-edu
+        weight: 0.08
+      - path: /storage_nvme_2/llm-random/datasets/open-web-math/train
+        weight: 0.07
     dataset_split: validation
-#    num_workers: 8
+    # num_workers: 8
     num_workers: 1
     tokenize_fn:
       _target_: src.core.datasets.get_tokenize_fn

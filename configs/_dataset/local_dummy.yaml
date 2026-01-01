@@ -5,7 +5,8 @@ defaults:
 trainer:
   train_dataloader:
     datasets:
-      data: 1.0
+      - path: data
+        weight: 1.0
     dataset_split: train
     num_workers: 0
     tokenize_fn: 
@@ -14,7 +15,8 @@ trainer:
 
   eval_dataloader:
     datasets:
-      data_eval: 1.0
+      - path: data_eval
+        weight: 1.0
     dataset_split: validation
     num_workers: 0
     tokenize_fn: 
