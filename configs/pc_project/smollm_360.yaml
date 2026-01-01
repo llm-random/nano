@@ -36,14 +36,14 @@ trainer:
     path: ??? # CHANGE
 
   train_dataloader:
-    dataset:
-      tokenize_fn: 
-        _target_: src.core.datasets.smollm_360_tokenize_fn
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-360M
 
   eval_dataloader:
-    dataset:
-      tokenize_fn: 
-        _target_: src.core.datasets.smollm_360_tokenize_fn
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-360M
 
 
 infrastructure:
