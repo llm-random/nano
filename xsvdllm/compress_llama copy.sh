@@ -1,78 +1,27 @@
+#!/bin/bash
+
+# example of compressing LLaMA-7B with SVDLLM
+FINE_TUNE_PATH="."
+# run data whitening with 20% compression ratio
+python SVDLLM.py --model jeffwan/llama-7b-hf --step 1 --ratio 0.2 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path .
+## you can also run the following command for low-resource gpu (ex. llama 7b will only need 15G gpu memory to compress) or to compress large-scale llm (ex. llama 65b)
+# python SVDLLM.py --model jeffwan/llama-7b-hf --step 1 --ratio 0.2 --whitening_nsamples 256 --dataset wikitext2 --model_seq_len 2048 --save_path ./ --run_low_resource
+python SVDLLM.py --step 4 --model_path jeffwan_llama_7b_hf_whitening_only_0.8.pt
+# finetune the compressed model with lora
+python utils/LoRA.py --prune_model  --data_path yahma/alpaca-cleaned --output_dir $FINE_TUNE_PATH/first_half --lora_target_modules q_u_proj,k_u_proj,v_u_proj,o_u_proj,gate_u_proj,down_u_proj,up_u_proj --lora_r 8 --num_epochs 3 --learning_rate 1e-4 --batch_size 64
+python SVDLLM.py --model_path jeffwan_llama_7b_hf_whitening_only_0.8.pt --lora $FINE_TUNE_PATH/first_half /first_half --step 4
+python utils/LoRA.py --prune_model $FINE_TUNE_PATH/first_half/merge.pt --data_path yahma/alpaca-cleaned --output_dir $FINE_TUNE_PATH/second_half --lora_target_modules q_v_proj,k_v_proj,v_v_proj,o_v_proj,gate_v_proj,down_v_proj,up_v_proj --lora_r 8 --num_epochs 3 --learning_rate 1e-4 --batch_size 64
+python SVDLLM.py --model_path jeffwan_llama_7b_hf_whitening_only_0.8.pt --lora $FINE_TUNE_PATH/first_half /first_half --step 4
+python SVDLLM.py --model_path $FINE_TUNE_PATH/first_half/merge.pt --lora $FINE_TUNE_PATH/second_half --step 4
 
 
-python SVDLLM.py \
-    --model meta-llama/Llama-3.1-8B \
-    --step 1 \
-    --ratio 0.0 \
-    --whitening_nsamples 256 \
-    --dataset fineweb-edu \
-    --data_path /storage_nvme_4/llm-random/datasets/fineweb/train \
-    --eval_batch_size 1 \
-    --seed 3 \
-    --model_seq_len 2048 \
-    --save_path $SVDLLM_HOME_PATH/dec/256
 
-python SVDLLM.py --step 4 --dataset fineweb-edu --data_path /storage_nvme_4/llm-random/datasets/fineweb/train --whitening_nsamples 256 --eval_batch_size 1 --model_path $SVDLLM_HOME_PATH/comp_fw/meta_llama_Llama_3.1_8B_whitening_only_0.8.pt
-python SVDLLM.py --step 4 --dataset fineweb-edu --data_path /storage_nvme_4/llm-random/datasets/fineweb/train --whitening_nsamples 64 --eval_batch_size 1 --model_path original --model meta-llama/Llama-2-7b-hf
-python SVDLLM.py --step 4 --dataset fineweb-edu --data_path /storage_nvme_4/llm-random/datasets/fineweb/train --whitening_nsamples 64 --eval_batch_size 1 --model_path original --model meta-llama/Llama-3.1-8B 
 
-torchrun --nproc_per_node=2 --master_port=29500 utils/noLoRA_fsdp.py \
-    --prune_model "$SVDLLM_HOME_PATH/ret/###/meta_llama_Llama_3.1_8B_whitening_only_0.5.pt" \
-    --output_dir "$SVDLLM_HOME_PATH/ret/###" \
-    --total_batch_size 512 \
-    --micro_batch_size 8 \
-    --max_steps 1024 \
-    --eval_steps 100 \
-    --n_eval_samples 10 \
-    --learning_rate 5e-5 \
-    --dataset_type "fineweb-edu" \
-    --data_path "/storage_nvme_4/llm-random/datasets/fineweb/train" \
-    --extra_val_dataset "/storage_nvme_4/llm-random/datasets/fineweb/train" \
-    --cutoff_len 2048 \
-    --wandb_project "" \
-    --fsdp "full_shard auto_wrap" \
-    --fsdp_transformer_layer_cls_to_wrap "LlamaDecoderLayer" \
-    --gradient_checkpointing
+#!/bin/bash
 
-    --tasks "winogrande" \
-python eval_svd_checkpoint.py \
-    --checkpoint_path "/storage_nvme_2/mstefaniak/svdllm/wip/ret/test_origin" \
-    --tasks "hellaswag,piqa,arc_easy,winogrande" \
-    --output_file et1.json\
-    --num_fewshot 5 \
-    --batch_size 8
-
-#####################################################################################################################################################################
-
-python eval_svd_checkpoint.py \
-    --checkpoint_path "/storage_nvme_2/mstefaniak/svdllm/wip/ret/test_origin_big_fin" \
-    --tasks "piqa" \
-    --output_file et1.json\
-    --num_fewshot 5 \
-    --batch_size 8
-
-torchrun --nproc_per_node=2 --master_port=29500 utils/noLoRA_fsdp.py \
-    --prune_model "$SVDLLM_HOME_PATH/comp_fw/meta_llama_Llama_3.1_8B_whitening_only_0.8.pt" \
-    --output_dir "$SVDLLM_HOME_PATH/ret/test_fin" \
-    --total_batch_size 16 \
-    --micro_batch_size 8 \
-    --max_steps 127 \
-    --eval_steps 50 \
-    --n_eval_samples 10 \
-    --learning_rate 5e-5 \
-    --dataset_type "fineweb-edu" \
-    --data_path "/storage_nvme_4/llm-random/datasets/fineweb/train" \
-    --extra_val_dataset "/storage_nvme_4/llm-random/datasets/fineweb/train" \
-    --cutoff_len 2048 \
-    --wandb_project "" \
-    --fsdp "full_shard auto_wrap" \
-    --fsdp_transformer_layer_cls_to_wrap "LlamaDecoderLayer" \
-    --gradient_checkpointing
-
-#####################################################################################################################################################################
-#####################################################################################################################################################################
-#####################################################################################################################################################################
-
+# example of compressing LLaMA-7B with SVDLLM
+FINE_TUNE_PATH="."
+# run data whitening with 20% compression ratio
 
 python SVDLLM.py --model meta-llama/Llama-2-7b-hf --step 1 --ratio 0.2 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $SVDLLM_HOME_PATH
 python SVDLLM.py --model meta-llama/Llama-2-7b-hf --step 1 --ratio 0.0 --whitening_nsamples 256 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $SVDLLM_HOME_PATH
@@ -94,14 +43,14 @@ python SVDLLM.py --model meta-llama/Llama-3.1-8B --step 1 --ratio 0.5 --whitenin
 python SVDLLM.py --model meta-llama/Llama-3.1-8B --step 1 --ratio 0.5 --whitening_nsamples 16384 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $SVDLLM_HOME_PATH/16384
 python SVDLLM.py --model meta-llama/Llama-3.1-8B --step 1 --ratio 0.5 --whitening_nsamples 32768 --dataset wikitext2 --seed 3 --model_seq_len 2048 --save_path $SVDLLM_HOME_PATH/32768
 
-mkdir 256
-mkdir 512
-mkdir 1024
-mkdir 2048
-mkdir 4096
-mkdir 8192
-mkdir 16384
-mkdir 32768
+mkdir $SVDLLM_HOME_PATH/256
+mkdir $SVDLLM_HOME_PATH/512
+mkdir $SVDLLM_HOME_PATH/1024
+mkdir $SVDLLM_HOME_PATH/2048
+mkdir $SVDLLM_HOME_PATH/4096
+mkdir $SVDLLM_HOME_PATH/8192
+mkdir $SVDLLM_HOME_PATH/16384
+mkdir $SVDLLM_HOME_PATH/32768
 
 python SVDLLM.py --step 4 --model_path $SVDLLM_HOME_PATH/256/meta_llama_Llama_3.1_8B_whitening_only_0.5.pt
 python SVDLLM.py --step 4 --model_path $SVDLLM_HOME_PATH/256/meta_llama_Llama_3.1_8B_whitening_only_0.8.pt

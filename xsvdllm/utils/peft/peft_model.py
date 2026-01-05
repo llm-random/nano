@@ -170,6 +170,72 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
             model = cls(model, config, adapter_name)
         else:
             model = MODEL_TYPE_TO_PEFT_MODEL_MAPPING[config.task_type](model, config, adapter_name)
+        
+        ####################
+        # --- BOSS DEBUG: KEY INSPECTOR ---
+        import torch
+        import os
+        
+        print("\n=== BOSS DEBUG: KEY INSPECTOR ===")
+        
+        # 1. Load the keys from the actual checkpoint file on disk
+        adapter_filename = "adapter_model.bin"
+        # Handle if model_id is a path
+        if os.path.exists(os.path.join(model_id, adapter_filename)):
+            file_path = os.path.join(model_id, adapter_filename)
+        else:
+            file_path = os.path.join(model_id, "adapter_model.safetensors") # Fallback
+            
+        try:
+            print(f"Inspecting file: {file_path}")
+            if file_path.endswith(".bin") or file_path.endswith(".pt"):
+                state_dict = torch.load(file_path, map_location="cpu")
+            else:
+                from safetensors.torch import load_file
+                state_dict = load_file(file_path, device="cpu")
+            
+            lora_keys = list(state_dict.keys())
+            print(f"Found {len(lora_keys)} keys in checkpoint.")
+            print(f"First 3 keys in Checkpoint: {lora_keys[:3]}")
+        except Exception as e:
+            print(f"Could not load checkpoint file directly: {e}")
+            lora_keys = []
+
+        # 2. Get the keys the model expects
+        model_keys = [n for n, p in model.named_parameters()]
+
+        # print("model_keys")
+        # print(model_keys)
+        # print("lora_keys")
+        # print(lora_keys)
+        
+        # 3. Intelligent Match Check
+        if len(lora_keys) > 0:
+            sample_key = lora_keys[0]
+            # Try to find this exact key in the model
+            if sample_key in model_keys:
+                 print("✅ EXACT MATCH FOUND for first key. Weights should load.")
+            else:
+                 print("❌ KEY MISMATCH DETECTED.")
+                 print(f"Checkpoint has: '{sample_key}'")
+                 # Find the closest match in model to see the difference
+                 # Usually it's a prefix issue like 'base_model.model.'
+                 print("Scanning model for similar keys...")
+                 for mk in model_keys:
+                     if "lora_A" in mk and "layers.0." in mk:
+                         print(f"Model expects:  '{mk}'")
+                         break
+        
+        print("=== BOSS DEBUG: END ===\n")
+        # --- BOSS DEBUG: END ---
+
+        # NOTE: I removed the merge_and_unload() from this debug block 
+        # so your main script won't crash later.
+        model.load_adapter(model_id, adapter_name, **kwargs)
+        # raise
+        return model
+        ####################
+
         model.load_adapter(model_id, adapter_name, **kwargs)
         return model
 

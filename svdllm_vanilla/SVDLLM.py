@@ -182,6 +182,69 @@ def profle_svdllm_low_resource(model_name, model, calib_loader, dev):
         torch.cuda.empty_cache()
     return profiling_mat
      
+import torch
+import torch.nn.functional as F
+
+def test_svd_weights(svd_u_weight, svd_v_weight, dense_linear_weight, input_shape):
+    """
+    Tests SVD approximation using raw weight tensors (assuming no bias).
+    
+    Args:
+        svd_u_weight (torch.Tensor): Weight tensor for the U projection (Out x Rank).
+        svd_v_weight (torch.Tensor): Weight tensor for the V projection (Rank x In).
+        dense_linear_weight (torch.Tensor): Original dense weight tensor (Out x In).
+        input_shape (tuple): Shape of the random input tensor to generate.
+    """
+    # Create input matching the dense weight's dtype and device
+    input_x = torch.rand(
+        input_shape, 
+        dtype=dense_linear_weight.dtype, 
+        device=dense_linear_weight.device
+    )
+    
+    # Forward pass using Functional API (simulating nn.Linear without bias)
+    # F.linear(input, weight) computes: input @ weight.T
+    with torch.no_grad():
+        # Dense pass
+        dx = F.linear(input_x, dense_linear_weight)
+        
+        # SVD pass: v_proj first, then u_proj
+        # Step 1: Input -> Low Rank
+        intermediate = F.linear(input_x, svd_v_weight)
+        # Step 2: Low Rank -> Output
+        sx = F.linear(intermediate, svd_u_weight)
+    
+    # Calculate errors
+    diff = dx - sx
+    max_diff = diff.abs().max().item()
+    mse_error = F.mse_loss(dx, sx).item()
+    
+    # Calculate relative error (handling potential zero division safely)
+    dense_norm = torch.norm(dx)
+    if dense_norm > 0:
+        norm_error = (torch.norm(diff) / dense_norm).item()
+    else:
+        norm_error = float('inf')
+    
+    print("-" * 30)
+    print(f"SVD Weight Approximation Test")
+    print("-" * 30)
+    print(f"Input Shape: {input_x.shape}")
+    print(f"Output Shape: {dx.shape}")
+    print(f"Dtype:       {dx.dtype}")
+    print("-" * 30)
+    print(f"Max Absolute Diff:   {max_diff:.6f}")
+    print(f"Mean Squared Error:  {mse_error:.6f}")
+    print(f"Relative Error (norm): {norm_error:.6f}")
+    print("-" * 30)
+    
+    # Optional: Print raw values if you really need to see them
+    # print(f"Dense Output (first 5): {dx.flatten()[:5]}")
+    # print(f"SVD Output   (first 5): {sx.flatten()[:5]}")
+    
+    raise RuntimeError("Test Complete: Stopping execution intentionally.")
+
+
  
 @torch.no_grad()
 def whitening(model_name, model, profiling_mat, ratio, dev):
@@ -225,8 +288,8 @@ def whitening(model_name, model, profiling_mat, ratio, dev):
             truc_sigma = torch.diag(truc_s)
             #### Replace Attn, MLP ####
             sqrtSigma = torch.sqrt(truc_sigma)
-            svd_u = torch.matmul(truc_u, sqrtSigma).cpu().to(dtype)
-            svd_v = torch.matmul(sqrtSigma, truc_v).cpu().to(dtype)
+            svd_u = torch.matmul(truc_u, sqrtSigma).cpu().to(dtype).to(torch.float16)
+            svd_v = torch.matmul(sqrtSigma, truc_v).cpu().to(dtype).to(torch.float16)
             if 'opt' in model_name:
                 if "q_proj" in name:
                     svd_decoder.self_attn.q_u_proj.weight.data = svd_u
@@ -255,10 +318,20 @@ def whitening(model_name, model, profiling_mat, ratio, dev):
                     svd_decoder.self_attn_layer_norm = layer.self_attn_layer_norm
                     svd_decoder.final_layer_norm = layer.final_layer_norm
                     layers[i] = svd_decoder
-            else:
+            else:   
+                # print("name: ", name)
+                # print("subset[name]: ", subset[name])
+                # print("subset")
+                # print(subset)
+                # print("layer")
+                # print(layer)
+                # raise
                 if "q_proj" in name:
                     svd_attn.q_u_proj.weight.data = svd_u
                     svd_attn.q_v_proj.weight.data = svd_v
+
+                    test_svd_weights(svd_u, svd_v, layer.self_attn.q_proj.weight.data, W.shape[1])
+
                 elif "k_proj" in name:
                     svd_attn.k_u_proj.weight.data = svd_u
                     svd_attn.k_v_proj.weight.data = svd_v
@@ -526,7 +599,8 @@ if __name__ == '__main__':
         model = model.eval()
         if args.profiling_mat_path is None:
             cali_white_data = get_calib_train_data(args.dataset, tokenizer, args.whitening_nsamples, seqlen=args.model_seq_len)
-            profiling_mat = profle_svdllm_low_resource(args.model, model, cali_white_data, args.DEV)
+            # profiling_mat = profle_svdllm_low_resource(args.model, model, cali_white_data, args.DEV)
+            profiling_mat = profle_svdllm(args.model, model, cali_white_data, args.DEV)
             if args.save_path is not None:
                 torch.save(profiling_mat, args.save_path + "/" + args.model.replace("/", "_").replace("-", "_") + '_profiling_'+ args.dataset + '_' + str(args.whitening_nsamples)  + '_' + str(args.seed)+ '.pt')
         else:

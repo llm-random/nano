@@ -162,6 +162,7 @@ def apply_lora(model, tokenizer, batch_size=64, micro_batch_size=4, cutoff_len=2
             evaluation_strategy="steps",
             save_strategy="steps",
             eval_steps=100,
+            # save_steps=10, #dev
             save_steps=200,
             output_dir=output_dir,
             save_total_limit=30,
@@ -323,8 +324,10 @@ def main(args):
             evaluation_strategy="steps",
             save_strategy="steps",
             save_safetensors=False,
-            eval_steps=100,
-            save_steps=200,
+            # eval_steps=10, #dev
+            # save_steps=10, #dev
+            eval_steps=500,
+            save_steps=1000,
             output_dir=args.output_dir,
             save_total_limit=20,
             load_best_model_at_end=True,

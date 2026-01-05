@@ -24,7 +24,7 @@ for n in "${SAMPLES[@]}"; do
     python SVDLLM.py \
         --model meta-llama/Llama-3.1-8B \
         --step 1 \
-        --ratio 0.5 \
+        --ratio 0.3 \
         --whitening_nsamples "$n" \
         --dataset wikitext2 \
         --seed 3 \
