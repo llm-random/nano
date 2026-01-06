@@ -6,9 +6,9 @@ defaults:
 trainer:
   train_dataloader:
     dataset:
-      _target_: src.core.datasets.C4Dataset
+      _target_: src.core.datasets.FineWebEduDataset
       sequence_length: ${common.sequence_length}
-      tokenize_fn: Callable,
+      tokenize_fn: ???
       path: ${cluster_switch.train_path_fineweb}
       split: train
       seed: 123
@@ -18,9 +18,10 @@ trainer:
     num_workers: 2
 
   eval_dataloader:
-      _target_: src.core.datasets.C4Dataset
+    dataset:
+      _target_: src.core.datasets.FineWebEduDataset
       sequence_length: ${common.sequence_length}
-      tokenize_fn: Callable,
+      tokenize_fn: ???
       path: ${cluster_switch.eval_path_fineweb}
       split: train
       seed: 123
