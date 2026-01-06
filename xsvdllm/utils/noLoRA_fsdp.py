@@ -5,9 +5,31 @@ import logging
 import json
 import torch
 import transformers
-from transformers import Trainer, TrainingArguments
+from transformers import Trainer, TrainingArguments, TrainerCallback
 from custom_datasets import FineWebEduDataset, C4Dataset 
 from collections import defaultdict
+
+# --- New Callback for Real-Time Logging ---
+class FileLoggerCallback(TrainerCallback):
+    """
+    A custom callback to save logs (training loss, eval loss) to a file
+    in real-time, exactly as they are printed to stdout.
+    """
+    def __init__(self, output_dir):
+        self.output_dir = output_dir
+        self.log_path = os.path.join(output_dir, "loss_history.jsonl")
+    
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        # Only write logs from the main process to avoid concurrency issues
+        if state.is_world_process_zero and logs is not None:
+            os.makedirs(self.output_dir, exist_ok=True)
+            with open(self.log_path, "a") as f:
+                # Create a clean log entry with the current step
+                log_entry = logs.copy()
+                log_entry['step'] = state.global_step
+                f.write(json.dumps(log_entry) + "\n")
+# ------------------------------------------
+
 def report_model_structure(model, wrap_policy_name):
     print(f"\n{'='*30} Model Architecture & FSDP Report {'='*30}")
     wrapped_scope_prefixes = []
@@ -235,12 +257,16 @@ def main(args):
         gradient_checkpointing_kwargs={"use_reentrant": False} if args.gradient_checkpointing else None
     )
 
+    # Initialize Callback
+    logging_callback = FileLoggerCallback(args.output_dir)
+
     trainer = Trainer(
         model=model,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         args=training_args,
-        data_collator=svd_collator, 
+        data_collator=svd_collator,
+        callbacks=[logging_callback] # Register the callback
     )
     
     # 6. Training
@@ -264,10 +290,19 @@ def main(args):
         print(json.dumps(metrics, indent=4))
         print(f"{'='*75}\n")
         
+        # Save Final Metrics
         metrics_file = os.path.join(args.output_dir, "train_results.json")
         with open(metrics_file, "w") as f:
             json.dump(metrics, f, indent=4)
         print(f"Metrics saved to {metrics_file}")
+
+        # --- NEW: Save Full Loss History (Train + Eval) ---
+        history_file = os.path.join(args.output_dir, "full_log_history.json")
+        with open(history_file, "w") as f:
+            # trainer.state.log_history contains the list of all logs (train and eval)
+            json.dump(trainer.state.log_history, f, indent=4)
+        print(f"Full loss history saved to {history_file}")
+        # --------------------------------------------------
 
 
 if __name__ == "__main__":
