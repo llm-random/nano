@@ -207,7 +207,11 @@ def main(args):
         per_device_train_batch_size=micro_batch_size, 
         per_device_eval_batch_size=micro_batch_size,
         gradient_accumulation_steps=grad_acc_steps,
-        
+
+        lr_scheduler_type="cosine",          # Changed to Cosine
+        weight_decay=args.weight_decay,      # Added Weight Decay (0.1)
+        max_grad_norm=args.max_grad_norm,    # Added Gradient Clipping (1.0)
+
         warmup_steps=args.warmup_steps,
         max_steps=args.max_steps,
         learning_rate=args.learning_rate,
@@ -279,6 +283,10 @@ if __name__ == "__main__":
     parser.add_argument('--micro_batch_size', type=int, default=4, help='Per GPU Batch Size')
     
     parser.add_argument('--max_steps', type=int, default=10000)
+    # --- New Arguments ---
+    parser.add_argument('--weight_decay', type=float, default=0.1, help="Weight decay for AdamW")
+    parser.add_argument('--max_grad_norm', type=float, default=1.0, help="Gradient clipping threshold")
+    # ---------------------
     parser.add_argument('--warmup_steps', type=int, default=40)
     parser.add_argument('--learning_rate', type=float, default=5e-5)
     parser.add_argument('--cutoff_len', type=int, default=2048)
