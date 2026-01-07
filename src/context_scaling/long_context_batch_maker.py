@@ -45,7 +45,16 @@ def plot_token_length_hist_robust(
     # 1. Flexible Loading (Disk or Stream)
     print(f"Loading dataset from: {dataset_path}")
     if os.path.exists(dataset_path):
-        ds = load_from_disk(dataset_path)
+        # Check for large sharded dataset to avoid OOM during load_from_disk
+        arrow_files = sorted([
+            os.path.join(dataset_path, f) for f in os.listdir(dataset_path)
+            if f.startswith("data-") and f.endswith(".arrow")
+        ])
+        if len(arrow_files) > 50:
+            print(f"Found {len(arrow_files)} arrow shards, loading as streaming to avoid OOM...")
+            ds = load_dataset("arrow", data_files=arrow_files, split="train", streaming=True)
+        else:
+            ds = load_from_disk(dataset_path)
     else:
         # Fallback to loading from Hub if path doesn't exist locally
         print("Path not found on disk, attempting to load from HF Hub...")
