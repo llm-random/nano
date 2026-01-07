@@ -214,7 +214,7 @@ def main(args):
 
     # 5. Trainer
     fsdp_config = {
-        "min_num_params": 0,
+        "min_num_params": 10_000_000,
         "xla": False,
         "xla_fsdp_grad_ckpt": False,
         "offload_params": False,
