@@ -219,7 +219,7 @@ def main(args):
         "xla_fsdp_grad_ckpt": False,
         "offload_params": False,
         "pre_forward_reshard": False,
-        "transformer_layer_cls_to_wrap": [args.fsdp_transformer_layer_cls_to_wrap],
+        # "transformer_layer_cls_to_wrap": [args.fsdp_transformer_layer_cls_to_wrap],
         "sync_module_states": True,
         "use_orig_params": True, 
         "cpu_ram_efficient_loading": False, 
