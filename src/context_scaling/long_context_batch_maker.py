@@ -1,12 +1,11 @@
 from datasets import load_from_disk
-import os
+import os, csv
 import numpy as np
 from argparse import ArgumentParser
 from transformers import AutoTokenizer
-import csv
 
 
-def plot_token_length_hist(
+def plot_token_length_hist_streaming(
     dataset_path,
     tokenizer,
     min_length=0,
@@ -14,112 +13,105 @@ def plot_token_length_hist(
     save_batch_size=None,
     save_data_dir=None,
     save_hist_dir=None,
-    num_workers=1,
+    batch_size=64,
+    max_len_for_hist=262144,
+    bins=200,
 ):
     ds = load_from_disk(dataset_path)
 
-    # Compute token lengths
-    def _token_len(batch):
-        enc = tokenizer(batch[text_field], add_special_tokens=False)
-        return {"length": [len(ids) for ids in enc["input_ids"]]}
+    # fixed binning to avoid two-pass over the dataset
+    lin_edges = np.linspace(1, max_len_for_hist, bins + 1)
+    log_edges = np.exp(np.linspace(np.log(1.0), np.log(max_len_for_hist), bins + 1))
 
-    ds = ds.map(
-        _token_len,
-        batched=True,
-        num_proc=num_workers,
-        load_from_cache_file=False,
-        keep_in_memory=True,
-    )
+    hist = np.zeros(bins, dtype=np.int64)
+    hist_log = np.zeros(bins, dtype=np.int64)
 
-    hist, bin_edges = np.histogram(ds["length"], bins=200)
-    hist_log, bin_edges_log = np.histogram(np.log(ds["length"]), bins=200)
-    bin_edges_log = np.exp(bin_edges_log)
+    selected_indices = []
+    count_ge = 0
 
+    # iterate in batches to keep memory bounded
+    n = len(ds)
+    for start in range(0, n, batch_size):
+        end = min(start + batch_size, n)
+        batch = ds[start:end]
+        texts = batch[text_field]
+
+        # IMPORTANT: avoid spawning huge intermediate structures across 16 processes
+        enc = tokenizer(texts, add_special_tokens=False)
+        lengths = np.fromiter((len(ids) for ids in enc["input_ids"]), dtype=np.int64)
+
+        # update hist (clip long outliers so bins stay stable)
+        clipped = np.clip(lengths, 1, max_len_for_hist)
+        h, _ = np.histogram(clipped, bins=lin_edges)
+        hl, _ = np.histogram(clipped, bins=log_edges)
+        hist += h
+        hist_log += hl
+
+        # count + collect indices for saving
+        if min_length > 0:
+            mask = lengths >= min_length
+            count_ge += int(mask.sum())
+            if save_batch_size is not None and len(selected_indices) < save_batch_size:
+                # add indices in original dataset coordinates
+                new_idx = (np.nonzero(mask)[0] + start).tolist()
+                need = save_batch_size - len(selected_indices)
+                selected_indices.extend(new_idx[:need])
+        else:
+            count_ge += len(lengths)
+            if save_batch_size is not None and len(selected_indices) < save_batch_size:
+                need = save_batch_size - len(selected_indices)
+                selected_indices.extend(
+                    list(range(start, start + min(need, end - start)))
+                )
+
+        if start % (batch_size * 200) == 0:
+            print(
+                f"Processed {end}/{n} docs. >= {min_length}: {count_ge}. Saved candidates: {len(selected_indices)}"
+            )
+
+    print(f"number of documents ≥ {min_length} tokens: {count_ge}")
+
+    # save hists
     if save_hist_dir is not None:
         os.makedirs(save_hist_dir, exist_ok=True)
-        save_hist_path = os.path.join(save_hist_dir, "hist_normal.csv")
-        save_hist_log_path = os.path.join(save_hist_dir, "hist_log.csv")
 
-        with open(save_hist_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["bin_left", "bin_right", "count"])
-            for left, right, count in zip(bin_edges[:-1], bin_edges[1:], hist):
-                writer.writerow([left, right, count])
+        def _save(path, edges, h):
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["bin_left", "bin_right", "count"])
+                for left, right, c in zip(edges[:-1], edges[1:], h):
+                    w.writerow([int(left), int(right), int(c)])
 
-        with open(save_hist_log_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["bin_left", "bin_right", "count"])
-            for left, right, count in zip(
-                bin_edges_log[:-1], bin_edges_log[1:], hist_log
-            ):
-                writer.writerow([left, right, count])
+        _save(os.path.join(save_hist_dir, "hist_normal.csv"), lin_edges, hist)
+        _save(os.path.join(save_hist_dir, "hist_log.csv"), log_edges, hist_log)
+        print(f"Saved histogram CSVs to: {save_hist_dir}")
 
-        print(f"Saved histogram CSV to: {save_hist_path}")
-
-    # Filter by minimum token length
-    if min_length > 0:
-        ds = ds.filter(lambda x: x["length"] >= min_length)
-
-    lengths = ds["length"]
-    print(f"number of documents ≥ {min_length} tokens: {len(lengths)}")
-
-    # ---- SAVE FIRST BATCH ----
+    # save subset
     if save_batch_size is not None and save_data_dir is not None:
         os.makedirs(save_data_dir, exist_ok=True)
-        subset = ds.select(range(min(save_batch_size, len(ds))))
+        subset = ds.select(selected_indices)
         subset.save_to_disk(save_data_dir)
         print(f"Saved {len(subset)} documents to: {save_data_dir}")
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
+    p = ArgumentParser()
+    p.add_argument("--dataset_path", type=str, required=True)
+    p.add_argument("--tokenizer", type=str, default="gpt2")
+    p.add_argument("--min_length", type=int, default=0)
+    p.add_argument("--save_batch_size", type=int, default=None)
+    p.add_argument("--save_data_dir", type=str, default=None)
+    p.add_argument("--save_hist_dir", type=str, default=None)
+    p.add_argument("--text_field", type=str, default="text")
+    p.add_argument("--batch_size", type=int, default=64)
+    p.add_argument("--max_len_for_hist", type=int, default=262144)
+    args = p.parse_args()
 
-    parser.add_argument(
-        "--dataset_path", type=str, required=True, help="Path to the dataset directory"
-    )
-    parser.add_argument(
-        "--tokenizer",
-        type=str,
-        required=True,
-        default="gpt2",
-        help="Tokenizer model name or path",
-    )
-    parser.add_argument(
-        "--min_length",
-        type=int,
-        required=True,
-        help="Minimum token length to filter documents",
-    )
-    parser.add_argument(
-        "--save_batch_size", type=int, required=True, help="Number of documents to save"
-    )
-    parser.add_argument(
-        "--save_data_dir",
-        type=str,
-        help="Directory to save the filtered dataset",
-    )
-    parser.add_argument(
-        "--save_hist_dir",
-        type=str,
-        help="Directory to save the filtered dataset",
-    )
-    parser.add_argument(
-        "--text_field",
-        type=str,
-        default="text",
-        help="Name of the text field in the dataset (default: text)",
-    )
-    parser.add_argument(
-        "--num_workers",
-        type=int,
-        default=1,
-        help="Name of the text field in the dataset (default: text)",
-    )
+    tok = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+    # avoid tokenizer thread explosion on clusters
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-    args = parser.parse_args()
-
-    tok = AutoTokenizer.from_pretrained(args.tokenizer)
-    plot_token_length_hist(
+    plot_token_length_hist_streaming(
         args.dataset_path,
         tok,
         min_length=args.min_length,
@@ -127,7 +119,6 @@ if __name__ == "__main__":
         save_batch_size=args.save_batch_size,
         save_data_dir=args.save_data_dir,
         save_hist_dir=args.save_hist_dir,
-        num_workers=args.num_workers,
+        batch_size=args.batch_size,
+        max_len_for_hist=args.max_len_for_hist,
     )
-
-# python src/context_scaling/long_context_batch_maker.py --dataset_path /storage_nvme_1/llm-random/datasets/c4/validation --save_data_dir /storage_nvme_1/llm-random/datasets/c4/long_context --tokenizer gpt2 --min_length 3072 --save_batch_size 4096 --save_hist_dir tmp --num_workers 16

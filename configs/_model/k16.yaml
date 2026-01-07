@@ -76,6 +76,15 @@ model:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
             scale: 1
+        
+        pre_attn_fn:
+          _target_: src.core.model.QKNorm
+          _partial_: true
+          norm_fn:
+            _target_: src.core.model.RMSNorm
+            _partial_: true
+            normalized_shape: ${eval:'${common.datt} // ${common.q_heads}'}
+            eps: 1e-6
 
         rope_base: 500000
         rope_scale_freqs: true

@@ -1,6 +1,6 @@
 defaults:
   - _cluster@_here_: local
-  - _model@_here_: tiny
+  - _model@_here_: k16
   - _trainer@_here_: context_scaling
   - _dataset@_here_: ctx_scl_dataset
   - _checkpoints@_here_: none
@@ -9,8 +9,20 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 16
+  _target_: src.definitions.Common
+  dmodel: 64
+  dff: 128
+  datt: 64
+  n_blocks: 4
+  q_heads: 4
+  kv_heads: 4
+  vocab_size: 50257
+  sequence_length: 8
   batch_size: 2
+  head_norm: true
+  init_scale: 0.1
+  init_type: truncated_normal_fixed
+  model_type: gpt
 
 trainer:
   gradient_accumulation_steps: 1

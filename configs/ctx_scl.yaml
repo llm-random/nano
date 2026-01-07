@@ -10,13 +10,14 @@ defaults:
 
 common:
   sequence_length: 2048
-  batch_size: 128
+  batch_size: 64
   ^kv_heads: [16, 1]
 
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 40_001
-  ^learning_rate: [9, 10, 11, 12, 13]
+  ^learning_rate: [7, 8, 9, 10, 11, 12]
+  # learning_rate: 10
   eval_interval: 100
   eval_long_ctx_interval: 1000
   n_eval_long_ctx_steps: 64
@@ -48,6 +49,7 @@ infrastructure:
       - k16
       - context_scaling
       - 2copt
+      - qk_norm_rms
 
   slurm:
     time: "16:00:00"
