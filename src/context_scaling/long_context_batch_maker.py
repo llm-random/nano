@@ -69,11 +69,8 @@ def plot_token_length_hist_robust(
     hist = np.zeros(bins, dtype=np.int64)
     hist_log = np.zeros(bins, dtype=np.int64)
 
-    selected_indices = (
-        []
-    )  # This might need to store IDs if streaming, but indices work for local
+    selected_texts = []  # Stores actual text content (streaming-safe)
     saved_subset_count = 0
-    total_processed = 0
     count_ge = 0
 
     # 3. Setup Multiprocessing
@@ -120,12 +117,10 @@ def plot_token_length_hist_robust(
             to_save = candidates[:slots_needed]
 
             if to_save and save_data_dir:
-                # Append to a temporary CSV or JSONL to avoid holding in RAM
-                # Here we just buffer in memory assuming save_batch_size is small (e.g. 1k)
+                # Buffer in memory assuming save_batch_size is small (e.g. 1k)
                 # If save_batch_size is huge, this should be a file append.
-                selected_indices.extend(to_save)
-
-            saved_subset_count += len(to_save)
+                selected_texts.extend(to_save)
+                saved_subset_count += len(to_save)
 
     # 4. Main Processing Loop
     # usage of iter(batch_size) allows efficient traversal without loading full columns
@@ -136,6 +131,16 @@ def plot_token_length_hist_robust(
 
     # We track absolute index manually for logging
     current_idx = 0
+    processed_docs = 0  # Track actual processed (for progress reporting)
+    last_report = 0
+    report_interval = batch_size * 50
+    tokenizer_obj = None  # Lazy init for single-process mode
+
+    def report_progress():
+        nonlocal last_report
+        if processed_docs - last_report >= report_interval:
+            print(f"Processed {processed_docs} docs... (>= {min_length}: {count_ge})")
+            last_report = processed_docs
 
     for batch in iterator:
         texts = batch[text_field]
@@ -153,18 +158,12 @@ def plot_token_length_hist_robust(
                 res, s_idx, b_texts = async_results.pop(0)
                 lengths = res.get()  # Block until ready
                 update_stats(lengths, s_idx, b_texts)
-
-                # Report progress
-                if (s_idx + batch_size) % (batch_size * 50) == 0:
-                    print(
-                        f"Processed {s_idx + batch_size} docs... (>= {min_length}: {count_ge})"
-                    )
+                processed_docs += len(lengths)
+                report_progress()
 
         else:
             # Single process fallback
-            # Re-instantiating tokenizer every batch is slow, so we do it outside loop in single-proc
-            # But for consistency with the worker function logic:
-            if "tokenizer_obj" not in locals():
+            if tokenizer_obj is None:
                 tokenizer_obj = AutoTokenizer.from_pretrained(
                     tokenizer_name, use_fast=True
                 )
@@ -176,11 +175,8 @@ def plot_token_length_hist_robust(
                 lengths = [len(ids) for ids in enc["input_ids"]]
 
             update_stats(lengths, current_idx, texts if save_batch_size else [])
-
-            if (current_idx + batch_size) % (batch_size * 50) == 0:
-                print(
-                    f"Processed {current_idx + batch_size} docs... (>= {min_length}: {count_ge})"
-                )
+            processed_docs += len(lengths)
+            report_progress()
 
         current_idx += batch_len
 
@@ -189,6 +185,8 @@ def plot_token_length_hist_robust(
         for res, s_idx, b_texts in async_results:
             lengths = res.get()
             update_stats(lengths, s_idx, b_texts)
+            processed_docs += len(lengths)
+            report_progress()
 
     if pool:
         pool.close()
@@ -217,14 +215,14 @@ def plot_token_length_hist_robust(
     if (
         save_batch_size is not None
         and save_data_dir is not None
-        and len(selected_indices) > 0
+        and len(selected_texts) > 0
     ):
         os.makedirs(save_data_dir, exist_ok=True)
         # Since we collected raw text strings (to be streaming safe), we save differently
         # We can construct a simple HF dataset from memory
         from datasets import Dataset
 
-        subset_ds = Dataset.from_dict({text_field: selected_indices})
+        subset_ds = Dataset.from_dict({text_field: selected_texts})
         subset_ds.save_to_disk(save_data_dir)
         print(f"Saved {len(subset_ds)} documents to: {save_data_dir}")
 
