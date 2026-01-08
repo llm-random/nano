@@ -1,7 +1,23 @@
 import os
+import shutil
 from argparse import ArgumentParser
-from datasets import load_from_disk
+from datasets import load_from_disk, concatenate_datasets
 from transformers import AutoTokenizer
+import time
+
+
+def concatenate_shards(shards_dir, output_path):
+    shard_dirs = sorted(
+        [
+            os.path.join(shards_dir, d)
+            for d in os.listdir(shards_dir)
+            if d.startswith("shard_")
+        ]
+    )
+    shards = [load_from_disk(d) for d in shard_dirs]
+    final = concatenate_datasets(shards)
+    final.save_to_disk(output_path)
+    return final
 
 
 def save_long_ctx_batch(
@@ -13,7 +29,8 @@ def save_long_ctx_batch(
     dataset = load_from_disk(dataset_path)
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True)
 
-    results = []
+    shards_dir = f"{save_path}_shards"
+    os.makedirs(shards_dir, exist_ok=True)
 
     for i in range(num_shards):
         print(f"Processing shard {i+1}/{num_shards}...")
@@ -30,17 +47,17 @@ def save_long_ctx_batch(
             num_proc=num_proc,
         )
 
-        results.append(shard)
+        shard.save_to_disk(os.path.join(shards_dir, f"shard_{i}"))
         print(f"Shard {i+1}/{num_shards}: found {len(shard)} long sequences")
 
-    from datasets import concatenate_datasets
-
-    final = concatenate_datasets(results)
+    print("Concatenating shards...")
+    final = concatenate_shards(shards_dir, save_path)
 
     print(f"Total: {len(final)} sequences >= {seq_len} tokens")
-
-    final.save_to_disk(save_path)
     print(f"Saved to {save_path}")
+
+    shutil.rmtree(shards_dir)
+    print(f"Cleaned up {shards_dir}")
 
 
 if __name__ == "__main__":
