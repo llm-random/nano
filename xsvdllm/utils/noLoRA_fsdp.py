@@ -339,7 +339,7 @@ if __name__ == "__main__":
     
     parser.add_argument('--gradient_checkpointing', action='store_true', help='Enable Gradient Checkpointing')
 
-    parser.add_argument('--num_workers', type=int, default=4, help='Number of subprocesses for data loading')
+    parser.add_argument('--num_workers', type=int, default=2, help='Number of subprocesses for data loading')
 
     args = parser.parse_args()
 
