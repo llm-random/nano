@@ -72,6 +72,7 @@ def generate_histogram(
     for i, arrow_file in enumerate(arrow_files):
         print(f"Processing file {i+1}/{num_files}...")
         shard = load_dataset("arrow", data_files=arrow_file, split="train")
+        print("arrow loaded")
         h, hl, n = process_shard_histogram(
             shard, tokenizer, num_proc, max_len, lin_edges, log_edges
         )
