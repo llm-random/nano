@@ -2,42 +2,12 @@ import os
 import csv
 import numpy as np
 from argparse import ArgumentParser
-from datasets import load_dataset
+from datasets import load_from_disk, DatasetDict
 from transformers import AutoTokenizer
 
 
-def get_arrow_files(dataset_path):
-    """Returns sorted list of arrow files, or None if not a sharded dataset."""
-    arrow_files = sorted(
-        [
-            os.path.join(dataset_path, f)
-            for f in os.listdir(dataset_path)
-            if f.startswith("data-") and f.endswith(".arrow")
-        ]
-    )
-    return arrow_files if arrow_files else None
-
-
-def process_shard_histogram(shard, tokenizer, num_proc, max_len, lin_edges, log_edges):
-    shard = shard.map(
-        lambda x: {
-            "length": [
-                len(tokenizer(t, add_special_tokens=False)["input_ids"])
-                for t in x["text"]
-            ]
-        },
-        batched=True,
-        num_proc=num_proc,
-    )
-    lengths = np.array(shard["length"], dtype=np.int64)
-    clipped = np.clip(lengths, 1, max_len)
-
-    h, _ = np.histogram(clipped, bins=lin_edges)
-    hl, _ = np.histogram(clipped, bins=log_edges)
-    return h, hl, len(lengths)
-
-
 def save_histogram_csv(path, edges, h):
+    """Saves histogram data to a CSV file."""
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["bin_left", "bin_right", "count"])
@@ -49,41 +19,73 @@ def generate_histogram(
     dataset_path,
     tokenizer_name,
     save_dir,
-    num_proc=None,
+    num_shards=32,
     max_len=10000,
     bins=200,
 ):
-    if num_proc is None:
-        num_proc = os.cpu_count()
-
+    print(f"Loading tokenizer: {tokenizer_name}")
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True)
 
+    # 1. Load Dataset from disk
+    print(f"Loading dataset from: {dataset_path}")
+    hf_dataset = load_from_disk(dataset_path)
+
+    # Handle case where dataset is a DatasetDict (e.g., contains train/test keys)
+    if "train" in hf_dataset:
+        print("Detected DatasetDict, selecting 'train' split.")
+        hf_dataset = hf_dataset["train"]
+
+    # 2. Convert to Iterable Dataset as requested
+    print(f"Converting to iterable dataset with {num_shards} shards...")
+    hf_dataset = hf_dataset.to_iterable_dataset(num_shards=num_shards)
+
+    # 3. Define Tokenization Logic
+    def compute_length(batch):
+        # We compute length on the fly
+        encoding = tokenizer(batch["text"], add_special_tokens=False)
+        return {"length": [len(ids) for ids in encoding["input_ids"]]}
+
+    # Map the function over the stream
+    # Note: batched=True is efficient here as it reduces python overhead
+    dataset_stream = hf_dataset.map(compute_length, batched=True)
+
+    # 4. Prepare Histogram Bins
     lin_edges = np.linspace(10, max_len, bins + 1)
     log_edges = np.exp(np.linspace(np.log(10.0), np.log(max_len), bins + 1))
 
-    hist = np.zeros(bins, dtype=np.int64)
+    hist_lin = np.zeros(bins, dtype=np.int64)
     hist_log = np.zeros(bins, dtype=np.int64)
 
-    arrow_files = get_arrow_files(dataset_path)
-    if not arrow_files:
-        raise ValueError(f"No arrow files found in {dataset_path}")
+    # 5. Iterate and Aggregate
+    print("Processing stream...")
+    total_docs = 0
+    batch_size = 1000  # Number of examples to pull at once for numpy vectorization
 
-    num_files = len(arrow_files)
-    for i, arrow_file in enumerate(arrow_files):
-        print(f"Processing file {i+1}/{num_files}...")
-        shard = load_dataset("arrow", data_files=arrow_file, split="train")
-        print("arrow loaded")
-        h, hl, n = process_shard_histogram(
-            shard, tokenizer, num_proc, max_len, lin_edges, log_edges
-        )
-        hist += h
-        hist_log += hl
-        print(f"File {i+1}/{num_files}: {n} documents")
+    # We use .iter() with batch_size so we get a list of items (a batch)
+    # allowing us to use numpy on the whole chunk at once.
+    for i, batch in enumerate(dataset_stream.iter(batch_size=batch_size)):
+        lengths = np.array(batch["length"], dtype=np.int64)
 
+        # Clip lengths to max_len to ensure they fit in bins
+        clipped = np.clip(lengths, 1, max_len)
+
+        # Update histograms
+        h_lin, _ = np.histogram(clipped, bins=lin_edges)
+        h_log, _ = np.histogram(clipped, bins=log_edges)
+
+        hist_lin += h_lin
+        hist_log += h_log
+        total_docs += len(lengths)
+
+        if (i + 1) % 100 == 0:
+            print(f"Processed {total_docs} documents...", end="\r")
+
+    print(f"\nFinished processing {total_docs} documents.")
+
+    # 6. Save Results
     os.makedirs(save_dir, exist_ok=True)
-    save_histogram_csv(os.path.join(save_dir, "hist_normal.csv"), lin_edges, hist)
+    save_histogram_csv(os.path.join(save_dir, "hist_normal.csv"), lin_edges, hist_lin)
     save_histogram_csv(os.path.join(save_dir, "hist_log.csv"), log_edges, hist_log)
-
     print(f"Saved histograms to {save_dir}")
 
 
@@ -92,7 +94,13 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_path", type=str, required=True)
     parser.add_argument("--tokenizer", type=str, default="gpt2")
     parser.add_argument("--save_dir", type=str, required=True)
-    parser.add_argument("--num_proc", type=int, default=None)
+    # Renamed num_proc to num_shards to align with the prompt's logic requirements
+    parser.add_argument(
+        "--num_shards",
+        type=int,
+        default=32,
+        help="Number of shards for iterable dataset",
+    )
     parser.add_argument("--max_len", type=int, default=10000)
     parser.add_argument("--bins", type=int, default=200)
     args = parser.parse_args()
@@ -101,7 +109,7 @@ if __name__ == "__main__":
         args.dataset_path,
         args.tokenizer,
         args.save_dir,
-        args.num_proc,
+        args.num_shards,
         args.max_len,
         args.bins,
     )
