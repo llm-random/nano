@@ -2,12 +2,12 @@ import os
 import csv
 import numpy as np
 from argparse import ArgumentParser
-from datasets import load_from_disk, load_dataset
+from datasets import load_dataset
 from transformers import AutoTokenizer
 
 
 def get_arrow_files(dataset_path):
-    """Returns sorted list of arrow files if dataset is sharded, else None."""
+    """Returns sorted list of arrow files, or None if not a sharded dataset."""
     arrow_files = sorted(
         [
             os.path.join(dataset_path, f)
@@ -15,14 +15,18 @@ def get_arrow_files(dataset_path):
             if f.startswith("data-") and f.endswith(".arrow")
         ]
     )
-    return arrow_files if len(arrow_files) > 50 else None
+    return arrow_files if arrow_files else None
 
 
 def process_shard_histogram(shard, tokenizer, num_proc, max_len, lin_edges, log_edges):
     shard = shard.map(
         lambda x: {
-            "length": len(tokenizer(x["text"], add_special_tokens=False)["input_ids"])
+            "length": [
+                len(tokenizer(t, add_special_tokens=False)["input_ids"])
+                for t in x["text"]
+            ]
         },
+        batched=True,
         num_proc=num_proc,
     )
     lengths = np.array(shard["length"], dtype=np.int64)
@@ -45,7 +49,6 @@ def generate_histogram(
     dataset_path,
     tokenizer_name,
     save_dir,
-    num_shards=10,
     num_proc=None,
     max_len=10000,
     bins=200,
@@ -62,29 +65,19 @@ def generate_histogram(
     hist_log = np.zeros(bins, dtype=np.int64)
 
     arrow_files = get_arrow_files(dataset_path)
+    if not arrow_files:
+        raise ValueError(f"No arrow files found in {dataset_path}")
 
-    if arrow_files:
-        num_files = len(arrow_files)
-        for i, arrow_file in enumerate(arrow_files):
-            print(f"Processing file {i+1}/{num_files}...")
-            shard = load_dataset("arrow", data_files=arrow_file, split="train")
-            h, hl, n = process_shard_histogram(
-                shard, tokenizer, num_proc, max_len, lin_edges, log_edges
-            )
-            hist += h
-            hist_log += hl
-            print(f"File {i+1}/{num_files}: {n} documents")
-    else:
-        dataset = load_from_disk(dataset_path)
-        for i in range(num_shards):
-            print(f"Processing shard {i+1}/{num_shards}...")
-            shard = dataset.shard(num_shards=num_shards, index=i)
-            h, hl, n = process_shard_histogram(
-                shard, tokenizer, num_proc, max_len, lin_edges, log_edges
-            )
-            hist += h
-            hist_log += hl
-            print(f"Shard {i+1}/{num_shards}: {n} documents")
+    num_files = len(arrow_files)
+    for i, arrow_file in enumerate(arrow_files):
+        print(f"Processing file {i+1}/{num_files}...")
+        shard = load_dataset("arrow", data_files=arrow_file, split="train")
+        h, hl, n = process_shard_histogram(
+            shard, tokenizer, num_proc, max_len, lin_edges, log_edges
+        )
+        hist += h
+        hist_log += hl
+        print(f"File {i+1}/{num_files}: {n} documents")
 
     os.makedirs(save_dir, exist_ok=True)
     save_histogram_csv(os.path.join(save_dir, "hist_normal.csv"), lin_edges, hist)
@@ -98,7 +91,6 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_path", type=str, required=True)
     parser.add_argument("--tokenizer", type=str, default="gpt2")
     parser.add_argument("--save_dir", type=str, required=True)
-    parser.add_argument("--num_shards", type=int, default=10)
     parser.add_argument("--num_proc", type=int, default=None)
     parser.add_argument("--max_len", type=int, default=10000)
     parser.add_argument("--bins", type=int, default=200)
@@ -108,7 +100,6 @@ if __name__ == "__main__":
         args.dataset_path,
         args.tokenizer,
         args.save_dir,
-        args.num_shards,
         args.num_proc,
         args.max_len,
         args.bins,
