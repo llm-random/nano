@@ -42,6 +42,7 @@ def generate_histogram(
 
     # Map the function over the stream
     # Note: batched=True is efficient here as it reduces python overhead
+    print("mapping...")
     dataset_stream = hf_dataset.map(compute_length, batched=True)
 
     # 4. Prepare Histogram Bins
@@ -72,7 +73,7 @@ def generate_histogram(
         hist_log += h_log
         total_docs += len(lengths)
 
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 10 == 0:
             print(f"Processed {total_docs} documents...", end="\r")
 
     print(f"\nFinished processing {total_docs} documents.")
