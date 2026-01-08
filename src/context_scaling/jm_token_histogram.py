@@ -30,11 +30,6 @@ def generate_histogram(
     print(f"Loading dataset from: {dataset_path}")
     hf_dataset = load_from_disk(dataset_path)
 
-    # Handle case where dataset is a DatasetDict (e.g., contains train/test keys)
-    if "train" in hf_dataset:
-        print("Detected DatasetDict, selecting 'train' split.")
-        hf_dataset = hf_dataset["train"]
-
     # 2. Convert to Iterable Dataset as requested
     print(f"Converting to iterable dataset with {num_shards} shards...")
     hf_dataset = hf_dataset.to_iterable_dataset(num_shards=num_shards)
