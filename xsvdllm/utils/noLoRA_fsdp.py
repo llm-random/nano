@@ -225,6 +225,11 @@ def main(args):
         "cpu_ram_efficient_loading": False, 
     }
 
+    if args.save_steps > 0:
+        current_save_strategy = "steps"
+    else:
+        current_save_strategy = "no"
+
     training_args = TrainingArguments(
         per_device_train_batch_size=micro_batch_size, 
         per_device_eval_batch_size=micro_batch_size,
@@ -241,8 +246,10 @@ def main(args):
         logging_steps=10,
         optim="adamw_torch",
         evaluation_strategy="steps" if eval_dataset else "no",
-        save_strategy="no",
+        save_strategy=current_save_strategy,
+        save_steps=args.save_steps,              
         load_best_model_at_end=False,
+
         eval_steps=args.eval_steps,
         output_dir=args.output_dir,
         save_total_limit=2,
@@ -252,7 +259,7 @@ def main(args):
         group_by_length=False,
         fsdp=args.fsdp, 
         fsdp_config=fsdp_config,
-        
+
         gradient_checkpointing=args.gradient_checkpointing,
         gradient_checkpointing_kwargs={"use_reentrant": False} if args.gradient_checkpointing else None,
 
@@ -340,6 +347,7 @@ if __name__ == "__main__":
     parser.add_argument('--gradient_checkpointing', action='store_true', help='Enable Gradient Checkpointing')
 
     parser.add_argument('--num_workers', type=int, default=2, help='Number of subprocesses for data loading')
+    parser.add_argument('--save_steps', type=int, default=0, help='Save checkpoint every X steps. Set to 0 to disable.')
 
     args = parser.parse_args()
 
