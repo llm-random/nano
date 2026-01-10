@@ -1,7 +1,7 @@
 defaults:
   - ../_cluster@_here_: entropy
   - ../_model/llama@_here_: projected_8B
-  - ../_trainer@_here_: llama
+  - ../_trainer@_here_: pc_llama
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
