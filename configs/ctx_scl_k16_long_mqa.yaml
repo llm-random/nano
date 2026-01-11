@@ -1,0 +1,65 @@
+defaults:
+  - _cluster@_here_: helios
+  - _model@_here_: k16
+  - _trainer@_here_: context_scaling
+  - _dataset@_here_: ctx_scl_dataset
+  - _checkpoints/context_scaling@_here_: shared
+  - _misc@_here_: default
+  - _eval@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 64
+  kv_heads: 1
+  ^dff: [2560, 3200, 3520, 3840]
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 320_001
+  ^learning_rate: [9, 10, 11]
+  # learning_rate: 10
+  eval_interval: 5000
+  eval_long_ctx_interval: 5000
+  n_eval_long_ctx_steps: 64
+
+  checkpoint:
+    save:
+      type: nano
+      # path: checkpoint
+
+  train_dataloader:
+    num_workers: 8
+    dataset:
+      load_dataset_fn:
+        path: ${cluster_switch.train_path_c4}
+
+  eval_dataloader:
+    num_workers: 8
+    dataset:
+      load_dataset_fn:
+        path: ${cluster_switch.eval_path_c4}
+
+  eval_long_ctx_dataloader:
+    num_workers: 8
+    dataset:
+      load_dataset_fn:
+        # path: /storage_nvme_1/llm-random/datasets/c4/long_context_2048n8192
+        path: /net/scratch/hscra/plgrid/plgj321m/c4/long_context_2048n8192
+
+infrastructure:
+  metric_logger:
+    heavy_metrics_calculation_interval: 5000
+    name: context_scaling
+    tags:
+      - nano
+      - k16
+      - context_scaling
+      - 42B
+      - qk_norm_rms
+      - MQA
+
+  slurm:
+    time: "48:00:00"
+    gres: gpu:4
+    job-name: ${infrastructure.metric_logger.name}
