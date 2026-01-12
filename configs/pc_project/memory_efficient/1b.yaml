@@ -7,18 +7,8 @@ defaults:
   - _self_
 
 common:
-  batch_size: 32
-  sequence_length: 32
-
-  # target_dmodel: 3072 # 50
-  # target_dff: 9216
-  # target_dmodel: 2160 # 30
-  # target_dff: 6480
-  # TEST
-  target_dmodel: 2048
-  target_dff: 6144
-  # target_dmodel: 1056
-  # target_dff: 3168
+  batch_size: 512
+  sequence_length: 2048
 
 
 projected_compression:
@@ -28,8 +18,8 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-  source_model_path: "/net/scratch/hscra/plgrid/plgcrewtool/nano_weights/llama_3_2_1B_nano.pt"
-  path_to_importances: "/net/scratch/hscra/plgrid/plgcrewtool/importances/1b/random_dimensions_importances.pt"
+  source_model_path: ??? 
+  path_to_importances: ???
 
   init_norms_with_ones: false
 
@@ -39,10 +29,10 @@ projected_compression:
 
 trainer:
   _target_: src.projected_compression.trainer.PCTrainer
-  gradient_accumulation_steps: 1
-  n_steps: 2048
+  gradient_accumulation_steps: 128
+  n_steps: 1024
   
-  learning_rate: 12
+  learning_rate: 14
 
   distributed:
     fsdp2: null
@@ -50,13 +40,10 @@ trainer:
   checkpoint:
     save:
       type: nano
-      path: "/net/scratch/hscra/plgrid/plgcrewtool/tutaj_savey_pc_____lsdfa" # CHANGE
-      interval: 2047
-    # load:
-    #   path: "/net/scratch/hscra/plgrid/plgcrewtool/tutaj_savey_pc8/step_2"
+      path: ??? # CHANGE
 
 model:
-  cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
+  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
 
 infrastructure:
   metric_logger:

@@ -1,6 +1,6 @@
 defaults:
   - ../../_misc@_here_: default
-  - ../../_cluster@_here_: local
+  - ../../_cluster@_here_: helios
   - ../../_model/llama@_here_: projected_mem_eff_8B
   - ../../_dataset@_here_: fineweb
   - ../../_trainer@_here_: llama
@@ -14,12 +14,8 @@ common:
   # target_dff: 9216
   # target_dmodel: 2160 # 30
   # target_dff: 6480
-  # target_dmodel: 1056
+  # target_dmodel: 1056 # 10
   # target_dff: 3168
-  # TEST
-  target_dmodel: 1024
-  target_dff: 3072
-
 
 
 projected_compression:
@@ -29,9 +25,8 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-  source_model_path: "/net/scratch/hscra/plgrid/plgcrewtool/nano_weights/llama_3_1_8B_nano.pt"
-  path_to_importances: "/net/scratch/hscra/plgrid/plgcrewtool/importances/8b/minitron_dimensions_importances.pt"
-  # path_to_importances: "/net/scratch/hscra/plgrid/plgcrewtool/importances/8b/random_dimensions_importances.pt"
+  source_model_path: ???
+  path_to_importances: ???
 
   init_norms_with_ones: false
 
@@ -52,13 +47,11 @@ trainer:
   checkpoint:
     save:
       type: nano
-      path: "/net/scratch/hscra/plgrid/plgcrewtool/tutaj_savey_pc_____lsdfa" # CHANGE
+      path: ??? # CHANGE
       interval: 1023
-    # load:
-    #   path: "/net/scratch/hscra/plgrid/plgcrewtool/tutaj_savey_pc8/step_2"
 
 model:
-  cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
+  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
 
 infrastructure:
   metric_logger:
