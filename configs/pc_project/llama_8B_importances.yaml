@@ -1,5 +1,5 @@
 defaults:
-  - ../_cluster@_here_: local
+  - ../_cluster@_here_: helios
   - ../_model@_here_: llama_3_8
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: fineweb
@@ -24,7 +24,7 @@ trainer:
 
    save:
     type: nano
-    path: "/net/scratch/hscra/plgrid/plgcrewtool/importances/8b" # CHANGE
+    path: ??? # CHANGE
 
 
 infrastructure:
@@ -45,12 +45,12 @@ infrastructure:
 
 
 apply_functions:
-  # - _target_: src.projected_compression.weight_importances.dummy_importances
-  #   _partial_: true
-  #   dmodel: ${common.dmodel}
-  #   dff: ${common.dff}
-  #   n_blocks: ${model.encoder.n_blocks}
-  #   checkpoint_save_path: ${trainer.checkpoint.save.path}
+  - _target_: src.projected_compression.weight_importances.dummy_importances
+    _partial_: true
+    dmodel: ${common.dmodel}
+    dff: ${common.dff}
+    n_blocks: ${model.encoder.n_blocks}
+    checkpoint_save_path: ${trainer.checkpoint.save.path}
   - _target_: src.projected_compression.weight_importances.minitron_importances
     _partial_: true
     dataloader: ${trainer.train_dataloader}
