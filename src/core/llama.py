@@ -1,8 +1,10 @@
 from collections import OrderedDict
 import re
 import math
+from omegaconf import OmegaConf
 import torch.nn as nn
 import torch
+from hydra.utils import instantiate
 
 from .model import AttentionMechanism, Linear
 from transformers import AutoModelForCausalLM
@@ -235,3 +237,17 @@ def copy_llama_model_weights_from_HF(model: nn.Module, path: str):
     remapped_state_dict = remap_llamahf_state_dict_to_nano(llama_state_dict)
 
     model.load_state_dict(remapped_state_dict)
+
+
+def save_pretrained_llama_as_nano(cfg: OmegaConf, metric_logger=None):
+
+    with torch.device("meta"):
+        model = instantiate(cfg.model)
+
+    hf_model = AutoModelForCausalLM.from_pretrained(cfg.trainer.checkpoint.load.path)
+    nano_sd = remap_llamahf_state_dict_to_nano(hf_model.state_dict())
+    model.load_state_dict(nano_sd, strict=False, assign=True)
+
+    torch.save(model.state_dict(), cfg.trainer.checkpoint.save.path)
+
+    return None, None, None, None, None
