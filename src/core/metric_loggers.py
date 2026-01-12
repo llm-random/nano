@@ -185,11 +185,8 @@ def get_metric_logger(
             # TODO: Implement W&B multinode logging (https://docs.wandb.ai/models/track/log/distributed-training)
             raise NotImplementedError("W&B multinode logging is not implemented yet.")
         wandb_run_id = None if metric_logger_config.new_wandb_job else tracker_run_id
-        rank = os.environ.get("RANK")
-        if rank is not None:
-            rank = int(rank)
-
-        if rank == 0 or rank is None:
+        rank = int(os.environ.get("RANK", 0))
+        if rank == 0:
             wandb_logger = wandb.init(
                 entity=metric_logger_config.wandb_entity,
                 project=metric_logger_config.project_name,
