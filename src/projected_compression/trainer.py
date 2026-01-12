@@ -65,10 +65,5 @@ class PCTrainer(Trainer):
                     block_optimizer.state_dict(),
                     checkpoint_id=f"{checkpoint_folder}/block_optimizer_{idx}",
                 )
-
-        if os.environ["RANK"] == "0":
-            torch.save(
-                self.scheduler.state_dict(), f"{checkpoint_folder}/scheduler_state.pt"
-            )
-
+        # TODO: add scheduler saving
         logger.info(f"Saved checkpoint after step {self.step}")
