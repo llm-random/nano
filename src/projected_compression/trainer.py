@@ -1,7 +1,12 @@
+import logging
+import os
 import torch
+from src.core.checkpointing import step_checkpoint_path
 from src.core.trainer import Trainer
 from attr import define
+import torch.distributed.checkpoint as dcp
 
+logger = logging.getLogger(__name__)
 @define(slots=False)
 class PCTrainer(Trainer):
 
@@ -40,5 +45,23 @@ class PCTrainer(Trainer):
             if self._should_save_checkpoint:
                 self.save_checkpoint()
 
-            # if self._should_evaluate:
-            #     self.eval()
+            if self._should_save_final_checkpoint:
+                self.save_checkpoint()
+
+
+    def save_checkpoint(self):
+        checkpoint_folder = step_checkpoint_path(
+            self.checkpoint.save.path, self.step
+        )
+        dcp.save(self.model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model")
+        dcp.save(self.optimizer.state_dict(), checkpoint_id=f"{checkpoint_folder}/optimizer")
+
+        if self.block_optimizers is not None:
+            for idx, block_optimizer in enumerate(self.block_optimizers):
+                dcp.save(block_optimizer.state_dict(), checkpoint_id=f"{checkpoint_folder}/block_optimizer_{idx}")
+
+        if os.environ["RANK"] == "0":
+            torch.save(self.scheduler.state_dict(),f"{checkpoint_folder}/scheduler_state.pt" )
+
+        logger.info(f"Saved checkpoint after step {self.step}")
+

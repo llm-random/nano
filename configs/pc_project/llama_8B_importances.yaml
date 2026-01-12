@@ -1,6 +1,6 @@
 defaults:
   - ../_cluster@_here_: local
-  - ../_model@_here_: llama_3_1
+  - ../_model@_here_: llama_3_8
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
@@ -20,11 +20,11 @@ trainer:
   checkpoint:
    load:
     type: huggingface
-    path: "meta-llama/Llama-3.2-1B"
+    path: "meta-llama/Llama-3.1-8B"
 
    save:
     type: nano
-    path: "/net/scratch/hscra/plgrid/plgcrewtool/importances/olol" # CHANGE
+    path: "/net/scratch/hscra/plgrid/plgcrewtool/importances/8b" # CHANGE
 
 
 infrastructure:
@@ -51,16 +51,16 @@ apply_functions:
   #   dff: ${common.dff}
   #   n_blocks: ${model.encoder.n_blocks}
   #   checkpoint_save_path: ${trainer.checkpoint.save.path}
-  # - _target_: src.projected_compression.weight_importances.minitron_importances
-  #   _partial_: true
-  #   dataloader: ${trainer.train_dataloader}
-  #   dmodel: ${common.dmodel}
-  #   dff: ${common.dff}
-  #   calibration_dataset_size: 8192 # nvidia used 2k steps of 4k sequence lenght - this is the saturaion poin - longer doesnt improve miningfully
-  #   seq_len: ${common.sequence_length}
-  #   total_batch_size: ${trainer.train_dataloader.total_batch_size}
-  #   n_blocks: ${model.encoder.n_blocks}
-  #   checkpoint_save_path: ${trainer.checkpoint.save.path}
+  - _target_: src.projected_compression.weight_importances.minitron_importances
+    _partial_: true
+    dataloader: ${trainer.train_dataloader}
+    dmodel: ${common.dmodel}
+    dff: ${common.dff}
+    calibration_dataset_size: 8192 # nvidia used 2k steps of 4k sequence lenght - this is the saturaion poin - longer doesnt improve miningfully
+    seq_len: ${common.sequence_length}
+    total_batch_size: ${trainer.train_dataloader.total_batch_size}
+    n_blocks: ${model.encoder.n_blocks}
+    checkpoint_save_path: ${trainer.checkpoint.save.path}
   - _target_: src.projected_compression.weight_importances.magnitude_importances
     _partial_: true
     dmodel: ${common.dmodel}

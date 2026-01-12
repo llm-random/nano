@@ -1,0 +1,54 @@
+defaults:
+  - _misc@_here_: default
+  - _cluster@_here_: local
+  - _model/llama@_here_: projected_mem_eff_1B
+  - _trainer@_here_: llama
+  - _dataset@_here_: fineweb
+  - _self_
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+
+  source_model_path: "/net/scratch/hscra/plgrid/plgcrewtool/nano_weights/llama_3_2_1B_nano.pt"
+  # projections_path: "/storage_nvme_3/crewtool/llama_1b_proj.pt"
+  # path_to_importances: "/storage_nvme_3/crewtool/1b_importances/random_dimensions_importances.pt"
+  path_to_importances: "/net/scratch/hscra/plgrid/plgcrewtool/importances/1b/random_dimensions_importances.pt"
+
+  init_norms_with_ones: false
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  gradient_accumulation_steps: 1
+  n_steps: 4
+  # gradient_clipping: 1000000.0 # only for comparison
+  
+  learning_rate: 0.14
+  # train_dataloader:
+  #   sequence_length: 1024
+  #   total_batch_size: 
+  #   world_size_independent: true
+
+  # eval_dataloader:
+  #   sequence_length: 16
+  #   total_batch_size: 8
+  #   world_size_independent: true
+
+  distributed:
+    fsdp2: null
+
+model:
+  cast_bfloat16: true
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+
+cluster_switch:
+  train_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/train"
+  eval_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/validation"
+  train_path_fineweb: "/net/scratch/hscra/plgrid/plgmaciejpioro/fineweb-edu/train/train"
+  eval_path_fineweb: "/net/scratch/hscra/plgrid/plgmaciejpioro/fineweb-edu/train/train"
