@@ -214,9 +214,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
     if metric_logger is None:
         metric_logger = get_metric_logger(
-            metric_logger_config=instantiate(
-                cfg.infrastructure.metric_logger, _convert_="all"
-            ),
+            metric_logger_config=cfg.infrastructure.metric_logger,
             tracker_run_id=training_state["run_id"],
         )
 

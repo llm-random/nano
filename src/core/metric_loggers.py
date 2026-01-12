@@ -1,6 +1,7 @@
 import os
 import statistics
 import neptune
+from omegaconf import OmegaConf
 import wandb
 import torch
 from typing import Optional
@@ -8,7 +9,6 @@ from abc import ABC, abstractmethod
 from abc import ABC, abstractmethod
 import torch.distributed as dist
 import logging
-from src.definitions import MetricLoggerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +141,7 @@ def get_composition_file_path(hydra_config):
 
 
 def get_metric_logger(
-    metric_logger_config: Optional[MetricLoggerConfig] = None,
+    metric_logger_config: OmegaConf = None,
     tracker_run_id: Optional[str] = None,
 ):
     _metric_logger = None
