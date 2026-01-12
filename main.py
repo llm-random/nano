@@ -271,6 +271,7 @@ def run(cfg:OmegaConf, metric_logger=None):
                 if res == False:
                     cleanup() 
                     return 0
+        model = model.to(device)
         model = setup_distributed_training(model, cfg.trainer.distributed)
         optimizer = torch.optim.AdamW(
             model.parameters(),

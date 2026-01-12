@@ -8,8 +8,55 @@ defaults:
   - ../_misc@_here_: default
 
 common:
-  sequence_length: 512
+  # n_blocks: 8
+  # sequence_length: 512
+  sequence_length: 16
   batch_size: 512
+  ^batch_size: 
+      # - 36864
+      # - 32768
+      # - 28672
+      # - 26624
+      - 26600
+      # - 24576
+      # - 20480
+      # - 16384
+      # - 12288
+      # - 8192
+      # - 4096
+      # - 2048
+      # - 1024
+      # - 512
+      # - 256
+      # - 128
+      # - 842
+      # - 810
+      # - 778
+      # - 746
+      # - 714
+      # - 682
+      # - 650
+      # - 618
+      # - 586
+      # - 554
+      # - 522
+      # - 490
+      # - 458
+      # - 426
+      # - 394
+      # - 362
+      # - 330
+      # - 298
+      # - 266
+      # - 234
+      # - 202
+      # - 170
+      # - 138
+      # - 106
+      # - 74
+      # - 42
+      # - 10
+      # - 1
 
   target_dmodel: 640 # 50
   target_dff: 2560
@@ -19,13 +66,14 @@ common:
   # target_dff: 1280
 
 trainer:
-  gradient_accumulation_steps: 2
+  gradient_accumulation_steps: 1
   ^n_steps: 
     - 201
     # - 4001
     # - 8001
     # - 16001
     # - 24001
+  # distributed: null
 
   learning_rate: 12 # 50 1B
   # learning_rate: 11 # 35 1B
@@ -46,17 +94,17 @@ trainer:
     warmup_steps: 80
 
   
-  checkpoint:
-   load:
-    type: llm-random
-    path: null #dev
-    # path: /home/mstefaniak/checkpoints/def_4ff_1024_92688.pt # entropy
-    # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/def_4ff_1024_92688.pt # helios
-   save:  
-    type: nano
-    path: null #dev
-    # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
-    # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/tem # #helios
+  # checkpoint:
+  #  load:
+  #   type: llm-random
+  #   path: null #dev
+  #   # path: /home/mstefaniak/checkpoints/def_4ff_1024_92688.pt # entropy
+  #   # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/def_4ff_1024_92688.pt # helios
+  #  save:  
+  #   type: nano
+  #   path: null #dev
+  #   # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
+  #   # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/tem # #helios
 
   train_dataloader:
     tokenize_fn: 
@@ -77,10 +125,14 @@ infrastructure:
       - 50p
       # - 35p
       # - 20p
+      - TEST
+      - REBUTAL
+      - speedup
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:4
+    # gres: gpu:1
     time: "0-4:00:00"
     # time: "0-8:00:00"
     # time: "0-12:00:00"
@@ -89,11 +141,9 @@ infrastructure:
 apply_functions:
   - _target_: src.projected_compression.pruning.prune
     _partial_: true
-    dimensions_importances_path: /home/mstefaniak/checkpoints/importances/67735/0/minitron_dimensions_importances.pt # activations entropy llmr300
-    # dimensions_importances_path: asd/minitron_dimensions_importances.pt # activations helios llmr300
+    dimensions_importances_path: /home/mstefaniak/checkpoints/importances/95923/0/random_dimensions_importances.pt # random entropy llmr300
+    # dimensions_importances_path: asd/minitron_dimensions_importances.pt # random helios llmr300
 
-    # # # # dimensions_importances_path: /home/mstefaniak/checkpoints/importances/67735/0/random_dimensions_importances.pt # random entropy llmr300
-    # # # # dimensions_importances_path: asd/random_dimensions_importances.pt # random helios llmr300
     target_dmodel: ${common.target_dmodel}
     target_dff: ${common.target_dff}
     # target_dmodel: 640 # 50
@@ -104,3 +154,4 @@ apply_functions:
     # target_dff: 1280
     # target_dmodel: asd # 65
     # target_dff: asd
+

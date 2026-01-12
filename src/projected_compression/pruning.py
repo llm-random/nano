@@ -39,7 +39,10 @@ def prune(model: nn.Module, dimensions_importances_path, target_dmodel, target_d
         layer.ff_layer.norm.weight.data = layer.ff_layer.norm.weight[dmodel_indices]
         layer.ff_layer.norm.normalized_shape = tuple([target_dmodel])
         layer.ff_layer.layer.ff_pre_act.weight.data = layer.ff_layer.layer.ff_pre_act.weight[:, dmodel_indices][dff_indices_per_layer, :]
-        layer.ff_layer.layer.gate.weight.data = layer.ff_layer.layer.gate.weight[:, dmodel_indices][dff_indices_per_layer, :]
+        if hasattr(layer.ff_layer.layer, "gate"):
+            layer.ff_layer.layer.gate.weight.data = layer.ff_layer.layer.gate.weight[
+                :, dmodel_indices
+            ][dff_indices_per_layer, :]
         layer.ff_layer.layer.ff_post_act.weight.data = layer.ff_layer.layer.ff_post_act.weight[dmodel_indices, :][:, dff_indices_per_layer]
 
     logger.info("Model pruned.")
