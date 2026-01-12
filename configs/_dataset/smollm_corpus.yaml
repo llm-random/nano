@@ -1,0 +1,38 @@
+defaults:
+  - default
+  - _self_
+
+trainer:
+  train_dataloader:
+    _target_: src.core.datasets.get_mixture_of_datasets_dataloader
+    datasets:
+      - path: /storage_nvme_1/llm-random/datasets/fineweb-edu-dedup/train
+        weight: 0.7
+      - path: /storage_nvme_1/llm-random/datasets/cosmopedia-v2/train
+        weight: 0.15
+      - path: /storage_nvme_2/llm-random/datasets/python-edu
+        weight: 0.08
+      - path: /storage_nvme_2/llm-random/datasets/open-web-math/train
+        weight: 0.07
+    dataset_split: train
+    num_workers: 2
+    tokenize_fn:
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B
+
+  eval_dataloader:
+    _target_: src.core.datasets.get_mixture_of_datasets_dataloader
+    datasets:
+      - path: /storage_nvme_1/llm-random/datasets/fineweb-edu-dedup/train
+        weight: 0.7
+      - path: /storage_nvme_1/llm-random/datasets/cosmopedia-v2/train
+        weight: 0.15
+      - path: /storage_nvme_2/llm-random/datasets/python-edu
+        weight: 0.08
+      - path: /storage_nvme_2/llm-random/datasets/open-web-math/train
+        weight: 0.07
+    dataset_split: validation
+    num_workers: 1
+    tokenize_fn:
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B

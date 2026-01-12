@@ -4,27 +4,21 @@ defaults:
 
 trainer:
   train_dataloader:
-    dataset:
-      _target_: src.core.datasets.C4Dataset
-      sequence_length: 16
-      tokenize_fn: ???
-      path: data
-      split: train
-      seed: 123
-      use_new_sampling_method: true
-      shuffle: true
-      world_size_independent: false
+    datasets:
+      - path: data
+        weight: 1.0
+    dataset_split: train
     num_workers: 0
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: gpt2
 
   eval_dataloader:
-    dataset:
-      _target_: src.core.datasets.C4Dataset
-      sequence_length: 16
-      tokenize_fn: ???
-      path: data_eval
-      split: validation
-      seed: 123
-      use_new_sampling_method: true
-      shuffle: true
-      world_size_independent: false
+    datasets:
+      - path: data_eval
+        weight: 1.0
+    dataset_split: validation
     num_workers: 0
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: gpt2
