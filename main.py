@@ -191,7 +191,7 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             res = fn(model)
             if res == False:
                 logger.info("Initialization failed, exiting...")
-                return None, None, None, None, None
+                return None, None, None
     model = setup_distributed_training(model, cfg.trainer.distributed)
     optimizer = torch.optim.AdamW(
         model.parameters(),
