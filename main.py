@@ -297,10 +297,14 @@ def run(cfg: OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
-    initialize_fn = instantiate(cfg.init_model_opt_sched_fn, _convert_="all")  if hasattr(cfg, "init_model_opt_sched_fn") else initialize_training_components
+    initialize_fn = (
+        instantiate(cfg.init_model_opt_sched_fn, _convert_="all")
+        if hasattr(cfg, "init_model_opt_sched_fn")
+        else initialize_training_components
+    )
 
-    model, optimizer, scheduler, training_state, metric_logger = (
-        initialize_fn(cfg, metric_logger)
+    model, optimizer, scheduler, training_state, metric_logger = initialize_fn(
+        cfg, metric_logger
     )
 
     if model is not None:
