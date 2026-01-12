@@ -1,0 +1,163 @@
+name: PR Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 1) Discover configs
+  discover-configs:
+    runs-on: [self-hosted, entropy]
+    outputs:
+      configs: ${{ steps.find-configs.outputs.configs }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find PR test configs
+        id: find-configs
+        run: |
+          echo "Searching for configs in configs/pr_tests/..."
+          ls -la configs/pr_tests/ || echo "Directory not found or empty"
+
+          configs=$(ls configs/pr_tests/*.yaml 2>/dev/null | xargs -I {} basename {} .yaml | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "configs=$configs" >> "$GITHUB_OUTPUT"
+
+          echo "=== Found PR test configs ==="
+          echo "$configs" | jq -r '.[]'
+          echo "Total: $(echo "$configs" | jq 'length') config(s)"
+
+  # 2) Submit & manage one SLURM array for all configs
+  run-pr-tests:
+    needs: discover-configs
+    runs-on: [self-hosted, entropy]
+    env:
+      CONFIGS_JSON: ${{ needs.discover-configs.outputs.configs }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Submit SLURM array
+        id: submit
+        run: |
+          echo "Configs JSON: $CONFIGS_JSON"
+
+          # Write config names (one per line) into a file
+          configs_file="$PWD/pr_tests_configs.txt"
+          echo "$CONFIGS_JSON" | jq -r '.[]' > "$configs_file"
+
+          num_configs=$(wc -l < "$configs_file")
+          echo "Found $num_configs config(s)"
+
+          if [ "$num_configs" -eq 0 ]; then
+            echo "No PR test configs found, nothing to run."
+            # No job_id set -> later steps will do nothing
+            exit 0
+          fi
+
+          last_index=$((num_configs - 1))
+          echo "Submitting SLURM array 0-$last_index"
+
+          job_output=$(sbatch \
+            --parsable \
+            --array=0-"$last_index" \
+            --job-name="pr_tests" \
+            --output="slurm-%A_%a.out" \
+            --export=ALL,PR_TEST_CONFIGS_FILE="$configs_file" \
+            .github/scripts/run_remote_pr_check.sh)
+
+          echo "Raw sbatch output: $job_output"
+
+          # Handle cases like:
+          #   123456
+          #   123456;cluster
+          #   123456_0
+          #   123456_0;cluster
+          tmp="${job_output%%;*}"   # strip anything after ';'
+          job_id="${tmp%%_*}"       # strip anything after '_' (array task suffix)
+
+          echo "Parsed base job_id: $job_id"
+
+          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for SLURM array
+        if: steps.submit.outputs.job_id
+        id: wait
+        run: |
+          job_id="${{ steps.submit.outputs.job_id }}"
+          echo "Waiting for SLURM array job $job_id to finish..."
+
+          while true; do
+            state=$(sacct -j "$job_id" --format=State --noheader | head -1 | awk '{print $1}')
+            echo "Current array state: $state"
+
+            case "$state" in
+              COMPLETED)
+                echo "Array job completed successfully."
+                exit 0
+                ;;
+              FAILED|CANCELLED|TIMEOUT)
+                echo "Array job ended with state: $state"
+                exit 1
+                ;;
+              ""|PENDING|RUNNING|CONFIGURING|SUSPENDED)
+                sleep 10
+                ;;
+              *)
+                echo "Unknown state: $state"
+                echo "Array job ended with state: $state"
+                exit 1
+                ;;
+            esac
+          done
+
+      - name: Summarize array results and show failed logs
+        if: always() && steps.submit.outputs.job_id
+        run: |
+          job_id="${{ steps.submit.outputs.job_id }}"
+          configs_file="$PWD/pr_tests_configs.txt"
+
+          if [ ! -f "$configs_file" ]; then
+            echo "No configs file found at $configs_file, nothing to summarize."
+            exit 0
+          fi
+
+          echo "=== Per-config SLURM task states ==="
+
+          i=0
+          failures=0
+          while read -r cfg; do
+            # SLURM child job id: <arrayJobId>_<taskIndex>
+            task_job="${job_id}_$i"
+
+            state=$(sacct -j "$task_job" --format=State --noheader | head -1 | awk '{print $1}')
+            echo "[$i] config=${cfg}  state=${state}"
+
+            if [ "$state" != "COMPLETED" ]; then
+              failures=$((failures + 1))
+              out_file="slurm-${job_id}_${i}.out"
+
+              echo "---- BEGIN log for FAILED config: ${cfg} (task ${i}) ----"
+              if [ -f "$out_file" ]; then
+                cat "$out_file"
+              else
+                echo "No slurm output file found (expected: ${out_file})"
+              fi
+              echo "---- END log for FAILED config: ${cfg} ----"
+            fi
+
+            i=$((i + 1))
+          done < "$configs_file"
+
+          if [ "$failures" -gt 0 ]; then
+            echo "Some configs failed: $failures failing task(s)."
+            exit 1
+          else
+            echo "All configs completed successfully."
+          fi
