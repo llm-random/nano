@@ -174,6 +174,8 @@ def create_model(cfg_model, cfg_projected_compression):
             block.attention_layer.layer.rope.register_freqs()
     else:
         dmodel_topk_indices, dff_topk_indices = get_topk_indices(cfg_projected_compression.path_to_importances, model.projections.target_dmodel, model.projections.target_dff)
+        dmodel_topk_indices = dmodel_topk_indices.detach().cpu()
+        dff_topk_indices = [indices.detach().cpu() for indices in dff_topk_indices]
         weight = source_norms["head.norm.weight"][dmodel_topk_indices]
         sharded_tensor = distribute_tensor(
             weight,
