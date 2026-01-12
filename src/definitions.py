@@ -89,3 +89,4 @@ class MetricLoggerConfig(BaseModel):
     tags: Optional[List[str]]
     heavy_metrics_calculation_interval: Optional[int]
     new_neptune_job: Optional[bool] = None
+    new_wandb_job: Optional[bool] = None

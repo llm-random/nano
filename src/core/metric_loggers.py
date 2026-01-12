@@ -1,6 +1,7 @@
 import os
 import statistics
 import neptune
+import wandb
 import torch
 from typing import Optional
 from abc import ABC, abstractmethod
@@ -90,6 +91,17 @@ class NeptuneLogger(MetricLogger):
             self.run[name].append(value=value, step=step)
 
 
+class WandbLogger(MetricLogger):
+    def __init__(self, run, should_log, config=None):
+        super().__init__(config)
+        self.run = run
+        self.should_log = should_log
+
+    def log(self, name, step, value):
+        if self.should_log:
+            self.run.log({name: value}, step=step)
+
+
 class StdoutLogger(MetricLogger):
     def __init__(self, config=None):
         super().__init__(config)
@@ -168,6 +180,30 @@ def get_metric_logger(
                 tags=metric_logger_config.tags,
             )
             _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
+    elif metric_logger_config.type == "wandb":
+        if os.environ.get("WORLD_SIZE") != os.environ.get("LOCAL_WORLD_SIZE"):
+            # TODO: Implement W&B multinode logging (https://docs.wandb.ai/models/track/log/distributed-training)
+            raise NotImplementedError("W&B multinode logging is not implemented yet.")
+        wandb_run_id = None if metric_logger_config.new_wandb_job else wandb_run_id
+        rank = os.environ.get("RANK")
+        if rank is not None:
+            rank = int(rank)
+
+        if rank == 0 or rank is None:
+            wandb_logger = wandb.init(
+                project=metric_logger_config.project_name,
+                name=metric_logger_config.name,
+                tags=metric_logger_config.tags,
+                id=wandb_run_id,
+                resume="allow",
+            )
+            _metric_logger = WandbLogger(
+                run=wandb_logger, should_log=True, config=metric_logger_config
+            )
+        else:
+            _metric_logger = WandbLogger(
+                run=None, should_log=False, config=metric_logger_config
+            )
 
     elif metric_logger_config.type == "stdout":
         _metric_logger = StdoutLogger(metric_logger_config)
@@ -178,7 +214,7 @@ def get_metric_logger(
     elif metric_logger_config.type == None:
         raise RuntimeError("Metric logger is not initialized yet.")
     else:
-        raise ValueError(f"Unknown logger type: { metric_logger_config.type}")
+        raise ValueError(f"Unknown logger type: {metric_logger_config.type}")
     return _metric_logger
 
 
