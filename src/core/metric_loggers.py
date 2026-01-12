@@ -142,12 +142,12 @@ def get_composition_file_path(hydra_config):
 
 def get_metric_logger(
     metric_logger_config: Optional[MetricLoggerConfig] = None,
-    neptune_run_id: Optional[str] = None,
+    tracker_run_id: Optional[str] = None,
 ):
     _metric_logger = None
     if metric_logger_config.type == "neptune":
         neptune_run_id = (
-            None if metric_logger_config.new_neptune_job else neptune_run_id
+            None if metric_logger_config.new_neptune_job else tracker_run_id
         )
         rank = int(os.environ["RANK"])
 
@@ -184,13 +184,14 @@ def get_metric_logger(
         if os.environ.get("WORLD_SIZE") != os.environ.get("LOCAL_WORLD_SIZE"):
             # TODO: Implement W&B multinode logging (https://docs.wandb.ai/models/track/log/distributed-training)
             raise NotImplementedError("W&B multinode logging is not implemented yet.")
-        wandb_run_id = None if metric_logger_config.new_wandb_job else wandb_run_id
+        wandb_run_id = None if metric_logger_config.new_wandb_job else tracker_run_id
         rank = os.environ.get("RANK")
         if rank is not None:
             rank = int(rank)
 
         if rank == 0 or rank is None:
             wandb_logger = wandb.init(
+                entity=metric_logger_config.wandb_entity,
                 project=metric_logger_config.project_name,
                 name=metric_logger_config.name,
                 tags=metric_logger_config.tags,

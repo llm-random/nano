@@ -84,6 +84,7 @@ class TrainingConfig(BaseModel):
 
 class MetricLoggerConfig(BaseModel):
     type: Optional[str]
+    wandb_entity: Optional[str]
     project_name: Optional[str]
     name: Optional[str]
     tags: Optional[List[str]]
