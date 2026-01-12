@@ -1,0 +1,57 @@
+defaults:
+  - ../../_misc@_here_: default
+  - ../../_cluster@_here_: local
+  - ../../_model/llama@_here_: projected_mem_eff_1B
+  - ../../_dataset@_here_: local_dummy
+  - ../../_trainer@_here_: llama
+  - _self_
+
+common:
+  batch_size: 32
+  sequence_length: 1024
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: "/net/scratch/hscra/plgrid/plgcrewtool/nano_weights/llama_3_2_1B_nano.pt"
+  path_to_importances: "/net/scratch/hscra/plgrid/plgcrewtool/importances/1b/random_dimensions_importances.pt"
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: true
+
+  adjust_grad_norm: true
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  gradient_accumulation_steps: 1
+  n_steps: 4
+  
+  learning_rate: 14
+
+  distributed:
+    fsdp2: null
+
+  checkpoint:
+    save:
+      type: nano
+      path: "/net/scratch/hscra/plgrid/plgcrewtool/tutaj_savey_pc9" # CHANGE
+      interval: 2
+    load:
+      path: "/net/scratch/hscra/plgrid/plgcrewtool/tutaj_savey_pc8/step_2"
+
+model:
+  cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - mem_eff
+      - 1b

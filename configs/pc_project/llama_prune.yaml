@@ -1,0 +1,70 @@
+defaults:
+  - ../_cluster@_here_: local
+  - ../_model@_here_: llama_3_8
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+
+  target_dmodel: 3072 # 50
+  target_dff: 9216
+
+
+
+trainer:
+  gradient_accumulation_steps: 16
+  # gradient_accumulation_steps: 4
+  ^n_steps: 
+    - 2048 # 1B tokens
+    # - 4096
+    # - 6144
+    # - 8192
+    # - 12288
+    # - 16384
+
+  ^learning_rate: 
+    - 12
+
+  scheduler:
+    warmup_steps: 40
+
+  checkpoint:
+    load:
+      type: huggingface
+      path: "meta-llama/Llama-3.1-8B" 
+    save:  
+      type: nano
+      path: "/net/scratch/hscra/plgrid/plgcrewtool/jakiestakie" # CHANGE
+      interval: 2047
+
+
+infrastructure:
+  metric_logger:
+    name: llama31
+    tags:
+      - nano
+      - pc
+      - llama_3_1
+      - hard_pruning
+      - 50p
+      # - 50p
+      - random_importances
+  
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:4 #dev
+    time: "0-12:00:00"
+
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune
+    _partial_: true
+    dimensions_importances_path: "/net/scratch/hscra/plgrid/plgcrewtool/importances/8b/random_dimensions_importances.pt" # CHANGE
+    target_dmodel: ${common.target_dmodel}
+    target_dff: ${common.target_dff}

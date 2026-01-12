@@ -10,6 +10,7 @@ import logging
 import platform
 import os
 from neptune.integrations.python_logger import NeptuneHandler
+import torch.distributed.checkpoint as dcp
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -92,8 +93,24 @@ def init_pc_attributes(cfg, metric_logger):
             optimizer=optimizer, n_steps=cfg.trainer.n_steps
         )
 
+    if cfg.trainer.checkpoint.load.path is not None:
+        load_checkpoint(model, optimizer, scheduler, cfg.trainer.checkpoint.load.path)
+
     return model, optimizer, scheduler, training_state, metric_logger
 
+
+def load_checkpoint(model, optimizer, scheduler, checkpoint_folder):
+    dcp.load(model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model")
+
+    if type(optimizer) is not list:
+        dcp.load(optimizer.state_dict(), checkpoint_id=f"{checkpoint_folder}/optimizer")
+    else:
+        dcp.load(optimizer[0].state_dict(), checkpoint_id=f"{checkpoint_folder}/optimizer")
+        for idx, block_optimizer in enumerate(optimizer[1:]):
+            dcp.load(block_optimizer.state_dict(), checkpoint_id=f"{checkpoint_folder}/block_optimizer_{idx}")
+    # scheduler_sd = torch.load(f"{checkpoint_folder}/scheduler_state.pt" )
+    # scheduler.load_state_dict(scheduler_sd)
+    logger.info(f"Loaded sharded model checkpoint checkpoint from '{checkpoint_folder}'!")
 
 def get_target_model_optimize_params(model):
     params = []
