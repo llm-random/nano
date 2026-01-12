@@ -9,6 +9,17 @@ from transformers import Trainer, TrainingArguments, TrainerCallback
 from custom_datasets import FineWebEduDataset, C4Dataset 
 from collections import defaultdict
 
+# === START PATCH: FIX PYTORCH 2.6 CHECKPOINT CRASH ===
+# This overrides the new strict security default that blocks NumPy RNG states
+_original_torch_load = torch.load
+def unsafe_torch_load(*args, **kwargs):
+    # Force weights_only=False unless explicitly set
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+torch.load = unsafe_torch_load
+# === END PATCH ===
+
 # --- New Callback for Real-Time Logging ---
 class FileLoggerCallback(TrainerCallback):
     """
@@ -179,7 +190,7 @@ def main(args):
     common_ds_args = {
         "sequence_length": args.cutoff_len,
         "tokenize_fn": smart_tokenizer_wrapper,
-        "seed": 42,
+        "seed": args.data_seed,
         "use_new_sampling_method": True,
         "shuffle": True,
     }
@@ -264,6 +275,7 @@ def main(args):
         gradient_checkpointing_kwargs={"use_reentrant": False} if args.gradient_checkpointing else None,
 
         dataloader_num_workers=args.num_workers,
+        ignore_data_skip=True,
     )
 
     # Initialize Callback
@@ -347,6 +359,7 @@ if __name__ == "__main__":
     parser.add_argument('--gradient_checkpointing', action='store_true', help='Enable Gradient Checkpointing')
 
     parser.add_argument('--num_workers', type=int, default=2, help='Number of subprocesses for data loading')
+    parser.add_argument('--data_seed', type=int, default=42)
     parser.add_argument('--save_steps', type=int, default=0, help='Save checkpoint every X steps. Set to 0 to disable.')
 
     args = parser.parse_args()
