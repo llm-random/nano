@@ -1,0 +1,55 @@
+defaults:
+  - ../../_misc@_here_: default
+  - ../../_cluster@_here_: helios
+  - ../../_model/llama@_here_: projected_mem_eff_1B
+  - ../../_dataset@_here_: fineweb
+  - ../../_trainer@_here_: llama
+  - _self_
+
+common:
+  batch_size: 512
+  sequence_length: 2048
+
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: ??? 
+  path_to_importances: ???
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: false
+
+  adjust_grad_norm: false
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  gradient_accumulation_steps: 128
+  n_steps: 1024
+  
+  learning_rate: 14
+
+  distributed:
+    fsdp2: null
+
+  checkpoint:
+    save:
+      type: nano
+      path: ??? # CHANGE
+
+model:
+  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - mem_eff
+      - 1b
