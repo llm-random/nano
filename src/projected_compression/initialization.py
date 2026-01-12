@@ -22,6 +22,7 @@ formatter = logging.Formatter(
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
+
 def init_pc_attributes(cfg, metric_logger):
 
     training_state = load_training_state(cfg.trainer.checkpoint.load)
@@ -105,12 +106,19 @@ def load_checkpoint(model, optimizer, scheduler, checkpoint_folder):
     if type(optimizer) is not list:
         dcp.load(optimizer.state_dict(), checkpoint_id=f"{checkpoint_folder}/optimizer")
     else:
-        dcp.load(optimizer[0].state_dict(), checkpoint_id=f"{checkpoint_folder}/optimizer")
+        dcp.load(
+            optimizer[0].state_dict(), checkpoint_id=f"{checkpoint_folder}/optimizer"
+        )
         for idx, block_optimizer in enumerate(optimizer[1:]):
-            dcp.load(block_optimizer.state_dict(), checkpoint_id=f"{checkpoint_folder}/block_optimizer_{idx}")
-    # scheduler_sd = torch.load(f"{checkpoint_folder}/scheduler_state.pt" )
-    # scheduler.load_state_dict(scheduler_sd)
-    logger.info(f"Loaded sharded model checkpoint checkpoint from '{checkpoint_folder}'!")
+            dcp.load(
+                block_optimizer.state_dict(),
+                checkpoint_id=f"{checkpoint_folder}/block_optimizer_{idx}",
+            )
+    # TODO: missing scheduler loader
+    logger.info(
+        f"Loaded sharded model checkpoint checkpoint from '{checkpoint_folder}'!"
+    )
+
 
 def get_target_model_optimize_params(model):
     params = []
@@ -124,10 +132,16 @@ def get_target_model_optimize_params(model):
     params.extend(model.projections.auxiliary_embedding_weights.parameters())
     return params
 
+
 def create_model(cfg_model, cfg_projected_compression):
-    with torch.device('meta'):
-        model = instantiate(cfg_model,path_to_importances=cfg_projected_compression.path_to_importances, adjust_grad_norm=cfg_projected_compression.adjust_grad_norm, _convert_="all")
- 
+    with torch.device("meta"):
+        model = instantiate(
+            cfg_model,
+            path_to_importances=cfg_projected_compression.path_to_importances,
+            adjust_grad_norm=cfg_projected_compression.adjust_grad_norm,
+            _convert_="all",
+        )
+
     # Only layer norms from target_model are used
     for block in model.source_model.encoder.blocks:
         block.attention_layer.norm = None
@@ -138,12 +152,15 @@ def create_model(cfg_model, cfg_projected_compression):
 
     model = setup_fsdp2_model(model, cfg_projected_compression)
 
-
     # Initializing model.source_model
-    source_sd = torch.load(cfg_projected_compression.source_model_path, mmap=True, weights_only=True, map_location="cpu")
-    
-    
-    # We have set source_layer to None, so we do not want to 
+    source_sd = torch.load(
+        cfg_projected_compression.source_model_path,
+        mmap=True,
+        weights_only=True,
+        map_location="cpu",
+    )
+
+    # We have set source_layer to None, so we do not want to
     source_norms = {}
     for k in list(source_sd.keys()):
         if "norm" in k:
@@ -160,7 +177,7 @@ def create_model(cfg_model, cfg_projected_compression):
 
     if cfg_projected_compression.init_norms_with_ones:
         ones = torch.ones(model.target_model.head.norm.weight.shape, device="cuda")
-    
+
         sharded_tensor = distribute_tensor(
             ones,
             model.target_model.head.norm.weight.device_mesh,
@@ -173,7 +190,11 @@ def create_model(cfg_model, cfg_projected_compression):
             block.ff_layer.norm.weight.data.copy_(sharded_tensor)
             block.attention_layer.layer.rope.register_freqs()
     else:
-        dmodel_topk_indices, dff_topk_indices = get_topk_indices(cfg_projected_compression.path_to_importances, model.projections.target_dmodel, model.projections.target_dff)
+        dmodel_topk_indices, dff_topk_indices = get_topk_indices(
+            cfg_projected_compression.path_to_importances,
+            model.projections.target_dmodel,
+            model.projections.target_dff,
+        )
         dmodel_topk_indices = dmodel_topk_indices.detach().cpu()
         dff_topk_indices = [indices.detach().cpu() for indices in dff_topk_indices]
         weight = source_norms["head.norm.weight"][dmodel_topk_indices]
@@ -185,14 +206,18 @@ def create_model(cfg_model, cfg_projected_compression):
         model.target_model.head.norm.weight.data.copy_(sharded_tensor)
 
         for i, block in enumerate(model.target_model.encoder.blocks):
-            weight = source_norms[f"encoder.blocks.{i}.attention_layer.norm.weight"][dmodel_topk_indices]
+            weight = source_norms[f"encoder.blocks.{i}.attention_layer.norm.weight"][
+                dmodel_topk_indices
+            ]
             sharded_tensor = distribute_tensor(
                 weight,
                 model.target_model.head.norm.weight.device_mesh,
                 model.target_model.head.norm.weight.placements,
             )
             block.attention_layer.norm.weight.data.copy_(sharded_tensor)
-            weight = source_norms[f"encoder.blocks.{i}.ff_layer.norm.weight"][dmodel_topk_indices]
+            weight = source_norms[f"encoder.blocks.{i}.ff_layer.norm.weight"][
+                dmodel_topk_indices
+            ]
             sharded_tensor = distribute_tensor(
                 weight,
                 model.target_model.head.norm.weight.device_mesh,
@@ -201,13 +226,14 @@ def create_model(cfg_model, cfg_projected_compression):
             block.ff_layer.norm.weight.data.copy_(sharded_tensor)
             block.attention_layer.layer.rope.register_freqs()
 
-
     # Initializing model.projections
     model.projections.to_empty(device="cuda")
-    model.projections.init_projection_weights(cfg_projected_compression.path_to_importances)
+    model.projections.init_projection_weights(
+        cfg_projected_compression.path_to_importances
+    )
 
     return model
-    
+
 
 def get_sharded_sd(target_sd, source_sd):
     sharded_sd = {}
