@@ -495,14 +495,16 @@ class ProjectedLinear(nn.Module):
                     self.base_in_features, self.result_in_features, **factory_kwargs
                 )
                 weight = weight + p2.to("cpu")
-                self.projection_in_weight = nn.Parameter(weight, requires_grad=True)
+                self.projection_in_weight = nn.Parameter(weight, requires_grad=True)  #dev gradient SWITCH
+                # self.projection_in_weight = nn.Parameter(weight, requires_grad=False)
 
             if self.result_out_features is not None:
                 weight = torch.zeros(
                     self.result_out_features, self.base_out_features, **factory_kwargs
                 )
                 weight = weight + p1.to("cpu")
-                self.projection_out_weight = nn.Parameter(weight, requires_grad=True)
+                self.projection_out_weight = nn.Parameter(weight, requires_grad=True)  #dev gradient SWITCH
+                # self.projection_out_weight = nn.Parameter(weight, requires_grad=False)
                 
             self.auxiliary_weight = nn.Parameter(diff_weights.to("cpu"), requires_grad=True)  #dev SWITCH
         else:
@@ -512,6 +514,7 @@ class ProjectedLinear(nn.Module):
                 )
                 weight[proj_in_topk_indices, torch.arange(self.result_in_features)] = 1
                 self.projection_in_weight = nn.Parameter(weight, requires_grad=True)
+                # self.projection_in_weight = nn.Parameter(weight, requires_grad=False) #dev gradient SWITCH
 
             if self.result_out_features is not None:
                 weight = torch.zeros(
@@ -519,6 +522,7 @@ class ProjectedLinear(nn.Module):
                 )
                 weight[torch.arange(self.result_out_features), proj_out_topk_indices] = 1
                 self.projection_out_weight = nn.Parameter(weight, requires_grad=True)
+                # self.projection_out_weight = nn.Parameter(weight, requires_grad=False) #dev gradient SWITCH
 
             if self.result_in_features is not None or self.result_out_features is not None:
                 final_in_features = (
@@ -539,6 +543,7 @@ class ProjectedLinear(nn.Module):
         # occlusion_weight = torch.zeros(self.weight.shape) #dev
         # occlusion_weight = get_init_weight(self.weight.shape, fan_in=self.weight.shape[0], init_type="truncated_normal_fixed", scale=1.0) #dev
         # self.weight =  nn.Parameter(transfer_selected(self.weight, occlusion_weight, proj_out_topk_indices, proj_in_topk_indices)) #dev Occlusion
+        # print(self.weight) #dev
 
         self.initialized_compression = True
 
@@ -638,7 +643,7 @@ class ProjectedEmbedding(nn.Module):
             _, p2, diff_weights = smart_projections(self.embedding.weight, None, topk_dmodel_indices, smart_init)
             weight = weight + p2.T.to('cpu')
             self.auxiliary_weight = nn.Embedding( #dev SWITCH
-                vocab_size, self.result_out_features, _weight=diff_weights.to('cpu')
+                vocab_size, self.result_out_features, _weight=diff_weights.to('cpu'),
             )
         else:
             weight[torch.arange(self.result_out_features), topk_dmodel_indices] = 1
@@ -650,6 +655,8 @@ class ProjectedEmbedding(nn.Module):
         # occlusion_weight = torch.zeros(self.embedding.weight.shape) #dev
         # occlusion_weight = get_init_weight(self.embedding.weight.shape, fan_in=self.embedding.weight.shape[0], init_type="truncated_normal_fixed", scale=1.0) #dev
         # self.embedding.weight = nn.Parameter(transfer_selected(self.embedding.weight, occlusion_weight, None, topk_dmodel_indices)) #dev Occlusion
+        # print(self.embedding.weight) #dev
 
         self.projection = nn.Parameter(weight, requires_grad=True)
+        # self.projection = nn.Parameter(weight, requires_grad=False) #dev gradient SWITCH
         self.initialized_compression = True

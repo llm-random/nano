@@ -287,6 +287,15 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         load_checkpoint_from_file(
             cfg.trainer.checkpoint.load, model, optimizer, scheduler
         )
+        if cfg.get("apply_functions", None):
+            for fn in instantiate(cfg.apply_functions):
+                res = fn(model)
+                if res == False:
+                    cleanup() 
+                    return 0
+        model = model.to(device)
+        model = setup_distributed_training(model, cfg.trainer.distributed)
+        
         if cfg.trainer.checkpoint.load.only_weights:
             optimizer = torch.optim.AdamW(
                 model.parameters(),
