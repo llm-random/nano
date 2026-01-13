@@ -4,13 +4,12 @@ import json
 import argparse
 import torch
 import torch.nn as nn
-from safetensors import safe_open
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from accelerate import load_checkpoint_in_model
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers.modeling_utils import load_sharded_checkpoint
 import lm_eval
 from lm_eval.models.huggingface import HFLM
 
-# ... (Previous SVD_Linear and SafeJSONEncoder classes remain identical) ...
+# [Required] Class definition needed for torch.load to recognize the object
 class SVD_Linear(nn.Module):
     def __init__(self, dim_in, dim_out, low_rank_dim, bias=False):
         super().__init__()
@@ -33,70 +32,20 @@ class SafeJSONEncoder(json.JSONEncoder):
             return obj.tolist()
         return super().default(obj)
 
-# ... (find_svd_layers_and_ranks and replace_layers_with_svd remain identical) ...
-def find_svd_layers_and_ranks(checkpoint_path):
-    index_file = os.path.join(checkpoint_path, "model.safetensors.index.json")
-    if not os.path.exists(index_file):
-        index_file = os.path.join(checkpoint_path, "pytorch_model.bin.index.json")
-        if not os.path.exists(index_file):
-             raise FileNotFoundError(f"Index file not found at {checkpoint_path}")
-
-    with open(index_file, "r") as f:
-        index_data = json.load(f)
-    
-    weight_map = index_data["weight_map"]
-    svd_layer_configs = {} 
-
-    for key, filename in weight_map.items():
-        if key.endswith("u_proj.weight"):
-            module_path = key.rsplit(".u_proj.weight", 1)[0]
-            full_file_path = os.path.join(checkpoint_path, filename)
-            
-            if filename.endswith(".safetensors"):
-                with safe_open(full_file_path, framework="pt", device="cpu") as f:
-                    tensor_slice = f.get_slice(key)
-                    shape = tensor_slice.get_shape() 
-                    rank = shape[1] 
-            else:
-                state_dict = torch.load(full_file_path, map_location="cpu")
-                shape = state_dict[key].shape
-                rank = shape[1]
-
-            svd_layer_configs[module_path] = rank
-    return svd_layer_configs
-
-def replace_layers_with_svd(model, svd_configs):
-    replaced_count = 0
-    for name, module in model.named_modules():
-        if name in svd_configs:
-            rank = svd_configs[name]
-            if not isinstance(module, nn.Linear): continue
-                
-            dim_in = module.in_features
-            dim_out = module.out_features
-            bias = module.bias is not None
-            
-            new_layer = SVD_Linear(dim_in, dim_out, rank, bias=bias)
-            
-            if "." in name:
-                parent_name, child_name = name.rsplit(".", 1)
-                parent = model.get_submodule(parent_name)
-                setattr(parent, child_name, new_layer)
-            else:
-                setattr(model, name, new_layer)
-            
-            replaced_count += 1
-    return model
-
 def main():
     parser = argparse.ArgumentParser(description="Evaluate SVD-compressed LLM checkpoints")
-    parser.add_argument("--checkpoint_path", type=str, required=True, help="Path to checkpoint")
+    parser.add_argument("--checkpoint_path", type=str, required=True, help="Path to checkpoint (trained weights)")
+    
+    # [NEW] The Skeleton Key: Path to the original .pt file
+    parser.add_argument("--tokenizer_pt", type=str, required=True, help="Path to original .pt file (provides SVD skeleton & tokenizer)")
+    
+    # [NEW] Fallback base model (e.g. meta-llama/Llama-3.1-8B)
+    parser.add_argument("--base_model", type=str, default="meta-llama/Llama-3.1-8B", help="Base model for tokenizer fallback")
+    
     parser.add_argument("--tasks", type=str, default="hellaswag,piqa,arc_easy", help="Comma-separated tasks")
     parser.add_argument("--batch_size", type=int, default=8, help="Eval batch size")
     parser.add_argument("--device", type=str, default="cuda", help="Device (cuda/cpu)")
     parser.add_argument("--output_file", type=str, default="eval_results.json", help="Output JSON file")
-    
-    # [NEW ARGUMENT] Control few-shot shots here
     parser.add_argument("--num_fewshot", type=int, default=0, help="Number of few-shot examples")
 
     args = parser.parse_args()
@@ -105,34 +54,67 @@ def main():
         print(f"Error: Checkpoint path {args.checkpoint_path} does not exist.")
         sys.exit(1)
 
-    print(f"--- Loading SVD Model from {args.checkpoint_path} ---")
-    
-    config = AutoConfig.from_pretrained(args.checkpoint_path)
-    tokenizer = AutoTokenizer.from_pretrained(args.checkpoint_path)
-    
-    torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    
-    with torch.device("meta"):
-        model = AutoModelForCausalLM.from_config(config)
-    model = model.to_empty(device="cpu") 
-    
-    svd_configs = find_svd_layers_and_ranks(args.checkpoint_path)
-    model = replace_layers_with_svd(model, svd_configs)
-    
-    load_checkpoint_in_model(model, args.checkpoint_path, dtype=torch_dtype)
+    print(f"--- 1. Loading SVD Skeleton from {args.tokenizer_pt} ---")
+    try:
+        # Load the .pt file (contains 'model' and 'tokenizer')
+        loaded_dict = torch.load(args.tokenizer_pt, map_location="cpu", weights_only=False)
+        
+        # Extract Model Skeleton
+        if 'model' in loaded_dict:
+            model = loaded_dict['model']
+            print("✓ Found SVD Model structure in .pt file.")
+        else:
+            print("Error: 'model' key not found in .pt file.")
+            sys.exit(1)
+            
+        # Extract Tokenizer
+        if 'tokenizer' in loaded_dict:
+            tokenizer = loaded_dict['tokenizer']
+            print("✓ Found Tokenizer in .pt file.")
+        else:
+            print(f"Warning: 'tokenizer' not in .pt. Loading from base model: {args.base_model}")
+            tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=False, trust_remote_code=True)
+            
+    except Exception as e:
+        print(f"CRITICAL ERROR loading .pt file: {e}")
+        sys.exit(1)
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    print(f"--- 2. Injecting Trained Weights from {args.checkpoint_path} ---")
+    try:
+        # Surgically replace weights using transformers utility
+        # This handles safetensors shards and index json automatically
+        load_sharded_checkpoint(model, args.checkpoint_path, strict=False)
+        print("✓ Successfully merged checkpoint weights into SVD model.")
+    except Exception as e:
+        print(f"Error merging weights: {e}")
+        print("Attempting legacy bin load...")
+        try:
+            state_dict = torch.load(os.path.join(args.checkpoint_path, "pytorch_model.bin"), map_location="cpu")
+            model.load_state_dict(state_dict, strict=False)
+            print("✓ Loaded via pytorch_model.bin")
+        except Exception as e2:
+            print(f"Failed legacy load: {e2}")
+            sys.exit(1)
+
+    # Prepare model for Eval
+    model = model.float() # Ensure fp32 for stability
     model.to(args.device)
     model.eval()
 
     task_list = args.tasks.split(",")
-    print(f"--- Running Evaluation on: {task_list} (Fewshot: {args.num_fewshot}) ---")
+    print(f"--- 3. Running Evaluation on: {task_list} (Fewshot: {args.num_fewshot}) ---")
     
+    # Wrap in HFLM for lm_eval harness
     lm_obj = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=args.batch_size)
     
     results = lm_eval.simple_evaluate(
         model=lm_obj,
         tasks=task_list,
-        # [FIX] Pass the argument to the harness
-        num_fewshot=args.num_fewshot, 
+        num_fewshot=args.num_fewshot,
+        device=args.device
     )
     
     print("\n--- Results (Summary) ---")
