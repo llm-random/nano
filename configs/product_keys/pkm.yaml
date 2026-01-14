@@ -1,0 +1,109 @@
+# @package _global_
+defaults:
+  - /_cluster/entropy@_here_
+  - /_model/tiny@_here_
+  - /_trainer/llama@_here_
+  - /_dataset/c4@_here_
+  - /_checkpoints/none@_here_
+  - /_misc/default@_here_
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 64
+  dmodel: 768
+  datt: ${common.dmodel}
+  n_blocks: 12
+  q_heads: 12
+  kv_heads: 12
+  vocab_size: 50304      # GPT-2 vocab
+
+  pkm_n_sub_keys: 128    # 128^2 = 16,384 memory slots
+  pkm_k: 32
+  pkm_query_dim: 32
+  pkm_n_heads: 4
+
+trainer:
+  _target_: src.product_keys.trainer.MaskedLMTrainer
+  masking_percentage: 0.20
+  mask_token_id: 50257
+  unmaskable_special_tokens: [50256, 50257]
+  gradient_accumulation_steps: 2
+  n_steps: 50000
+  learning_rate: 3e-4
+  train_dataloader:
+    tokenize_fn:
+      _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+  eval_dataloader:
+    tokenize_fn:
+      _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+
+infrastructure:
+  metric_logger:
+    name: pkm_test_run
+    project_name: pmtest/tml-bgw
+    tags:
+      - pkm_memory
+      - mlm_training
+      - "dmodel=${common.dmodel}"
+  slurm:
+    gres: gpu:1
+    time: "0-04:00:00"
+    job-name: ${infrastructure.metric_logger.name}
+
+model:
+  encoder:
+    block_fn:
+      ff_layer_fn:
+        _target_: src.product_keys.model.ProductKeysMemory
+        _partial_: true
+        d_model: ${common.dmodel}
+        query_dim: ${common.pkm_query_dim}
+        n_sub_keys: ${common.pkm_n_sub_keys}
+        k_neighbors: ${common.pkm_k}
+        n_heads: ${common.pkm_n_heads}
+
+      attention_fn:
+        _target_: src.product_keys.model.RoPETopKAttention
+        _partial_: true
+        dmodel: ${common.dmodel}
+        q_heads: ${common.q_heads}
+        kv_heads: ${common.kv_heads}
+        seq_len: ${common.sequence_length}
+        
+        q_proj_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${common.datt}
+          partial_init_fn:
+             _target_: src.projected_compression.model.llm_random_weight_init
+             _partial_: true
+             scale: 1
+        
+        k_proj_fn:
+           _target_: src.projected_compression.model.Linear
+           _partial_: true
+           in_features: ${common.dmodel}
+           out_features: ${common.datt}
+           partial_init_fn:
+             _target_: src.projected_compression.model.llm_random_weight_init
+             _partial_: true
+             scale: 1
+             
+        v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
+        
+        o_proj_fn:
+           _target_: src.projected_compression.model.Linear
+           _partial_: true
+           in_features: ${common.datt}
+           out_features: ${common.dmodel}
+           partial_init_fn:
+             _target_: src.projected_compression.model.llm_random_weight_init
+             _partial_: true
+             scale: 1
+
+        rope_base: 10000
+        rope_scale_freqs: true
+        top_k: 32
+        top_k_before_softmax: true

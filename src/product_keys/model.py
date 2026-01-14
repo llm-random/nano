@@ -266,136 +266,100 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
 class ProductKeysMemory(nn.Module):
     def __init__(
-        self, input_dim: int, query_dim: int, n_sub_keys: int, k_neighbors: int, n_heads:int=4
+        self, 
+        d_model: int, 
+        query_dim: int, 
+        n_sub_keys: int, 
+        k_neighbors: int, 
+        n_heads: int = 4,
+        **kwargs,  # To ignore unused args
     ):
         super().__init__()
         self.n_heads = n_heads
         self.k = k_neighbors
         self.n_sub_keys = n_sub_keys
         self.query_dim = query_dim
-        self.sub_key_dim = query_dim // 2
-        self.memory_dim = input_dim  # todo remove this param, rename input_dim to smth like dmodel
 
-        # Query Network (Learnable)
-        self.query_proj = nn.Linear(input_dim, n_heads * query_dim)
+        # Query Network
+        # Projects input to query space. BatchNorm is crucial for PKM stability/convergence.
+        self.query_proj = nn.Linear(d_model, n_heads * query_dim)
         self.query_bn = nn.BatchNorm1d(n_heads * query_dim)
 
-        # Sub-Keys (Learnable, Separate for each head)
-        self.c1 = nn.Parameter(torch.randn(n_heads, n_sub_keys, self.sub_key_dim))
-        self.c2 = nn.Parameter(torch.randn(n_heads, n_sub_keys, self.sub_key_dim))
+        # Sub-Keys (Codebooks)
+        # Two separate sets of keys for the product quantization
+        self.c1 = nn.Parameter(torch.randn(n_heads, n_sub_keys, query_dim // 2))
+        self.c2 = nn.Parameter(torch.randn(n_heads, n_sub_keys, query_dim // 2))
 
-        # Memory Values (Learnable, Shared across heads)
-        self.values = nn.Embedding(n_sub_keys * n_sub_keys, self.memory_dim)
-        nn.init.normal_(self.values.weight, mean=0, std=input_dim**-0.5)
+        # Memory Values
+        # The actual values retrieved. Size is (n_sub_keys^2, d_model)
+        self.values = nn.Embedding(n_sub_keys * n_sub_keys, d_model)
+        nn.init.normal_(self.values.weight, mean=0, std=d_model**-0.5)
 
-    def _get_knn_indices_gpu(self, queries, codebooks):
-        # queries: (batch, head, dim)
-        # codebooks: (head, num_sub_keys, dim)
+    def _get_knn(self, queries, codebooks):
+        """
+        Calculates dot product scores and retrieves top-k indices and values.
+        """
+        # queries: (batch, head, sub_dim)
+        # codebooks: (head, n_sub_keys, sub_dim)
+        
+        # Calculate similarity (dot product)
         scores = torch.einsum("bhd,hnd->bhn", queries, codebooks)
-
-        _, indices = torch.topk(scores, k=self.k, dim=-1, largest=True)
-
-        return indices
-
-    def _gather_keys(self, codebook, indices):
-        # codebook: (n_heads, n_keys, dim)
-        # indices: (batch, n_heads, k)
-        # Output: (batch, n_heads, k, dim)
-
-        # Expand codebook to batch size
-        # (1, n_heads, n_keys, dim) -> (batch, n_heads, n_keys, dim)
-        cb_exp = codebook.unsqueeze(0).expand(indices.size(0), -1, -1, -1)
-
-        # Expand indices to dim
-        # (batch, n_heads, k, 1) -> (batch, n_heads, k, dim)
-        idx_exp = indices.unsqueeze(-1).expand(-1, -1, -1, codebook.size(-1))
-
-        return torch.gather(cb_exp, 2, idx_exp)
+        
+        # Select top-k
+        top_scores, top_indices = torch.topk(scores, k=self.k, dim=-1, largest=True)
+        return top_scores, top_indices
 
     def forward(self, x):
-        bs, seq_len, input_dim = x.shape
+        bs, seq_len, d_model = x.shape
 
-        # Flatten batch and sequence for processing
-        x_flat = x.view(-1, input_dim)  # (batch*seq, input_dim)
+        # 1. Query Projection
+        x_flat = x.view(-1, d_model)
         q = self.query_proj(x_flat)
         q = self.query_bn(q)
-        q = q.view(-1, self.n_heads, self.query_dim)
+        q = q.view(bs * seq_len, self.n_heads, self.query_dim)
 
-        q1, q2 = torch.chunk(q, 2, dim=-1)  # Each: (batch, n_heads, sub_dim)
+        # Split query into two halves for product quantization
+        q1, q2 = torch.chunk(q, 2, dim=-1)
 
-        # Retrieve Sub-Key Indices
-        idx1 = self._get_knn_indices_gpu(q1, self.c1)
-        idx2 = self._get_knn_indices_gpu(q2, self.c2)
+        # 2. Retrieve Top-K candidates for each half
+        scores1, idx1 = self._get_knn(q1, self.c1)
+        scores2, idx2 = self._get_knn(q2, self.c2)
 
-        k1_selected = self._gather_keys(self.c1, idx1)
-        k2_selected = self._gather_keys(self.c2, idx2)
-
-        # Compute Dot Products (Scores)
-        # q1: (batch, n_heads, dim) -> unsqueeze -> (batch, n_heads, 1, dim)
-        # Todo we've calculated both halves separately, we can reuse that
-        scores1 = (q1.unsqueeze(2) * k1_selected).sum(dim=-1)  # (batch, n_heads, k)
-        scores2 = (q2.unsqueeze(2) * k2_selected).sum(dim=-1)  # (batch, n_heads, k)
-
-        # Cartesian Product Sum
-        # (batch, n_heads, k, 1) + (batch, n_heads, 1, k) -> (batch, n_heads, k, k)
+        # 3. Cartesian Product of Scores
+        # Sum every score from the first half with every score from the second half
+        # (BS, H, K, 1) + (BS, H, 1, K) -> (BS, H, K, K)
         all_scores = scores1.unsqueeze(3) + scores2.unsqueeze(2)
 
-        # Flatten (k, k) to k^2 to find global top-k
-        all_scores_flat = all_scores.view(
-            all_scores.size(0), self.n_heads, -1
-        )  # (batch, n_heads, k*k)
+        # Flatten the KxK grid to K^2 to find the global top-k
+        all_scores_flat = all_scores.view(bs * seq_len, self.n_heads, -1)
+        
+        # Select the best combinations (global top-k)
+        global_scores, global_top_indices = torch.topk(all_scores_flat, self.k, dim=-1)
 
-        # Select global top-k from the k^2 candidates
-        top_scores, top_indices_flat = torch.topk(all_scores_flat, self.k, dim=-1)
+        # 4. Index Mapping
+        # Map the flattened indices back to the original codebook indices
+        idx1_pos = global_top_indices // self.k
+        idx2_pos = global_top_indices % self.k
 
-        # 4. Map back to Global Memory Indices
-        # We need to find which (i, j) pair in the k*k grid corresponded to the top scores
+        # Gather the actual sub-key indices
+        real_idx1 = torch.gather(idx1, 2, idx1_pos)
+        real_idx2 = torch.gather(idx2, 2, idx2_pos)
 
-        # Create grid of local indices
-        # idx1: (batch, n_heads, k)
-        idx1_grid = (
-            idx1.unsqueeze(3)
-            .expand(-1, -1, -1, self.k)
-            .reshape(idx1.size(0), self.n_heads, -1)
-        )
-        idx2_grid = (
-            idx2.unsqueeze(2)
-            .expand(-1, -1, self.k, -1)
-            .reshape(idx2.size(0), self.n_heads, -1)
-        )
+        # Calculate the global memory index: i * N_keys + j
+        memory_indices = real_idx1 * self.n_sub_keys + real_idx2
 
-        # Gather the actual codebook indices corresponding to the winners
-        best_idx1 = torch.gather(idx1_grid, 2, top_indices_flat)
-        best_idx2 = torch.gather(idx2_grid, 2, top_indices_flat)
+        # 5. Read from Memory
+        attn_weights = F.softmax(global_scores, dim=-1) # (BS, H, K)
 
-        # Calculate global memory index: i * |C| + j
-        global_indices = best_idx1 * self.n_sub_keys + best_idx2
+        flat_indices = memory_indices.view(-1)
+        values_selected = self.values(flat_indices) 
+        values_selected = values_selected.view(bs * seq_len, self.n_heads, self.k, d_model)
 
-        # 5. Read from Value Memory (Weighted Sum)
-        # Softmax over the top-k scores
-        attn_weights = F.softmax(top_scores, dim=-1)  # (batch, n_heads, k)
+        # Weighted sum of retrieved values
+        out_heads = (values_selected * attn_weights.unsqueeze(-1)).sum(dim=2)
 
-        # Fetch Values
-        # self.values.weight: (total_keys, val_dim)
-        # global_indices: (batch, n_heads, k)
-        # Output: (batch, n_heads, k, val_dim)
-
-        # Since embedding weight is 2D, we flatten indices to lookup
-        flat_indices = global_indices.view(-1)
-        values_selected = F.embedding(flat_indices, self.values.weight)
-        values_selected = values_selected.view(*global_indices.shape, self.memory_dim)
-
-        # Weighted Sum
-        # (batch, n_heads, k, val_dim) * (batch, n_heads, k, 1) -> sum over k
-        head_outputs = (values_selected * attn_weights.unsqueeze(-1)).sum(
-            dim=2
-        )  # (batch, n_heads, val_dim)
-
-        # 6. Multi-Head Aggregation
-        # "The memory simply sums the output m_i(x) of each head" [cite: 210]
-        output = head_outputs.sum(dim=1)  # (batch, val_dim)
-
-        # Restore sequence dimension
-        output = output.view(bs, seq_len, self.memory_dim)
-
-        return output
+        # 6. Aggregation
+        # Sum outputs across all heads
+        output = out_heads.sum(dim=1) # (BS, d_model)
+        
+        return output.view(bs, seq_len, d_model)
