@@ -3,7 +3,7 @@ defaults:
   - _model@_here_: k16
   - _trainer@_here_: context_scaling
   - _dataset@_here_: ctx_scl_dataset
-  - _checkpoints/context_scaling@_here_: shared
+  - _checkpoints/context_scaling@_here_: shared_helios
   - _misc@_here_: default
   - _eval@_here_: none
   - _self_
