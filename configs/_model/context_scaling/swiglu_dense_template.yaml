@@ -1,0 +1,119 @@
+model:
+  _target_: src.core.model.LLM
+
+  embedding:
+    _target_: src.core.model.TransformerEmbedding
+    vocab_size: ${common.vocab_size}
+    dmodel: ${common.dmodel}
+    init_fn:
+      _target_: src.core.model.trunc_normal_
+      _partial_: true
+
+  encoder:
+    _target_: src.core.model.TransformerEncoder
+    n_blocks: ${common.n_blocks}
+    block_fn:
+      _target_: src.core.model.TransformerBlock
+      _partial_: true
+      norm_fn:
+        _target_: src.core.model.RMSNorm
+        _partial_: true
+        eps: 1e-5
+        normalized_shape: ${common.dmodel}
+
+      attention_fn:
+        _target_: src.core.model.RoPEAttention
+        _partial_: true
+        dmodel: ${common.dmodel}
+        q_heads: ${common.q_heads}
+        kv_heads: ${common.kv_heads}
+        seq_len: ${common.sequence_length}
+        q_proj_fn:
+          _target_: src.core.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${common.datt}
+          partial_init_fn:
+            _target_: src.core.model.trunc_normal_init
+            _partial_: true
+            scale: 1
+
+        k_proj_fn:
+          _target_: src.core.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
+          partial_init_fn:
+            _target_: src.core.model.trunc_normal_init
+            _partial_: true
+            scale: 1
+
+        v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
+
+        # o_proj_fn: ${model.encoder.block_fn.attention_fn.q_proj_fn} # TODO check have I done it right pls
+        o_proj_fn: 
+          _target_: src.core.model.Linear
+          _partial_: true
+          in_features: ${common.datt}
+          out_features: ${common.dmodel}
+          partial_init_fn:
+            _target_: src.core.model.trunc_normal_init
+            _partial_: true
+            scale: 1
+        
+        pre_attn_fn:
+          _target_: src.core.model.QKNorm
+          _partial_: true
+          q_norm_fn:
+            _target_: src.core.model.RMSNorm
+            _partial_: true
+            normalized_shape: ${common.datt}
+            eps: 1e-6
+          k_norm_fn:
+            _target_: src.core.model.RMSNorm
+            _partial_: true
+            normalized_shape: ${eval:'(${common.datt} // ${common.q_heads}) * ${common.kv_heads}'}
+            eps: 1e-6
+
+        rope_base: 500000
+        rope_scale_freqs: true
+
+      ff_layer_fn:
+        _target_: src.core.model.SwiGLU
+        _partial_: true
+        ff_pre_act_fn:
+          _target_: src.core.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${common.dff}
+          partial_init_fn:
+            _target_: src.core.model.trunc_normal_init
+            _partial_: true
+            scale: 1
+        ff_post_act_fn:
+          _target_: src.core.model.Linear
+          _partial_: true
+          in_features: ${common.dff}
+          out_features: ${common.dmodel}
+          partial_init_fn:
+            _target_: src.core.model.trunc_normal_init
+            _partial_: true
+            scale: 1
+        gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
+
+  head:
+    _target_: src.core.model.TransformerHead
+    linear_fn:
+      _target_: src.core.model.Linear
+      _partial_: true
+      in_features: ${common.dmodel}
+      out_features: ${common.vocab_size}
+      partial_init_fn:
+        _target_: src.core.model.trunc_normal_init
+        _partial_: true
+        scale: 1
+    norm_fn:
+      _target_: src.core.model.RMSNorm
+      _partial_: true
+      eps: 1e-5
+      normalized_shape: ${common.dmodel}
