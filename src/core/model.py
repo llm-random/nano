@@ -286,12 +286,18 @@ class MLP(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn):
+    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn, compile: bool):
         super().__init__()
         self.silu = nn.SiLU()
         self.ff_pre_act = ff_pre_act_fn()
         self.ff_post_act = ff_post_act_fn()
         self.gate = gate_fn()
+
+        if compile:
+            self.forward = torch.compile(
+                self.forward,
+                mode="max-autotune-no-cudagraphs",
+            )
 
     def forward(self, x):
         gated = self.gate(x)
@@ -381,6 +387,7 @@ class RoPEAttention(nn.Module):
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
+        compile: bool,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -401,6 +408,12 @@ class RoPEAttention(nn.Module):
             base=rope_base,
             apply_freq_scaling=rope_scale_freqs,
         )
+
+        if compile:
+            self.forward = torch.compile(
+                self.forward,
+                mode="max-autotune-no-cudagraphs",
+            )
 
     def forward(self, x):
         query_states = self.q_proj(x)

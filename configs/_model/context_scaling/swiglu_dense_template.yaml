@@ -24,6 +24,7 @@ model:
       attention_fn:
         _target_: src.core.model.RoPEAttention
         _partial_: true
+        compile: true
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
@@ -81,6 +82,7 @@ model:
       ff_layer_fn:
         _target_: src.core.model.SwiGLU
         _partial_: true
+        compile: false
         ff_pre_act_fn:
           _target_: src.core.model.Linear
           _partial_: true

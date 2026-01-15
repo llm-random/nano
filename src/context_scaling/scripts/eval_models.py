@@ -284,7 +284,9 @@ def main():
     for _, row in df.iterrows():
         yaml_overrides = []
         for p in args.grid_params:
-            key = re.sub(r"^job_config/", "", p).replace("/", ".")  # <- transform COLUMN NAME
+            key = re.sub(r"^job_config/", "", p).replace(
+                "/", "."
+            )  # <- transform COLUMN NAME
             yaml_overrides.append(f"{key}={row[p]}")
 
         ckpt_path = row["job/full_save_checkpoints_path"]
