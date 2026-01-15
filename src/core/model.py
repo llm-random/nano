@@ -387,7 +387,7 @@ class RoPEAttention(nn.Module):
         self.k_proj = k_proj_fn()
         self.v_proj = v_proj_fn()
         self.o_proj = o_proj_fn()
-        self.pre_attn_fn = pre_attn_fn()
+        self.pre_attn_fn = pre_attn_fn() if pre_attn_fn is not None else None
         self.attention_mechanism = AttentionMechanism()
 
         self.q_heads = q_heads
@@ -419,7 +419,8 @@ class RoPEAttention(nn.Module):
 
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
-        q, k, v = self.pre_attn_fn(q, k, v)
+        if self.pre_attn_fn is not None:
+            q, k, v = self.pre_attn_fn(q, k, v)
         attention_output = self.attention_mechanism(
             query=q, key=k, value=v, causal=True
         )
