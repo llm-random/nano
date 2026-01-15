@@ -6,7 +6,7 @@ common:
   n_blocks: 16
   q_heads: 16
   kv_heads: 16
-  vocab_size: 50257
+  vocab_size: 50304
   sequence_length: 256
   head_norm: true
   init_scale: 0.1
