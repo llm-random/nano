@@ -75,6 +75,10 @@ def setup_enviroment():
         logger.warning("WORLD_SIZE is not set, setting it to 1")
         os.environ["WORLD_SIZE"] = "1"
 
+    if "LOCAL_WORLD_SIZE" not in os.environ:
+        logger.warning("LOCAL_WORLD_SIZE is not set, setting it to 1")
+        os.environ["LOCAL_WORLD_SIZE"] = "1"
+
     if "RANK" not in os.environ:
         if "SLURM_PROCID" in os.environ:
             os.environ["RANK"] = os.environ["SLURM_PROCID"]
@@ -206,15 +210,12 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
 
 
 def initialize_training_components(cfg: OmegaConf, metric_logger=None):
-
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
     if metric_logger is None:
         metric_logger = get_metric_logger(
-            metric_logger_config=instantiate(
-                cfg.infrastructure.metric_logger, _convert_="all"
-            ),
-            neptune_run_id=training_state["run_id"],
+            metric_logger_config=cfg.infrastructure.metric_logger,
+            tracker_run_id=training_state["run_id"],
         )
 
         # Other loggers do not have `run` method
