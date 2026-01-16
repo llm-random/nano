@@ -86,6 +86,7 @@ def get_neptune_table(
     # Fetch the runs table with the specified tags and columns
     runs_table = project.fetch_runs_table(tag=tags, columns=columns).to_pandas()
 
+    print(f"df shape: {runs_table.shape}")
     # Ensure 'sys/tags' is a list for each run
     # print(f"runs_table: {runs_table}")
     runs_table["sys/tags"] = runs_table["sys/tags"].apply(
