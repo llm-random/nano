@@ -420,12 +420,6 @@ class RoPEAttention(nn.Module):
         key_states = self.k_proj(x)
         value_states = self.v_proj(x)
 
-        # Apply QKNorm before reshape (normalizes over full datt, not per-head)
-        if self.pre_attn_fn is not None:
-            query_states, key_states, value_states = self.pre_attn_fn(
-                query_states, key_states, value_states
-            )
-
         batch, seq_len = x.shape[:-1]
         q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
         q = self.rope(q)
@@ -438,6 +432,10 @@ class RoPEAttention(nn.Module):
 
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
+
+        # Apply QKNorm before reshape (normalizes over full datt, not per-head)
+        if self.pre_attn_fn is not None:
+            q, k, v = self.pre_attn_fn(q, k, v)
 
         attention_output = self.attention_mechanism(
             query=q, key=k, value=v, causal=True

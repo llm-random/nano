@@ -68,12 +68,12 @@ model:
           q_norm_fn:
             _target_: src.core.model.RMSNorm
             _partial_: true
-            normalized_shape: ${common.datt}
+            normalized_shape: ${eval:'(${common.datt} // ${common.q_heads})'}
             eps: 1e-6
           k_norm_fn:
             _target_: src.core.model.RMSNorm
             _partial_: true
-            normalized_shape: ${eval:'(${common.datt} // ${common.q_heads}) * ${common.kv_heads}'}
+            normalized_shape: ${eval:'(${common.datt} // ${common.q_heads})'}
             eps: 1e-6
 
         rope_base: 500000

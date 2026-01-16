@@ -19,7 +19,6 @@ trainer:
   n_steps: 320_001
   learning_rate: 12
   # ^learning_rate: [9, 10, 11]
-  # learning_rate: 10
   eval_interval: 5000
   eval_long_ctx_interval: 5000
   n_eval_long_ctx_steps: 64
