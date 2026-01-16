@@ -1,5 +1,4 @@
 import os
-import re
 import subprocess
 from pathlib import Path
 import argparse
@@ -26,29 +25,33 @@ from torch.utils.data import DataLoader
 from torch.distributed.checkpoint.stateful import Stateful
 
 
-def assert_unique_keyword_matches(template: str, grid_params: list[str]) -> None:
-    yaml_keys = [re.sub(r"^job_config/", "", p).replace("/", ".") for p in grid_params]
-    """Ensure each keyword in template matches exactly one yaml key."""
-    for kw in template.split(","):
-        kw = kw.strip()
-        matches = [k for k in yaml_keys if kw in k]
-        assert (
-            len(matches) == 1
-        ), f"Keyword '{kw}' matched {len(matches)} yaml_keys: {matches}"
+def flatten_dict(d, parent_key="", sep="."):
+    """Flatten a nested dict into dot-separated keys."""
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
 
 def make_csv_name(template: str, cfg) -> str:
-    """Build CSV filename from template keywords and yaml_overrides values.
+    """Build CSV filename from template keywords and config values.
 
-    Example: template="kv_h,dff", overrides=["common.kv_heads=4", "common.dff=512"]
-    Returns: "kv_h=4-dff=512.csv"
+    Example: template="kv_heads,dff", cfg with common.kv_heads=4, common.dff=512
+    Returns: "kv_heads=4+dff=512.csv"
     """
+    flat_cfg = flatten_dict(OmegaConf.to_container(cfg, resolve=True))
+
     parts = []
     for kw in template.split(","):
         kw = kw.strip()
-        for k, v in OmegaConf.to_container(cfg, resolve=True).items():
+        for k, v in flat_cfg.items():
             if kw in k:
                 parts.append(f"{kw}={v}")
+                break  # take first match
 
     return "+".join(parts) + ".csv"
 
@@ -109,7 +112,7 @@ def get_neptune_table(
 
 
 def get_hydra_config(row):
-    run_id = row["sys/id"]  # Assuming 'sys/id' is the run identifier
+    run_id = row["sys/id"]
     print(f"run ID: {run_id}")
     run = neptune.init_run(
         project="pmtest/llm-random",
@@ -120,10 +123,11 @@ def get_hydra_config(row):
     cfg_file = "tmp_hydra_config.yaml"
     run["yaml_config"].download(destination=cfg_file)
 
-    with initialize_config_dir(config_dir=cfg_file, version_base=None):
-        cfg = compose(
-            config_name=cfg_file,
-        )
+    cfg_dir = str(Path(cfg_file).parent.absolute())
+    cfg_name = Path(cfg_file).stem  # "tmp_hydra_config" (no .yaml)
+
+    with initialize_config_dir(config_dir=cfg_dir, version_base=None):
+        cfg = compose(config_name=cfg_name)
 
     return cfg
 
@@ -233,8 +237,8 @@ def eval_model(
     batch_size: int,
     model_step: int,
     tmp_ckpt_path: str,
+    device: torch.device,
 ):
-    device = setup_distributed()
 
     model = instantiate(cfg.model, _convert_="all").to(device)
     model.eval()
@@ -366,6 +370,8 @@ def main():
 
     args = parser.parse_args()
 
+    device = setup_distributed()
+
     df = get_neptune_table(tags=args.tags)
 
     for _, row in df.iterrows():
@@ -392,6 +398,7 @@ def main():
             batch_size=args.batch_size,
             model_step=args.model_step,
             tmp_ckpt_path=args.tmp_ckpt_path,
+            device=device,
         )
 
 
