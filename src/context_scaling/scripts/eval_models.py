@@ -22,6 +22,40 @@ from torch.utils.data import DataLoader
 from torch.distributed.checkpoint.stateful import Stateful
 
 
+def assert_unique_keyword_matches(template: str, yaml_keys: list[str]) -> None:
+    """Ensure each keyword in template matches exactly one yaml key."""
+    for kw in template.split(","):
+        kw = kw.strip()
+        matches = [k for k in yaml_keys if kw in k]
+        assert (
+            len(matches) == 1
+        ), f"Keyword '{kw}' matched {len(matches)} yaml_keys: {matches}"
+
+
+def make_csv_name(template: str, yaml_overrides: list[str]) -> str:
+    """Build CSV filename from template keywords and yaml_overrides values.
+
+    Example: template="kv_h,dff", overrides=["common.kv_heads=4", "common.dff=512"]
+    Returns: "kv_h=4-dff=512.csv"
+    """
+    overrides_dict = {}
+    for ov in yaml_overrides:
+        key, val = ov.split("=", 1)
+        overrides_dict[key.split(".")[-1]] = val  # use last part of key
+
+    parts = []
+    for kw in template.split(","):
+        kw = kw.strip()
+        matches = [k for k in overrides_dict if kw in k]
+        if not matches:
+            raise ValueError(
+                f"Keyword '{kw}' not found in yaml_overrides: {yaml_overrides}"
+            )
+        parts.append(f"{kw}={overrides_dict[matches[0]]}")
+
+    return "+".join(parts) + ".csv"
+
+
 def get_neptune_table(
     tags,
     project="pmtest/llm-random",
@@ -96,7 +130,7 @@ def setup_distributed():
     return device
 
 
-def eval_models(
+def eval_model(
     ckpt_dir: str,
     exp_config_name: str,
     yaml_overrides: list,
@@ -179,8 +213,6 @@ def eval_models(
             "timestamp": timestamps,
         }
 
-    import torch.nn.functional as F
-
     @torch.no_grad()
     def batch_per_token_losses(model, input_ids):
         input_ids = input_ids.to(device)  # [B, T]
@@ -216,7 +248,7 @@ def eval_models(
         if batch is None:
             continue
 
-        losses, targets = batch_per_token_losses(model, batch["input_ids"])
+        losses, _ = batch_per_token_losses(model, batch["input_ids"])
         all_losses.append(losses)
 
     def tensors_rows_to_csv(tensors, path="tensors.csv"):
@@ -247,7 +279,7 @@ def main():
         help="params to overwrite in hydra config",
     )
     parser.add_argument(
-        "--exp_config_name",
+        "--exp_config",
         type=str,
         required=True,
         help="path to yaml config, for model initialization",
@@ -259,10 +291,16 @@ def main():
         help="Path to dataset loaded with load_from_disk",
     )
     parser.add_argument(
-        "--out_csv",
+        "--out_csv_format",
         type=str,
-        default="losses.csv",
-        help="Output CSV file path",
+        default="kv_heads,dff",
+        help="Comma-separated keywords for CSV filename template",
+    )
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        default=".",
+        help="Output directory for CSV files",
     )
     parser.add_argument(
         "--seq_len",
@@ -279,27 +317,30 @@ def main():
 
     args = parser.parse_args()
 
+    yaml_keys = [
+        re.sub(r"^job_config/", "", p).replace("/", ".") for p in args.grid_params
+    ]
+    assert_unique_keyword_matches(args.out_csv_format, yaml_keys)
+
     df = get_neptune_table(tags=args.tags)
 
     for _, row in df.iterrows():
-        yaml_overrides = []
-        for p in args.grid_params:
-            key = re.sub(r"^job_config/", "", p).replace(
-                "/", "."
-            )  # <- transform COLUMN NAME
-            yaml_overrides.append(f"{key}={row[p]}")
+        yaml_overrides = [f"{k}={row[p]}" for k, p in zip(yaml_keys, args.grid_params)]
 
         ckpt_path = row["job/full_save_checkpoints_path"]
-        eval_models(
+        out_csv = str(
+            Path(args.out_dir) / make_csv_name(args.out_csv_format, yaml_overrides)
+        )
+        eval_model(
             ckpt_dir=ckpt_path,
-            exp_config_name=args.exp_config_name,
+            exp_config=args.exp_config,
             yaml_overrides=yaml_overrides,
             dataset_dir=args.dataset_dir,
-            out_csv=args.out_csv,
+            out_csv=out_csv,
             seq_len=args.seq_len,
             batch_size=args.batch_size,
         )
 
 
-if __name__ == "__main":
+if __name__ == "__main__":
     main()
