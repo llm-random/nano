@@ -184,6 +184,7 @@ def eval_model(
     rsync_checkpoint(
         "helios",
         ckpt_dir,
+        tmp_ckpt_path,
     )
 
     dcp.load(state, checkpoint_id=tmp_ckpt_path)
