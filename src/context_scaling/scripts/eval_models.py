@@ -7,7 +7,9 @@ from tqdm.auto import tqdm
 import pandas as pd
 import neptune
 import shutil
+from functools import partial
 
+from omegaconf import OmegaConf
 from hydra import initialize_config_dir, compose
 from hydra.utils import instantiate
 import resolver as _
@@ -24,7 +26,8 @@ from torch.utils.data import DataLoader
 from torch.distributed.checkpoint.stateful import Stateful
 
 
-def assert_unique_keyword_matches(template: str, yaml_keys: list[str]) -> None:
+def assert_unique_keyword_matches(template: str, grid_params: list[str]) -> None:
+    yaml_keys = [re.sub(r"^job_config/", "", p).replace("/", ".") for p in grid_params]
     """Ensure each keyword in template matches exactly one yaml key."""
     for kw in template.split(","):
         kw = kw.strip()
@@ -34,26 +37,18 @@ def assert_unique_keyword_matches(template: str, yaml_keys: list[str]) -> None:
         ), f"Keyword '{kw}' matched {len(matches)} yaml_keys: {matches}"
 
 
-def make_csv_name(template: str, yaml_overrides: list[str]) -> str:
+def make_csv_name(template: str, cfg) -> str:
     """Build CSV filename from template keywords and yaml_overrides values.
 
     Example: template="kv_h,dff", overrides=["common.kv_heads=4", "common.dff=512"]
     Returns: "kv_h=4-dff=512.csv"
     """
-    overrides_dict = {}
-    for ov in yaml_overrides:
-        key, val = ov.split("=", 1)
-        overrides_dict[key.split(".")[-1]] = val  # use last part of key
-
     parts = []
     for kw in template.split(","):
         kw = kw.strip()
-        matches = [k for k in overrides_dict if kw in k]
-        if not matches:
-            raise ValueError(
-                f"Keyword '{kw}' not found in yaml_overrides: {yaml_overrides}"
-            )
-        parts.append(f"{kw}={overrides_dict[matches[0]]}")
+        for k, v in OmegaConf.to_container(cfg, resolve=True).items():
+            if kw in k:
+                parts.append(f"{kw}={v}")
 
     return "+".join(parts) + ".csv"
 
@@ -113,6 +108,26 @@ def get_neptune_table(
     return runs_table
 
 
+def get_hydra_config(row):
+    run_id = row["sys/id"]  # Assuming 'sys/id' is the run identifier
+    print(f"run ID: {run_id}")
+    run = neptune.init_run(
+        project="pmtest/llm-random",
+        with_id=run_id,
+        mode="read-only",
+        api_token=os.environ["NEPTUNE_API_TOKEN"],
+    )
+    cfg_file = "tmp_hydra_config.yaml"
+    run["yaml_config"].download(destination=cfg_file)
+
+    with initialize_config_dir(config_dir=cfg_file, version_base=None):
+        cfg = compose(
+            config_name=cfg_file,
+        )
+
+    return cfg
+
+
 def setup_distributed():
     os.environ["RANK"] = "0"
     os.environ["WORLD_SIZE"] = "1"
@@ -142,25 +157,84 @@ def rsync_checkpoint(
     subprocess.run(cmd, check=True)
 
 
+def collate_no_pad(batch, tokenizer, seq_len):
+    texts = [ex["text"] for ex in batch]
+    urls = [ex["url"] for ex in batch]
+    timestamps = [ex["timestamp"] for ex in batch]
+
+    enc = tokenizer(
+        texts,
+        add_special_tokens=False,
+        truncation=True,
+        max_length=seq_len,
+        return_tensors="pt",
+    )
+
+    input_ids = enc["input_ids"]  # [B, <=SEQ_LEN]
+
+    # keep only samples that actually reached SEQ_LEN
+    keep = input_ids.size(1) == seq_len
+    if not keep:
+        return None  # drop this batch
+
+    return {
+        "input_ids": input_ids,
+        "url": urls,
+        "timestamp": timestamps,
+    }
+
+
+def batch_per_token_losses(model, input_ids, device):
+    model.eval()
+    input_ids = input_ids.to(device)  # [B, T]
+
+    out = model(input_ids)
+    logits = out.logits if hasattr(out, "logits") else out  # [B, T, V]
+
+    logits = logits[:, :-1, :]  # [B, T-1, V]
+    targets = input_ids[:, 1:]  # [B, T-1]
+
+    losses = F.cross_entropy(
+        logits.reshape(-1, logits.size(-1)),
+        targets.reshape(-1),
+        reduction="none",
+    ).reshape(
+        targets.shape
+    )  # [B, T-1]
+
+    return losses.cpu(), targets.cpu()
+
+
+class ModelOnly(Stateful):
+    def __init__(self, model):
+        self.model = model
+
+    def state_dict(self):
+        return {"model": self.model.state_dict()}
+
+    def load_state_dict(self, sd):
+        self.model.load_state_dict(sd["model"], strict=True)
+
+
+def tensors_rows_to_csv(tensors, path="tensors.csv"):
+    rows = []
+    for t in tensors:
+        rows.append(t.detach().cpu())
+    stacked = torch.cat(rows, dim=0)  # (num_tensors * N, N)
+    pd.DataFrame(stacked.numpy()).to_csv(path, index=False)
+
+
 def eval_model(
     ckpt_dir: str,
-    exp_config: str,
-    yaml_overrides: list,
+    cfg,
     dataset_dir: str,
     out_csv: str,
     seq_len: int,
     batch_size: int,
     model_step: int,
+    tmp_ckpt_path: str,
 ):
     device = setup_distributed()
-
-    config_dir = str(Path.cwd() / "configs")
-
-    with initialize_config_dir(config_dir=config_dir, version_base=None):
-        cfg = compose(
-            config_name=exp_config,
-            overrides=yaml_overrides,
-        )
 
     model = instantiate(cfg.model, _convert_="all").to(device)
     model.eval()
@@ -170,20 +244,8 @@ def eval_model(
 
     fsdp_model = FSDP(model)
 
-    class ModelOnly(Stateful):
-        def __init__(self, model):
-            self.model = model
-
-        def state_dict(self):
-            return {"model": self.model.state_dict()}
-
-        def load_state_dict(self, sd):
-            self.model.load_state_dict(sd["model"], strict=True)
-
     state = {"app": ModelOnly(fsdp_model)}
 
-    # rsync from helios
-    tmp_ckpt_path = "/storage_nvme_4/nano/models/from_helios/rsync_from_python"
     # clean folder is exists
     if os.path.exists(tmp_ckpt_path):
         shutil.rmtree(tmp_ckpt_path)
@@ -217,60 +279,18 @@ def eval_model(
 
     print("Tokenizer vocab size:", len(tokenizer))
 
-    def collate_no_pad(batch):
-        texts = [ex["text"] for ex in batch]
-        urls = [ex["url"] for ex in batch]
-        timestamps = [ex["timestamp"] for ex in batch]
-
-        enc = tokenizer(
-            texts,
-            add_special_tokens=False,
-            truncation=True,
-            max_length=seq_len,
-            return_tensors="pt",
-        )
-
-        input_ids = enc["input_ids"]  # [B, <=SEQ_LEN]
-
-        # keep only samples that actually reached SEQ_LEN
-        keep = input_ids.size(1) == seq_len
-        if not keep:
-            return None  # drop this batch
-
-        return {
-            "input_ids": input_ids,
-            "url": urls,
-            "timestamp": timestamps,
-        }
-
-    @torch.no_grad()
-    def batch_per_token_losses(model, input_ids):
-        input_ids = input_ids.to(device)  # [B, T]
-
-        out = model(input_ids)
-        logits = out.logits if hasattr(out, "logits") else out  # [B, T, V]
-
-        logits = logits[:, :-1, :]  # [B, T-1, V]
-        targets = input_ids[:, 1:]  # [B, T-1]
-
-        losses = F.cross_entropy(
-            logits.reshape(-1, logits.size(-1)),
-            targets.reshape(-1),
-            reduction="none",
-        ).reshape(
-            targets.shape
-        )  # [B, T-1]
-
-        return losses.cpu(), targets.cpu()
+    collate_fn = partial(
+        collate_no_pad,
+        tokenizer=tokenizer,
+        seq_len=seq_len,
+    )
 
     loader = DataLoader(
         ds,
         batch_size=batch_size,
         shuffle=False,
-        collate_fn=collate_no_pad,
+        collate_fn=collate_fn,
     )
-
-    model.eval()
 
     all_losses = []
 
@@ -278,15 +298,9 @@ def eval_model(
         if batch is None:
             continue
 
-        losses, _ = batch_per_token_losses(model, batch["input_ids"])
+        with torch.no_grad():
+            losses, _ = batch_per_token_losses(fsdp_model, batch["input_ids"], device)
         all_losses.append(losses)
-
-    def tensors_rows_to_csv(tensors, path="tensors.csv"):
-        rows = []
-        for t in tensors:
-            rows.append(t.detach().cpu())
-        stacked = torch.cat(rows, dim=0)  # (num_tensors * N, N)
-        pd.DataFrame(stacked.numpy()).to_csv(path, index=False)
 
     tensors_rows_to_csv(all_losses, path=out_csv)
 
@@ -301,12 +315,6 @@ def main():
         nargs="+",
         required=True,
         help="Neptune tags to INCLUDE (space-separated)",
-    )
-    parser.add_argument(
-        "--grid_params",
-        nargs="+",
-        required=True,
-        help="params to overwrite in hydra config",
     )
     parser.add_argument(
         "--exp_config",
@@ -350,29 +358,25 @@ def main():
         default=320000,
         help="for loading correct model checkpoint",
     )
+    parser.add_argument(
+        "--tmp_ckpt_path",
+        type=str,
+        help="remember to store model in correct place",
+    )
 
     args = parser.parse_args()
-
-    yaml_keys = [
-        re.sub(r"^job_config/", "", p).replace("/", ".") for p in args.grid_params
-    ]
-    assert_unique_keyword_matches(args.out_csv_format, yaml_keys)
 
     df = get_neptune_table(tags=args.tags)
 
     for _, row in df.iterrows():
-        yaml_overrides = [f"{k}={row[p]}" for k, p in zip(yaml_keys, args.grid_params)]
+        cfg = get_hydra_config(row)
 
         ckpt_path = row["job/full_save_checkpoints_path"]
-        out_csv = str(
-            Path(args.out_dir) / make_csv_name(args.out_csv_format, yaml_overrides)
-        )
+        out_csv = str(Path(args.out_dir) / make_csv_name(args.out_csv_format, cfg))
         print(
             f"""
             DEBUG eval_model params:\n
             qckpt_dir={ckpt_path},\n
-            exp_config={args.exp_config},\n
-            yaml_overrides={yaml_overrides},\n
             dataset_dir={args.dataset_dir},\n
             out_csv={out_csv},\n
             seq_len={args.seq_len},\n
@@ -381,13 +385,13 @@ def main():
         )
         eval_model(
             ckpt_dir=ckpt_path,
-            exp_config=args.exp_config,
-            yaml_overrides=yaml_overrides,
+            cfg=cfg,
             dataset_dir=args.dataset_dir,
             out_csv=out_csv,
             seq_len=args.seq_len,
             batch_size=args.batch_size,
             model_step=args.model_step,
+            tmp_ckpt_path=args.tmp_ckpt_path,
         )
 
 
