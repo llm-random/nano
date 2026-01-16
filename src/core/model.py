@@ -286,7 +286,7 @@ class MLP(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn, compile: bool):
+    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn, compile: bool = False):
         super().__init__()
         self.silu = nn.SiLU()
         self.ff_pre_act = ff_pre_act_fn()
@@ -387,7 +387,7 @@ class RoPEAttention(nn.Module):
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
-        compile: bool,
+        compile: bool = False,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
