@@ -198,9 +198,7 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         lr=learning_rate,
         weight_decay=cfg.trainer.weight_decay,
     )
-    scheduler = instantiate(cfg.trainer.scheduler)(
-        optimizer=optimizer, n_steps=cfg.trainer.n_steps
-    )
+    scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)
 
     return model, optimizer, scheduler
 
