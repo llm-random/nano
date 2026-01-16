@@ -2,7 +2,7 @@ trainer:
   _partial_: true
   _target_: src.context_scaling.trainer.ContextScalingTrainer
   eval_interval: 100
-  eval_long_ctx_interval: 100
+  eval_long_ctx_interval: -1
   n_eval_steps: 10
   n_eval_long_ctx_steps: 2
   gradient_accumulation_steps: 1

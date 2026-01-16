@@ -1,9 +1,9 @@
 defaults:
   - _cluster@_here_: entropy
-  - _model@_here_: k16
+  - _model/context_scaling@_here_: tiny
   - _trainer@_here_: context_scaling
   - _dataset@_here_: ctx_scl_dataset
-  - _checkpoints/context_scaling@_here_: shared_entropy
+  - _checkpoints@_here_: none
   - _misc@_here_: default
   - _eval@_here_: none
   - _self_
@@ -11,25 +11,16 @@ defaults:
 common:
   sequence_length: 512
   batch_size: 32
+  model_seed: 123
+  data_seed: 123
 
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 101
   learning_rate: 2e-3
   eval_interval: 20
-  eval_long_ctx_interval: 20
 
-  checkpoint:
-    save:
-      type: nano
-      # path: checkpoint
-
-  eval_long_ctx_dataloader:
-    num_workers: 8
-    dataset:
-      load_dataset_fn:
-        path: /storage_nvme_1/llm-random/datasets/c4/long_context_2048n8192
-        # path: /net/scratch/hscra/plgrid/plgj321m/c4/long_context_2048n8192
+  eval_long_ctx_dataloader: null
 
 infrastructure:
   metric_logger:
@@ -39,9 +30,8 @@ infrastructure:
       - remote
       - tiny
       - context_scaling
-      - "savemodel"
 
   slurm:
     time: "00:10:00"
-    gres: gpu:1
+    gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}

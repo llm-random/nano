@@ -16,3 +16,9 @@ common:
   init_scale: 0.1
   init_type: truncated_normal_fixed
   model_type: gpt
+
+model:
+  encoder:
+    block_fn:
+      attention_fn:
+        compile: false
