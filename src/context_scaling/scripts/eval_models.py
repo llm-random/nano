@@ -332,6 +332,17 @@ def main():
         out_csv = str(
             Path(args.out_dir) / make_csv_name(args.out_csv_format, yaml_overrides)
         )
+        print(
+            f"""
+            DEBUG eval_model params: ckpt_dir={ckpt_path},\n
+            exp_config={args.exp_config},\n
+            yaml_overrides={yaml_overrides},\n
+            dataset_dir={args.dataset_dir},\n
+            out_csv={out_csv},\n
+            seq_len={args.seq_len},\n
+            batch_size={args.batch_size}
+            """
+        )
         eval_model(
             ckpt_dir=ckpt_path,
             exp_config=args.exp_config,
