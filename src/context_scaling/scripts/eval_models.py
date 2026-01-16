@@ -321,12 +321,6 @@ def main():
         help="Neptune tags to INCLUDE (space-separated)",
     )
     parser.add_argument(
-        "--exp_config",
-        type=str,
-        required=True,
-        help="path to yaml config, for model initialization",
-    )
-    parser.add_argument(
         "--dataset_dir",
         type=str,
         required=True,
