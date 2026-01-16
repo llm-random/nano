@@ -6,6 +6,7 @@ import argparse
 from tqdm.auto import tqdm
 import pandas as pd
 import neptune
+import shutil
 
 from hydra import initialize_config_dir, compose
 from hydra.utils import instantiate
@@ -135,7 +136,7 @@ def setup_distributed():
 def rsync_checkpoint(cluster: str, remote_path: str, local_dir: str) -> None:
     "Rsync a checkpoint from a remote cluster to local directory."
 
-    cmd = ["rsync", "-rlphvP", f"{cluster}:{remote_path}", local_dir]
+    cmd = ["rsync", "-rlphvP", f"{cluster}:{remote_path}/", local_dir]
     subprocess.run(cmd, check=True)
 
 
@@ -180,7 +181,11 @@ def eval_model(
 
     # rsync from helios
     tmp_ckpt_path = "/storage_nvme_4/nano/models/from_helios/rsync_from_python"
+    # clean folder is exists
+    if os.path.exists(tmp_ckpt_path):
+        shutil.rmtree(tmp_ckpt_path)
     os.makedirs(tmp_ckpt_path, exist_ok=True)
+
     rsync_checkpoint(
         "helios",
         ckpt_dir,
@@ -354,7 +359,8 @@ def main():
         )
         print(
             f"""
-            DEBUG eval_model params: ckpt_dir={ckpt_path},\n
+            DEBUG eval_model params:\n
+            qckpt_dir={ckpt_path},\n
             exp_config={args.exp_config},\n
             yaml_overrides={yaml_overrides},\n
             dataset_dir={args.dataset_dir},\n
