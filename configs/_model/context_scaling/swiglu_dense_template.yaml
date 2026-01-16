@@ -40,7 +40,7 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         k_proj_fn:
           _target_: src.core.model.Linear
@@ -50,7 +50,7 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
@@ -63,7 +63,7 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         
         pre_attn_fn:
           _target_: src.core.model.QKNorm
@@ -94,7 +94,7 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         ff_post_act_fn:
           _target_: src.core.model.Linear
           _partial_: true
@@ -103,7 +103,7 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
 
   head:
@@ -116,7 +116,7 @@ model:
       partial_init_fn:
         _target_: src.core.model.trunc_normal_init
         _partial_: true
-        scale: 1
+        scale: ${common.init_scale}
     norm_fn:
       _target_: src.core.model.RMSNorm
       _partial_: true

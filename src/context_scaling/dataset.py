@@ -6,7 +6,7 @@ from datasets import load_from_disk
 import itertools
 import numpy as np
 import random
-from torch.utils.data import IterableDataset, DataLoader
+from torch.utils.data import IterableDataset, DataLoader, get_worker_info
 from transformers import GPT2TokenizerFast, AutoTokenizer
 from datasets import load_dataset
 from datasets.distributed import split_dataset_by_node
@@ -233,15 +233,23 @@ class AbstractDataset(IterableDataset):
             buffer_size=self.BUFFER_SIZE,
         )
 
+    def _get_effective_seed(self):
+        worker_info = get_worker_info()
+        if worker_info is None:
+            return self.seed
+        return self.seed + worker_info.id
+
     def sample_packer(self):
+        effective_seed = self._get_effective_seed()
         yield from self.sample_packer_fn(
             get_infinite_sampler=self.get_infinite_sampler,
-            seed=self.seed,
+            seed=effective_seed,
             sequence_length=self.sequence_length,
         )
 
     def __iter__(self):
-        self.rng.seed(self.seed)
+        effective_seed = self._get_effective_seed()
+        self.rng.seed(effective_seed)
         if self.world_size_independent:
             return itertools.islice(
                 self.sample_packer(), self.rank, None, self.world_size
