@@ -179,9 +179,14 @@ def eval_model(
     state = {"app": ModelOnly(fsdp_model)}
 
     # rsync from helios
-    rsync_checkpoint("helios", ckpt_dir, "tmp_ckpt")
+    tmp_ckpt_path = "/storage_nvme_4/nano/models/from_helios/rsync_from_python"
+    os.makedirs(tmp_ckpt_path, exist_ok=True)
+    rsync_checkpoint(
+        "helios",
+        ckpt_dir,
+    )
 
-    dcp.load(state, checkpoint_id="tmp_ckpt")
+    dcp.load(state, checkpoint_id=tmp_ckpt_path)
 
     print("✅ Checkpoint loaded")
 
