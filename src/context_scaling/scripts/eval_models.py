@@ -133,7 +133,7 @@ def setup_distributed():
 
 def eval_model(
     ckpt_dir: str,
-    exp_config_name: str,
+    exp_config: str,
     yaml_overrides: list,
     dataset_dir: str,
     out_csv: str,
@@ -146,7 +146,7 @@ def eval_model(
 
     with initialize_config_dir(config_dir=config_dir, version_base=None):
         cfg = compose(
-            config_name=exp_config_name,
+            config_name=exp_config,
             overrides=yaml_overrides,
         )
 
