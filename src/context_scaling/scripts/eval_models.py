@@ -133,10 +133,12 @@ def setup_distributed():
     return device
 
 
-def rsync_checkpoint(cluster: str, remote_path: str, local_dir: str) -> None:
+def rsync_checkpoint(
+    cluster: str, remote_path: str, model_step: int, local_dir: str
+) -> None:
     "Rsync a checkpoint from a remote cluster to local directory."
 
-    cmd = ["rsync", "-rlphvP", f"{cluster}:{remote_path}/", local_dir]
+    cmd = ["rsync", "-rlphvP", f"{cluster}:{remote_path}/step_{model_step}/", local_dir]
     subprocess.run(cmd, check=True)
 
 
@@ -148,6 +150,7 @@ def eval_model(
     out_csv: str,
     seq_len: int,
     batch_size: int,
+    model_step: int,
 ):
     device = setup_distributed()
 
@@ -189,6 +192,7 @@ def eval_model(
     rsync_checkpoint(
         "helios",
         ckpt_dir,
+        model_step,
         tmp_ckpt_path,
     )
 
@@ -340,6 +344,12 @@ def main():
         default=32,
         help="Batch size",
     )
+    parser.add_argument(
+        "--model_step",
+        type=int,
+        default=320000,
+        help="for loading correct model checkpoint",
+    )
 
     args = parser.parse_args()
 
@@ -377,6 +387,7 @@ def main():
             out_csv=out_csv,
             seq_len=args.seq_len,
             batch_size=args.batch_size,
+            model_step=args.model_step,
         )
 
 
