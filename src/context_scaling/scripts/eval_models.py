@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 from pathlib import Path
 import argparse
 from tqdm.auto import tqdm
@@ -131,6 +132,13 @@ def setup_distributed():
     return device
 
 
+def rsync_checkpoint(cluster: str, remote_path: str, local_dir: str) -> None:
+    "Rsync a checkpoint from a remote cluster to local directory."
+
+    cmd = ["rsync", "-rlphvP", f"{cluster}:{remote_path}", local_dir]
+    subprocess.run(cmd, check=True)
+
+
 def eval_model(
     ckpt_dir: str,
     exp_config: str,
@@ -169,7 +177,13 @@ def eval_model(
             self.model.load_state_dict(sd["model"], strict=True)
 
     state = {"app": ModelOnly(fsdp_model)}
-    dcp.load(state, checkpoint_id=ckpt_dir)
+
+    # rsync from helios
+    rsync_checkpoint("helios", ckpt_dir, "tmp_ckpt")
+
+    dcp.load(state, checkpoint_id="tmp_ckpt")
+
+    print("✅ Checkpoint loaded")
 
     fsdp_model.eval()
     print("✅ Model loaded for inference (optimizer skipped)")
