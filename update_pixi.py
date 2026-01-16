@@ -114,6 +114,9 @@ def update_remote_pixi(cfg: OmegaConf):
     for key in ("gres", "cpus_per_gpu", "mem_per_gpu"):
         slurm_config.pop(key, None)
 
+    if cfg.infrastructure.server == "lem":
+        slurm_config["gres"] = "gpu:hopper:1"
+
     # Optionally set simple CPU-only params (tune if you like)
     slurm_config["job-name"] = "update_pixi"
     slurm_config["cpus-per-task"] = (
@@ -199,23 +202,12 @@ def update_remote_pixi(cfg: OmegaConf):
             if not line or line.startswith("#"):
                 continue
 
-            # include module load
-            if line.startswith("module load"):
-                env_setup.append(line)
-                continue
-
-            # include all pixi-related exports
-            if line.startswith("export") and (
-                "PIXI" in line or "XDG_" in line or 'PATH="$PIXI_HOME' in line
-            ):
-                env_setup.append(line)
-                continue
-
         env_commands = " && ".join(env_setup) if env_setup else ""
 
         # mkdir + copy happen on the compute node, via srun
         base_command = (
             "ts=$(date +%Y_%m_%d_%H_%M_%S) && "
+            f"env && "
             f"mkdir -p {pixi_home} && "
             # archive old pixi.toml / pixi.lock if present
             f"if [ -f {pixi_home}/pixi.toml ] || [ -f {pixi_home}/pixi.lock ]; then "
