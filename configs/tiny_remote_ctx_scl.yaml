@@ -1,5 +1,5 @@
 defaults:
-  - _cluster@_here_: entropy
+  - _cluster@_here_: lem
   - _model/context_scaling@_here_: tiny
   - _trainer@_here_: context_scaling
   - _dataset@_here_: ctx_scl_dataset
@@ -22,6 +22,16 @@ trainer:
 
   eval_long_ctx_dataloader: null
 
+  train_dataloader:
+    dataset:
+      load_dataset_fn:
+        path: ${cluster_switch.train_path_fineweb}
+
+  eval_dataloader:
+    dataset:
+      load_dataset_fn:
+        path: ${cluster_switch.eval_path_fineweb}
+
 infrastructure:
   metric_logger:
     name: tiny_remote
@@ -32,6 +42,6 @@ infrastructure:
       - context_scaling
 
   slurm:
-    time: "00:10:00"
-    gres: gpu:2
+    time: "00:30:00"
+    gres: gpu:hopper:1
     job-name: ${infrastructure.metric_logger.name}
