@@ -1,3 +1,6 @@
+common:
+  model_seed: 123
+
 model:
   _target_: src.core.model.LLM
 

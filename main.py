@@ -237,7 +237,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         metric_logger.run["learning_rate"] = learning_rate
         metric_logger.run["exp_lr"] = exp_lr
 
-    torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
+    torch.manual_seed(cfg.common.model_seed)
 
     device = get_device()
 

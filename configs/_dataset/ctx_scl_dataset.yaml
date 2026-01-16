@@ -10,7 +10,7 @@ trainer:
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}
-      seed: 123
+      seed: ${common.data_seed}
       use_new_sampling_method: true
       world_size_independent: false
       tokenize_fn:
@@ -32,7 +32,7 @@ trainer:
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}
-      seed: 123
+      seed: ${common.data_seed}
       use_new_sampling_method: true
       world_size_independent: false
       tokenize_fn:
@@ -54,7 +54,7 @@ trainer:
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}
-      seed: 123
+      seed: ${common.data_seed}
       use_new_sampling_method: true
       world_size_independent: false
       tokenize_fn:
