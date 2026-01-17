@@ -464,7 +464,7 @@ class ProjectedLinear(nn.Module):
         self,
         proj_in_topk_indices: Optional[torch.Tensor],
         proj_out_topk_indices: Optional[torch.Tensor],
-        smart_init = False,
+        smart_init,
         factory_kwargs={},
     ):
 
