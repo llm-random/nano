@@ -14,12 +14,15 @@ common:
   kv_heads: 16
   dff: 2560
   data_seed: 123
+  # ^data_seed: [124, 125]
   model_seed: 123
+  # ^model_seed: [124, 125]
 
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 320_001
-  ^learning_rate: [11, 12, 13]
+  learning_rate: 12
+  # ^learning_rate: [11, 12, 13]
   eval_interval: 5000
   eval_long_ctx_interval: 5000
   n_eval_long_ctx_steps: 64
