@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 
 from main import get_device
-from src.projected_compression.utils import mpp, svd_g
 
 
 def get_nested_attr(module, attr_path):
@@ -91,18 +90,11 @@ def calculate_dimension_importances(model: nn.Module, topk_dmodel, topk_dff):
 
 
 def initialize_projection_weights(
-    model: nn.Module, dmodel_top_indices, dff_top_indices, smart_init
+    model: nn.Module, dmodel_top_indices, dff_top_indices
 ):
-    print(f"Initializing projections START")
-    if not smart_init:
-        model.head.linear.init_projections(dmodel_top_indices, None, False)
-        model.embedding.init_projection(dmodel_top_indices, False)
-    else:
-        model.head.linear.init_projections(dmodel_top_indices, None, mpp)
-        model.embedding.init_projection(dmodel_top_indices, mpp)
-    
+    model.head.linear.init_projections(dmodel_top_indices, None)
+    model.embedding.init_projection(dmodel_top_indices)
 
-    print(f"Initializing projections before head")
     cloned_data = model.head.norm.weight.data.clone()
     model.head.norm.weight = torch.nn.Parameter(cloned_data[dmodel_top_indices])
     model.head.norm.normalized_shape = tuple(model.head.norm.weight.shape)
@@ -124,7 +116,7 @@ def initialize_projection_weights(
 
         for layer_name, in_topk_indices, out_topk_indices in layers_to_init_projections:
             get_nested_attr(block, layer_name).init_projections(
-                in_topk_indices, out_topk_indices, smart_init
+                in_topk_indices, out_topk_indices
             )
 
         cloned_data = block.attention_layer.norm.weight.data.clone()
@@ -139,7 +131,10 @@ def initialize_projection_weights(
         block.ff_layer.norm.weight = torch.nn.Parameter(cloned_data[dmodel_top_indices])
         block.ff_layer.norm.normalized_shape = tuple(block.ff_layer.norm.weight.shape)
 
-def init_compression(model: nn.Module, dimensions_importances_path, target_dmodel, target_dff, smart_init):
+
+def init_compression(
+    model: nn.Module, dimensions_importances_path, target_dmodel, target_dff
+):
     # Freeze all parameters
     for param in model.parameters():
         param.requires_grad = False
@@ -160,13 +155,7 @@ def init_compression(model: nn.Module, dimensions_importances_path, target_dmode
         ).indices.to(device)
         dff_indices.append(dff_top_indices_current)
 
-    if smart_init == "mpp":
-        smart_init_fun = mpp
-    elif smart_init == "svd":
-        smart_init_fun = svd_g
-    elif smart_init is False:
-        smart_init_fun = False
-    initialize_projection_weights(model, dmodel_indices, dff_indices, smart_init_fun)
+    initialize_projection_weights(model, dmodel_indices, dff_indices)
     return model
 
 
