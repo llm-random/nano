@@ -10,7 +10,6 @@ common:
   q_heads: ???
   kv_heads: ???
   vocab_size: 49152
-  smart_init: False
 
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
