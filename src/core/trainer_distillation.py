@@ -156,7 +156,6 @@ class TrainerDistillation(Trainer):
     def log_metrics(self, loss, grad_norm):
         """Override to add distillation-specific metrics"""
         # Call parent log_metrics
-        # super().log_metrics(loss, grad_norm) # dev
         self.metric_logger.log("step", self.step, self.step)
         self.metric_logger.log("steps/train/loss", self.step, loss.item())
         self.metric_logger.log(
