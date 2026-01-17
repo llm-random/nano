@@ -207,7 +207,7 @@ class AbstractDataset(IterableDataset):
         self,
         sequence_length,
         tokenize_fn: Callable,
-        load_dataset_fn: Callable,
+        data_generator: Callable,
         sample_packer_fn: Callable,
         seed: Optional[int] = None,
         use_new_sampling_method: bool = True,
@@ -223,7 +223,7 @@ class AbstractDataset(IterableDataset):
         self.world_size_independent = world_size_independent
         self.sample_packer_fn = sample_packer_fn
 
-        self.data_generator = load_dataset_fn(
+        self.data_generator = data_generator(
             seed=self.seed,
             tokenize_fn=self.tokenize_fn,
             num_shards=self.NUM_SHARDS,

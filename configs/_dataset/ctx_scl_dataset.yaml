@@ -18,7 +18,7 @@ trainer:
       sample_packer_fn:
         _target_: src.context_scaling.dataset.new_packer
         _partial_: true
-      load_dataset_fn:
+      data_generator:
         _target_: src.context_scaling.dataset.get_dataset
         _partial_: true
         path: ${cluster_switch.train_path_c4}
@@ -40,7 +40,7 @@ trainer:
       sample_packer_fn:
         _target_: src.context_scaling.dataset.new_packer
         _partial_: true
-      load_dataset_fn:
+      data_generator:
         _target_: src.context_scaling.dataset.get_dataset
         _partial_: true
         path: ${cluster_switch.eval_path_c4}
@@ -62,7 +62,7 @@ trainer:
       sample_packer_fn:
         _target_: src.context_scaling.dataset.long_context_packer
         _partial_: true
-      load_dataset_fn:
+      data_generator:
         _target_: src.context_scaling.dataset.get_dataset
         _partial_: true
         path: data_long_ctx
