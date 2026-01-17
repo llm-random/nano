@@ -1,6 +1,5 @@
 
 common_distillation:
-  _target_: src.definitions.Common
   dmodel: 2048
   dff: 8192
   datt: 2048
