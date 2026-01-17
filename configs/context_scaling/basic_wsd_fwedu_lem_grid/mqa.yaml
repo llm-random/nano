@@ -1,18 +1,18 @@
 defaults:
-  - _cluster@_here_: lem
-  - _model/context_scaling@_here_: k16
-  - _trainer@_here_: context_scaling
-  - _dataset@_here_: ctx_scl_dataset
-  - _checkpoints/context_scaling@_here_: shared_lem
-  - _misc@_here_: default
-  - _eval@_here_: none
+  - ../../_cluster@_here_: lem
+  - ../../_model/context_scaling@_here_: k16
+  - ../../_trainer@_here_: context_scaling
+  - ../../_dataset@_here_: ctx_scl_dataset
+  - ../../_checkpoints/context_scaling@_here_: shared_lem
+  - ../../_misc@_here_: default
+  - ../../_eval@_here_: none
   - _self_
 
 common:
   sequence_length: 2048
   batch_size: 64
   kv_heads: 1
-  dff: 3200
+  ^dff: [3200, 3520]
   data_seed: 123
   model_seed: 123
 
@@ -30,13 +30,13 @@ trainer:
       # path: checkpoint
 
   train_dataloader:
-    num_workers: 8
+    num_workers: 2
     dataset:
       data_generator:
         path: ${cluster_switch.train_path_fineweb}
 
   eval_dataloader:
-    num_workers: 8
+    num_workers: 2
     dataset:
       data_generator:
         path: ${cluster_switch.eval_path_fineweb}
