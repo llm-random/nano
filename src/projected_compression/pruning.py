@@ -24,8 +24,8 @@ def prune(model: nn.Module, dimensions_importances_path, target_dmodel, target_d
         dff_indices.append(dff_top_indices_current)
 
     # Embedding
-    embedding_weight = model.embedding.embedding.weight.data
-    model.embedding.embedding.weight.data = embedding_weight[:, dmodel_indices]
+    embedding_weight = model.embedding.weight.data
+    model.embedding.weight.data = embedding_weight[:, dmodel_indices]
 
     # Head
     head_weight = model.head.linear.weight.data
