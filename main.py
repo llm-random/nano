@@ -280,22 +280,13 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             cfg, model, learning_rate
         )
     elif cfg.trainer.checkpoint.load.type == "nano":
+        # TODO! if you want to apply function on loaded model it does NOT work now, it applies function on newly inintialized model than it loads model weights  
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
-
         load_checkpoint_from_file(
             cfg.trainer.checkpoint.load, model, optimizer, scheduler
         )
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    cleanup() 
-                    return 0
-        model = model.to(device)
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        
         if cfg.trainer.checkpoint.load.only_weights:
             optimizer = torch.optim.AdamW(
                 model.parameters(),
