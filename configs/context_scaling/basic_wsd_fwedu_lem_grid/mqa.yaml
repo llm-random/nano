@@ -21,7 +21,7 @@ trainer:
   n_steps: 320_001
   ^learning_rate: [11, 12, 13]
   eval_interval: 5000
-  eval_long_ctx_interval: 5000
+  eval_long_ctx_interval: -1
   n_eval_long_ctx_steps: 64
 
   checkpoint:
