@@ -61,7 +61,6 @@ class Trainer:
                 next(self.eval_iterator)
 
         self.loss_averaged_100 = AveMetric(100, "steps/100/train/loss")
-        self.ce_loss_averaged_100 = AveMetric(100, "steps/100/train/ce_loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "steps/100/time", time.time())
 
     @property
@@ -201,12 +200,8 @@ class Trainer:
                 self.metric_logger.flush_accumulated_metrics(self.step)
             avg_loss = torch.tensor(losses).mean()
             self.metric_logger.log("steps/eval/loss", self.step, avg_loss.item())
-            self.metric_logger.log("steps/eval/ce_loss", self.step, avg_loss.item())
             self.metric_logger.log(
                 "tokens/eval/loss", self.processed_tokens, avg_loss.item()
-            )
-            self.metric_logger.log(
-                "tokens/eval/ce_loss", self.processed_tokens, avg_loss.item()
             )
 
         if self._should_log_eval_input:
@@ -231,7 +226,6 @@ class Trainer:
     def log_metrics(self, loss, grad_norm):
         self.metric_logger.log("step", self.step, self.step)
         self.metric_logger.log("steps/train/loss", self.step, loss.item())
-        self.metric_logger.log("steps/train/ce_loss", self.step, loss.item())
         self.metric_logger.log(
             "steps/train/lr", self.step, (self.scheduler.get_last_lr()[0])
         )
@@ -241,7 +235,6 @@ class Trainer:
         )
 
         self.metric_logger.log("tokens/train/loss", self.processed_tokens, loss.item())
-        self.metric_logger.log("tokens/train/ce_loss", self.processed_tokens, loss.item())
         self.metric_logger.log(
             "tokens/lr", self.processed_tokens, (self.scheduler.get_last_lr()[0])
         )
@@ -250,7 +243,6 @@ class Trainer:
         )
 
         self.loss_averaged_100.log(self.metric_logger, self.step, loss.item())
-        self.ce_loss_averaged_100.log(self.metric_logger, self.step, loss.item())
         self.time_diff_averaged_100.log(self.metric_logger, self.step, time.time())
 
         self.metric_logger.flush_accumulated_metrics(self.step)
