@@ -95,7 +95,6 @@ def initialize_projection_weights(
 ):
     print(f"Initializing projections START")
     if not smart_init:
-    # if not False: #dev
         model.head.linear.init_projections(dmodel_top_indices, None, False)
         model.embedding.init_projection(dmodel_top_indices, False)
     else:
@@ -109,7 +108,6 @@ def initialize_projection_weights(
     model.head.norm.normalized_shape = tuple(model.head.norm.weight.shape)
 
     for i, block in enumerate(model.encoder.blocks):
-        print(f"Initializing projections, block: {i} ---------------")
         layers_to_init_projections = [
             ("attention_layer.layer.q_proj", dmodel_top_indices, None),
             ("attention_layer.layer.k_proj", dmodel_top_indices, None),
