@@ -24,12 +24,12 @@ trainer:
 
   train_dataloader:
     dataset:
-      load_dataset_fn:
+      data_generator:
         path: ${cluster_switch.train_path_fineweb}
 
   eval_dataloader:
     dataset:
-      load_dataset_fn:
+      data_generator:
         path: ${cluster_switch.eval_path_fineweb}
 
 infrastructure:
