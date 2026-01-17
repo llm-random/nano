@@ -253,21 +253,8 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
     if cfg.trainer.checkpoint.load.type == "huggingface":
         copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
-        if cfg.get("apply_functions", None):
-            for fn in instantiate(cfg.apply_functions):
-                res = fn(model)
-                if res == False:
-                    cleanup() 
-                    return 0
-        
-        model = model.to(device)
-        for p in model.parameters():
-            dist.broadcast(p.data, src=0)
-        model = setup_distributed_training(model, cfg.trainer.distributed)
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=cfg.trainer.weight_decay,
+        model, optimizer, scheduler = get_model_optimizer_scheduler(
+            cfg, model, learning_rate
         )
     elif cfg.trainer.checkpoint.load.type == "llm-random":
         load_llmrandom_checkpoint(cfg.trainer.checkpoint.load, model)
