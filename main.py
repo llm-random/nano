@@ -267,10 +267,10 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             cfg, model, learning_rate
         )
     elif cfg.trainer.checkpoint.load.type == "nano":
+        # TODO! if you want to apply function on loaded model it does NOT work now, it applies function on newly inintialized model than it loads model weights  
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
-
         load_checkpoint_from_file(
             cfg.trainer.checkpoint.load, model, optimizer, scheduler
         )
@@ -311,13 +311,29 @@ def run(cfg: OmegaConf, metric_logger=None):
         logger.info(f"Model initialized")
 
         trainer = instantiate(cfg.trainer)
-        trainer(
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            training_state=training_state,
-            metric_logger=metric_logger,
-        ).train()
+
+        if "distillation" in cfg:
+            teacher_model = instantiate(cfg.distillation.teacher_model, _convert_="all").to(device)
+            if cfg.distillation.load.type == "huggingface":
+                copy_llama_model_weights_from_HF(teacher_model, cfg.distillation.load.path)
+                teacher_model = setup_distributed_training(teacher_model, cfg.trainer.teacher_distributed)
+
+            trainer(
+                teacher_model=teacher_model,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                training_state=training_state,
+                metric_logger=metric_logger,
+            ).train()
+        else:
+            trainer(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                training_state=training_state,
+                metric_logger=metric_logger,
+            ).train()
 
         # TODO
         # finetuning

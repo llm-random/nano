@@ -9,6 +9,7 @@ common:
   q_heads: ???
   kv_heads: ???
   vocab_size: 50257
+  smart_init: False
 
 model:
   _target_: src.projected_compression.model.LLM
