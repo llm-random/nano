@@ -1,21 +1,18 @@
 
 common_distillation:
-  dmodel: 2048
-  dff: 8192
-  datt: 2048
-  n_blocks: 16
-  q_heads: 32
-  kv_heads: 8
-  vocab_size: 128256
-  head_norm: true
-  init_scale: 0.1
-  init_type: truncated_normal_fixed
-  model_type: gpt
+  dmodel: ???
+  dff: ???
+  datt: ???
+  n_blocks: ???
+  q_heads: ???
+  kv_heads: ???
+  vocab_size: ???
 
 distillation:
   load:
     type: huggingface
-    path: "meta-llama/Llama-3.2-1B"
+    path: ???
+    
   teacher_model: 
     _target_: src.projected_compression.model.LLM
 
