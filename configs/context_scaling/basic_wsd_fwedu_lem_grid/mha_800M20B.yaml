@@ -1,6 +1,6 @@
 defaults:
   - ../../_cluster@_here_: lem
-  - ../../_model/context_scaling@_here_: k12
+  - ../../_model/context_scaling@_here_: k24
   - ../../_trainer@_here_: context_scaling
   - ../../_dataset@_here_: ctx_scl_dataset
   - ../../_checkpoints/context_scaling@_here_: shared_lem
@@ -17,7 +17,7 @@ common:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 320_001
+  n_steps: 160_001
   ^learning_rate: [11, 12, 13]
   eval_interval: 5000
   eval_long_ctx_interval: -1
@@ -47,9 +47,9 @@ infrastructure:
     name: scaling
     tags:
       - nano
-      - k12
+      - k24
       - context_scaling
-      - 120B
+      - 20B
       - MHA
       - WSD_scheduler
       - fineweb_edu
