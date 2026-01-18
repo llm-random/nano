@@ -23,8 +23,10 @@ model:
 
   embedding:
     _target_: src.projected_compression.model.ProjectedEmbedding
-    num_embeddings: ${common.vocab_size}
-    embedding_dim: ${common.base_dmodel}
+    embedding:
+      _target_: src.projected_compression.model.Embedding
+      num_embeddings: ${common.vocab_size}
+      embedding_dim: ${common.base_dmodel}
     result_out_features: ${common.dmodel}
 
   encoder:
