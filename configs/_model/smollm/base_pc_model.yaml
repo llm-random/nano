@@ -23,10 +23,8 @@ model:
 
   embedding:
     _target_: src.projected_compression.model.ProjectedEmbedding
-    embedding:
-      _target_: src.projected_compression.model.Embedding
-      num_embeddings: ${common.vocab_size}
-      embedding_dim: ${common.base_dmodel}
+    num_embeddings: ${common.vocab_size}
+    embedding_dim: ${common.base_dmodel}
     result_out_features: ${common.dmodel}
 
   encoder:
@@ -108,7 +106,7 @@ model:
       result_in_features: ${common.dmodel}
       result_out_features: null
       base_in_features: ${common.base_dmodel}
-      base_out_features: ${model.embedding.embedding.num_embeddings}
+      base_out_features: ${model.embedding.num_embeddings}
     norm_fn:
         _target_: src.core.model.RMSNorm
         _partial_: true
