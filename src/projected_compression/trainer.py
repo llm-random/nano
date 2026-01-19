@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 @define(slots=False)
 class PCTrainer(Trainer):
+    only_compress_model_gradient_clipping: bool
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -34,12 +35,20 @@ class PCTrainer(Trainer):
             self.model.prepare_compressed_weights()
             loss = self.calculate_loss(batch)
 
-            grad_norm = self.model.pass_gradient_to_projections(
-                self.block_optimizers, self.block_schedulers, self.gradient_clipping
-            )
-            torch.nn.utils.clip_grads_with_norm_(
-                self.model.parameters(), self.gradient_clipping, grad_norm
-            )
+            if self.only_compress_model_gradient_clipping:
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.gradient_clipping
+                )
+                self.model.pass_gradient_to_projections(
+                    self.block_optimizers, self.block_schedulers, False
+                )
+            else:
+                grad_norm = self.model.pass_gradient_to_projections(
+                    self.block_optimizers, self.block_schedulers, self.gradient_clipping
+                )
+                torch.nn.utils.clip_grads_with_norm_(
+                    self.model.parameters(), self.gradient_clipping, grad_norm
+                )
 
             self.log_metrics(loss, grad_norm)
             self.optimizer.step()

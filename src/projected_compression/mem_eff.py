@@ -276,18 +276,18 @@ class MemoryEfficientProjectedCompression(nn.Module):
 
                 projection_block_grad_norm = get_module_grad_norm(block_proj)
                 projection_blocks_grad_norms.append(projection_block_grad_norm)
+                if gradient_clipping:
+                    grad_norm_to_use = start_grad_norm
+                    if self.adjust_grad_norm:
+                        grad_norm_to_use = (
+                            start_grad_norm**2
+                            - compressed_params_grad_norm**2
+                            + projection_block_grad_norm**2
+                        ) ** 0.5
 
-                grad_norm_to_use = start_grad_norm
-                if self.adjust_grad_norm:
-                    grad_norm_to_use = (
-                        start_grad_norm**2
-                        - compressed_params_grad_norm**2
-                        + projection_block_grad_norm**2
-                    ) ** 0.5
-
-                torch.nn.utils.clip_grads_with_norm_(
-                    block_proj.parameters(), gradient_clipping, grad_norm_to_use
-                )
+                    torch.nn.utils.clip_grads_with_norm_(
+                        block_proj.parameters(), gradient_clipping, grad_norm_to_use
+                    )
 
                 optimizer.step()
                 optimizer.zero_grad()
