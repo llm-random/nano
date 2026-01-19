@@ -12,7 +12,8 @@ common:
   sequence_length: 2048
   batch_size: 64
   kv_heads: 1
-  ^dff: [3200, 3520]
+  ^dff: [3840]
+  # ^dff: [3200, 3520, 3840]
   data_seed: 123
   model_seed: 123
 
