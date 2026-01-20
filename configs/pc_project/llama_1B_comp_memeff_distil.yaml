@@ -34,7 +34,7 @@ trainer:
   #   save:
   #     interval: 1024
   #     model_checkpoint_filename: __model_checkpoint_filename.pt
-  #     path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30
+  #     path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30 # helios
   #     training_state_filename: __training_state_filename.pt
   #     type: nano
 
@@ -50,7 +50,6 @@ projected_compression:
 
   init_norms_with_ones: false
 
-  # separate_block_optimizers: false
   separate_block_optimizers: true
 
   adjust_grad_norm: false
