@@ -40,7 +40,7 @@ class PCTrainer(Trainer):
                     self.model.parameters(), self.gradient_clipping
                 )
                 self.model.pass_gradient_to_projections(
-                    self.block_optimizers, self.block_schedulers, self.gradient_clipping
+                    self.block_optimizers, self.block_schedulers, False
                 )
             else:
                 grad_norm = self.model.pass_gradient_to_projections(

@@ -288,6 +288,10 @@ class MemoryEfficientProjectedCompression(nn.Module):
                     torch.nn.utils.clip_grads_with_norm_(
                         block_proj.parameters(), gradient_clipping, grad_norm_to_use
                     )
+                else:
+                    torch.nn.utils.clip_grad_norm_(
+                        block_proj.parameters(), gradient_clipping
+                    )
 
                 optimizer.step()
                 optimizer.zero_grad()
