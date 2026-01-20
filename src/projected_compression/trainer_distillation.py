@@ -8,9 +8,11 @@ from src.core.trainer_distillation import TrainerDistillation
 
 logger = logging.getLogger(__name__)
 
+
 @define(slots=False)
 class PCDistillationTrainer(TrainerDistillation):
     """Works only for mem_eff_pc model with distillation"""
+
     only_compress_model_gradient_clipping: bool
 
     def __attrs_post_init__(self):
@@ -64,7 +66,6 @@ class PCDistillationTrainer(TrainerDistillation):
             if self._should_evaluate:
                 self.eval()
 
-
     def save_checkpoint(self):
         checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
         dcp.save(self.model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model")
@@ -86,9 +87,10 @@ class PCDistillationTrainer(TrainerDistillation):
         #             block_sched.state_dict(),
         #             checkpoint_id=f"{checkpoint_folder}/block_scheduler_{idx}",
         #         )
-        
+
         if os.environ["RANK"] == "0":
             from src.core.checkpointing import save_training_state
+
             save_training_state(
                 save_config=self.checkpoint.save,
                 step=self.step,
