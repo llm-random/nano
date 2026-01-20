@@ -70,7 +70,7 @@ def check_env_vars():
     assert int(os.environ["RANK"]) < int(os.environ["WORLD_SIZE"])
 
 
-def setup_enviroment():
+def setup_environment():
     if "WORLD_SIZE" not in os.environ:
         logger.warning("WORLD_SIZE is not set, setting it to 1")
         os.environ["WORLD_SIZE"] = "1"
@@ -267,7 +267,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             cfg, model, learning_rate
         )
     elif cfg.trainer.checkpoint.load.type == "nano":
-        # TODO! if you want to apply function on loaded model it does NOT work now, it applies function on newly inintialized model than it loads model weights
+        # TODO! if you want to apply function on loaded model it does NOT work now, it applies function on newly initialized model than it loads model weights
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
@@ -292,7 +292,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
 
 def run(cfg: OmegaConf, metric_logger=None):
-    setup_enviroment()
+    setup_environment()
 
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
