@@ -1,0 +1,78 @@
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model/llama@_here_: projected_mem_eff_1B
+  - ../_trainer@_here_: llama3_1B_distillation
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+  dmodel: 448
+  dff: 1728
+
+
+trainer:
+  _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
+  gradient_accumulation_steps: 8
+  n_steps: 2048
+  # only_compress_model_gradient_clipping: true
+  
+  learning_rate: 12
+
+  scheduler:
+    warmup_steps: 40
+
+  distributed:
+    fsdp2: null
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt
+  path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama31
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: false
+  # separate_block_optimizers: true
+
+  adjust_grad_norm: false
+
+distillation:
+  load:
+    type: pc_memeff_base
+
+model:
+  cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_1
+      - projected_compression
+      - 10p
+      - mem_eff
+      - reproduce
+      # - gradclipbeforeprojections
+      # - separate_block_optimizers
+      - shared_teacher
+      - distillation
+      - pr_test
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:4
+    # time: "0-0:20:00"
+    # time: "0-3:00:00"
+    # time: "0-8:00:00"
+    time: "0-24:00:00"
