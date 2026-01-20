@@ -13,8 +13,9 @@ def create_slurm_parameters(slurm_config: DictConfig) -> list[str]:
         return f"#SBATCH --{key}={value}"
 
     lines = []
-    for param in sorted(slurm_config):
-        lines.append(_as_sbatch_flag(param, slurm_config[param]))
+    if slurm_config is not None:
+        for param in sorted(slurm_config):
+            lines.append(_as_sbatch_flag(param, slurm_config[param]))
 
     return lines
 

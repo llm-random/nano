@@ -138,40 +138,34 @@ def get_metric_logger(
             None if metric_logger_config.new_neptune_job else neptune_run_id
         )
         rank = int(os.environ["RANK"])
-        if int(os.environ["WORLD_SIZE"]) > 1:
-            if rank == 0:
-                neptune_logger = neptune.init_run(
-                    project=metric_logger_config.project_name,
-                    with_id=neptune_run_id,
-                    name=metric_logger_config.name,
-                    tags=metric_logger_config.tags,
-                )
-                if neptune_run_id is None:
-                    neptune_run_id = neptune_logger["sys/id"].fetch()
-                    broadcast_message(rank, neptune_run_id)
-                _metric_logger = NeptuneLogger(
-                    neptune_logger, rank, metric_logger_config
-                )
-            else:
-                if neptune_run_id is None:
-                    neptune_run_id = broadcast_message(rank)
-                neptune_logger = neptune.init_run(
-                    project=metric_logger_config.project_name,
-                    with_id=neptune_run_id,
-                    capture_hardware_metrics=False,
-                    name=metric_logger_config.name,
-                    tags=metric_logger_config.tags,
-                )
-                _metric_logger = NeptuneLogger(
-                    neptune_logger, rank, metric_logger_config
-                )
 
-        else:
+        if rank == 0:
             neptune_logger = neptune.init_run(
                 project=metric_logger_config.project_name,
                 name=metric_logger_config.name,
                 tags=metric_logger_config.tags,
                 with_id=neptune_run_id,
+            )
+            _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
+
+            if int(os.environ["WORLD_SIZE"]) > 1:
+                run_id_container = [None]
+                if neptune_run_id is None:
+                    neptune_run_id = neptune_logger["sys/id"].fetch()
+
+                run_id_container[0] = neptune_run_id
+                dist.broadcast_object_list(run_id_container, src=0)
+        else:
+            run_id_container = [neptune_run_id]
+            dist.broadcast_object_list(run_id_container, src=0)
+            neptune_run_id = run_id_container[0]
+
+            neptune_logger = neptune.init_run(
+                project=metric_logger_config.project_name,
+                with_id=neptune_run_id,
+                capture_hardware_metrics=False,
+                name=metric_logger_config.name,
+                tags=metric_logger_config.tags,
             )
             _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
 
@@ -186,35 +180,6 @@ def get_metric_logger(
     else:
         raise ValueError(f"Unknown logger type: { metric_logger_config.type}")
     return _metric_logger
-
-
-def broadcast_message(rank, message=None):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Broadcast the length of the message
-    if rank == 0:
-        message_length_tensor = torch.tensor(
-            len(message), dtype=torch.int32, device=device
-        )
-    else:
-        message_length_tensor = torch.empty(1, dtype=torch.int32, device=device)
-
-    dist.broadcast(message_length_tensor, src=0)
-
-    # Prepare the tensor to hold the message of the correct length
-    if rank == 0:
-        message_tensor = torch.tensor(
-            list(message.encode("utf-8")), dtype=torch.uint8, device=device
-        )
-    else:
-        message_tensor = torch.empty(
-            message_length_tensor.item(), dtype=torch.uint8, device=device
-        )
-
-    # Broadcast the message string data
-    dist.broadcast(message_tensor, src=0)
-
-    return message_tensor.cpu().numpy().tobytes().decode("utf-8")
 
 
 class AveMetric:

@@ -35,15 +35,19 @@ dummy_weight_init = lambda _: trunc_normal_
 dummy_zeros = lambda _: zeros
 
 
-class TransformerEmbedding(nn.Module):
-    def __init__(self, vocab_size: int, dmodel: int, init_fn: Optional[Callable]):
-        super().__init__()
-        weight = torch.empty(vocab_size, dmodel, dtype=torch.float32)
-        init_fn(weight)
-        self.embedding = nn.Embedding(vocab_size, dmodel, _weight=weight)
+class TransformerEmbedding(nn.Embedding):
+    def __init__(
+        self, vocab_size: int, dmodel: int, init_fn: Optional[Callable], **kwargs
+    ):
+        self.init_fn = init_fn
+        super().__init__(vocab_size, dmodel, **kwargs)
 
-    def forward(self, x):
-        return self.embedding(x)
+    def reset_parameters(self):
+        if hasattr(self, "init_fn") and self.init_fn is not None:
+            with torch.no_grad():
+                self.init_fn(self.weight)
+        else:
+            super().reset_parameters()
 
 
 class Linear(nn.Linear):
@@ -561,14 +565,14 @@ class ProjectedLinear(nn.Module):
         return result
 
 
-class ProjectedEmbedding(nn.Module):
+class ProjectedEmbedding(Embedding):
     def __init__(
         self,
-        embedding: nn.Module,
+        num_embeddings: int,
+        embedding_dim: int,
         result_out_features: int,
     ):
-        super().__init__()
-        self.embedding = embedding
+        super().__init__(num_embeddings, embedding_dim)
         self.projection = None
         self.result_out_features = result_out_features
         self.initialized_compression = False
@@ -577,7 +581,7 @@ class ProjectedEmbedding(nn.Module):
         device = "cpu"
         pweight = (
             self.projection.full_tensor().float().to(device)
-            @ self.embedding.weight.full_tensor().float().to(device).T
+            @ self.weight.full_tensor().float().to(device).T
             + self.auxiliary_weight.weight.full_tensor().float().to(device).T
         ).T
 
@@ -585,12 +589,12 @@ class ProjectedEmbedding(nn.Module):
         self.auxiliary_weight.weight = None
 
         if os.environ["RANK"] == "0":
-            self.embedding.weight = nn.Parameter(pweight, requires_grad=False)
+            self.weight = nn.Parameter(pweight, requires_grad=False)
         else:
-            self.embedding.weight = None
+            self.weight = None
 
     def forward(self, x):
-        result = self.embedding(x)
+        result = super().forward(x)
         if self.initialized_compression:
             result = F.linear(result, self.projection, bias=None)
             result += self.auxiliary_weight(x)
@@ -598,7 +602,7 @@ class ProjectedEmbedding(nn.Module):
 
     def init_projection(self, topk_dmodel_indices, **factory_kwargs):
         assert len(topk_dmodel_indices) == self.result_out_features
-        vocab_size, dmodel = self.embedding.weight.shape
+        vocab_size, dmodel = self.weight.shape
         weight = torch.zeros(self.result_out_features, dmodel, **factory_kwargs)
         weight[torch.arange(self.result_out_features), topk_dmodel_indices] = 1
         self.projection = nn.Parameter(weight, requires_grad=True)
