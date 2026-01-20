@@ -47,9 +47,12 @@ projected_compression:
 
   adjust_grad_norm: false
 
-# distillation:
-#   load:
-#     type: pc_memeff_base
+distillation:
+  load:
+    type: pc_memeff_base
+
+init_model_opt_sched_fn: 
+  source_model_for_distillation: true
 
 model:
   cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
@@ -67,7 +70,7 @@ infrastructure:
       - reproduce
       # - shared_teacher
       - distillation
-      - pr_test
+      - pr_testttttttttttttttttt
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}

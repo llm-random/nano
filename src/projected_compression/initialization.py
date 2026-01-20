@@ -23,7 +23,7 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
-def init_pc_attributes(cfg, metric_logger):
+def init_pc_attributes(cfg, metric_logger, source_model_for_distillation):
 
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
@@ -57,7 +57,7 @@ def init_pc_attributes(cfg, metric_logger):
 
     torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
 
-    model = create_model(cfg.model, cfg.projected_compression)
+    model = create_model(cfg.model, cfg.projected_compression, source_model_for_distillation)
 
     if cfg.projected_compression.separate_block_optimizers:
         target_model_optimize_params = get_target_model_optimize_params(model)
@@ -133,7 +133,7 @@ def get_target_model_optimize_params(model):
     return params
 
 
-def create_model(cfg_model, cfg_projected_compression):
+def create_model(cfg_model, cfg_projected_compression, source_model_for_distillation):
     with torch.device("meta"):
         model = instantiate(
             cfg_model,
@@ -143,17 +143,18 @@ def create_model(cfg_model, cfg_projected_compression):
         )
 
     # Only layer norms from target_model are used
-    # for block in model.source_model.encoder.blocks:
-    #     block.attention_layer.norm = None
-    #     block.ff_layer.norm = None
-    # model.source_model.head.norm = None
+    if not source_model_for_distillation:
+        for block in model.source_model.encoder.blocks:
+            block.attention_layer.norm = None
+            block.ff_layer.norm = None
+        model.source_model.head.norm = None
     # embedding from source_model is used
     model.target_model.embedding = None
 
     model = setup_fsdp2_model(model, cfg_projected_compression)
 
     # Initializing model.source_model
-    source_sd = torch.load( #???
+    source_sd = torch.load(
         cfg_projected_compression.source_model_path,
         mmap=True,
         weights_only=True,
@@ -164,10 +165,13 @@ def create_model(cfg_model, cfg_projected_compression):
     source_norms = {}
     for k in list(source_sd.keys()):
         if "norm" in k:
-            source_norms[k] = source_sd[k].clone().detach() #???
+            if source_model_for_distillation:
+                source_norms[k] = source_sd[k].clone().detach()
+            else:
+                source_norms[k] = source_sd.pop(k)
 
     sharded_sd = get_sharded_sd(model.source_model.state_dict(), source_sd)
-    model.source_model.load_state_dict(sharded_sd, strict=False, assign=True) #???
+    model.source_model.load_state_dict(sharded_sd, strict=False, assign=True)
 
     # It is used in forward step, but we do not need gradient
     model.source_model.embedding.weight.requires_grad = False
@@ -190,8 +194,9 @@ def create_model(cfg_model, cfg_projected_compression):
             block.ff_layer.norm.weight.data.copy_(sharded_tensor)
             block.attention_layer.layer.rope.register_freqs()
 
-        for block in model.source_model.encoder.blocks:
-            block.attention_layer.layer.rope.register_freqs()
+        if source_model_for_distillation:
+            for block in model.source_model.encoder.blocks:
+                block.attention_layer.layer.rope.register_freqs()
     else:
         dmodel_topk_indices, dff_topk_indices = get_topk_indices(
             cfg_projected_compression.path_to_importances,
@@ -229,8 +234,9 @@ def create_model(cfg_model, cfg_projected_compression):
             block.ff_layer.norm.weight.data.copy_(sharded_tensor)
             block.attention_layer.layer.rope.register_freqs()
 
-        for i, block in enumerate(model.source_model.encoder.blocks):
-            block.attention_layer.layer.rope.register_freqs()
+        if source_model_for_distillation:
+            for i, block in enumerate(model.source_model.encoder.blocks):
+                block.attention_layer.layer.rope.register_freqs()
 
     # Initializing model.projections
     model.projections.to_empty(device="cuda")
