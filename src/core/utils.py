@@ -46,7 +46,7 @@ def solve_config_lr(
     config_lr: float,
 ) -> tuple[
     float, float
-]:  # TODO temporary place - move to devinitions eval+ when created
+]:  # TODO temporary place - move to definitions eval+ when created
     ret_lr, ret_exp_lr = None, None
     if config_lr < 1.0:
         ret_lr = config_lr
