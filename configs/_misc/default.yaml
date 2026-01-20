@@ -1,10 +1,10 @@
 
 infrastructure:
   metric_logger:
-    _target_: src.definitions.MetricLoggerConfig
     project_name: pmtest/llm-random
     heavy_metrics_calculation_interval: 100
     new_neptune_job: true
+    new_wandb_job: true
     type: neptune
     name: default
     tags:
