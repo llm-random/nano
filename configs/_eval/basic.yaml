@@ -1,4 +1,4 @@
-# Default evaluation configuration
+# Basic evaluation configuration
 evaluator:
   _partial_: true
   _target_: src.core.eval.Evaluator
@@ -7,5 +7,5 @@ evaluator:
   tasks:
     - wikitext
     - piqa
-  limit: null  # No limit by default, evaluate on full datasets
+  limit: null  # No limit, evaluate on full datasets
   device: cuda

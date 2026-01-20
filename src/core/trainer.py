@@ -19,7 +19,7 @@ from src.core.checkpointing import (
     save_training_state,
     step_checkpoint_path,
 )
-from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
+from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger, WandbLogger
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -206,9 +206,11 @@ class Trainer:
                 self.metric_logger.flush_accumulated_metrics(self.step)
             avg_loss = torch.tensor(losses).mean()
             self.metric_logger.log("steps/eval/loss", self.step, avg_loss.item())
-            self.metric_logger.log(
-                "tokens/eval/loss", self.processed_tokens, avg_loss.item()
-            )
+            if not isinstance(self.metric_logger, (WandbLogger)):
+                # TODO: Fix W&B logging with alternative x-axis
+                self.metric_logger.log(
+                    "tokens/eval/loss", self.processed_tokens, avg_loss.item()
+                )
 
         if self._should_log_eval_input:
             self.metric_logger.log(
@@ -239,14 +241,17 @@ class Trainer:
         self.metric_logger.log(
             "steps/train/processed_tokens", self.step, self.processed_tokens
         )
-
-        self.metric_logger.log("tokens/train/loss", self.processed_tokens, loss.item())
-        self.metric_logger.log(
-            "tokens/lr", self.processed_tokens, (self.scheduler.get_last_lr()[0])
-        )
-        self.metric_logger.log(
-            "tokens/train/grad_norm", self.processed_tokens, grad_norm.item()
-        )
+        if not isinstance(self.metric_logger, (WandbLogger)):
+            # TODO: Fix W&B logging with alternative x-axis
+            self.metric_logger.log(
+                "tokens/train/loss", self.processed_tokens, loss.item()
+            )
+            self.metric_logger.log(
+                "tokens/lr", self.processed_tokens, (self.scheduler.get_last_lr()[0])
+            )
+            self.metric_logger.log(
+                "tokens/train/grad_norm", self.processed_tokens, grad_norm.item()
+            )
 
         self.loss_averaged_100.log(self.metric_logger, self.step, loss.item())
         self.time_diff_averaged_100.log(self.metric_logger, self.step, time.time())

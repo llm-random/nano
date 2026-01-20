@@ -1,15 +1,15 @@
 defaults:
-  - _cluster@_here_: local
+  - _cluster@_here_: entropy_a100
   - _model@_here_: tiny
   - _trainer@_here_: llama
-  - _dataset@_here_: local_dummy
+  - _dataset@_here_: c4
   - _checkpoints@_here_: none
   - _misc@_here_: default
   - _eval@_here_: basic
 
 common:
-  sequence_length: 16
-  batch_size: 2
+  sequence_length: 128
+  batch_size: 16
 
 trainer:
   gradient_accumulation_steps: 1
@@ -22,13 +22,22 @@ trainer:
       path: checkpoint
 
 infrastructure:
+  max_concurrent_jobs: 1
+
   metric_logger:
-    name: tiny_Local
+    type: wandb
+    wandb_entity: ideas_cv
+    project_name: llm-random-test
+    name: tiny_remote
     tags:
       - nano
-      - local
+      - remote
       - tiny
 
+  slurm:
+    time: "00:10:00"
+    gres: gpu:1
+    job-name: ${infrastructure.metric_logger.name}
+
 evaluator:
-  limit: 1
-  device: cpu
+  limit: 10
