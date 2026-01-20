@@ -41,6 +41,8 @@ trainer:
     save:
       type: nano
       path: ??? # CHANGE
+  
+  only_compress_model_gradient_clipping: true
 
 model:
   cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
