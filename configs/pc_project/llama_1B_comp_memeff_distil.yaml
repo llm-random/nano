@@ -10,19 +10,21 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  dmodel: 448
+  dmodel: 448 # 10
   dff: 1728
-
+  # dmodel: 960 # 30
+  # dff: 3840
+  # dmodel: 1344 # 50
+  # dff: 5376
 
 trainer:
   _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
   gradient_accumulation_steps: 8
   n_steps: 2048
   only_compress_model_gradient_clipping: true
-  eval_interval: 1000000
-
+  eval_interval: 100000000 # Important - Eval doesnt work with distillation!
   
-  learning_rate: 13
+  learning_rate: 13 # optimal for llama 1B 1BT
 
   scheduler:
     warmup_steps: 40
@@ -37,14 +39,11 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-  source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt
-  path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama31
+  source_model_path: ??? # CHANGE
+  path_to_importances: ??? # CHANGE
 
   init_norms_with_ones: false
-
-  separate_block_optimizers: false
-  # separate_block_optimizers: true
-
+  separate_block_optimizers: true
   adjust_grad_norm: false
 
 distillation:
@@ -67,15 +66,9 @@ infrastructure:
       - projected_compression
       - 10p
       - mem_eff
-      - reproduce
-      # - shared_teacher
       - distillation
-      - pr_testttttttttttttttttt
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:4
-    # time: "0-0:20:00"
-    # time: "0-3:00:00"
-    # time: "0-8:00:00"
     time: "0-24:00:00"
