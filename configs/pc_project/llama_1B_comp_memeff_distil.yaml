@@ -18,9 +18,11 @@ trainer:
   _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
   gradient_accumulation_steps: 8
   n_steps: 2048
-  # only_compress_model_gradient_clipping: true
+  only_compress_model_gradient_clipping: true
+  eval_interval: 1000000
+
   
-  learning_rate: 12
+  learning_rate: 13
 
   scheduler:
     warmup_steps: 40
@@ -45,9 +47,9 @@ projected_compression:
 
   adjust_grad_norm: false
 
-distillation:
-  load:
-    type: pc_memeff_base
+# distillation:
+#   load:
+#     type: pc_memeff_base
 
 model:
   cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
@@ -63,9 +65,7 @@ infrastructure:
       - 10p
       - mem_eff
       - reproduce
-      # - gradclipbeforeprojections
-      # - separate_block_optimizers
-      - shared_teacher
+      # - shared_teacher
       - distillation
       - pr_test
 
