@@ -54,7 +54,7 @@ init_model_opt_sched_fn:
   source_model_for_distillation: true
 
 model:
-  cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
+  cast_bfloat16: false  # whether to cast bfloat16 when calculating compressed matrix
 
 infrastructure:
   metric_logger:
