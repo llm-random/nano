@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class MetricLogger(ABC):
-    def __init__(self, config=None):
+    def __init__(self, config: Optional[OmegaConf]=None):
         self.heavy_metrics_calculation_interval = (
             1 if config is None else config.heavy_metrics_calculation_interval
         )
@@ -155,7 +155,7 @@ def get_metric_logger(
             neptune_logger = neptune.init_run(
                 project=metric_logger_config.project_name,
                 name=metric_logger_config.name,
-                tags=metric_logger_config.tags,
+                tags=list(metric_logger_config.tags),
                 with_id=neptune_run_id,
             )
             _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
@@ -177,7 +177,7 @@ def get_metric_logger(
                 with_id=neptune_run_id,
                 capture_hardware_metrics=False,
                 name=metric_logger_config.name,
-                tags=metric_logger_config.tags,
+                tags=list(metric_logger_config.tags),
             )
             _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
     elif metric_logger_config.type == "wandb":
@@ -191,7 +191,7 @@ def get_metric_logger(
                 entity=metric_logger_config.wandb_entity,
                 project=metric_logger_config.project_name,
                 name=metric_logger_config.name,
-                tags=metric_logger_config.tags,
+                tags=list(metric_logger_config.tags),
                 id=wandb_run_id,
                 resume="allow",
             )
