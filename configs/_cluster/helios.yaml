@@ -21,7 +21,7 @@ infrastructure:
     # export pixi variables
     - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
-    - 'export XDG_DATA_HOME="PROJECT_HOME_PATH/data"'
+    - 'export XDG_DATA_HOME="$PROJECT_HOME_PATH/data"'
     - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'
     - 'export XDG_STATE_HOME="$PROJECT_HOME_PATH/state"'
     
