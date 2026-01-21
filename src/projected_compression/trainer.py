@@ -40,11 +40,17 @@ class PCTrainer(Trainer):
                     self.model.parameters(), self.gradient_clipping
                 )
                 self.model.pass_gradient_to_projections(
-                    self.block_optimizers, self.block_schedulers, False
+                    self.block_optimizers,
+                    self.block_schedulers,
+                    self.gradient_clipping,
+                    shared_gradient_norms=False,
                 )
             else:
                 grad_norm = self.model.pass_gradient_to_projections(
-                    self.block_optimizers, self.block_schedulers, self.gradient_clipping
+                    self.block_optimizers,
+                    self.block_schedulers,
+                    self.gradient_clipping,
+                    shared_gradient_norms=True,
                 )
                 torch.nn.utils.clip_grads_with_norm_(
                     self.model.parameters(), self.gradient_clipping, grad_norm
