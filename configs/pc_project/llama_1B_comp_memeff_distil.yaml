@@ -29,6 +29,8 @@ trainer:
 
   distributed:
     fsdp2: null
+    
+  eval_dataloader: null
 
   # checkpoint: #dev
   #   save:
