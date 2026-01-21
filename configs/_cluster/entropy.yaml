@@ -5,7 +5,7 @@ infrastructure:
     cpus_per_gpu: 16
     gres: ???
     job-name: test
-    mem_per_gpu: 125G
+    mem_per_gpu: 110G
     nodes: 1
     partition: h100
     time: "2-00:00:00"
