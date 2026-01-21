@@ -148,7 +148,7 @@ class MemoryEfficientProjectedCompression(nn.Module):
                 )
 
     def pass_gradient_to_projections(
-        self, optimizers: List, schedulers, gradient_clipping
+        self, optimizers: List, schedulers, gradient_clipping, shared_gradient_norms
     ):
 
         def get_compressed_matrices(block):
@@ -276,22 +276,24 @@ class MemoryEfficientProjectedCompression(nn.Module):
 
                 projection_block_grad_norm = get_module_grad_norm(block_proj)
                 projection_blocks_grad_norms.append(projection_block_grad_norm)
-                if gradient_clipping:
-                    grad_norm_to_use = start_grad_norm
-                    if self.adjust_grad_norm:
-                        grad_norm_to_use = (
-                            start_grad_norm**2
-                            - compressed_params_grad_norm**2
-                            + projection_block_grad_norm**2
-                        ) ** 0.5
 
-                    torch.nn.utils.clip_grads_with_norm_(
-                        block_proj.parameters(), gradient_clipping, grad_norm_to_use
-                    )
-                else:
-                    torch.nn.utils.clip_grad_norm_(
-                        block_proj.parameters(), gradient_clipping
-                    )
+                if gradient_clipping:
+                    if shared_gradient_norms:
+                        grad_norm_to_use = start_grad_norm
+                        if self.adjust_grad_norm:
+                            grad_norm_to_use = (
+                                start_grad_norm**2
+                                - compressed_params_grad_norm**2
+                                + projection_block_grad_norm**2
+                            ) ** 0.5
+
+                        torch.nn.utils.clip_grads_with_norm_(
+                            block_proj.parameters(), gradient_clipping, grad_norm_to_use
+                        )
+                    else:
+                        grad_norm = torch.nn.utils.clip_grad_norm_(
+                            block_proj.parameters(), gradient_clipping
+                        )
 
                 optimizer.step()
                 optimizer.zero_grad()
