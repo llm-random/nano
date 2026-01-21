@@ -27,6 +27,7 @@ lm-eval = ">=0.4.0"
 jupyter = "*"
 ipykernel = "*"
 matplotlib = "*"
+plotly = "*"   # ← added
 
 [target.linux-64.pypi-dependencies]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
