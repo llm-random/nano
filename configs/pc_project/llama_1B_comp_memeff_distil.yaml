@@ -10,17 +10,26 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  dmodel: 448
+  #devchange
+  dmodel: 448 # 10
   dff: 1728
+  # dmodel: 960 # 30
+  # dff: 3840
+  # dmodel: 1344 # 50
+  # dff: 5376
 
 
 trainer:
   _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
   gradient_accumulation_steps: 8
-  n_steps: 2048
-  only_compress_model_gradient_clipping: true
-  eval_interval: 1000000
 
+  #devchange
+  n_steps: 2048
+  # n_steps: 4096
+  # n_steps: 8192
+  # n_steps: 12288
+
+  only_compress_model_gradient_clipping: true
   
   learning_rate: 13
 
@@ -30,15 +39,21 @@ trainer:
   distributed:
     fsdp2: null
     
-  eval_dataloader: null
+  eval_interval: 1000000
+  eval_dataloader: None
 
-  # checkpoint: #dev
-  #   save:
-  #     interval: 1024
-  #     model_checkpoint_filename: __model_checkpoint_filename.pt
-  #     path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30 # helios
-  #     training_state_filename: __training_state_filename.pt
-  #     type: nano
+  #devchange
+  checkpoint: #dev
+    save:
+      interval: 2047
+      # interval: 4095
+      # interval: 8191
+      # interval: 12287
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30 # helios
+      path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
+      training_state_filename: __training_state_filename.pt
+      type: nano
 
 projected_compression:
   modules_to_shard:
@@ -48,7 +63,7 @@ projected_compression:
     - ${model.source_model.head._target_}
 
   source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt
-  path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama31
+  path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama8B
 
   init_norms_with_ones: false
 
@@ -66,6 +81,7 @@ init_model_opt_sched_fn:
 model:
   cast_bfloat16: false  # whether to cast bfloat16 when calculating compressed matrix
 
+#devchange
 infrastructure:
   metric_logger:
     name: Llame_PC
@@ -74,10 +90,11 @@ infrastructure:
       - pc
       - llama_1
       - projected_compression
-      - 10p
-      - mem_eff
-      - reproduce
       - distillation
+      - mem_eff
+      - 10p
+      # - 30p
+      # - 50p
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
@@ -86,3 +103,4 @@ infrastructure:
     # time: "0-3:00:00"
     # time: "0-8:00:00"
     time: "0-24:00:00"
+    # time: "4-00:00:00"
