@@ -12,9 +12,13 @@ common:
 init_model_opt_sched_fn: 
   _target_: src.projected_compression.initialization.init_pc_attributes
   _partial_: true
+  source_model_for_distillation: false
+
 
 model:
   _target_: src.projected_compression.mem_eff.MemoryEfficientProjectedCompression
+  
+  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
 
   source_model:
     _target_: src.projected_compression.model.LLM

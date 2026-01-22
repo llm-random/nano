@@ -1,0 +1,106 @@
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model/llama@_here_: projected_mem_eff_1B
+  - ../_trainer@_here_: llama3_1B_distillation
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+  #devchange
+  dmodel: 448 # 10
+  dff: 1728
+  # dmodel: 960 # 30
+  # dff: 3840
+  # dmodel: 1344 # 50
+  # dff: 5376
+
+
+trainer:
+  _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
+  gradient_accumulation_steps: 8
+
+  #devchange
+  n_steps: 2048
+  # n_steps: 4096
+  # n_steps: 8192
+  # n_steps: 12288
+
+  only_compress_model_gradient_clipping: true
+  
+  learning_rate: 13
+
+  scheduler:
+    warmup_steps: 40
+
+  distributed:
+    fsdp2: null
+    
+  eval_interval: 1000000
+  eval_dataloader: None
+
+  #devchange
+  checkpoint: #dev
+    save:
+      interval: 2047
+      # interval: 4095
+      # interval: 8191
+      # interval: 12287
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30 # helios
+      path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
+      training_state_filename: __training_state_filename.pt
+      type: nano
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt
+  path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama8B
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: true
+
+  adjust_grad_norm: false
+
+distillation:
+  load:
+    type: pc_memeff_base
+
+init_model_opt_sched_fn: 
+  source_model_for_distillation: true
+
+model:
+  cast_bfloat16: false  # whether to cast bfloat16 when calculating compressed matrix
+
+#devchange
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_1
+      - projected_compression
+      - distillation
+      - mem_eff
+      - 10p
+      # - 30p
+      # - 50p
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:4
+    # time: "0-0:20:00"
+    # time: "0-3:00:00"
+    # time: "0-8:00:00"
+    time: "0-24:00:00"
+    # time: "4-00:00:00"
