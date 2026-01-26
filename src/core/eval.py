@@ -20,7 +20,7 @@ class Evaluator:
             f"pretrained={self.checkpoint_path}," f"tokenizer={self.tokenizer}"
         )
 
-        results = evaluator.simple_evaluate(
+        results_no_fewshot = evaluator.simple_evaluate(
             model="hf",
             model_args=eval_model_args,
             tasks=list(self.tasks),
@@ -28,17 +28,31 @@ class Evaluator:
             device=self.device,
             log_samples=False,
         )
+        with open(f"{self.checkpoint_path}/eval_results_no_fewshot.json", "w") as f:
+            json.dump(results_no_fewshot, f, indent=2, default=str)
 
-        with open("eval_results.json", "w") as f:
-            json.dump(results, f, indent=2, default=str)
 
-        self.log_eval(results)
+        results_with_fewshot_5 = evaluator.simple_evaluate(
+            model="hf",
+            model_args=eval_model_args,
+            tasks=list(self.tasks),
+            limit=self.limit,
+            device=self.device,
+            log_samples=False,
+            num_fewshot=5
+        )
+        with open(f"{self.checkpoint_path}/eval_results_with_fewshot5.json", "w") as f:
+            json.dump(results_with_fewshot_5, f, indent=2, default=str)
 
-    def log_eval(self, eval_results: dict):
+
+        self.log_eval(results_no_fewshot, prefix="eval_no_fewshot")
+        self.log_eval(results_with_fewshot_5, prefix="eval_with_fewshot_5")
+
+    def log_eval(self, eval_results: dict, prefix: str):
         """Log evaluation results to Neptune."""
         for task_name, metrics in eval_results["results"].items():
             for metric_name, value in metrics.items():
                 clean_metric_name = metric_name.replace(",none", "")
-                self.metric_logger.run[f"eval/{task_name}/{clean_metric_name}"] = value
+                self.metric_logger.run[f"{prefix}/{task_name}/{clean_metric_name}"] = value
 
-        self.metric_logger.run["eval/limit"] = eval_results["config"]["limit"]
+        self.metric_logger.run[f"{prefix}/limit"] = eval_results["config"]["limit"]
