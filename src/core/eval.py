@@ -31,7 +31,6 @@ class Evaluator:
         with open(f"{self.checkpoint_path}/eval_results_no_fewshot.json", "w") as f:
             json.dump(results_no_fewshot, f, indent=2, default=str)
 
-
         results_with_fewshot_5 = evaluator.simple_evaluate(
             model="hf",
             model_args=eval_model_args,
@@ -39,11 +38,10 @@ class Evaluator:
             limit=self.limit,
             device=self.device,
             log_samples=False,
-            num_fewshot=5
+            num_fewshot=5,
         )
         with open(f"{self.checkpoint_path}/eval_results_with_fewshot5.json", "w") as f:
             json.dump(results_with_fewshot_5, f, indent=2, default=str)
-
 
         self.log_eval(results_no_fewshot, prefix="eval_no_fewshot")
         self.log_eval(results_with_fewshot_5, prefix="eval_with_fewshot_5")
@@ -53,6 +51,8 @@ class Evaluator:
         for task_name, metrics in eval_results["results"].items():
             for metric_name, value in metrics.items():
                 clean_metric_name = metric_name.replace(",none", "")
-                self.metric_logger.run[f"{prefix}/{task_name}/{clean_metric_name}"] = value
+                self.metric_logger.run[f"{prefix}/{task_name}/{clean_metric_name}"] = (
+                    value
+                )
 
         self.metric_logger.run[f"{prefix}/limit"] = eval_results["config"]["limit"]
