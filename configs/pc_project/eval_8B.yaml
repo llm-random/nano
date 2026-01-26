@@ -28,6 +28,13 @@ evaluator:
     - piqa
     - arc_easy
     - arc_challenge
+    - hellaswag
+    - lambada_openai
+    - openbookqa
+    - piqa
+    - sciq
+    - social_iqa
+    - winogrande
 
   limit: null  # No limit, evaluate on full datasets
   device: cuda

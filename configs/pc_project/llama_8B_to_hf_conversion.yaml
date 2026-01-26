@@ -1,0 +1,48 @@
+defaults:
+  - ../_cluster@_here_: helios
+  - ../_model@_here_: llama_3_8
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: c4 # not used - loads slower
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+
+common: 
+  batch_size: 512
+
+  #devchange
+  # dmodel: 1056 # 10p
+  # dff: 3168
+  dmodel: 2160 # 30p
+  dff: 6480
+  # dmodel: 3072 # 50p
+  # dff: 9216
+
+trainer:
+  n_steps: 0 # not used
+  learning_rate: 1 # not used
+  gradient_accumulation_steps: 1 # not used
+
+  checkpoint:
+   load:
+    # type: finalized_pc
+    type: nano
+    path: ??? # CHANGE
+   save:
+    type: huggingface
+    path: ??? # CHANGE
+  
+
+infrastructure:
+  metric_logger:
+    name: conversion
+    tags:
+      - nano
+      - pc
+      - llama_1
+      - hf_conversion
+      - projected_compression
+
+  slurm: 
+    gres: gpu:4
+    time: "0-00:30:00"
