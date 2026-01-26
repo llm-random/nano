@@ -31,20 +31,21 @@ class Evaluator:
         with open(f"{self.checkpoint_path}/eval_results_no_fewshot.json", "w") as f:
             json.dump(results_no_fewshot, f, indent=2, default=str)
 
-        results_with_fewshot_5 = evaluator.simple_evaluate(
-            model="hf",
-            model_args=eval_model_args,
-            tasks=list(self.tasks),
-            limit=self.limit,
-            device=self.device,
-            log_samples=False,
-            num_fewshot=5,
-        )
-        with open(f"{self.checkpoint_path}/eval_results_with_fewshot5.json", "w") as f:
-            json.dump(results_with_fewshot_5, f, indent=2, default=str)
-
         self.log_eval(results_no_fewshot, prefix="eval_no_fewshot")
-        self.log_eval(results_with_fewshot_5, prefix="eval_with_fewshot_5")
+
+        # results_with_fewshot_5 = evaluator.simple_evaluate(
+        #     model="hf",
+        #     model_args=eval_model_args,
+        #     tasks=list(self.tasks),
+        #     limit=self.limit,
+        #     device=self.device,
+        #     log_samples=False,
+        #     num_fewshot=5,
+        # )
+        # with open(f"{self.checkpoint_path}/eval_results_with_fewshot5.json", "w") as f:
+        #     json.dump(results_with_fewshot_5, f, indent=2, default=str)
+
+        # self.log_eval(results_with_fewshot_5, prefix="eval_with_fewshot_5")
 
     def log_eval(self, eval_results: dict, prefix: str):
         """Log evaluation results to Neptune."""

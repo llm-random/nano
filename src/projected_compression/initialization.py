@@ -23,7 +23,7 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
-def init_pc_attributes(cfg, metric_logger, source_model_for_distillation):
+def init_pc_attributes(cfg, metric_logger):
 
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
@@ -58,9 +58,10 @@ def init_pc_attributes(cfg, metric_logger, source_model_for_distillation):
     torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
 
     model = create_model(
-        cfg.model, cfg.projected_compression, source_model_for_distillation
+        cfg.model,
+        cfg.projected_compression,
+        cfg.projected_compression.source_model_for_distillation,
     )
-
     if cfg.projected_compression.separate_block_optimizers:
         target_model_optimize_params = get_target_model_optimize_params(model)
 

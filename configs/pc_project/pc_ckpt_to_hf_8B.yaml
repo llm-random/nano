@@ -1,0 +1,92 @@
+defaults:
+  - ../_cluster@_here_: local
+  - ../_model/llama@_here_: projected_mem_eff_8B
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+init_model_opt_sched_fn:
+  _partial_: true
+  _target_: src.projected_compression.save_to_hf.save_pc_to_hf
+
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+  #devchange
+  # dmodel: 1056 # 10p
+  # dff: 3168
+  # dmodel: 2160 # 30p
+  # dff: 6480
+  dmodel: 3072 # 50p
+  dff: 9216
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  gradient_accumulation_steps: 32
+  n_steps: 0
+  only_compress_model_gradient_clipping: true
+  
+  #devchange
+  learning_rate: 20
+
+  scheduler:
+    warmup_steps: 40
+
+  distributed:
+    fsdp2: null
+
+  #devchange
+  checkpoint:
+    load:
+      path: ??? #CHANGE!
+    save:
+      path: ??? #CHANGE!
+
+
+
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/hf_to_nano_converted/llama8b_in_nano.pt"
+  path_to_importances: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/8b/minitron_dimensions_importances.pt"
+
+  # source_model_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama38b.pt
+  # path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/20260120_importances/minitron_dimensions_importances.pt # helios
+
+  # source_model_path: /storage_nvme_3/mstefaniak/pc/llama38b.pt #entropy`
+  # path_to_importances: /storage_nvme_3/mstefaniak/pc/llama8_fw_importances_8m/117045/0/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama38
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: true
+
+  adjust_grad_norm: false
+
+  original_llama_path: "meta-llama/Llama-3.1-8B"
+
+
+
+model:
+  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
+
+infrastructure:
+  metric_logger:
+    name: PC_to_HF
+    tags: #devchange
+      - PC_to_HF
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:4
+    # time: "0-0:20:00"
+    # time: "0-3:00:00"
+    # time: "0-8:00:00"
+    time: "0-24:00:00"

@@ -1,0 +1,33 @@
+infrastructure:
+  generated_configs_path: generated_eval_configs
+  metric_logger:
+    _target_: src.definitions.MetricLoggerConfig
+    heavy_metrics_calculation_interval: 100
+    name: downstream_tasks
+    new_neptune_job: true
+    project_name: pmtest/llm-random
+    tags:
+    - eval
+    - 8b
+    type: neptune
+
+
+init_model_opt_sched_fn:
+  _partial_: true
+  _target_: main.initialize_just_metric_logger
+
+trainer: []
+
+evaluator:
+  _partial_: true
+  _target_: src.core.eval.Evaluator
+  checkpoint_path: "/storage_nvme_3/crewtool/pc/proba2/model_hf"  # CHANGE!
+  tokenizer: "meta-llama/Llama-3.1-8B"
+  tasks:
+    - wikitext
+    - piqa
+    - arc_easy
+    - arc_challenge
+
+  limit: null  # No limit, evaluate on full datasets
+  device: cuda

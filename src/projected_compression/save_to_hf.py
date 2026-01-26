@@ -113,5 +113,4 @@ def save_pc_to_hf(cfg, metric_logger):
         )
         tokenizer.save_pretrained(cfg.trainer.checkpoint.save.path)
 
-    training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
-    return llama_model, None, None, training_start_config, metric_logger
+    return None, None, None, None, None
