@@ -12,6 +12,8 @@ common:
 init_model_opt_sched_fn: 
   _target_: src.projected_compression.initialization.init_pc_attributes
   _partial_: true
+
+projected_compression:
   source_model_for_distillation: false
 
 
