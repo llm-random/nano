@@ -12,7 +12,7 @@ def remap_nano_to_llama31_hf(nano_dict):
 
     replacement_mappings = [
         # Embedding
-        (r"^embedding\.embedding\.weight$", "model.embed_tokens.weight"),
+        (r"^embedding\.weight$", "model.embed_tokens.weight"),
         # Attention LayerNorm
         (
             r"^encoder\.blocks\.(\d+)\.attention_layer\.norm\.weight$",
