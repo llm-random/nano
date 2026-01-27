@@ -50,7 +50,9 @@ class Trainer:
         self.device = next(self.model.parameters()).device
         self.loss_interval_100 = 0.0
 
-        if self.eval_dataloader is not None and hasattr(self.eval_dataloader, '__iter__'):
+        if self.eval_dataloader is not None and hasattr(
+            self.eval_dataloader, "__iter__"
+        ):
             self.eval_iterator = iter(self.eval_dataloader)
         self.step = self.start_step - 1
 
