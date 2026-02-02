@@ -1,0 +1,36 @@
+infrastructure:
+  server: lem
+  max_concurrent_jobs: null
+  slurm:
+    cpus_per_gpu: 16
+    gres: "gpu:hopper:4"
+    job-name: test
+    mem_per_gpu: 220G
+    nodes: 1
+    partition: plgrid-lem-gpu-h100
+    time: "1-00:00:00"
+    account: "plgllmefficont2"
+
+  script:
+    - 'export HF_HOME="/lustre/pd01/plgrid/plgllmefficont2/crewtool/hf"'
+
+    # hydra errors
+    - 'export HYDRA_FULL_ERROR=1'
+
+    # export pixi variables
+    - 'export PIXI_HOME=/lustre/pd01/plgrid/plgllmefficont2/projected_compression/pixi'
+    - 'export PATH="$PIXI_HOME/bin:$PATH"'
+    - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
+    - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
+    - 'export XDG_STATE_HOME="$PIXI_HOME/state"'
+
+    # activate pixi
+    - 'cd "$PIXI_HOME"'
+    - 'eval "$(pixi shell-hook)"'
+    - 'cd -'
+
+cluster_switch:
+  train_path_c4: "/lustre/pd01/plgrid/plgllmefficont2/datasets/c4/train"
+  eval_path_c4: "/lustre/pd01/plgrid/plgllmefficont2/datasets/c4/validation"
+  train_path_fineweb: "/lustre/pd01/plgrid/plgllmefficont2/crewtool/proba2/fineweb-edu/train/train"
+  eval_path_fineweb: "/lustre/pd01/plgrid/plgllmefficont2/crewtool/proba2/fineweb-edu/train/train"

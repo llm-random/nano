@@ -41,7 +41,6 @@ class Trainer:
     gradient_clipping: Optional[float]
     checkpoint: Optional[dict]
     learning_rate: float
-    exp_learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
 
@@ -50,7 +49,11 @@ class Trainer:
         self.start_step = self.training_state["next_step"]
         self.device = next(self.model.parameters()).device
         self.loss_interval_100 = 0.0
-        self.eval_iterator = iter(self.eval_dataloader)
+
+        if self.eval_dataloader is not None and hasattr(
+            self.eval_dataloader, "__iter__"
+        ):
+            self.eval_iterator = iter(self.eval_dataloader)
         self.step = self.start_step - 1
 
         if self.start_step > 0:

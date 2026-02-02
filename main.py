@@ -195,7 +195,7 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             res = fn(model)
             if res == False:
                 logger.info("Initialization failed, exiting...")
-                return None, None, None, None, None
+                return None, None, None
     model = setup_distributed_training(model, cfg.trainer.distributed)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -268,10 +268,10 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             cfg, model, learning_rate
         )
     elif cfg.trainer.checkpoint.load.type == "nano":
+        # TODO! if you want to apply function on loaded model it does NOT work now, it applies function on newly inintialized model than it loads model weights
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
-
         load_checkpoint_from_file(
             cfg.trainer.checkpoint.load, model, optimizer, scheduler
         )
@@ -298,28 +298,58 @@ def run(cfg: OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
-    model, optimizer, scheduler, training_state, metric_logger = (
-        initialize_training_components(cfg, metric_logger)
+    initialize_fn = (
+        instantiate(cfg.init_model_opt_sched_fn, _convert_="all")
+        if hasattr(cfg, "init_model_opt_sched_fn")
+        else initialize_training_components
+    )
+
+    model, optimizer, scheduler, training_state, metric_logger = initialize_fn(
+        cfg, metric_logger
     )
 
     if model is not None:
         logger.info(f"Model initialized")
 
         trainer = instantiate(cfg.trainer)
-        trainer(
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            training_state=training_state,
-            metric_logger=metric_logger,
-        ).train()
+
+        if "distillation" in cfg:
+            if cfg.distillation.load.type == "huggingface":
+                teacher_model = instantiate(
+                    cfg.distillation.teacher_model, _convert_="all"
+                ).to(get_device())
+                copy_llama_model_weights_from_HF(
+                    teacher_model, cfg.distillation.load.path
+                )
+                teacher_model = setup_distributed_training(
+                    teacher_model, cfg.trainer.teacher_distributed
+                )
+            elif cfg.distillation.load.type == "pc_memeff_base":
+                teacher_model = model.source_model
+
+            trainer(
+                teacher_model=teacher_model,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                training_state=training_state,
+                metric_logger=metric_logger,
+            ).train()
+        else:
+            trainer(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                training_state=training_state,
+                metric_logger=metric_logger,
+            ).train()
 
         # TODO
         # finetuning
 
-        evaluator = instantiate(cfg.evaluator)
-        if evaluator is not None:
-            evaluator(metric_logger=metric_logger).eval()
+    evaluator = instantiate(cfg.evaluator)
+    if evaluator is not None:
+        evaluator(metric_logger=metric_logger).eval()
 
     cleanup()
 
