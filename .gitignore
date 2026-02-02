@@ -192,3 +192,8 @@ checkpoints
 
 # MAS (madragonse)
 *mastest*
+
+#tmp
+*.json
+*.arrow
+*.csv

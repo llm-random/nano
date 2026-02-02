@@ -2,7 +2,7 @@ trainer:
   _partial_: true
   _target_: src.context_scaling.trainer.ContextScalingTrainer
   eval_interval: 100
-  eval_long_ctx_interval: 100
+  eval_long_ctx_interval: -1
   n_eval_steps: 10
   n_eval_long_ctx_steps: 2
   gradient_accumulation_steps: 1
@@ -14,9 +14,10 @@ trainer:
 
   scheduler:
     _partial_: true
-    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
-    final_lr_fraction: 0.1
+    _target_: src.core.schedulers.WSDScheduler
+    n_steps: ${trainer.n_steps}
     warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
+    decay_steps: ${eval:'int(${trainer.n_steps} * 0.1)'}
 
   distributed:
     fsdp2:

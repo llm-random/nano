@@ -10,7 +10,7 @@ trainer:
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}
-      seed: 123
+      seed: ${common.data_seed}
       use_new_sampling_method: true
       world_size_independent: false
       tokenize_fn:
@@ -18,10 +18,10 @@ trainer:
       sample_packer_fn:
         _target_: src.context_scaling.dataset.new_packer
         _partial_: true
-      load_dataset_fn:
+      data_generator:
         _target_: src.context_scaling.dataset.get_dataset
         _partial_: true
-        path: data
+        path: ${cluster_switch.train_path_c4}
         load_dataset_fn: null
         shuffle: true
 
@@ -32,7 +32,7 @@ trainer:
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}
-      seed: 123
+      seed: ${common.data_seed}
       use_new_sampling_method: true
       world_size_independent: false
       tokenize_fn:
@@ -40,10 +40,10 @@ trainer:
       sample_packer_fn:
         _target_: src.context_scaling.dataset.new_packer
         _partial_: true
-      load_dataset_fn:
+      data_generator:
         _target_: src.context_scaling.dataset.get_dataset
         _partial_: true
-        path: data_eval
+        path: ${cluster_switch.eval_path_c4}
         load_dataset_fn: null
         shuffle: true
 
@@ -54,7 +54,7 @@ trainer:
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}
-      seed: 123
+      seed: ${common.data_seed}
       use_new_sampling_method: true
       world_size_independent: false
       tokenize_fn:
@@ -62,7 +62,7 @@ trainer:
       sample_packer_fn:
         _target_: src.context_scaling.dataset.long_context_packer
         _partial_: true
-      load_dataset_fn:
+      data_generator:
         _target_: src.context_scaling.dataset.get_dataset
         _partial_: true
         path: data_long_ctx

@@ -12,13 +12,67 @@ from grid_generator.sbatch_builder import create_slurm_parameters
 
 
 def extract_pixi_home(script_lines) -> str:
-    text = "\n".join(script_lines)
-    match = re.search(r"^export\s+PIXI_HOME=([^\s#]+)", text, re.MULTILINE)
+    """
+    Parses script lines to find PIXI_HOME, resolving internal variable
+    references (e.g., $PROJECT_HOME_PATH) defined earlier in the script.
+    """
+    env_vars = {}
 
-    if not match:
+    # Pattern to match: export VAR_NAME=VALUE
+    # Captures: (Group 1) Var Name, (Group 2) Raw Value
+    export_pattern = re.compile(r"^\s*export\s+([a-zA-Z_][a-zA-Z0-9_]*)=(.*)")
+
+    # Pattern to find variables to substitute: $VAR or ${VAR}
+    var_sub_pattern = re.compile(r"\$\{?([a-zA-Z_][a-zA-Z0-9_]*)\}?")
+
+    for line in script_lines:
+        # 1. Clean the line: remove inline comments and whitespace
+        line = line.split("#", 1)[0].strip()
+
+        # 2. Handle potential YAML formatting artifacts (defensive cleaning)
+        # If the input contains raw YAML list items like "- 'export ...'"
+        if line.startswith("- "):
+            line = line[2:].strip()
+        # Remove surrounding quotes for the whole command if present
+        if (line.startswith("'") and line.endswith("'")) or (
+            line.startswith('"') and line.endswith('"')
+        ):
+            line = line[1:-1].strip()
+
+        if not line:
+            continue
+
+        # 3. Check for export statements
+        match = export_pattern.match(line)
+        if match:
+            key, raw_value = match.groups()
+
+            # Clean up quotes surrounding the value (e.g., "value" -> value)
+            value = raw_value.strip()
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
+            ):
+                value = value[1:-1]
+
+            # 4. Resolve variables inside the value
+            # This replaces $VAR with its value from env_vars if known
+            def resolve_match(m):
+                var_name = m.group(1)
+                # Return known value, or keep original string if unknown (e.g. $HOME)
+                return env_vars.get(var_name, m.group(0))
+
+            resolved_value = var_sub_pattern.sub(resolve_match, value)
+
+            # Update our state tracking
+            env_vars[key] = resolved_value
+
+    # 5. Retrieve result
+    pixi_home = env_vars.get("PIXI_HOME")
+
+    if not pixi_home:
         raise ValueError("PIXI_HOME not found in cluster configuration script")
 
-    return match.group(1).strip().replace('"', "")
+    return pixi_home
 
 
 def get_project_root() -> Path:
@@ -59,6 +113,9 @@ def update_remote_pixi(cfg: OmegaConf):
     # Remove GPU-related keys inherited from the main cluster config.
     for key in ("gres", "cpus_per_gpu", "mem_per_gpu"):
         slurm_config.pop(key, None)
+
+    if cfg.infrastructure.server == "lem":
+        slurm_config["gres"] = "gpu:hopper:1"
 
     # Optionally set simple CPU-only params (tune if you like)
     slurm_config["job-name"] = "update_pixi"
@@ -145,23 +202,12 @@ def update_remote_pixi(cfg: OmegaConf):
             if not line or line.startswith("#"):
                 continue
 
-            # include module load
-            if line.startswith("module load"):
-                env_setup.append(line)
-                continue
-
-            # include all pixi-related exports
-            if line.startswith("export") and (
-                "PIXI" in line or "XDG_" in line or 'PATH="$PIXI_HOME' in line
-            ):
-                env_setup.append(line)
-                continue
-
         env_commands = " && ".join(env_setup) if env_setup else ""
 
         # mkdir + copy happen on the compute node, via srun
         base_command = (
             "ts=$(date +%Y_%m_%d_%H_%M_%S) && "
+            f"env && "
             f"mkdir -p {pixi_home} && "
             # archive old pixi.toml / pixi.lock if present
             f"if [ -f {pixi_home}/pixi.toml ] || [ -f {pixi_home}/pixi.lock ]; then "
@@ -180,6 +226,9 @@ def update_remote_pixi(cfg: OmegaConf):
             f"mv -f {remote_tmp_dir}/pixi.lock {pixi_home}/; "
             f"chmod 775 {pixi_home}/pixi.lock; "
             f"fi && "
+            # set permissions for team access
+            f"chmod 777 {pixi_home}/pixi.toml && "
+            f"if [ -f {pixi_home}/pixi.lock ]; then chmod 777 {pixi_home}/pixi.lock; fi && "
             # run pixi install
             f"cd {pixi_home} && "
             "pixi install"

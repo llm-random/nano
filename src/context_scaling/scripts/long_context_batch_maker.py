@@ -46,13 +46,20 @@ def plot_token_length_hist_robust(
     print(f"Loading dataset from: {dataset_path}")
     if os.path.exists(dataset_path):
         # Check for large sharded dataset to avoid OOM during load_from_disk
-        arrow_files = sorted([
-            os.path.join(dataset_path, f) for f in os.listdir(dataset_path)
-            if f.startswith("data-") and f.endswith(".arrow")
-        ])
+        arrow_files = sorted(
+            [
+                os.path.join(dataset_path, f)
+                for f in os.listdir(dataset_path)
+                if f.startswith("data-") and f.endswith(".arrow")
+            ]
+        )
         if len(arrow_files) > 50:
-            print(f"Found {len(arrow_files)} arrow shards, loading as streaming to avoid OOM...")
-            ds = load_dataset("arrow", data_files=arrow_files, split="train", streaming=True)
+            print(
+                f"Found {len(arrow_files)} arrow shards, loading as streaming to avoid OOM..."
+            )
+            ds = load_dataset(
+                "arrow", data_files=arrow_files, split="train", streaming=True
+            )
         else:
             ds = load_from_disk(dataset_path)
     else:

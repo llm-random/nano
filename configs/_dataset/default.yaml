@@ -1,3 +1,6 @@
+common:
+  data_seed: 123
+
 trainer:
   train_dataloader:
     _target_: src.core.datasets.get_dataloader

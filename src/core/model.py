@@ -286,12 +286,18 @@ class MLP(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn):
+    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn, compile: bool = False):
         super().__init__()
         self.silu = nn.SiLU()
         self.ff_pre_act = ff_pre_act_fn()
         self.ff_post_act = ff_post_act_fn()
         self.gate = gate_fn()
+
+        if compile:
+            self.forward = torch.compile(
+                self.forward,
+                mode="max-autotune-no-cudagraphs",
+            )
 
     def forward(self, x):
         gated = self.gate(x)
@@ -381,13 +387,14 @@ class RoPEAttention(nn.Module):
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
+        compile: bool = False,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
         self.k_proj = k_proj_fn()
         self.v_proj = v_proj_fn()
         self.o_proj = o_proj_fn()
-        self.pre_attn_fn = pre_attn_fn()
+        self.pre_attn_fn = pre_attn_fn() if pre_attn_fn is not None else None
         self.attention_mechanism = AttentionMechanism()
 
         self.q_heads = q_heads
@@ -401,6 +408,12 @@ class RoPEAttention(nn.Module):
             base=rope_base,
             apply_freq_scaling=rope_scale_freqs,
         )
+
+        if compile:
+            self.forward = torch.compile(
+                self.forward,
+                mode="max-autotune-no-cudagraphs",
+            )
 
     def forward(self, x):
         query_states = self.q_proj(x)
@@ -419,7 +432,11 @@ class RoPEAttention(nn.Module):
 
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
-        q, k, v = self.pre_attn_fn(q, k, v)
+
+        # Apply QKNorm before reshape (normalizes over full datt, not per-head)
+        if self.pre_attn_fn is not None:
+            q, k, v = self.pre_attn_fn(q, k, v)
+
         attention_output = self.attention_mechanism(
             query=q, key=k, value=v, causal=True
         )
@@ -469,10 +486,10 @@ class AttentionMechanism(nn.Module):
 
 
 class QKNorm(nn.Module):
-    def __init__(self, norm_fn: Callable):
+    def __init__(self, q_norm_fn: Callable, k_norm_fn: Callable):
         super().__init__()
-        self.q_norm = norm_fn()
-        self.k_norm = norm_fn()
+        self.q_norm = q_norm_fn()
+        self.k_norm = k_norm_fn()
 
     def forward(self, q, k, v):
         return self.q_norm(q), self.k_norm(k), v

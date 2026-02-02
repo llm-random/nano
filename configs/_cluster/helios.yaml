@@ -19,11 +19,11 @@ infrastructure:
     - 'export HYDRA_FULL_ERROR=1'
     
     # export pixi variables
-    - 'export PIXI_HOME=/net/storage/pr3/plgrid/plggllmeffi/nano/pixi'
-    - 'export PATH="$PIXI_HOME/bin:$PATH"'
-    - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
-    - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
-    - 'export XDG_STATE_HOME="$PIXI_HOME/state"'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export PATH="$HOME/.pixi/bin:$PATH"'
+    - 'export XDG_DATA_HOME="$PROJECT_HOME_PATH/data"'
+    - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'
+    - 'export XDG_STATE_HOME="$PROJECT_HOME_PATH/state"'
     
     # activate pixi
     - 'cd "$PIXI_HOME"'

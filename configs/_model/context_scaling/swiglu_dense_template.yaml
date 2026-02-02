@@ -1,18 +1,5 @@
 common:
-  _target_: src.definitions.Common
-  dmodel: 1024
-  dff: 2560
-  datt: 1024
-  n_blocks: 16
-  q_heads: 16
-  kv_heads: 16
-  vocab_size: 50257
-  sequence_length: 256
-  head_norm: true
-  init_scale: 0.1
-  init_type: truncated_normal_fixed
-  model_type: gpt
-
+  model_seed: 123
 
 model:
   _target_: src.core.model.LLM
@@ -40,6 +27,7 @@ model:
       attention_fn:
         _target_: src.core.model.RoPEAttention
         _partial_: true
+        compile: true
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
@@ -52,7 +40,7 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         k_proj_fn:
           _target_: src.core.model.Linear
@@ -62,7 +50,7 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
@@ -75,15 +63,20 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         
         pre_attn_fn:
           _target_: src.core.model.QKNorm
           _partial_: true
-          norm_fn:
+          q_norm_fn:
             _target_: src.core.model.RMSNorm
             _partial_: true
-            normalized_shape: ${eval:'${common.datt} // ${common.q_heads}'}
+            normalized_shape: ${eval:'(${common.datt} // ${common.q_heads})'}
+            eps: 1e-6
+          k_norm_fn:
+            _target_: src.core.model.RMSNorm
+            _partial_: true
+            normalized_shape: ${eval:'(${common.datt} // ${common.q_heads})'}
             eps: 1e-6
 
         rope_base: 500000
@@ -92,6 +85,7 @@ model:
       ff_layer_fn:
         _target_: src.core.model.SwiGLU
         _partial_: true
+        compile: false
         ff_pre_act_fn:
           _target_: src.core.model.Linear
           _partial_: true
@@ -100,7 +94,7 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         ff_post_act_fn:
           _target_: src.core.model.Linear
           _partial_: true
@@ -109,7 +103,7 @@ model:
           partial_init_fn:
             _target_: src.core.model.trunc_normal_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
 
   head:
@@ -122,7 +116,7 @@ model:
       partial_init_fn:
         _target_: src.core.model.trunc_normal_init
         _partial_: true
-        scale: 1
+        scale: ${common.init_scale}
     norm_fn:
       _target_: src.core.model.RMSNorm
       _partial_: true

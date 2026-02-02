@@ -1,6 +1,6 @@
 defaults:
   - _cluster@_here_: local
-  - _model@_here_: k16
+  - _model/context_scaling@_here_: tiny
   - _trainer@_here_: context_scaling
   - _dataset@_here_: ctx_scl_dataset
   - _checkpoints@_here_: none
@@ -23,6 +23,9 @@ common:
   init_scale: 0.1
   init_type: truncated_normal_fixed
   model_type: gpt
+  model_seed: 123
+  data_seed: 123
+
 
 trainer:
   gradient_accumulation_steps: 1

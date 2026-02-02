@@ -1,0 +1,47 @@
+defaults:
+  - _cluster@_here_: lem
+  - _model/context_scaling@_here_: tiny
+  - _trainer@_here_: context_scaling
+  - _dataset@_here_: ctx_scl_dataset
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+  - _eval@_here_: none
+  - _self_
+
+common:
+  sequence_length: 512
+  batch_size: 32
+  model_seed: 123
+  data_seed: 123
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 101
+  learning_rate: 2e-3
+  eval_interval: 20
+
+  eval_long_ctx_dataloader: null
+
+  train_dataloader:
+    dataset:
+      data_generator:
+        path: ${cluster_switch.train_path_fineweb}
+
+  eval_dataloader:
+    dataset:
+      data_generator:
+        path: ${cluster_switch.eval_path_fineweb}
+
+infrastructure:
+  metric_logger:
+    name: tiny_remote
+    tags:
+      - nano
+      - remote
+      - tiny
+      - context_scaling
+
+  slurm:
+    time: "00:30:00"
+    gres: gpu:hopper:1
+    job-name: ${infrastructure.metric_logger.name}
