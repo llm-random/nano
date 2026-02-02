@@ -18,7 +18,7 @@ infrastructure:
     - 'export HYDRA_FULL_ERROR=1'
 
     # export pixi variables
-    - 'export PIXI_HOME=/storage_nvme_4/nano/pixi'
+    - 'export PIXI_HOME=/storage_nvme_4/nano/pixi_new'
     - 'export PATH="$PIXI_HOME/bin:$PATH"'
     - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
     - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
