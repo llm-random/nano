@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class MetricLogger(ABC):
-    def __init__(self, config: Optional[OmegaConf]=None):
+    def __init__(self, config: Optional[OmegaConf] = None):
         self.heavy_metrics_calculation_interval = (
             1 if config is None else config.heavy_metrics_calculation_interval
         )
