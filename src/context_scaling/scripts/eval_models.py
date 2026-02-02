@@ -50,6 +50,7 @@ def make_csv_name(template: str, cfg) -> str:
         kw = kw.strip()
         for k, v in flat_cfg.items():
             if kw in k:
+                kw = kw.split("/")[-1]
                 parts.append(f"{kw}={v}")
                 break  # take first match
 
@@ -164,7 +165,6 @@ def rsync_checkpoint(
 def collate_no_pad(batch, tokenizer, seq_len):
     texts = [ex["text"] for ex in batch]
     urls = [ex["url"] for ex in batch]
-    timestamps = [ex["timestamp"] for ex in batch]
 
     enc = tokenizer(
         texts,
@@ -184,7 +184,6 @@ def collate_no_pad(batch, tokenizer, seq_len):
     return {
         "input_ids": input_ids,
         "url": urls,
-        "timestamp": timestamps,
     }
 
 
@@ -386,7 +385,11 @@ def main():
             dataset_dir={args.dataset_dir},\n
             out_csv={out_csv},\n
             seq_len={args.seq_len},\n
-            batch_size={args.batch_size}
+            batch_size={args.batch_size},\n
+            model_step={args.model_step},\n
+            tmp_ckpt_path={args.tmp_ckpt_path},\n
+            model_cluster={args.model_cluster},\n
+            device={device},\n
             """
         )
         eval_model(
