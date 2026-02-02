@@ -27,6 +27,10 @@ cd -
 
 ls -la /home/j321m/nano/src/context_scaling/scripts
 
+echo "new gpt print"
+ls -la /home/j321m/nano/src/context_scaling/eval_models.py /home/j321m/nano/src/context_scaling/scripts/eval_models.py
+
+
 srun python src/context_scaling/eval_models.py \
     --tags context_scaling fineweb_edu WSD_scheduler lr_grid \
     --dataset_dir /storage_nvme_4/llm-random/datasets/fineweb/train \
