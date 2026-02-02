@@ -31,7 +31,7 @@ infrastructure:
     - 'cd -'
 
 cluster_switch:
-  train_path_c4: null
-  eval_path_c4: null
-  train_path_fineweb: /lustre/pd03/plgrid/plgllmefficont2/crewtool/proba2/fineweb-edu/train/train
-  eval_path_fineweb: /lustre/pd03/plgrid/plgllmefficont2/crewtool/proba2/fineweb-edu/train/train
+  train_path_c4: "/lustre/pd01/plgrid/plgllmefficont2/datasets/c4/train"
+  eval_path_c4: "/lustre/pd01/plgrid/plgllmefficont2/datasets/c4/validation"
+  train_path_fineweb: "/lustre/pd01/plgrid/plgllmefficont2/crewtool/proba2/fineweb-edu/train/train"
+  eval_path_fineweb: "/lustre/pd01/plgrid/plgllmefficont2/crewtool/proba2/fineweb-edu/train/train"
