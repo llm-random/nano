@@ -1,11 +1,10 @@
 defaults:
-  - _cluster@_here_: lem
-  - _model/context_scaling@_here_: tiny
-  - _trainer@_here_: context_scaling
-  - _dataset@_here_: ctx_scl_dataset
-  - _checkpoints@_here_: none
-  - _misc@_here_: default
-  - _eval@_here_: none
+  - ../_cluster@_here_: entropy
+  - ../_model/context_scaling@_here_: tiny
+  - ../_trainer@_here_: context_scaling
+  - ../_dataset@_here_: ctx_scl_dataset
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
   - _self_
 
 common:
@@ -43,5 +42,5 @@ infrastructure:
 
   slurm:
     time: "00:30:00"
-    gres: gpu:hopper:1
+    gres: gpu:1
     job-name: ${infrastructure.metric_logger.name}
