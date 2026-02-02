@@ -25,6 +25,8 @@ eval "$(pixi shell-hook)"
 cd -
 #-------- SCRIPT END --------
 
+ls -la /home/j321m/nano/src/context_scaling/scripts
+
 srun python src/context_scaling/eval_models.py \
     --tags context_scaling fineweb_edu WSD_scheduler lr_grid \
     --dataset_dir /storage_nvme_4/llm-random/datasets/fineweb/train \
