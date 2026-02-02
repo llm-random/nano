@@ -23,6 +23,7 @@ export XDG_STATE_HOME="$PIXI_HOME/state"
 cd "$PIXI_HOME"
 eval "$(pixi shell-hook)"
 cd -
+export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
 #-------- SCRIPT END --------
 
 srun python src/context_scaling/scripts/eval_models.py \
