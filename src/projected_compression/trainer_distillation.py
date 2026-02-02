@@ -1,16 +1,18 @@
 import logging
 import os
 import torch
-from src.core.checkpointing import step_checkpoint_path
-from src.core.trainer import Trainer
-from attr import define
 import torch.distributed.checkpoint as dcp
+from attr import define
+from src.core.checkpointing import step_checkpoint_path
+from src.core.trainer_distillation import TrainerDistillation
 
 logger = logging.getLogger(__name__)
 
 
 @define(slots=False)
-class PCTrainer(Trainer):
+class PCDistillationTrainer(TrainerDistillation):
+    """Works only for mem_eff_pc model with distillation"""
+
     only_compress_model_gradient_clipping: bool
 
     def __attrs_post_init__(self):
@@ -67,6 +69,9 @@ class PCTrainer(Trainer):
             if self._should_save_final_checkpoint:
                 self.save_checkpoint()
 
+            if self._should_evaluate:
+                self.eval()
+
     def save_checkpoint(self):
         checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
         dcp.save(self.model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model")
@@ -80,5 +85,22 @@ class PCTrainer(Trainer):
                     block_optimizer.state_dict(),
                     checkpoint_id=f"{checkpoint_folder}/block_optimizer_{idx}",
                 )
-        # TODO: add scheduler saving
+
+        # TODO: add scheduler saving/loading, saving below:
+        # if self.block_schedulers is not None:
+        #     for idx, block_sched in enumerate(self.block_schedulers):
+        #         dcp.save(
+        #             block_sched.state_dict(),
+        #             checkpoint_id=f"{checkpoint_folder}/block_scheduler_{idx}",
+        #         )
+
+        if os.environ["RANK"] == "0":
+            from src.core.checkpointing import save_training_state
+
+            save_training_state(
+                save_config=self.checkpoint.save,
+                step=self.step,
+                processed_tokens=self.processed_tokens,
+                metric_logger=self.metric_logger,
+            )
         logger.info(f"Saved checkpoint after step {self.step}")

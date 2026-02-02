@@ -2,10 +2,10 @@ infrastructure:
   server: entropy
   max_concurrent_jobs: null
   slurm:
-    cpus_per_gpu: 16
+    cpus_per_gpu: 14
     gres: ???
     job-name: test
-    mem_per_gpu: 125G
+    mem_per_gpu: 90G
     nodes: 1
     partition: h100
     time: "2-00:00:00"
@@ -18,7 +18,7 @@ infrastructure:
     - 'export HYDRA_FULL_ERROR=1'
 
     # export pixi variables
-    - 'export PIXI_HOME=/storage_nvme_4/nano/pixi'
+    - 'export PIXI_HOME=/storage_nvme_4/nano/pixi_new'
     - 'export PATH="$PIXI_HOME/bin:$PATH"'
     - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
     - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
