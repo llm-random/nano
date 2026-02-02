@@ -82,12 +82,3 @@ class TrainingConfig(BaseModel):
     n_steps: PositiveInt
     gradient_clipping: PositiveFloat
     evaluation: dict
-
-
-class MetricLoggerConfig(BaseModel):
-    type: Optional[str]
-    project_name: Optional[str]
-    name: Optional[str]
-    tags: Optional[List[str]]
-    heavy_metrics_calculation_interval: Optional[int]
-    new_neptune_job: Optional[bool] = None
