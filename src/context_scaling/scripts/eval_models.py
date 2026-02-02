@@ -48,6 +48,7 @@ def make_csv_name(template: str, cfg) -> str:
     parts = []
     for kw in template.split(","):
         kw = kw.strip()
+        kw = kw.replace("/", ".")
         for k, v in flat_cfg.items():
             if kw in k:
                 kw = kw.split("/")[-1]
