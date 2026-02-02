@@ -1,5 +1,4 @@
 #!/bin/bash -l
-set -euo pipefail
 
 #SBATCH --array=0-0
 #SBATCH --cpus-per-gpu=14
@@ -9,6 +8,8 @@ set -euo pipefail
 #SBATCH --nodes=1
 #SBATCH --partition=h100
 #SBATCH --time=00:30:00
+
+set -euo pipefail
 
 #---------- SCRIPT ----------
 export PROJECT_HOME_PATH=/storage_nvme_4/nano
