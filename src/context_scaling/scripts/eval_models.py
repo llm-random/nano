@@ -238,6 +238,7 @@ def eval_model(
     model_step: int,
     tmp_ckpt_path: str,
     device: torch.device,
+    model_cluster: str,
 ):
 
     model = instantiate(cfg.model, _convert_="all").to(device)
@@ -256,7 +257,7 @@ def eval_model(
     os.makedirs(tmp_ckpt_path, exist_ok=True)
 
     rsync_checkpoint(
-        "helios",
+        model_cluster,
         ckpt_dir,
         model_step,
         tmp_ckpt_path,
@@ -361,6 +362,11 @@ def main():
         type=str,
         help="remember to store model in correct place",
     )
+    parser.add_argument(
+        "--model_cluster",
+        type=str,
+        help="cluster whoch holds the models",
+    )
 
     args = parser.parse_args()
 
@@ -392,6 +398,7 @@ def main():
             batch_size=args.batch_size,
             model_step=args.model_step,
             tmp_ckpt_path=args.tmp_ckpt_path,
+            model_cluster=args.model_cluster,
             device=device,
         )
 
