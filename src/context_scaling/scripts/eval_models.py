@@ -345,12 +345,15 @@ def main():
     args = parser.parse_args()
 
     device = setup_distributed()
+    print(f"device: {device}")
 
     df = pd.read_csv(args.neptune_csv_path)
+    print("neptune dataframe loaded")
 
     row = df.iloc[int(os.environ["SLURM_ARRAY_TASK_ID"])]
 
     cfg = get_hydra_config(row)
+    print("hydra cfg loaded")
 
     ckpt_path = row["job/full_save_checkpoints_path"]
     out_csv = str(Path(args.out_dir) / make_csv_name(args.out_csv_format, cfg))
