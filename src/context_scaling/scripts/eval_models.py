@@ -45,9 +45,6 @@ def make_csv_name(template: str, cfg) -> str:
     """
     flat_cfg = flatten_dict(OmegaConf.to_container(cfg, resolve=True))
 
-    print("cfg")
-    print(flat_cfg)
-
     parts = []
     for kw in template.split(","):
         kw = kw.strip()
