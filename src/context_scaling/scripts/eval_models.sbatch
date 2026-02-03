@@ -25,6 +25,10 @@ cd "$PIXI_HOME"
 eval "$(pixi shell-hook)"
 cd -
 
+# --- avoid Triton/Inductor cache collisions across array tasks ---
+export TORCH_COMPILE_DISABLE=1
+# ---
+
 export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=$((20000 + (SLURM_ARRAY_JOB_ID % 20000) + SLURM_ARRAY_TASK_ID))
