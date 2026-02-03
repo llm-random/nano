@@ -306,6 +306,12 @@ def main():
         help="Path to dataset loaded with load_from_disk",
     )
     parser.add_argument(
+        "--neptune_csv_path",
+        type=str,
+        help="path to the downloaded neptune csv file",
+        required=True,
+    )
+    parser.add_argument(
         "--out_csv_format",
         type=str,
         default="kv_heads,dff",

@@ -36,6 +36,7 @@ export LOCAL_RANK=0
 
 srun --export=ALL --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scripts/eval_models.py \
     --dataset_dir /lustre/pd01/plgrid/plgllmefficont2/datasets/c4/long_context_2048n8192 \
+    --neptune_csv_path /home/grid/users/plgj321m/nano/lr_grid/main/df.csv \
     --out_csv_format "dmodel,kv_heads,trainer/learning_rate,model_seed,data_seed" \
     --out_dir lr_grid \
     --seq_len 2048 \
