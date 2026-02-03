@@ -1,0 +1,5 @@
+if ! pixi run black --check . 
+then 
+    echo "Black formatting check failed"
+    exit 1
+fi
