@@ -25,14 +25,17 @@ eval "$(pixi shell-hook)"
 cd -
 export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
 export MASTER_ADDR=127.0.0.1
-export MASTER_PORT=$((20000 + (SLURM_JOB_ID % 20000) + SLURM_ARRAY_TASK_ID))
+export MASTER_PORT=$((20000 + (SLURM_ARRAY_JOB_ID % 20000) + SLURM_ARRAY_TASK_ID))
+export RANK=0
+export WORLD_SIZE=1
+export LOCAL_RANK=0
 
 #-------- SCRIPT END --------
 
-srun --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scripts/eval_models.py \
+srun --export=ALL --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scripts/eval_models.py \
     --tags context_scaling fineweb_edu WSD_scheduler lr_grid \
     --dataset_dir /storage_nvme_1/llm-random/datasets/c4/long_context_2048n8192 \
     --out_csv_format "dmodel,kv_heads,trainer/learning_rate,model_seed,data_seed" \
     --out_dir lr_grid \
     --tmp_ckpt_path /storage_nvme_4/nano/models/from_lem/lr_grid/${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}
-    --model_cluster lem \
+    --model_cluster lem

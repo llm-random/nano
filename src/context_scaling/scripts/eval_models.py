@@ -135,22 +135,13 @@ def get_hydra_config(row):
 
 
 def setup_distributed():
-    os.environ["RANK"] = "0"
-    os.environ["WORLD_SIZE"] = "1"
-    os.environ["LOCAL_RANK"] = "0"
-    os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = "29500"
-
     torch.cuda.set_device(0)
     device = torch.device("cuda:0")
 
-    dist.init_process_group(
-        backend="nccl",
-        rank=0,
-        world_size=1,
-    )
+    if not dist.is_initialized():
+        dist.init_process_group(backend="nccl", rank=0, world_size=1)
 
-    print("✅ torch.distributed initialized (1 GPU)")
+    print(f"✅ torch.distributed initialized (1 GPU) MASTER_PORT={os.environ.get('MASTER_PORT')}")
     return device
 
 
