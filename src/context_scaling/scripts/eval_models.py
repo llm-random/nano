@@ -153,7 +153,13 @@ def rsync_checkpoint(
 ) -> None:
     "Rsync a checkpoint from a remote cluster to local directory."
 
-    cmd = ["rsync", "-rlphvP", f"{cluster}:{remote_path}/step_{model_step}/", local_dir]
+    # cmd = ["rsync", "-rlphvP", f"{cluster}:{remote_path}/step_{model_step}/", local_dir]
+    cmd = [
+        "rsync", "-rlphvP",
+        "-e", "ssh -vv",
+        f"{cluster}:{remote_path}/step_{model_step}/",
+        local_dir,
+    ]
     subprocess.run(cmd, check=True)
 
 
@@ -371,7 +377,7 @@ def main():
     df = get_neptune_table(tags=args.tags)
 
     row = df.iloc[int(os.environ["SLURM_ARRAY_TASK_ID"])]
-    
+
 
     cfg = get_hydra_config(row)
 

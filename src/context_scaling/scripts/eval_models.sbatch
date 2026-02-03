@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH --array=0-19%1
+#SBATCH --array=0-19
 #SBATCH --cpus-per-gpu=14
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=tiny_remote
