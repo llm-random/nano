@@ -148,19 +148,18 @@ def setup_distributed():
     return device
 
 
-def rsync_checkpoint(
-    cluster: str, remote_path: str, model_step: int, local_dir: str
-) -> None:
-    "Rsync a checkpoint from a remote cluster to local directory."
+# def rsync_checkpoint(
+#     cluster: str, remote_path: str, model_step: int, local_dir: str
+# ) -> None:
+#     "Rsync a checkpoint from a remote cluster to local directory."
 
-    # cmd = ["rsync", "-rlphvP", f"{cluster}:{remote_path}/step_{model_step}/", local_dir]
-    cmd = [
-        "rsync", "-rlphvP",
-        "-e", "ssh -vv",
-        f"{cluster}:{remote_path}/step_{model_step}/",
-        local_dir,
-    ]
-    subprocess.run(cmd, check=True)
+#     cmd = [
+#         "rsync", "-rlphvP",
+#         "-e", "ssh -vv",
+#         f"{cluster}:{remote_path}/step_{model_step}/",
+#         local_dir,
+#     ]
+#     subprocess.run(cmd, check=True)
 
 
 def collate_no_pad(batch, tokenizer, seq_len):
@@ -229,16 +228,13 @@ def tensors_rows_to_csv(tensors, path="tensors.csv"):
 
 
 def eval_model(
-    ckpt_dir: str,
+    ckpt_path: str,
     cfg,
     dataset_dir: str,
     out_csv: str,
     seq_len: int,
     batch_size: int,
-    model_step: int,
-    tmp_ckpt_path: str,
     device: torch.device,
-    model_cluster: str,
 ):
 
     model = instantiate(cfg.model, _convert_="all").to(device)
@@ -251,19 +247,7 @@ def eval_model(
 
     state = {"app": ModelOnly(fsdp_model)}
 
-    # clean folder is exists
-    if os.path.exists(tmp_ckpt_path):
-        shutil.rmtree(tmp_ckpt_path)
-    os.makedirs(tmp_ckpt_path, exist_ok=True)
-
-    rsync_checkpoint(
-        model_cluster,
-        ckpt_dir,
-        model_step,
-        tmp_ckpt_path,
-    )
-
-    dcp.load(state, checkpoint_id=tmp_ckpt_path)
+    dcp.load(state, checkpoint_id=ckpt_path)
 
     print("✅ Checkpoint loaded")
 
@@ -316,12 +300,6 @@ def main():
     )
 
     parser.add_argument(
-        "--tags",
-        nargs="+",
-        required=True,
-        help="Neptune tags to INCLUDE (space-separated)",
-    )
-    parser.add_argument(
         "--dataset_dir",
         type=str,
         required=True,
@@ -357,27 +335,14 @@ def main():
         default=320000,
         help="for loading correct model checkpoint",
     )
-    parser.add_argument(
-        "--tmp_ckpt_path",
-        type=str,
-        help="remember to store model in correct place",
-        required=True,
-    )
-    parser.add_argument(
-        "--model_cluster",
-        type=str,
-        help="cluster whoch holds the models",
-        required=True,
-    )
 
     args = parser.parse_args()
 
     device = setup_distributed()
 
-    df = get_neptune_table(tags=args.tags)
+    df = pd.read_csv(args.neptune_csv_path)
 
     row = df.iloc[int(os.environ["SLURM_ARRAY_TASK_ID"])]
-
 
     cfg = get_hydra_config(row)
 
@@ -398,15 +363,12 @@ def main():
         """
     )
     eval_model(
-        ckpt_dir=ckpt_path,
+        ckpt_path=os.path.join(ckpt_path, args.model_step),
         cfg=cfg,
         dataset_dir=args.dataset_dir,
         out_csv=out_csv,
         seq_len=args.seq_len,
         batch_size=args.batch_size,
-        model_step=args.model_step,
-        tmp_ckpt_path=args.tmp_ckpt_path,
-        model_cluster=args.model_cluster,
         device=device,
     )
 
