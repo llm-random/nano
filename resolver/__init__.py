@@ -37,6 +37,7 @@ def env_var_name_to_placeholder(var_name: str) -> str:
 
 
 def get_env_vars_placeholders_export():
+    # We are using placeholders to avoid exposing secrets in the sbatch script pushed to git
     placeholders = []
     for var in ENV_VARS_TO_FORWARD:
         export_placeholder = f'export {var}="{env_var_name_to_placeholder(var)}"'

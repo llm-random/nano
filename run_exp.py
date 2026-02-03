@@ -229,6 +229,7 @@ def submit_experiment(
                     resolver.ENV_VARS_TO_FORWARD,
                 )
                 for var in resolver.ENV_VARS_TO_FORWARD:
+                    # We are using placeholders to avoid exposing secrets in the sbatch script pushed to git
                     if var not in os.environ:
                         logger.warning(
                             "%s not found in local environment variables. This might lead to issues. Skipping replacing the placeholder.",
