@@ -235,7 +235,7 @@ def main():
     print(f"yaml_config_path: {yaml_path}")
 
     cfg = load_hydra_cfg_from_yaml(yaml_path)
-    out_csv = str(out_dir / make_csv_name(args.out_csv_format, cfg))
+    out_csv = os.path.join(out_dir, make_csv_name(args.out_csv_format, cfg))
 
     try:
         eval_model(
