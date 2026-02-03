@@ -224,13 +224,15 @@ def submit_experiment(
 
             try:
                 connection.run(f"tmux new -d -s {experiment_branch_name}")
-                print(
-                    f"Will try to replace the placeholders of the following env variables with values pulled from the local machine: {resolver.ENV_VARS_TO_FORWARD}"
+                logger.info(
+                    "Will try to replace the placeholders of the following env variables with values pulled from the local machine: %s",
+                    resolver.ENV_VARS_TO_FORWARD,
                 )
                 for var in resolver.ENV_VARS_TO_FORWARD:
                     if var not in os.environ:
-                        print(
-                            f"Warning: {var} not found in local environment variables. This might lead to issues. Skip replacing the placeholder."
+                        logger.warning(
+                            "%s not found in local environment variables. This might lead to issues. Skipping replacing the placeholder.",
+                            var,
                         )
                     else:
                         connection.run(

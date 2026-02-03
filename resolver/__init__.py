@@ -3,6 +3,9 @@ from omegaconf import OmegaConf
 import platform
 import os
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_cluster_name(hostname=None, username=None) -> str:
@@ -38,9 +41,11 @@ def get_env_vars_placeholders_export():
     for var in ENV_VARS_TO_FORWARD:
         export_placeholder = f'export {var}="{env_var_name_to_placeholder(var)}"'
         if var not in os.environ:
-            print(
-                f"Warning: {var} not found in environment variables. This might lead to issues."
+            logger.warning(
+                "%s not found in environment variables. This might lead to issues.",
+                var,
             )
+
             export_placeholder = f"# {export_placeholder}  # Warning: {var} not found in environment. This might lead to issues."
         placeholders.append(export_placeholder)
     return "\n".join(placeholders)
