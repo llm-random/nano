@@ -122,7 +122,10 @@ def get_hydra_config(row):
         mode="read-only",
         api_token=os.environ["NEPTUNE_API_TOKEN"],
     )
-    cfg_file = "tmp_hydra_config.yaml"
+    job_dir = f"{os.environ.get('SLURM_ARRAY_JOB_ID','0')}/{os.environ.get('SLURM_ARRAY_TASK_ID','0')}"
+    os.makedirs(job_dir, exist_ok=True)
+
+    cfg_file = f"{job_dir}/tmp_hydra_config.yaml"
     run["yaml_config"].download(destination=cfg_file)
 
     cfg_dir = str(Path(cfg_file).parent.absolute())
