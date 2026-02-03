@@ -355,11 +355,13 @@ def main():
         "--tmp_ckpt_path",
         type=str,
         help="remember to store model in correct place",
+        required=True,
     )
     parser.add_argument(
         "--model_cluster",
         type=str,
         help="cluster whoch holds the models",
+        required=True,
     )
 
     args = parser.parse_args()
@@ -400,6 +402,10 @@ def main():
         model_cluster=args.model_cluster,
         device=device,
     )
+
+
+    if dist.is_initialized():
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":
