@@ -1,7 +1,4 @@
-import os
-import re
 import sys
-import shlex
 from pathlib import Path
 from datetime import datetime
 
@@ -9,17 +6,6 @@ import hydra
 from omegaconf import OmegaConf
 from run_exp import ConnectWithPassphrase
 from grid_generator.sbatch_builder import create_slurm_parameters
-
-
-def extract_pixi_home(script_lines) -> str:
-    text = "\n".join(script_lines)
-    match = re.search(r"^export\s+PIXI_HOME=([^\s#]+)", text, re.MULTILINE)
-
-    if not match:
-        raise ValueError("PIXI_HOME not found in cluster configuration script")
-
-    return match.group(1).strip().replace('"', "")
-
 
 def get_project_root() -> Path:
     # Get the project root directory (where pixi.toml is located).
@@ -49,16 +35,16 @@ def update_remote_pixi(cfg: OmegaConf):
     # Convert to plain dict to avoid struct mode restrictions
     slurm_config = OmegaConf.to_container(cfg.infrastructure.slurm, resolve=True)
 
-    try:
-        pixi_home = extract_pixi_home(script_lines)
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    assert 'export PIXI_HOME' in "\n".join(script_lines), "PIXI_HOME must be set in the cluster script."
 
     # This job is just "pixi install" → no GPU needed.
     # Remove GPU-related keys inherited from the main cluster config.
     for key in ("gres", "cpus_per_gpu", "mem_per_gpu"):
         slurm_config.pop(key, None)
+
+
+    if cfg.infrastructure.server == "lem":
+        slurm_config["gres"] = "gpu:hopper:1"
 
     # Optionally set simple CPU-only params (tune if you like)
     slurm_config["job-name"] = "update_pixi"
@@ -68,7 +54,6 @@ def update_remote_pixi(cfg: OmegaConf):
     slurm_config["mem"] = "8G"  # normal mem, not mem-per-gpu
 
     print(f"Cluster: {server}")
-    print(f"PIXI_HOME: {pixi_home}")
 
     # Get local pixi files
     project_root = get_project_root()
@@ -151,47 +136,46 @@ def update_remote_pixi(cfg: OmegaConf):
                 continue
 
             # include all pixi-related exports
-            if line.startswith("export") and (
-                "PIXI" in line or "XDG_" in line or 'PATH="$PIXI_HOME' in line
-            ):
+            if line.startswith("export"):
                 env_setup.append(line)
                 continue
 
-        env_commands = " && ".join(env_setup) if env_setup else ""
+        env_commands = "\n".join(env_setup) if env_setup else ""
 
         # mkdir + copy happen on the compute node, via srun
-        base_command = (
-            "ts=$(date +%Y_%m_%d_%H_%M_%S) && "
-            f"mkdir -p {pixi_home} && "
-            # archive old pixi.toml / pixi.lock if present
-            f"if [ -f {pixi_home}/pixi.toml ] || [ -f {pixi_home}/pixi.lock ]; then "
-            f"mkdir -p {pixi_home}/old_pixi_files/obsolete_since_${{ts}}; "
-            f"if [ -f {pixi_home}/pixi.toml ]; then "
-            f"mv -f {pixi_home}/pixi.toml {pixi_home}/old_pixi_files/obsolete_since_${{ts}}/; "
-            f"fi; "
-            f"if [ -f {pixi_home}/pixi.lock ]; then "
-            f"mv -f {pixi_home}/pixi.lock {pixi_home}/old_pixi_files/obsolete_since_${{ts}}/; "
-            f"fi; "
-            "fi && "
-            # move new files from $HOME temp dir into PIXI_HOME
-            f"mv -f {remote_tmp_dir}/pixi.toml {pixi_home}/ && "
-            f"chmod 775 {pixi_home}/pixi.toml && "
-            f"if [ -f {remote_tmp_dir}/pixi.lock ]; then "
-            f"mv -f {remote_tmp_dir}/pixi.lock {pixi_home}/; "
-            f"chmod 775 {pixi_home}/pixi.lock; "
-            f"fi && "
-            # run pixi install
-            f"cd {pixi_home} && "
-            "pixi install"
-        )
+        base_command = f"""\
+ts=$(date +%Y_%m_%d_%H_%M_%S)
+mkdir -p "$PIXI_HOME"
+
+if [ -f "$PIXI_HOME/pixi.toml" ] || [ -f "$PIXI_HOME/pixi.lock" ]; then
+  mkdir -p "$PIXI_HOME/old_pixi_files/obsolete_since_${{ts}}"
+  [ -f "$PIXI_HOME/pixi.toml" ] && mv -f "$PIXI_HOME/pixi.toml" "$PIXI_HOME/old_pixi_files/obsolete_since_${{ts}}/"
+  [ -f "$PIXI_HOME/pixi.lock" ] && mv -f "$PIXI_HOME/pixi.lock" "$PIXI_HOME/old_pixi_files/obsolete_since_${{ts}}/"
+fi
+
+mv -f "{remote_tmp_dir}/pixi.toml" "$PIXI_HOME/"
+chmod 777 "$PIXI_HOME/pixi.toml"
+
+if [ -f "{remote_tmp_dir}/pixi.lock" ]; then
+  mv -f "{remote_tmp_dir}/pixi.lock" "$PIXI_HOME/"
+  chmod 777 "$PIXI_HOME/pixi.lock"
+fi
+
+env
+
+cd "$PIXI_HOME"
+pixi install
+"""
+
 
         if env_commands:
             install_command = f"{env_commands} && {base_command}"
         else:
             install_command = base_command
 
-        cmd_quoted = shlex.quote(install_command)
-        full_command = f"{srun_cmd} bash -lc {cmd_quoted}"
+        command_file = f"{remote_tmp_dir}/run_pixi_install.sh"
+        connection.run(f'echo \'{install_command}\' > {command_file}')
+        full_command = f"{srun_cmd} bash -le {command_file}"
 
         result = connection.run(full_command, pty=True)
 
