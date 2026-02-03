@@ -29,7 +29,7 @@ export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
 srun python src/context_scaling/scripts/eval_models.py \
     --tags context_scaling fineweb_edu WSD_scheduler lr_grid \
     --dataset_dir /storage_nvme_1/llm-random/datasets/c4/long_context_2048n8192 \
-    --out_csv_format "dmodel,kv_heads,job_config/trainer/learning_rate,model_seed,data_seed" \
+    --out_csv_format "dmodel,kv_heads,trainer/learning_rate,model_seed,data_seed" \
     --out_dir lr_grid \
     --tmp_ckpt_path /storage_nvme_4/nano/models/from_lem/lr_grid \
     --model_cluster lem \
