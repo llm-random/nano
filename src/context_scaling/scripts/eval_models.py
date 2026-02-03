@@ -120,7 +120,9 @@ class ModelOnly(Stateful):
 def tensors_rows_to_csv(tensors, path: str):
     rows = [t.detach().cpu() for t in tensors]
     stacked = torch.cat(rows, dim=0)
+    print(f"saving CSV to {path}")
     pd.DataFrame(stacked.numpy()).to_csv(path, index=False)
+    print(f"✅ CSV saved")
 
 
 def eval_model(
