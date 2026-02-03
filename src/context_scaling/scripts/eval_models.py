@@ -142,7 +142,7 @@ def eval_model(
     fsdp_model = FSDP(model)
     state = {"app": ModelOnly(fsdp_model)}
 
-    ckpt_path = os.path.join(ckpt_dir, str(model_step))
+    ckpt_path = os.path.join(ckpt_dir, f"step_{model_step}")
     dcp.load(state, checkpoint_id=ckpt_path)
     print(f"✅ Checkpoint loaded: {ckpt_path}")
 
