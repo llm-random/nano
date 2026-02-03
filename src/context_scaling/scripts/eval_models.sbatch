@@ -12,17 +12,19 @@
 set -euo pipefail
 
 #---------- SCRIPT ----------
-export PROJECT_HOME_PATH=/storage_nvme_4/nano
+ml CUDA/12.4.0
+export PROJECT_HOME_PATH=/lustre/pd01/plgrid/plgllmefficont2/nano/context_scaling
 export HF_HOME=$PROJECT_HOME_PATH/hf_cache
 export HYDRA_FULL_ERROR=1
-export PIXI_HOME=/storage_nvme_4/nano/pixi
-export PATH="$PIXI_HOME/bin:$PATH"
-export XDG_DATA_HOME="$PIXI_HOME/data"
-export XDG_CACHE_HOME="$PIXI_HOME/cache"
-export XDG_STATE_HOME="$PIXI_HOME/state"
+export PIXI_HOME=$PROJECT_HOME_PATH/pixi
+export PATH="$HOME/.pixi/bin:$PATH"
+export XDG_DATA_HOME="$PROJECT_HOME_PATH/data"
+export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"
+export XDG_STATE_HOME="$PROJECT_HOME_PATH/state"
 cd "$PIXI_HOME"
 eval "$(pixi shell-hook)"
 cd -
+
 export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=$((20000 + (SLURM_ARRAY_JOB_ID % 20000) + SLURM_ARRAY_TASK_ID))
