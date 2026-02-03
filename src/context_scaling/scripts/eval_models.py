@@ -374,37 +374,38 @@ def main():
 
     df = get_neptune_table(tags=args.tags)
 
-    for _, row in df.iterrows():
-        cfg = get_hydra_config(row)
+    row = df.iloc[os.environ["SLURM_JOB_ID"]]
 
-        ckpt_path = row["job/full_save_checkpoints_path"]
-        out_csv = str(Path(args.out_dir) / make_csv_name(args.out_csv_format, cfg))
-        print(
-            f"""
-            DEBUG eval_model params:\n
-            qckpt_dir={ckpt_path},\n
-            dataset_dir={args.dataset_dir},\n
-            out_csv={out_csv},\n
-            seq_len={args.seq_len},\n
-            batch_size={args.batch_size},\n
-            model_step={args.model_step},\n
-            tmp_ckpt_path={args.tmp_ckpt_path},\n
-            model_cluster={args.model_cluster},\n
-            device={device},\n
-            """
-        )
-        eval_model(
-            ckpt_dir=ckpt_path,
-            cfg=cfg,
-            dataset_dir=args.dataset_dir,
-            out_csv=out_csv,
-            seq_len=args.seq_len,
-            batch_size=args.batch_size,
-            model_step=args.model_step,
-            tmp_ckpt_path=args.tmp_ckpt_path,
-            model_cluster=args.model_cluster,
-            device=device,
-        )
+    cfg = get_hydra_config(row)
+
+    ckpt_path = row["job/full_save_checkpoints_path"]
+    out_csv = str(Path(args.out_dir) / make_csv_name(args.out_csv_format, cfg))
+    print(
+        f"""
+        DEBUG eval_model params:\n
+        qckpt_dir={ckpt_path},\n
+        dataset_dir={args.dataset_dir},\n
+        out_csv={out_csv},\n
+        seq_len={args.seq_len},\n
+        batch_size={args.batch_size},\n
+        model_step={args.model_step},\n
+        tmp_ckpt_path={args.tmp_ckpt_path},\n
+        model_cluster={args.model_cluster},\n
+        device={device},\n
+        """
+    )
+    eval_model(
+        ckpt_dir=ckpt_path,
+        cfg=cfg,
+        dataset_dir=args.dataset_dir,
+        out_csv=out_csv,
+        seq_len=args.seq_len,
+        batch_size=args.batch_size,
+        model_step=args.model_step,
+        tmp_ckpt_path=args.tmp_ckpt_path,
+        model_cluster=args.model_cluster,
+        device=device,
+    )
 
 
 if __name__ == "__main__":
