@@ -2,7 +2,7 @@
 
 #SBATCH --array=0-19
 #SBATCH --cpus-per-gpu=14
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:hopper:1
 #SBATCH --job-name=tiny_remote
 #SBATCH --mem-per-gpu=90G
 #SBATCH --nodes=1
