@@ -374,7 +374,7 @@ def main():
 
     df = get_neptune_table(tags=args.tags)
 
-    row = df.iloc[os.environ["SLURM_JOB_ID"]]
+    row = df.iloc[int(os.environ["SLURM_ARRAY_TASK_ID"])]
 
     cfg = get_hydra_config(row)
 
