@@ -18,7 +18,7 @@ infrastructure:
     - 'export HYDRA_FULL_ERROR=1'
 
     # export pixi variables
-    - 'export PIXI_HOME=/lustre/pd01/plgrid/plgllmefficont2/projected_compression/pixi'
+    - 'export PIXI_HOME=/lustre/pd01/plgrid/plgllmefficont2/pixi'
     - 'export PATH="$PIXI_HOME/bin:$PATH"'
     - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
     - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
