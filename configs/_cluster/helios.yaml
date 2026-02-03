@@ -11,6 +11,7 @@ infrastructure:
     time: "2-00:00:00"
 
   script:
+    - '${export_env_variables_placeholders:}'
     - 'module load ML-bundle/25.04'
     - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi/nano'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
