@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH --array=0-19
+#SBATCH --array=0-0
 #SBATCH --cpus-per-gpu=14
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=tiny_remote
@@ -33,7 +33,7 @@ export LOCAL_RANK=0
 #-------- SCRIPT END --------
 
 srun --export=ALL --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scripts/eval_models.py \
-    --tags context_scaling fineweb_edu WSD_scheduler lr_grid \
+    --tags context_scaling fineweb_edu WSD_scheduler special \
     --dataset_dir /storage_nvme_1/llm-random/datasets/c4/long_context_2048n8192 \
     --out_csv_format "dmodel,kv_heads,trainer/learning_rate,model_seed,data_seed" \
     --out_dir lr_grid \
