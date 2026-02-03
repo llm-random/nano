@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 from run_exp import ConnectWithPassphrase
 from grid_generator.sbatch_builder import create_slurm_parameters
 
+
 def get_project_root() -> Path:
     # Get the project root directory (where pixi.toml is located).
     current = Path(__file__).resolve().parent
@@ -35,13 +36,14 @@ def update_remote_pixi(cfg: OmegaConf):
     # Convert to plain dict to avoid struct mode restrictions
     slurm_config = OmegaConf.to_container(cfg.infrastructure.slurm, resolve=True)
 
-    assert 'export PIXI_HOME' in "\n".join(script_lines), "PIXI_HOME must be set in the cluster script."
+    assert "export PIXI_HOME" in "\n".join(
+        script_lines
+    ), "PIXI_HOME must be set in the cluster script."
 
     # This job is just "pixi install" → no GPU needed.
     # Remove GPU-related keys inherited from the main cluster config.
     for key in ("gres", "cpus_per_gpu", "mem_per_gpu"):
         slurm_config.pop(key, None)
-
 
     if cfg.infrastructure.server == "lem":
         slurm_config["gres"] = "gpu:hopper:1"
@@ -167,14 +169,13 @@ cd "$PIXI_HOME"
 pixi install
 """
 
-
         if env_commands:
             install_command = f"{env_commands} && {base_command}"
         else:
             install_command = base_command
 
         command_file = f"{remote_tmp_dir}/run_pixi_install.sh"
-        connection.run(f'echo \'{install_command}\' > {command_file}')
+        connection.run(f"echo '{install_command}' > {command_file}")
         full_command = f"{srun_cmd} bash -le {command_file}"
 
         result = connection.run(full_command, pty=True)

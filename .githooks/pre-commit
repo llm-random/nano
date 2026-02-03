@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+
+exec 1>&2
+
+if ! "$HOME/.pixi/bin/pixi" run black --check . 
+then 
+    echo "Black formatting check failed"
+    exit 1
+fi
