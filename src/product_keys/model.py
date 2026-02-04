@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch.nn.init import trunc_normal_
 import logging
 
-from src.core.model import AttentionMechanism, RoPE
+from src.core.model import AttentionMechanism, Residual, RoPE
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,44 @@ def deterministic_weight_init(fan_in, scale):
     high = 2 * std
     generator = torch.Generator().manual_seed(42)
     return partial(trunc_normal_, mean=0.0, std=std, a=low, b=high, generator=generator)
+
+
+class HybridTransformerBlock(nn.Module):
+    def __init__(
+        self,
+        block_id: int,
+        norm_fn,
+        attention_fn,
+        ff_layer_fn,
+        pkm_layer_fn,
+        pkm_indices: list[int],
+    ):
+        super().__init__()
+        self.log_name = f"block[{block_id}]"
+
+        self.attention_layer = Residual(
+            norm=norm_fn(),
+            layer=attention_fn(),
+            log_name=f"{self.log_name}/residual_attention",
+        )
+        
+        if block_id in pkm_indices:
+            selected_layer = pkm_layer_fn()
+            layer_type_name = "pkm"
+        else:
+            selected_layer = ff_layer_fn()
+            layer_type_name = "feedforward"
+
+        self.ff_layer = Residual(
+            norm=norm_fn(),
+            layer=selected_layer,
+            log_name=f"{self.log_name}/residual_{layer_type_name}",
+        )
+
+    def forward(self, x):
+        x = self.attention_layer(x)
+        x = self.ff_layer(x)
+        return x
 
 
 class RoPETopKAttention(nn.Module):
@@ -35,6 +73,7 @@ class RoPETopKAttention(nn.Module):
         rope_scale_freqs: bool,
         top_k: int,
         top_k_before_softmax: bool = True,
+        causal: bool = True,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -50,6 +89,8 @@ class RoPETopKAttention(nn.Module):
 
         self.top_k = top_k
         self.top_k_before_softmax = top_k_before_softmax
+        
+        self.causal = causal
 
         self.rope = RoPE(
             dhead=self.dhead,
@@ -85,17 +126,19 @@ class RoPETopKAttention(nn.Module):
         # standard attention if seq_len is smaller or equal top_k
         if seq_len <= self.top_k:
             attention_output = self.attention_mechanism(
-                query=q, key=k, value=v, causal=True
+                query=q, key=k, value=v, causal=self.causal
             )
             return self.o_proj(
                 attention_output.transpose(1, 2).contiguous().flatten(-2)
             )
 
         attention_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.dhead)
-        causal_mask = torch.triu(
-            torch.ones(seq_len, seq_len, device=attention_scores.device), diagonal=1
-        ).bool()
-        attention_scores = attention_scores.masked_fill(causal_mask, float("-inf"))
+        
+        if self.causal:
+            causal_mask = torch.triu(
+                torch.ones(seq_len, seq_len, device=attention_scores.device), diagonal=1
+            ).bool()
+            attention_scores = attention_scores.masked_fill(causal_mask, float("-inf"))
 
         if self.top_k_before_softmax:
             attention_scores = self.__apply_topk_mask(
