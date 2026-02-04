@@ -12,6 +12,7 @@ infrastructure:
     account: "plgllmefficont2"
 
   script:
+    - '${export_env_variables_placeholders:}'
     - 'export HF_HOME="/lustre/pd01/plgrid/plgllmefficont2/crewtool/hf"'
 
     # hydra errors
