@@ -34,10 +34,10 @@ def flatten_dict(d, parent_key="", sep="."):
     return dict(items)
 
 
-def make_csv_name(template: str, cfg) -> str:
+def make_csv_name(run_id: str, template: str, cfg) -> str:
     flat_cfg = flatten_dict(OmegaConf.to_container(cfg, resolve=True))
 
-    parts = []
+    parts = [run_id]
     for kw in template.split(","):
         kw = kw.strip().replace("/", ".")
         for k, v in flat_cfg.items():
@@ -235,7 +235,7 @@ def main():
     print(f"yaml_config_path: {yaml_path}")
 
     cfg = load_hydra_cfg_from_yaml(yaml_path)
-    out_csv = os.path.join(out_dir, make_csv_name(args.out_csv_format, cfg))
+    out_csv = os.path.join(out_dir, make_csv_name(run_id, args.out_csv_format, cfg))
 
     try:
         eval_model(
