@@ -209,6 +209,19 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
     return model, optimizer, scheduler
 
 
+def initialize_just_metric_logger(cfg: OmegaConf, metric_logger=None):
+
+    if metric_logger is None:
+        metric_logger = get_metric_logger(
+            metric_logger_config=instantiate(
+                cfg.infrastructure.metric_logger, _convert_="all"
+            ),
+            neptune_run_id=None,
+        )
+
+    return None, None, None, None, metric_logger
+
+
 def initialize_training_components(cfg: OmegaConf, metric_logger=None):
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
