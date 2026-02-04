@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - /_cluster/entropy@_here_
+  - /_cluster/helios@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
@@ -26,28 +26,31 @@ trainer:
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
   n_steps: 77050
-  learning_rate: 5e-4
+  ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
   train_dataloader:
-    tokenize_fn:
-      _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
-      
-
+    dataset:
+      tokenize_fn:
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   eval_dataloader:
-    tokenize_fn:
-      _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+    dataset:
+      tokenize_fn:
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
 
 
 infrastructure:
   metric_logger:
+    type: wandb
+    wandb_entity: ideas_cv
     name: pk_mlm
-    project_name: pmtest/tml-bgw
+    project_name: tml-bgw
     tags:
       - nano
       - pk_mlm
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
+      - "dmodel=${common.dmodel}"
   slurm:
-    gres: gpu:1
+    gres: gpu:2
     time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
@@ -61,6 +64,7 @@ model:
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
+        causal: false
 
         q_proj_fn:
           _target_: src.projected_compression.model.Linear
