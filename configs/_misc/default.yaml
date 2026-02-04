@@ -10,6 +10,10 @@ infrastructure:
     tags:
       - nano
 
+  credential_env_vars:
+    - HF_TOKEN
+    - WANDB_API_KEY
+
   git:
     remote_name: cemetery
     remote_url: git@github.com:llm-random/llm-random-cemetery.git
