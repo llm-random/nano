@@ -17,7 +17,6 @@ import paramiko.ssh_exception
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
 from main import dump_grid_configs, run
-import resolver
 
 logger = logging.getLogger(__name__)
 
@@ -224,21 +223,6 @@ def submit_experiment(
 
             try:
                 connection.run(f"tmux new -d -s {experiment_branch_name}")
-                logger.info(
-                    "Will try to replace the placeholders of the following env variables with values pulled from the local machine: %s",
-                    resolver.ENV_VARS_TO_FORWARD,
-                )
-                for var in resolver.ENV_VARS_TO_FORWARD:
-                    # We are using placeholders to avoid exposing secrets in the sbatch script pushed to git
-                    if var not in os.environ:
-                        logger.warning(
-                            "%s not found in local environment variables. This might lead to issues. Skipping replacing the placeholder.",
-                            var,
-                        )
-                    else:
-                        connection.run(
-                            f"sed -i 's/{resolver.env_var_name_to_placeholder(var)}/{os.environ[var]}/g' {experiment_dir}/exp.job"
-                        )
                 connection.run(
                     f'tmux send -t {experiment_branch_name}.0 "cd {experiment_dir}" ENTER'
                 )

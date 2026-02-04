@@ -11,7 +11,6 @@ infrastructure:
     time: "2-00:00:00"
 
   script:
-    - '${export_env_variables_placeholders:}'
     - 'export PROJECT_HOME_PATH=/storage_ssd_1/nano'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
 

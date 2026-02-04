@@ -3,9 +3,6 @@ from omegaconf import OmegaConf
 import platform
 import os
 import re
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def get_cluster_name(hostname=None, username=None) -> str:
@@ -26,38 +23,8 @@ def get_cluster_name(hostname=None, username=None) -> str:
     return "default"
 
 
-ENV_VARS_TO_FORWARD = [
-    "WANDB_API_KEY",
-    "HF_TOKEN",
-]
-
-
-def env_var_name_to_placeholder(var_name: str) -> str:
-    return f"__{var_name}_PLACEHOLDER__"
-
-
-def get_env_vars_placeholders_export():
-    # We are using placeholders to avoid exposing secrets in the sbatch script pushed to git
-    placeholders = []
-    for var in ENV_VARS_TO_FORWARD:
-        export_placeholder = f'export {var}="{env_var_name_to_placeholder(var)}"'
-        if var not in os.environ:
-            logger.warning(
-                "%s not found in environment variables. This might lead to issues.",
-                var,
-            )
-
-            export_placeholder = f"# {export_placeholder}  # Warning: {var} not found in environment. This might lead to issues."
-        placeholders.append(export_placeholder)
-    return "\n".join(placeholders)
-
-
 OmegaConf.register_new_resolver("__llmrandom_cluster_config", get_cluster_name)
 
 OmegaConf.register_new_resolver("random_seed", lambda: random.randint(0, 100000))
 
 OmegaConf.register_new_resolver("eval", eval)
-
-OmegaConf.register_new_resolver(
-    "export_env_variables_placeholders", get_env_vars_placeholders_export
-)
