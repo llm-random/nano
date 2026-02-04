@@ -219,6 +219,11 @@ def submit_experiment(
                         connection.run(
                             f'tmux send -t {experiment_branch_name}.0 "export {var}={os.environ[var]}" ENTER'
                         )
+                    else:
+                        logger.warning(
+                            "%s not found in local environment variables. This might lead to issues. Skipping replacing the placeholder.",
+                            var,
+                        )
 
                 connection.run(
                     f'tmux send -t {experiment_branch_name}.0 "cd {experiment_dir}" ENTER'
