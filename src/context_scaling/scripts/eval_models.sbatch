@@ -43,6 +43,6 @@ srun --export=ALL --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scrip
     --jobs_json eval_short_seq \
     --out_csv_format "dmodel,kv_heads,common/dff,trainer/learning_rate,common/sequence_length" \
     --out_dir eval_short_seq \
-    --seq_len 2048 \
+    --seq_len 1024 \
     --batch_size 32 \
     --model_step 320000
