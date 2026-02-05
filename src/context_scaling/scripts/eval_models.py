@@ -224,7 +224,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # jobs_json contains list[{"jobID","ckpt_path","yaml_config_path"}]
-    with open(args.jobs_json, "r", encoding="utf-8") as f:
+    with open(os.path.join(args.jobs_json, "jobs.json"), "r", encoding="utf-8") as f:
         jobs = json.load(f)
 
     task_id = int(os.environ.get("SLURM_ARRAY_TASK_ID", "0"))
