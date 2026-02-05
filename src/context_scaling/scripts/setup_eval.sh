@@ -1,8 +1,6 @@
 #!/bin/bash -l
 set -euo pipefail
 
-ml CUDA/12.4.0
-
 export PROJECT_HOME_PATH=/lustre/pd01/plgrid/plgllmefficont2/nano/context_scaling
 export HF_HOME=$PROJECT_HOME_PATH/hf_cache
 export HYDRA_FULL_ERROR=1
