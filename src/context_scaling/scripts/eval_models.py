@@ -54,7 +54,9 @@ def load_hydra_cfg_from_yaml(yaml_path: Path):
     if not yaml_path.exists():
         raise FileNotFoundError(f"Hydra yaml_config not found: {yaml_path}")
 
-    with initialize_config_dir(config_dir=str(yaml_path.parent.resolve()), version_base=None):
+    with initialize_config_dir(
+        config_dir=str(yaml_path.parent.resolve()), version_base=None
+    ):
         cfg = compose(config_name=yaml_path.stem)
     return cfg
 
@@ -64,7 +66,9 @@ def setup_distributed():
     device = torch.device("cuda:0")
     if not dist.is_initialized():
         dist.init_process_group(backend="nccl", rank=0, world_size=1)
-    print(f"✅ torch.distributed initialized (1 GPU) MASTER_PORT={os.environ.get('MASTER_PORT')}")
+    print(
+        f"✅ torch.distributed initialized (1 GPU) MASTER_PORT={os.environ.get('MASTER_PORT')}"
+    )
     return device
 
 
@@ -126,7 +130,7 @@ def tensors_rows_to_csv(tensors, path: str):
 
 
 def eval_model(
-    ckpt_dir: str,        # directory that contains step_* (or numeric step dirs)
+    ckpt_dir: str,  # directory that contains step_* (or numeric step dirs)
     model_step: int,
     cfg,
     dataset_dir: str,
@@ -168,7 +172,9 @@ def eval_model(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Eval models using cached jobs.json + yaml_cache (no Neptune)")
+    parser = argparse.ArgumentParser(
+        description="Eval models using cached jobs.json + yaml_cache (no Neptune)"
+    )
 
     parser.add_argument(
         "--jobs_json",
@@ -223,7 +229,9 @@ def main():
 
     task_id = int(os.environ.get("SLURM_ARRAY_TASK_ID", "0"))
     if task_id < 0 or task_id >= len(jobs):
-        raise IndexError(f"SLURM_ARRAY_TASK_ID={task_id} out of range (0..{len(jobs)-1})")
+        raise IndexError(
+            f"SLURM_ARRAY_TASK_ID={task_id} out of range (0..{len(jobs)-1})"
+        )
 
     job = jobs[task_id]
     run_id = job["jobID"]

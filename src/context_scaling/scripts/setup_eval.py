@@ -28,7 +28,9 @@ def get_neptune_table(
 
     if negative_tags:
         for neg_tag in negative_tags:
-            runs_table = runs_table[~runs_table["sys/tags"].apply(lambda x: neg_tag in x)]
+            runs_table = runs_table[
+                ~runs_table["sys/tags"].apply(lambda x: neg_tag in x)
+            ]
 
     if print_columns:
         print("\n=== Available columns ===")
