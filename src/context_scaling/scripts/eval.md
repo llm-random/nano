@@ -23,6 +23,6 @@ which handles
         1. commit push changes to github
         2. ssh to cluster
         3. git pull
-        4. on compute node run `bash -l src/context_scaling/scripts/setup_eval.sh` (it modifies number of jobs in slurm array in `eval_models.sbatch`)
-        5. on login node run `sbatch src/context_scaling/scripts/eval_models.sbatch`
+        4. run `bash -l src/context_scaling/scripts/setup_eval.sh` (it modifies number of jobs in slurm array in `eval_models.sbatch`)
+        5. run `sbatch src/context_scaling/scripts/eval_models.sbatch`
 
