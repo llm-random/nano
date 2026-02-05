@@ -27,6 +27,6 @@ export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
 #
 # Optionally updates your sbatch array length if you pass --sbatch_path.
 python src/context_scaling/scripts/setup_eval.py \
-    --tags context_scaling fineweb_edu WSD_scheduler eval_short_seq \
-    --out_dir eval_short_seq \
+    --tags context_scaling fineweb_edu WSD_scheduler eval_dmodel_1536 \
+    --out_dir eval_dmodel_1536 \
     --sbatch_path src/context_scaling/scripts/eval_models.sbatch

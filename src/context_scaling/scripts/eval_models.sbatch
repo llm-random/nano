@@ -40,9 +40,9 @@ export LOCAL_RANK=0
 
 srun --export=ALL --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scripts/eval_models.py \
     --dataset_dir /lustre/pd01/plgrid/plgllmefficont2/datasets/c4/long_context_2048n8192 \
-    --jobs_json eval_short_seq \
-    --out_csv_format "dmodel,kv_heads,common/dff,trainer/learning_rate,common/sequence_length" \
-    --out_dir eval_short_seq \
-    --seq_len 1024 \
+    --jobs_json eval_dmodel_1536 \
+    --out_csv_format "dmodel,kv_heads,common/dff,trainer/learning_rate" \
+    --out_dir eval_dmodel_1536 \
+    --seq_len 2048 \
     --batch_size 32 \
-    --model_step 320000
+    --model_step 160000
