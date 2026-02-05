@@ -1,11 +1,11 @@
 There are 4 scripts
 
-`src/context_scaling/scripts/setup_eval.sh`
-which handles
-`src/context_scaling/scripts/setup_eval.py`
-and
-`src/context_scaling/scripts/eval_models.sbatch`
-which handles
+`src/context_scaling/scripts/setup_eval.sh` \
+which handles \
+`src/context_scaling/scripts/setup_eval.py` \
+and \
+`src/context_scaling/scripts/eval_models.sbatch` \
+which handles \
 `src/context_scaling/scripts/eval_models.py`
 
 ### How to use them
