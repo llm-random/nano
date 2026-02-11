@@ -11,7 +11,7 @@ infrastructure:
     time: "2-00:00:00"
 
   script:
-    - 'ml CUDA/12.4.0'
+    - 'ml CUDA/13.0.0'
     - 'export PROJECT_HOME_PATH=/lustre/pd01/plgrid/plgllmefficont2/nano/context_scaling'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
     
@@ -19,7 +19,7 @@ infrastructure:
     - 'export HYDRA_FULL_ERROR=1'
     
     # export pixi variables
-    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi_sonicmoe'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
     - 'export XDG_DATA_HOME="$PROJECT_HOME_PATH/data"'
     - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'

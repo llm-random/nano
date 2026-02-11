@@ -11,15 +11,15 @@ infrastructure:
     time: "2-00:00:00"
 
   script:
-    - 'module load ML-bundle/25.04'
-    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi/nano'
+    - 'module load ML-bundle/25.10'
+    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi/context_scaling'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
     
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
     
     # export pixi variables
-    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi_sonicmoe'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
     - 'export XDG_DATA_HOME="$PROJECT_HOME_PATH/data"'
     - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'

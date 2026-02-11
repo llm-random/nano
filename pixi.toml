@@ -28,9 +28,12 @@ jupyter = "*"
 ipykernel = "*"
 matplotlib = "*"
 wandb = ">=0.23.1, <0.24"
+plotly = ">=6.5.2, <7"
+statsmodels = ">=0.14.6, <0.15"
 
 [target.linux-64.pypi-dependencies]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+sonicmoe = { git = "https://github.com/Dao-AILab/sonic-moe.git" }
 
 [target.linux-aarch64.pypi-dependencies]
 torch = { version = "==2.6", index = "https://download.pytorch.org/whl/cu126"}
