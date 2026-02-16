@@ -58,13 +58,12 @@ model:
   encoder:
     block_fn:
       attention_fn:
-        _target_: src.product_keys.model.RoPETopKAttention
+        _target_: src.product_keys.model.RoPEProductKeysEncoderAttention
         _partial_: true
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
-        causal: false
 
         q_proj_fn:
           _target_: src.projected_compression.model.Linear
@@ -101,4 +100,3 @@ model:
         rope_base: 500000
         rope_scale_freqs: true
         top_k: 16
-        top_k_before_softmax: true
