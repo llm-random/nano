@@ -249,36 +249,39 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         k2_vecs, k2_idxs = self.__get_topk_candidates(q2, k2)
 
         # --- Second Retrieval (find closest among combinations) ---
-        # Expand to form a grid of all combinations of the selected K neighbors from both halves
-        # Size after expansion: (B, H, S, K, K, D/2)
-        c1 = k1_vecs.unsqueeze(-2).expand(
-            -1, -1, -1, self.top_k, self.top_k, self.dhead_half
-        )
-        c2 = k2_vecs.unsqueeze(-3).expand(
-            -1, -1, -1, self.top_k, self.top_k, self.dhead_half
-        )
 
-        # Concatenate halves to form full candidate vectors
-        # candidates shape: (B, H, S, K*K, D)
-        candidates = torch.cat([c1, c2], dim=-1).view(
-            batch, self.q_heads, seq_len, -1, self.dhead
-        )
+        # Compute dot products for each half separately using MatMul
+        # q1: (B, H, S, D/2) -> (B, H, S, 1, D/2)
+        # k1_vecs: (B, H, S, K, D/2) -> (B, H, S, D/2, K)
+        # scores_1: (B, H, S, 1, K) -> (B, H, S, K)
+        scores_1 = torch.matmul(
+            q1.unsqueeze(-2), 
+            k1_vecs.transpose(-1, -2)
+        ).squeeze(-2)
+        
+        scores_2 = torch.matmul(
+            q2.unsqueeze(-2), 
+            k2_vecs.transpose(-1, -2)
+        ).squeeze(-2)
 
-        # Calculate similarity between full Q and the reconstructed candidates
-        # q needs unsqueeze to broadcast: (B, H, S, 1, D) @ (B, H, S, K*K, D).T
-        # TODO
-        # ! we've calculated both halves separately, we can reuse that
-        scores_final = (q.unsqueeze(-2) * candidates).sum(dim=-1)
+        # Sum the scores to implicitly get the full grid scores (Broadcasting)
+        # scores_1 (..., K, 1) + scores_2 (..., 1, K) = (..., K, K)
+        scores_final_grid = scores_1.unsqueeze(-1) + scores_2.unsqueeze(-2)
 
         # Select top K closest combinations
-        # selection_indices shape: (B, H, S, K)
-        _, selection_indices = torch.topk(scores_final, k=self.top_k, dim=-1)
+        scores_flat = scores_final_grid.flatten(-2, -1)  # (B, H, S, K*K)
+        _, selection_indices = torch.topk(scores_flat, k=self.top_k, dim=-1)
 
-        # --- Gather final selected keys and values ---
-        final_k = self.__gather_selected(candidates, selection_indices)
-
+        # Reconstruct indices for the halves
         idx_in_k1 = selection_indices // self.top_k
         idx_in_k2 = selection_indices % self.top_k
+
+        k1_selected = self.__gather_selected(k1_vecs, idx_in_k1)
+        k2_selected = self.__gather_selected(k2_vecs, idx_in_k2)
+
+        final_k = torch.cat([k1_selected, k2_selected], dim=-1)
+
+        # --- Gather final selected keys and values ---
 
         final_row_idxs = torch.gather(k1_idxs, 3, idx_in_k1)
         final_col_idxs = torch.gather(k2_idxs, 3, idx_in_k2)
