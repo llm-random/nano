@@ -38,7 +38,7 @@ class HybridTransformerBlock(nn.Module):
             layer=attention_fn(),
             log_name=f"{self.log_name}/residual_attention",
         )
-        
+
         if block_id in pkm_indices:
             selected_layer = pkm_layer_fn()
             layer_type_name = "pkm"
@@ -89,7 +89,7 @@ class RoPETopKAttention(nn.Module):
 
         self.top_k = top_k
         self.top_k_before_softmax = top_k_before_softmax
-        
+
         self.causal = causal
 
         self.rope = RoPE(
@@ -133,7 +133,7 @@ class RoPETopKAttention(nn.Module):
             )
 
         attention_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.dhead)
-        
+
         if self.causal:
             causal_mask = torch.triu(
                 torch.ones(seq_len, seq_len, device=attention_scores.device), diagonal=1
@@ -309,11 +309,11 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
 class ProductKeysMemory(nn.Module):
     def __init__(
-        self, 
-        d_model: int, 
-        query_dim: int, 
-        n_sub_keys: int, 
-        k_neighbors: int, 
+        self,
+        d_model: int,
+        query_dim: int,
+        n_sub_keys: int,
+        k_neighbors: int,
         n_heads: int = 4,
         **kwargs,  # To ignore unused args
     ):
@@ -344,10 +344,10 @@ class ProductKeysMemory(nn.Module):
         """
         # queries: (batch, head, sub_dim)
         # codebooks: (head, n_sub_keys, sub_dim)
-        
+
         # Calculate similarity (dot product)
         scores = torch.einsum("bhd,hnd->bhn", queries, codebooks)
-        
+
         # Select top-k
         top_scores, top_indices = torch.topk(scores, k=self.k, dim=-1, largest=True)
         return top_scores, top_indices
@@ -375,7 +375,7 @@ class ProductKeysMemory(nn.Module):
 
         # Flatten the KxK grid to K^2 to find the global top-k
         all_scores_flat = all_scores.view(bs * seq_len, self.n_heads, -1)
-        
+
         # Select the best combinations (global top-k)
         global_scores, global_top_indices = torch.topk(all_scores_flat, self.k, dim=-1)
 
@@ -392,17 +392,19 @@ class ProductKeysMemory(nn.Module):
         memory_indices = real_idx1 * self.n_sub_keys + real_idx2
 
         # 5. Read from Memory
-        attn_weights = F.softmax(global_scores, dim=-1) # (BS, H, K)
+        attn_weights = F.softmax(global_scores, dim=-1)  # (BS, H, K)
 
         flat_indices = memory_indices.view(-1)
-        values_selected = self.values(flat_indices) 
-        values_selected = values_selected.view(bs * seq_len, self.n_heads, self.k, d_model)
+        values_selected = self.values(flat_indices)
+        values_selected = values_selected.view(
+            bs * seq_len, self.n_heads, self.k, d_model
+        )
 
         # Weighted sum of retrieved values
         out_heads = (values_selected * attn_weights.unsqueeze(-1)).sum(dim=2)
 
         # 6. Aggregation
         # Sum outputs across all heads
-        output = out_heads.sum(dim=1) # (BS, d_model)
-        
+        output = out_heads.sum(dim=1)  # (BS, d_model)
+
         return output.view(bs, seq_len, d_model)
