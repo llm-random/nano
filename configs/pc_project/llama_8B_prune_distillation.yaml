@@ -1,0 +1,123 @@
+defaults:
+  # - ../_cluster@_here_: lem #lem
+  - ../_cluster@_here_: helios
+  # - ../_cluster@_here_: entropy
+  - ../_model@_here_: llama_3_8
+  - ../_trainer@_here_: llama3_8B_distillation
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+
+  #devchange
+  # target_dmodel: 1056 # 10p
+  # target_dff: 3168
+  # target_dmodel: 2160 # 30p
+  # target_dff: 6480
+  target_dmodel: 3072 # 50p
+  target_dff: 9216
+  
+trainer:
+  # gradient_accumulation_steps: 16
+  gradient_accumulation_steps: 32 # 50p # 30p # 10p
+  ^n_steps: 
+    - 6144
+    - 4096
+    - 2048
+    - 1024
+
+  #devchange
+  # learning_rate: 9 #optimal fo 10p
+  # learning_rate: 13 #optimal fo 30p
+  learning_rate: 12 #optimal fo 50p
+
+  #devchange
+  # learning_rate: 10 #optimal fo 10p
+  # learning_rate: 11 #optimal fo 10p
+  # learning_rate: 12 #optimal fo 10p
+  # learning_rate: 14 #optimal fo 30p
+  # learning_rate: 15 #optimal fo 30p
+  # learning_rate: 13 #optimal fo 50p
+  # learning_rate: 14 #optimal fo 50p
+
+  # ^learning_rate: #10p
+  #   - 9
+  #   - 10
+  #   - 11
+  #   - 12
+  #   - 13
+
+  # ^learning_rate: #30p
+  #   - 11
+  #   - 12
+  #   - 13
+  #   - 14
+
+  # ^learning_rate: #50p
+  # - 11
+  # - 12
+  # - 13
+  # - 14
+
+  scheduler:
+    warmup_steps: 40
+
+  eval_interval: 1000000
+  eval_dataloader: None
+
+  checkpoint:
+   load:
+    type: huggingface
+    path: "meta-llama/Llama-3.1-8B" 
+   save:  
+    type: nano
+    # path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/tmp #lem
+    # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
+    path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/tem # #helios
+
+#devchange
+infrastructure:
+  metric_logger:
+    name: Llame_HP
+    tags:
+      - nano
+      - pc
+      - llama_8
+      - hard_pruning
+      - distillation
+      # - 10p
+      # - 30p
+      - 50p
+      - longer
+      # - nodes2
+  
+  slurm:
+    job-name: ${infrastructure.metric_logger.name} #devchange
+    # gres: "gpu:hopper:4"
+    gres: gpu:4
+    # nodes: 2 #dev
+    # time: "0-0:30:00"
+    # time: "0-8:00:00"
+    # time: "0-10:00:00" # 10p
+    # time: "0-12:00:00" # 30p
+    # time: "0-14:00:00" # 50p
+    time: "2-00:00:00" # longer
+    # time: "3-00:00:00" # longer
+ 
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune
+    _partial_: true
+    
+    # dimensions_importances_path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/8b/minitron_dimensions_importances.pt # lem ACTIVATIONS llama8 ######################################
+    dimensions_importances_path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/20260120_importances/minitron_dimensions_importances.pt # helios ACTIVATIONS llama8 ######################################
+    # dimensions_importances_path: /storage_nvme_3/mstefaniak/pc/llama8_fw_importances_8m/117045/0/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama8 ######################################
+
+
+    target_dmodel: ${common.target_dmodel}
+    target_dff: ${common.target_dff}
+

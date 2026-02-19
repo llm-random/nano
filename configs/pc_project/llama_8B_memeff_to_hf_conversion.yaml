@@ -1,5 +1,6 @@
 defaults:
   - ../_cluster@_here_: helios
+  # - ../_cluster@_here_: lem
   - ../_model/llama@_here_: projected_mem_eff_8B
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: fineweb
@@ -25,12 +26,12 @@ common:
 
 trainer:
   _target_: src.projected_compression.trainer.PCTrainer
-  gradient_accumulation_steps: 32
+  gradient_accumulation_steps: 32 # not used
   n_steps: 0
   only_compress_model_gradient_clipping: true
 
   #devchange
-  learning_rate: 20
+  learning_rate: 20 # not used
 
   scheduler:
     warmup_steps: 40
@@ -38,14 +39,47 @@ trainer:
   distributed:
     fsdp2: null
 
+  
+  # # 50p
+  # asd PC_50_1
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11848178/0/step_2047/model 2 PC_50_2 r
+  # /lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/tmp/4593147/0/step_4095/model 2 # lem PC_50_4 fin
+  # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11890773/0/step_6143/model 4 PC_50_6 wait lem
+ 
+
+  # # 30p
+  # asd PC_30_1
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11848183/0/step_2047/model 2 PC_30_2 r
+  # /lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/tmp/4595407/0/step_4095/model 2 # lem PC_30_4 fix
+  # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11890787/0/step_6143/model 4 PC_30_6 wait lem
+
+
+  # # 10p
+  # asd PC_10_1
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11848200/0/step_2047/model 2 PC_10_2 r
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11848203/0/step_4095/model 2 PC_10_4 r
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11848205/0/step_6143/model 4 PC_10_6 r
+
+
+  # # 50p
+  # /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/Llame_PC_wnf_2026-01-26_19-02-35/step_4095/model 4 PCD_50_4 done
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11884269/0 4 PCD_50_4
+
+# /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11884269/0
+
   #devchange
   checkpoint:
     load:
-      path: ??? #CHANGE!
+      # path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/tmp/4595407/0/step_4095/model #CHANGE!
+      path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama_8B/PCD_50_4
+
     save:
-      path: ??? #CHANGE!
+      # path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/tmp/4595407/0/hf #CHANGE!
+      path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama_8B/PCD_50_4_hf
+   
 
-
+# /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11884269/0
+# rsync -zrlphvP /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11884269/0/step_4095/model lem:/lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/PCD_50_4/model
 
 
 projected_compression:
@@ -55,11 +89,11 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-  source_model_path: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/hf_to_nano_converted/llama8b_in_nano.pt"
-  path_to_importances: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/8b/minitron_dimensions_importances.pt"
+  # source_model_path: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/hf_to_nano_converted/llama8b_in_nano.pt" #lem
+  # path_to_importances: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/8b/minitron_dimensions_importances.pt"
 
-  # source_model_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama38b.pt
-  # path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/20260120_importances/minitron_dimensions_importances.pt # helios
+  source_model_path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama38b.pt
+  path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/20260120_importances/minitron_dimensions_importances.pt # helios
 
   # source_model_path: /storage_nvme_3/mstefaniak/pc/llama38b.pt #entropy`
   # path_to_importances: /storage_nvme_3/mstefaniak/pc/llama8_fw_importances_8m/117045/0/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama38
@@ -81,9 +115,17 @@ infrastructure:
   metric_logger:
     name: PC_to_HF
     tags: 
+      - nano
+      - pc
+      - llama_8
       - MEM_EFF_PC_to_HF
+      - nodes4
+  server: mhelios
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
-    gres: gpu:4
+    gres: gpu:4 # helios
+    # gres: "gpu:hopper:4" #lem
+    nodes: 2
+    # nodes: 4
     time: "0-01:00:00"

@@ -1,0 +1,158 @@
+defaults:
+  # - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: helios
+  # - ../_cluster@_here_: lem
+  - ../_model/llama@_here_: projected_mem_eff_1B #dev
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+init_model_opt_sched_fn:
+  _partial_: true
+  _target_: src.projected_compression.convert_memeff_to_hf.convert_pc_to_hf
+
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+  #devchange
+  dmodel: 448 # 10
+  dff: 1728
+  # dmodel: 960 # 30
+  # dff: 3840
+  # dmodel: 1344 # 50
+  # dff: 5376
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  gradient_accumulation_steps: 32 # not used
+  n_steps: 0
+  only_compress_model_gradient_clipping: true
+
+  #devchange
+  learning_rate: 20 # not used
+
+  scheduler:
+    warmup_steps: 40
+
+  distributed:
+    fsdp2: null
+
+  
+  # # # # # # # # # # # # # # # # # # # # 10p
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871431/0/step_2047/model PCD_10_1
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871425/0/step_4095/model PCD_10_2 r /net/home/plgrid/plgmaciejpioro/llmrandom_cemetery/PC_to_HF_2026-01-28_02-46-35
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871419/0/step_8191/model PCD_10_4 r /net/home/plgrid/plgmaciejpioro/llmrandom_cemetery/PC_to_HF_2026-01-28_02-45-47
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871418/0/step_12287/model PCD_10_6 r /net/home/plgrid/plgmaciejpioro/llmrandom_cemetery/PC_to_HF_2026-01-28_02-43-04
+
+  # # # # # # # # # # # # # # # # # # # # 30p
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871432/0/step_2047/model PCD_30_1 r /net/home/plgrid/plgmaciejpioro/llmrandom_cemetery/PC_to_HF_2026-01-28_02-34-14
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883622/0/step_4095/model PCD_30_2 r /net/home/plgrid/plgmaciejpioro/llmrandom_cemetery/PC_to_HF_2026-01-28_02-33-24
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883745/0/step_8191/model PCD_30_4 r /net/home/plgrid/plgmaciejpioro/llmrandom_cemetery/PC_to_HF_2026-01-28_02-32-01
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871436/0/step_12287/model PCD_30_6 r /net/home/plgrid/plgmaciejpioro/llmrandom_cemetery/PC_to_HF_2026-01-28_02-30-07
+
+
+  # # # # # # # # # # # # # # # # # # # # 50p
+  # # # # # # # # # # # # # # # # # # # /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118460/0/step_2047/model PCD_50_1 # /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118460/0/hf
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883689/0/step_4095/model PCD_50_2 r /net/home/plgrid/plgmaciejpioro/llmrandom_cemetery/PC_to_HF_2026-01-28_02-28-14
+  # # # # # # # # # # # # # # # # # # # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883692/0/step_8191/model PCD_50_4 r /net/home/plgrid/plgmaciejpioro/llmrandom_cemetery/PC_to_HF_2026-01-28_02-28-52
+  # # # # # # # # # # # # # # # # # # # /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118465/0/step_12287/model PCD_50_6 # /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118465/0/hf
+
+
+  # # 10p
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871431/0/step_2047/model PCD_10_1
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871425/0/step_4095/model PCD_10_2
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871419/0/step_8191/model PCD_10_4
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871418/0/step_12287/model PCD_10_6
+
+  # # 30p
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871432/0/step_2047/model PCD_30_1
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883622/0/step_4095/model PCD_30_2
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883745/0/step_8191/model PCD_30_4 
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871436/0/step_12287/model PCD_30_6
+
+
+  # # 50p
+  # /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118460/0/step_2047/model PCD_50_1
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883689/0/step_4095/model PCD_50_2 
+  # /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883692/0/step_8191/model PCD_50_4
+  # /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118465/0/step_12287/model PCD_50_6
+rsync -zrlphvP /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118460/0/step_2047/model/* helios:/net/storage/pr3/plgrid/plggllmeffi/projected_compression/hf_checkpoints_1B_nano/PCD_50_1/
+rsync -zrlphvP /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118465/0/step_12287/model/* helios:/net/storage/pr3/plgrid/plggllmeffi/projected_compression/hf_checkpoints_1B_nano/PCD_50_6/
+
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871431/0/step_2047/model PCD_10_1
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871425/0/step_4095/model PCD_10_2
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871419/0/step_8191/model PCD_10_4
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871418/0/step_12287/model PCD_10_6
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871432/0/step_2047/model PCD_30_1
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883622/0/step_4095/model PCD_30_2
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883745/0/step_8191/model PCD_30_4 
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871436/0/step_12287/model PCD_30_6
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883689/0/step_4095/model PCD_50_2 
+/net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11883692/0/step_8191/model PCD_50_4
+## /net/storage/pr3/plgrid/plggllmeffi/projected_compression/hf_checkpoints_1B_nano
+
+  #devchange
+  checkpoint:
+    load:
+      # path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/tmp/4595407/0/step_4095/model #lem
+      path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30/11871418/0/step_12287/model #helios
+      # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118465/0/step_12287/model #entropy
+
+    save:
+      # path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/tmp/4595407/0/hf #lem
+      path:  /net/storage/pr3/plgrid/plggllmeffi/projected_compression/hf_checkpoints_1B_reboot/PCD_10_6 #helios
+      # path:  /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/118465/0/hf #entropy
+   
+
+# /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11884269/0
+# rsync -zrlphvP /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10/11884269/0/step_4095/model lem:/lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/PCD_50_4/model
+
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+
+  # source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt # entropy ACTIVATIONS
+  # path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt
+
+  source_model_path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama31b.pt # helios ACTIVATIONS
+  path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama_1_fw_importances/minitron_dimensions_importances.pt
+
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: true
+
+  adjust_grad_norm: false
+
+  original_llama_path: "meta-llama/Llama-3.2-1B"
+
+
+
+model:
+  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
+
+infrastructure:
+  metric_logger:
+    name: PC_to_HF
+    tags: 
+      - nano
+      - pc
+      - llama_1
+      - MEM_EFF_PC_to_HF
+  server: mhelios
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:4 # helios
+    # gres: "gpu:hopper:4" #lem
+    # nodes: 2
+    # nodes: 4
+    time: "0-01:00:00"

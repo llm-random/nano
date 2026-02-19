@@ -1,0 +1,153 @@
+defaults:
+  # - ../_cluster@_here_: lem
+  - ../_cluster@_here_: helios
+  # - ../_cluster@_here_: entropy
+  - ../_model/llama@_here_: projected_mem_eff_8B
+  - ../_trainer@_here_: llama3_8B_distillation
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+# llama_8B_comp_memeff_distil
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+  #devchange
+  # dmodel: 1056 # 10p
+  # dff: 3168
+  # dmodel: 2160 # 30p
+  # dff: 6480
+  dmodel: 3072 # 50p
+  dff: 9216
+
+
+trainer:
+  _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
+  #devchange
+  gradient_accumulation_steps: 8 # for 10p 30p and 2 nodes
+  # gradient_accumulation_steps: 16 # for 10p 30p and 2 nodes
+  # gradient_accumulation_steps: 32 # for 10p and 2 nodes
+  # gradient_accumulation_steps: 64 # for 30p 
+  # gradient_accumulation_steps: 128 # for 50p
+
+  gradient_clipping: 1.0
+
+  #devchange
+  # n_steps: 1024
+  # n_steps: 2048
+  # n_steps: 4096
+  n_steps: 6144
+
+  only_compress_model_gradient_clipping: true
+
+  # # learning_rate: 13 # 10p optimal
+  # learning_rate: 15 # 30p optimal
+  # learning_rate: 14 # 50p optimal
+
+  #devchange
+  # learning_rate: 14 # 10p
+  # learning_rate: 16 # 30p
+  # learning_rate: 14 # 30p
+  # learning_rate: 13 # 30p
+  learning_rate: 15 # 50p
+  # learning_rate: 16 # 50p
+  # learning_rate: 15 # 10p
+    
+  scheduler:
+    warmup_steps: 40
+
+  distributed:
+    fsdp2: null
+
+  eval_interval: 1000000
+  eval_dataloader: None
+
+  checkpoint: #devchange
+    save:
+      # interval: 1023
+      # interval: 2047
+      # interval: 4095
+      interval: 6143
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      # path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/checkpoints/tmp # lem
+      path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc10 # helios
+      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30
+      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc50
+      # path: /storage_nvme_3/mstefaniak/pc # entropy
+      training_state_filename: __training_state_filename.pt
+      type: nano
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  # source_model_path: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/hf_to_nano_converted/llama8b_in_nano.pt"
+  # path_to_importances: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/8b/minitron_dimensions_importances.pt" # LEM
+
+  source_model_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama38b.pt
+  path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/20260120_importances/minitron_dimensions_importances.pt # HELIOS
+
+  # source_model_path: /storage_nvme_3/mstefaniak/pc/llama38b.pt #entropy
+  # path_to_importances: /storage_nvme_3/mstefaniak/pc/llama8_fw_importances_8m/117045/0/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama38
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: true
+
+  adjust_grad_norm: false
+
+distillation:
+  load:
+    type: pc_memeff_base
+
+init_model_opt_sched_fn: 
+  source_model_for_distillation: true
+
+model:
+  cast_bfloat16: false  # whether to cast bfloat16 when calculating compressed matrix
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    # name: PH_12
+    tags: #devchange
+      - nano
+      - pc
+      - llama_8
+      - projected_compression
+      - mem_eff
+      - distillation
+      # - 10p
+      # - 30p
+      - 50p
+      # - longer
+      # - nodes2
+      - nodes4
+      # - gradclip
+      # - PH_12
+      # - test
+      # - clipping_scheduler
+
+
+
+  #devchange
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    # gres: "gpu:hopper:4" #lem
+    gres: gpu:4 #helios
+    # nodes: 2 #lem
+    nodes: 4 #lem
+    # time: "0-0:30:00" #dev    
+    # time: "0-3:00:00"
+    # time: "0-8:00:00"
+    # time: "0-12:00:00" #10p lem
+    # time: "0-14:00:00" #30p fit lem
+    # time: "0-24:00:00" #30p lem
+    time: "2-00:00:00" #50p lem; ?propably all helios?
+    # time: "2-12:00:00"
+    # time: "3-00:00:00"
