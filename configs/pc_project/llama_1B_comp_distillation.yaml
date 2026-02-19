@@ -1,6 +1,5 @@
 defaults:
-  # - ../_cluster@_here_: helios #helios
-  - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: helios
   - ../_model/llama@_here_: projected_1B
   - ../_trainer@_here_: llama3_1B_distillation
   - ../_dataset@_here_: fineweb
@@ -19,10 +18,6 @@ common:
   # dff: 3840
   # dmodel: 1344 # 50
   # dff: 5376
-  # dmodel: 1728 # 75
-  # dff: 6912
-  # dmodel: 2048 # 100
-  # dff: 8192
 
   target_dmodel: ${common.dmodel}
   target_dff: ${common.dff}
@@ -38,10 +33,8 @@ trainer:
     # - 4096
     # - 8192
     # - 12288
-    # - 16384
-    # - 32768
 
-  learning_rate: 13 # optimal 10% ???
+  learning_rate: 13 # optimal 10% - may vary for diefferent context lenghts
   # learning_rate: 13 # optimal 30%
   # learning_rate: 13 # optimal 50%
 
@@ -53,10 +46,7 @@ trainer:
    load:
     type: huggingface
     path: "meta-llama/Llama-3.2-1B"
-  #  save:  
-  #   type: nano
-    # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
-    # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/tem # #helios
+
 
 infrastructure:
   metric_logger:
@@ -67,36 +57,20 @@ infrastructure:
       - llama_1
       - projected_compression
       - distillation
-      # - ta10b
       - 10p
       # - 30p
       # - 50p
-      - 50p
   
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:4
-    # time: "0-0:15:00"
-    # time: "0-3:30:00"
-    # time: "0-12:00:00"
     time: "0-24:00:00"
 
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
     _partial_: true
-    dimensions_importances_path: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama31 ######################################
-    # dimensions_importances_path: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/random_dimensions_importances.pt # entropy RANDOM llama31
-    # dimensions_importances_path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/68549/0/magnitude_dimensions_importances.pt # entropy MAGNITUDE llama31
-    
-    # dimensions_importances_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_1_fw_importances/minitron_dimensions_importances.pt # #helios ACTIVATIONS llama31 ######################################
-    # dimensions_importances_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_1_fw_importances/random_dimensions_importances.pt # #helios RANDOM llama31
-    # dimensions_importances_path: /net/home/plgrid/plgmstefaniak/checkpoints/llama_1_importances/magnitude_dimensions_importances.pt # #helios RANDOM llama31
-    
-    # # dimensions_importances_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/pc/fw_importances_8m/minitron_dimensions_importances.pt # helios llama3
-    # # dimensions_importances_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/tem/6854696/0/minitron_dimensions_importances.pt # helios ta3b
-    # # dimensions_importances_path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/66752/0/minitron_dimensions_importances.pt # entropy ACTIVATIONS ta10
-    # # dimensions_importances_path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp/66752/0/random_dimensions_importances.pt # entropy RANDOM ta10
+    dimensions_importances_path: ???
     target_dmodel: ${common.dmodel}
     target_dff: ${common.dff}
 

@@ -1,7 +1,8 @@
+# notebook for producing a PC checkpoint used for PC_memeff training
+
 defaults:
   - ../_misc@_here_: default
-  # - ../_cluster@_here_: helios
-  - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: helios
   - ../_model/llama@_here_: 8B
   - _self_
 
@@ -13,8 +14,7 @@ trainer:
       path: "meta-llama/Llama-3.1-8B"
 
     save:
-      path: /storage_nvme_3/mstefaniak/pc/llama38b.pt # CHANGE ME
-      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama38b.pt
+      path: ???
 
 infrastructure:
   metric_logger:
@@ -28,10 +28,7 @@ infrastructure:
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:1
-    # time: "0-0:20:00"
-    # time: "0-3:00:00"
-    # time: "0-8:00:00"
-    time: "0-24:00:00"
+    time: "0-1:00:00"
 
 init_model_opt_sched_fn: 
   _target_: src.core.llama.save_pretrained_llama_as_nano

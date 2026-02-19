@@ -10,7 +10,6 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  #devchange
   dmodel: 448 # 10
   dff: 1728
   # dmodel: 960 # 30
@@ -23,7 +22,6 @@ trainer:
   _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
   gradient_accumulation_steps: 8
 
-  #devchange
   n_steps: 2048
   # n_steps: 4096
   # n_steps: 8192
@@ -39,19 +37,17 @@ trainer:
   distributed:
     fsdp2: null
     
-  eval_interval: 1000000
+  eval_interval: 1000000 # PC_memeff does not work in eval inference mode
   eval_dataloader: None
 
-  #devchange
-  checkpoint: #dev
+  checkpoint: #only way to save PC_memeff model
     save:
       interval: 2047
       # interval: 4095
       # interval: 8191
       # interval: 12287
       model_checkpoint_filename: __model_checkpoint_filename.pt
-      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_8/pc30 # helios
-      path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy
+      path: ???
       training_state_filename: __training_state_filename.pt
       type: nano
 
@@ -62,8 +58,8 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-  source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt
-  path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt # entropy ACTIVATIONS llama8B
+  source_model_path: ??? special PC_memeff checkpoint from llama_1B_conversion config experiment
+  path_to_importances: ???
 
   init_norms_with_ones: false
 
@@ -75,7 +71,7 @@ projected_compression:
 
 distillation:
   load:
-    type: pc_memeff_base
+    type: pc_memeff_base # uses internal teacher model representation for distillation to save memory - source_model_for_distillation: true
 
 model:
   cast_bfloat16: false  # whether to cast bfloat16 when calculating compressed matrix
@@ -98,8 +94,4 @@ infrastructure:
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:4
-    # time: "0-0:20:00"
-    # time: "0-3:00:00"
-    # time: "0-8:00:00"
     time: "0-24:00:00"
-    # time: "4-00:00:00"

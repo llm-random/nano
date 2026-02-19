@@ -1,6 +1,5 @@
 defaults:
   - ../_cluster@_here_: helios
-  # - ../_cluster@_here_: lem
   - ../_model@_here_: llama_3_8
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: c4 # not used - loads slower
@@ -11,7 +10,6 @@ defaults:
 common: 
   batch_size: 512
 
-  #devchange
   # dmodel: 3072 # 50p
   # dff: 9216
   # dmodel: 2160 # 30p
@@ -24,35 +22,14 @@ trainer:
   learning_rate: 1 # not used
   gradient_accumulation_steps: 1 # not used
 
-
-    # # 50
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/10/hej50_xd/11545082/3/step_1023 HP_50_1 r
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/50/to_2048steps/11663774/0/step_2047 HP_50_2 r
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/50/to_4096steps/11663756/0/step_4095 HP_50_4 r
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/50/to_6ksteps/11712978/0/step_6143 HP_50_6 r
-
-    # # 30
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/10/hej30_xd/11533851/1/step_1023 HP_30_1 r
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/30/to_2048steps/11663814/0/step_2047 HP_30_2 r
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/30/to_4096steps/11663811/0/step_4095 HP_30_4 r
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/30/to_6144steps/11663810/0/step_6143 HP_30_6 r
-
-    # # 10
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/10/hej2/11531938/0/step_1023 HP_10_1 r
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/10/to_2048steps/11663737/0/step_2047 HP_10_2 r
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/10/to_4096steps/11663736/0/step_4095 HP_10_4 r
-    # /net/scratch/hscra/plgrid/plgcrewtool/hpr/10/to_6144steps/11663735/0/step_6143 HP_10_6 r
-
-
   checkpoint:
     load:
       # type: finalized_pc
       type: nano
-      path: /net/scratch/hscra/plgrid/plgcrewtool/hpr/10/to_6144steps/11663735/0/step_6143
+      path: ???
     save:
       type: huggingface
-      path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama_8_no_distil/HP_10_6
-
+      path: ???
 
 infrastructure:
   metric_logger:
@@ -63,43 +40,7 @@ infrastructure:
       - hard_pruning
       - llama_8
       - hf_conversion
-  server: mhelios #devchange helios
 
   slurm: 
-    gres: gpu:4 # helios
-    # gres: gpu:4
-    # nodes: 2
+    gres: gpu:4
     time: "0-01:00:00"
-
-
-
-      #        JOBID     USER ST       TIME  TIME_LEFT  NODES           START_TIME NODELIST(REASON) WORK_DIR
-      # 11895744_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-15-55
-      # 11895746_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-16-25
-      # 11895749_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-16-54
-      # 11895762_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-18-20
-      # 11895763_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-18-56
-      # 11895764_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-20-01
-      # 11895766_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-20-42
-      # 11895768_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-21-14
-      # 11895770_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-21-43
-      # 11895772_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-22-11
-      # 11895773_[0] plgcrewt PD       0:00      30:00      1                  N/A (Partition /net/home/plgrid/plgcrewtool/llmrandom_cemetery/conversion_2026-01-27_18-22-47
-      # 11895206_[0] plgmstef PD       0:00    1:00:00      4                  N/A (Partition /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/PC_to_HF_2026-01-27_17-19-41
-      # 11895152_[0] plgmstef PD       0:00 2-00:00:00      2                  N/A (Partition /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/Llame_PC_2026-01-27_16-52-38
-      # 11895189_[0] plgmstef PD       0:00    1:00:00      2                  N/A (Partition /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/PC_to_HF_2026-01-27_17-17-03
-      # 11895197_[0] plgmstef PD       0:00    1:00:00      2                  N/A (Partition /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/PC_to_HF_2026-01-27_17-17-50
-      # 11895199_[0] plgmstef PD       0:00    1:00:00      2                  N/A (Partition /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/PC_to_HF_2026-01-27_17-18-29
-      # 11895204_[0] plgmstef PD       0:00    1:00:00      2                  N/A (Partition /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/PC_to_HF_2026-01-27_17-19-00
-      #   11895151_0 plgmstef  S    1:53:31 1-22:06:29      2  2026-01-27T16:52:04 x1002c5s1b1n0,x1002c5s2b0n0 /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/Llame_PC_2026-01-27_16-51-49
-      #   11895149_0 plgmstef  S    1:54:14 1-22:05:46      2  2026-01-27T16:51:21 x1002c4s6b0n0,x1002c4s6b1n0 /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/Llame_PC_2026-01-27_16-51-04
-      #   11892938_3 plgm1kus  S    4:33:23 1-19:26:37      1  2026-01-27T14:12:12 x1002c1s4b1n0 /net/home/plgrid/plgm1kush/llmrandom_cemetery/Llame_TA_2026-01-27_13-21-01
-      #   11892938_1 plgm1kus  S    5:24:12 1-18:35:48      1  2026-01-27T13:21:23 x1002c1s1b1n0 /net/home/plgrid/plgm1kush/llmrandom_cemetery/Llame_TA_2026-01-27_13-21-01
-      #   11892938_2 plgm1kus  S    5:24:12 1-18:35:48      1  2026-01-27T13:21:23 x1002c4s1b1n0 /net/home/plgrid/plgm1kush/llmrandom_cemetery/Llame_TA_2026-01-27_13-21-01
-      #   11891598_2 plgm1kus  S    8:43:58 1-15:16:02      1  2026-01-27T10:01:37 x1002c2s2b1n0 /net/home/plgrid/plgm1kush/llmrandom_cemetery/Llame_TA_2026-01-27_10-01-21
-      #   11891598_3 plgm1kus  S    8:43:58 1-15:16:02      1  2026-01-27T10:01:37 x1002c3s5b1n0 /net/home/plgrid/plgm1kush/llmrandom_cemetery/Llame_TA_2026-01-27_10-01-21
-      #     11890793 plgmstef  S   14:10:28 1-09:49:32      4  2026-01-27T04:35:07 x1002c3s1b0n0,x1002c6s1b0n0,x1002c6s1b1n0,x1002c6s2b0n0 /net/home/plgrid/plgmstefaniak
-      #   11890787_0 plgmstef  S   14:14:07 1-09:45:53      4  2026-01-27T04:31:28 x1002c5s3b1n0,x1002c5s4b0n0,x1002c7s0b0n0,x1002c7s0b1n0 /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/Llame_PC_2026-01-27_04-31-09
-      #   11890773_0 plgmstef  S   14:22:43 1-09:37:17      4  2026-01-27T04:22:52 x1002c3s1b1n0,x1002c3s2b0n0,x1002c4s2b0n0,x1002c4s2b1n0 /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/Llame_PC_2026-01-27_04-22-34
-      #   11890499_0 plgmstef  S   17:45:57 1-06:14:03      4  2026-01-27T00:59:38 x1002c0s1b0n0,x1002c4s0b0n0,x1002c4s0b1n0,x1002c4s1b0n0 /net/home/plgrid/plgmstefaniak/llmrandom_cemetery/Llame_PC_wnf_2026-01-27_00-59-23
-      #     11883088 plgcrewt  S 1-05:02:02   18:57:58      2  2026-01-26T13:43:33 x1002c2s6b0n0,x1002c2s6b1n0 /net/home/plgrid/plgcrewtool
