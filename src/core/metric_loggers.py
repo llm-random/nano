@@ -189,7 +189,9 @@ def get_metric_logger(
         rank = int(os.environ.get("RANK", 0))
         if rank == 0:
             wandb_config_dict = (
-                OmegaConf.to_container(full_config, resolve=True) if full_config else None
+                OmegaConf.to_container(full_config, resolve=True)
+                if full_config
+                else None
             )
             wandb_logger = wandb.init(
                 entity=metric_logger_config.wandb_entity,
