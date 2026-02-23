@@ -20,7 +20,7 @@ common:
   vocab_size: 50304
 
 trainer:
-  _target_: src.product_keys.trainer.MaskedLMTrainer
+  _target_: src.product_keys.finetuning.trainer.FinetuningTrainer
   masking_percentage: 0.2
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
@@ -37,6 +37,12 @@ trainer:
     dataset:
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+
+  checkpoint:
+    load:
+      type: huggingface
+      path: /net/scratch/hscra/plgrid/plgggwozdz02/checkpoint
+      model_checkpoint_filename: model.safetensors
 
 
 infrastructure:
