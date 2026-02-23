@@ -4,6 +4,7 @@ defaults:
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
+  - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
 
@@ -17,71 +18,54 @@ common:
   q_heads: 16
   kv_heads: 16
   vocab_size: 50304
-  # ^init_scale: [0.01, 0.1, 0.5, 1, 2]
-  init_scale: 0.5
 
 trainer:
-  _target_: src.product_keys.trainer.MaskedLMTrainer
+  _target_: src.product_keys.finetuning.trainer.FinetuningTrainer
   masking_percentage: 0.2
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
-  gradient_accumulation_steps: 4
-  # n_steps: 77050
-  n_steps: 15
-  # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
-  learning_rate: 2e-3
-  scheduler:
-    _partial_: true
-    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
-    final_lr_fraction: 0.1
-    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
+  gradient_accumulation_steps: 2
+  n_steps: 77050
+  learning_rate: 5e-4
   train_dataloader:
     dataset:
-      seed: 42
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+      
+
   eval_dataloader:
     dataset:
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+
   checkpoint:
-    save:
-      interval: -1
     load:
-      path: null
-      only_weights: false # false not tested
+      type: huggingface
+      path: /net/scratch/hscra/plgrid/plgggwozdz02/checkpoint
+      model_checkpoint_filename: model.safetensors
 
 
 infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_mlm_bring_back_rope_test_saving
     project_name: tml-bgw
-    heavy_metrics_calculation_interval: 1000
-    heavy_logging_layers: [0, 10, 15]
+    name: TML_BGW-${now:%Y-%m-%d_%H-%M-%S}
     tags:
       - nano
       - pk_mlm
-      - 2026.04.20
-      - warmup_steps=${trainer.scheduler.warmup_steps}
-      - RoPE
-      # - learning_rate_grid
-      # - "lr=${trainer.learning_rate}"
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
-      - "dmodel=${common.dmodel}"
-      - seed=${trainer.train_dataloader.dataset.seed}
   slurm:
-    gres: gpu:2
-    time: "0-01:00:00"
+    gres: gpu:1
+    time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
 model:
   encoder:
     block_fn:
       attention_fn:
-        _target_: src.product_keys.model.RoPEProductKeysEncoderAttention
+        _target_: src.product_keys.model.RoPETopKAttention
         _partial_: true
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
@@ -96,7 +80,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: ${common.init_scale}
+            scale: 1
 
         k_proj_fn:
           _target_: src.projected_compression.model.Linear
@@ -106,17 +90,9 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: ${common.init_scale}
+            scale: 1
 
-        v_proj_fn:
-          _target_: src.projected_compression.model.Linear
-          _partial_: true
-          in_features: ${common.dmodel}
-          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
-          partial_init_fn:
-            _target_: src.projected_compression.model.llm_random_weight_init
-            _partial_: true
-            scale: ${common.init_scale}
+        v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
         o_proj_fn: 
           _target_: src.projected_compression.model.Linear
@@ -126,9 +102,9 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: ${common.init_scale}
+            scale: 1
 
         rope_base: 500000
         rope_scale_freqs: true
         top_k: 16
-        init_scale: ${common.init_scale}
+        top_k_before_softmax: true
