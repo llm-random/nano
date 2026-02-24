@@ -19,9 +19,12 @@ common:
   kv_heads: 16
   vocab_size: 50304      # GPT-2 vocab
 
+  # pkm_n_sub_keys: 128    # 128^2 = 16,384 memory slots
   # pkm_n_sub_keys: 256    # 256^2 = 65,536 memory slots
-  pkm_n_sub_keys: 512    # 512^2 = 262,144 memory slots
-  # pkm_n_sub_keys: 1024   # 1024^2 = 1,048,576 memory slots
+  # pkm_n_sub_keys: 384   # 384^2 = 147,456 memory slots
+  # pkm_n_sub_keys: 512    # 512^2 = 262,144 memory slots
+  # pkm_n_sub_keys: 768    # 768^2 = 589,824 memory slots
+  pkm_n_sub_keys: 1024   # 1024^2 = 1,048,576 memory slots
   pkm_k: 32
   pkm_query_dim: 512
   pkm_n_heads: 4
@@ -33,11 +36,11 @@ trainer:
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
   n_steps: 77050
-  ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
-  # optimizer_param_groups:
-  #   - regex: ".*pkm_layer_fn.*values.*"
-  #     # ^lr: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]  # Sweep different learning rates for PKM values
-  #     lr: 1e-3
+  # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+  learning_rate: 1e-3
+  optimizer_param_groups:
+    - regex: ".*pkm_layer_fn.*values.*"
+      lr: 5e-3
   train_dataloader:
     dataset:
       tokenize_fn:
@@ -51,16 +54,18 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pkm
+    name: "pkm_${common.pkm_n_sub_keys}_memory_lr_5e-3"
     project_name: tml-bgw
     tags:
-      - nano
       - pkm
+      - mlm
+      - "pkm_memory_lr=${trainer.optimizer_param_groups.0.lr}"
+      - "pkm_n_sub_keys=${common.pkm_n_sub_keys}"
+      - "pkm_k=${common.pkm_k}"
+      - "pkm_indices=${model.encoder.block_fn.pkm_indices}"
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "dmodel=${common.dmodel}"
-      - "pkm_k=${common.pkm_k}"
-      - "pkm_n_sub_keys=${common.pkm_n_sub_keys}"
   slurm:
     gres: gpu:2
     time: "1-00:00:00"
@@ -83,8 +88,9 @@ model:
     block_fn:
       _target_: src.product_keys.model.HybridTransformerBlock
       _partial_: true
-      # pkm_indices: [7, 14] # Layers 8 and 15 use PKM
-      ^pkm_indices: [[7, 14], [3, 7, 11, 15], [1, 3, 5, 7, 9, 11, 13, 15]] # Sweeping different numbers of PKM layers
+      pkm_indices: [7, 14] # Layers 8 and 15 use PKM
+      # pkm_indices: [3, 7, 10, 14]
+      # pkm_indices: [2, 4, 7, 9, 12, 14]
 
       norm_fn:
         _target_: src.core.model.RMSNorm

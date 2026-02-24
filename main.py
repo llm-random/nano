@@ -201,9 +201,12 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
 
     optimizer_groups = []
     # If optimizer_param_groups is defined in config, use generic regex-based grouping
-    if hasattr(cfg.trainer, "optimizer_param_groups") and cfg.trainer.optimizer_param_groups:
+    if (
+        hasattr(cfg.trainer, "optimizer_param_groups")
+        and cfg.trainer.optimizer_param_groups
+    ):
         assigned_param_ids = set()
-        
+
         for group_cfg in cfg.trainer.optimizer_param_groups:
             group_regex = group_cfg.regex
             group_lr = group_cfg.get("lr", learning_rate)
@@ -213,27 +216,33 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             for name, param in model.named_parameters():
                 if id(param) in assigned_param_ids:
                     continue
-                
+
                 if re.search(group_regex, name):
                     group_params.append(param)
                     assigned_param_ids.add(id(param))
                     group_matches.append(name)
-            
+
             if group_params:
-                logger.info(f"Optimizer group regex='{group_regex}' lr={group_lr} matched {len(group_params)} params: {group_matches}")
+                logger.info(
+                    f"Optimizer group regex='{group_regex}' lr={group_lr} matched {len(group_params)} params: {group_matches}"
+                )
                 optimizer_groups.append({"params": group_params, "lr": group_lr})
             else:
-                logger.warning(f"Optimizer group regex='{group_regex}' matched no parameters.")
+                logger.warning(
+                    f"Optimizer group regex='{group_regex}' matched no parameters."
+                )
 
         # Add remaining parameters to the default group
         default_params = []
         for name, param in model.named_parameters():
             if id(param) not in assigned_param_ids:
                 default_params.append(param)
-        
+
         if default_params:
             optimizer_groups.append({"params": default_params, "lr": learning_rate})
-            logger.info(f"Default optimizer group lr={learning_rate} contains {len(default_params)} remaining params.")
+            logger.info(
+                f"Default optimizer group lr={learning_rate} contains {len(default_params)} remaining params."
+            )
 
     else:
         # Fallback to simple default group (or previous hardcoded logic if we wanted to keep it, but user asked to generalize)
