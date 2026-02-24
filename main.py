@@ -244,15 +244,16 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         or cfg.infrastructure.metric_logger.new_wandb_job
     ):
         # Update wandb config
-        metric_logger.run.log(
-            {
-                "learning_rate": learning_rate,
-                "exp_lr": exp_lr,
-                "full_save_checkpoints_path": get_full_checkpoint_path(
-                    cfg.trainer.checkpoint.save.path
-                ),
-            }
-        )
+        if metric_logger.run is not None:
+            metric_logger.run.log(
+                {
+                    "learning_rate": learning_rate,
+                    "exp_lr": exp_lr,
+                    "full_save_checkpoints_path": get_full_checkpoint_path(
+                        cfg.trainer.checkpoint.save.path
+                    ),
+                }
+            )
 
     torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
 
