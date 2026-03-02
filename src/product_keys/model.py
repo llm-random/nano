@@ -315,7 +315,6 @@ class ProductKeysMemory(nn.Module):
         n_sub_keys: int,
         k_neighbors: int,
         n_heads: int = 4,
-        **kwargs,  # To ignore unused args
     ):
         super().__init__()
         self.n_heads = n_heads

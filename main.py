@@ -206,6 +206,9 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         and cfg.trainer.optimizer_param_groups
     ):
         assigned_param_ids = set()
+        logger.info(
+            f"Model parameters: {[name for name, _ in model.named_parameters()]}"
+        )
 
         for group_cfg in cfg.trainer.optimizer_param_groups:
             group_regex = group_cfg.regex
@@ -213,11 +216,37 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             group_params = []
             group_matches = []
 
+            # Determine filter criteria if provided
+            target_indices = None
+            layer_path_prefix = ""
+            if "indices_filter" in group_cfg and group_cfg.indices_filter:
+                raw_indices = group_cfg.indices_filter.get("indices", [])
+                if OmegaConf.is_list(raw_indices) or isinstance(
+                    raw_indices, (list, tuple)
+                ):
+                    target_indices = set(raw_indices)
+                layer_path_prefix = group_cfg.indices_filter.get("layer_path", "")
+
             for name, param in model.named_parameters():
                 if id(param) in assigned_param_ids:
                     continue
 
                 if re.search(group_regex, name):
+                    # Apply indices filter logic if configured
+                    if target_indices is not None and layer_path_prefix:
+                        # Assumption: The layer index is the number immediately following the prefix in the parameter name
+                        # Structure: {layer_path_prefix}.{INDEX}.{...}
+                        prefix_esc = re.escape(layer_path_prefix)
+                        # We use search to find prefix.INDEX. anywhere in the name
+                        match_idx = re.search(rf"{prefix_esc}\.(\d+)\.", name)
+
+                        if not match_idx:
+                            continue
+
+                        layer_idx = int(match_idx.group(1))
+                        if layer_idx not in target_indices:
+                            continue
+
                     group_params.append(param)
                     assigned_param_ids.add(id(param))
                     group_matches.append(name)
@@ -245,7 +274,6 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             )
 
     else:
-        # Fallback to simple default group (or previous hardcoded logic if we wanted to keep it, but user asked to generalize)
         optimizer_groups = [{"params": model.parameters(), "lr": learning_rate}]
 
     optimizer = torch.optim.AdamW(
@@ -378,7 +406,10 @@ def run(cfg: OmegaConf, metric_logger=None):
     if model is not None:
         logger.info(f"Model initialized")
 
-        trainer = instantiate(cfg.trainer)
+        # exclude optimizer_param_groups from trainer kwargs to avoid error
+        trainer_args = OmegaConf.to_container(cfg.trainer, resolve=True)
+        trainer_args.pop("optimizer_param_groups", None)
+        trainer = instantiate(trainer_args)
 
         if "distillation" in cfg:
             if cfg.distillation.load.type == "huggingface":
