@@ -1,0 +1,17 @@
+
+defaults:
+  - llama_distillation
+
+common_distillation:
+  dmodel: 4096 
+  dff: 14336
+  datt: 4096
+  n_blocks: 32
+  q_heads: 32
+  kv_heads: 8
+  vocab_size: 128256
+
+distillation:
+  load:
+    path: "meta-llama/Llama-3.1-8B"
+    
