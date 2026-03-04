@@ -1,3 +1,4 @@
+import math
 import torch
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, ConstantLR
 
@@ -61,27 +62,36 @@ class TrapezoidalLR(SequentialLR):
 def get_cosine_scheduler_with_warmup(
     optimizer, warmup_steps: int, n_steps: int, final_lr_fraction: float
 ):
-    assert (
-        len(optimizer.param_groups) == 1
-    ), "Cosine scheduler only supports one param group"
-    optimizer_lr = optimizer.param_groups[0][
-        "lr"
-    ]  # param_groups changes when applying scheduler
     warmup = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=0.1,
         end_factor=1.0,
         total_iters=warmup_steps,
     )
-    after_warmup_steps = n_steps - warmup_steps - 1
+    # Cosine scheduler phase starts after warmup and 1 constant step
+    cosine_start_step = warmup_steps + 1
+    T_max = n_steps - cosine_start_step
+
+    def cosine_lambda(step):
+        # Calculate progress t within the cosine phase
+        if step < cosine_start_step:
+            return 1.0
+        t = step - cosine_start_step
+        if t >= T_max:
+            return final_lr_fraction
+        # Decay from 1.0 to final_lr_fraction
+        return final_lr_fraction + 0.5 * (1 - final_lr_fraction) * (
+            1 + math.cos(math.pi * t / T_max)
+        )
+
     constant_scheduler = torch.optim.lr_scheduler.ConstantLR(
-        optimizer, factor=1.0
-    )  # TODO this is only because of a bug in llm-random
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=after_warmup_steps,
-        eta_min=final_lr_fraction * optimizer_lr,
+        optimizer, factor=1.0, total_iters=1
     )
+    # Use LambdaLR to allow different base/min LRs per parameter group (proportional decay)
+    cosine_scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=cosine_lambda
+    )
+
     training_scheduler = torch.optim.lr_scheduler.SequentialLR(
         optimizer,
         schedulers=[warmup, constant_scheduler, cosine_scheduler],
