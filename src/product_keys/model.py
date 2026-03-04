@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch.nn.init import trunc_normal_
 import logging
 
-from src.core.model import AttentionMechanism, RoPE
+from src.core.model import AttentionMechanism, Residual, RoPE
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,44 @@ def deterministic_weight_init(fan_in, scale):
     high = 2 * std
     generator = torch.Generator().manual_seed(42)
     return partial(trunc_normal_, mean=0.0, std=std, a=low, b=high, generator=generator)
+
+
+class HybridTransformerBlock(nn.Module):
+    def __init__(
+        self,
+        block_id: int,
+        norm_fn,
+        attention_fn,
+        ff_layer_fn,
+        pkm_layer_fn,
+        pkm_indices: list[int],
+    ):
+        super().__init__()
+        self.log_name = f"block[{block_id}]"
+
+        self.attention_layer = Residual(
+            norm=norm_fn(),
+            layer=attention_fn(),
+            log_name=f"{self.log_name}/residual_attention",
+        )
+        
+        if block_id in pkm_indices:
+            selected_layer = pkm_layer_fn()
+            layer_type_name = "pkm"
+        else:
+            selected_layer = ff_layer_fn()
+            layer_type_name = "feedforward"
+
+        self.ff_layer = Residual(
+            norm=norm_fn(),
+            layer=selected_layer,
+            log_name=f"{self.log_name}/residual_{layer_type_name}",
+        )
+
+    def forward(self, x):
+        x = self.attention_layer(x)
+        x = self.ff_layer(x)
+        return x
 
 
 class RoPETopKAttention(nn.Module):
@@ -35,6 +73,7 @@ class RoPETopKAttention(nn.Module):
         rope_scale_freqs: bool,
         top_k: int,
         top_k_before_softmax: bool = True,
+        causal: bool = True,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -50,6 +89,8 @@ class RoPETopKAttention(nn.Module):
 
         self.top_k = top_k
         self.top_k_before_softmax = top_k_before_softmax
+        
+        self.causal = causal
 
         self.rope = RoPE(
             dhead=self.dhead,
@@ -85,17 +126,19 @@ class RoPETopKAttention(nn.Module):
         # standard attention if seq_len is smaller or equal top_k
         if seq_len <= self.top_k:
             attention_output = self.attention_mechanism(
-                query=q, key=k, value=v, causal=True
+                query=q, key=k, value=v, causal=self.causal
             )
             return self.o_proj(
                 attention_output.transpose(1, 2).contiguous().flatten(-2)
             )
 
         attention_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.dhead)
-        causal_mask = torch.triu(
-            torch.ones(seq_len, seq_len, device=attention_scores.device), diagonal=1
-        ).bool()
-        attention_scores = attention_scores.masked_fill(causal_mask, float("-inf"))
+        
+        if self.causal:
+            causal_mask = torch.triu(
+                torch.ones(seq_len, seq_len, device=attention_scores.device), diagonal=1
+            ).bool()
+            attention_scores = attention_scores.masked_fill(causal_mask, float("-inf"))
 
         if self.top_k_before_softmax:
             attention_scores = self.__apply_topk_mask(
@@ -206,34 +249,39 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         k2_vecs, k2_idxs = self.__get_topk_candidates(q2, k2)
 
         # --- Second Retrieval (find closest among combinations) ---
-        # Expand to form a grid of all combinations of the selected K neighbors from both halves
-        # Size after expansion: (B, H, S, K, K, D/2)
-        c1 = k1_vecs.unsqueeze(-2).expand(
-            -1, -1, -1, self.top_k, self.top_k, self.dhead_half
-        )
-        c2 = k2_vecs.unsqueeze(-3).expand(
-            -1, -1, -1, self.top_k, self.top_k, self.dhead_half
-        )
 
-        # Concatenate halves to form full candidate vectors
-        # candidates shape: (B, H, S, K*K, D)
-        candidates = torch.cat([c1, c2], dim=-1).view(
-            batch, self.q_heads, seq_len, -1, self.dhead
-        )
+        # Compute dot products for each half separately using MatMul
+        # q1: (B, H, S, D/2) -> (B, H, S, 1, D/2)
+        # k1_vecs: (B, H, S, K, D/2) -> (B, H, S, D/2, K)
+        # scores_1: (B, H, S, 1, K) -> (B, H, S, K)
+        scores_1 = torch.matmul(
+            q1.unsqueeze(-2), 
+            k1_vecs.transpose(-1, -2)
+        ).squeeze(-2)
+        
+        scores_2 = torch.matmul(
+            q2.unsqueeze(-2), 
+            k2_vecs.transpose(-1, -2)
+        ).squeeze(-2)
 
-        # Calculate similarity between full Q and the reconstructed candidates
-        # q needs unsqueeze to broadcast: (B, H, S, 1, D) @ (B, H, S, K*K, D).T
-        scores_final = (q.unsqueeze(-2) * candidates).sum(dim=-1)
+        # Sum the scores to implicitly get the full grid scores (Broadcasting)
+        # scores_1 (..., K, 1) + scores_2 (..., 1, K) = (..., K, K)
+        scores_final_grid = scores_1.unsqueeze(-1) + scores_2.unsqueeze(-2)
 
         # Select top K closest combinations
-        # selection_indices shape: (B, H, S, K)
-        _, selection_indices = torch.topk(scores_final, k=self.top_k, dim=-1)
+        scores_flat = scores_final_grid.flatten(-2, -1)  # (B, H, S, K*K)
+        _, selection_indices = torch.topk(scores_flat, k=self.top_k, dim=-1)
 
-        # --- Gather final selected keys and values ---
-        final_k = self.__gather_selected(candidates, selection_indices)
-
+        # Reconstruct indices for the halves
         idx_in_k1 = selection_indices // self.top_k
         idx_in_k2 = selection_indices % self.top_k
+
+        k1_selected = self.__gather_selected(k1_vecs, idx_in_k1)
+        k2_selected = self.__gather_selected(k2_vecs, idx_in_k2)
+
+        final_k = torch.cat([k1_selected, k2_selected], dim=-1)
+
+        # --- Gather final selected keys and values ---
 
         final_row_idxs = torch.gather(k1_idxs, 3, idx_in_k1)
         final_col_idxs = torch.gather(k2_idxs, 3, idx_in_k2)
@@ -260,3 +308,104 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         attn_output = attn_output.squeeze(-2)
 
         return self.o_proj(attn_output.transpose(1, 2).contiguous().flatten(-2))
+
+
+class ProductKeysMemory(nn.Module):
+    def __init__(
+        self, 
+        d_model: int, 
+        query_dim: int, 
+        n_sub_keys: int, 
+        k_neighbors: int, 
+        n_heads: int = 4,
+        **kwargs,  # To ignore unused args
+    ):
+        super().__init__()
+        self.n_heads = n_heads
+        self.k = k_neighbors
+        self.n_sub_keys = n_sub_keys
+        self.query_dim = query_dim
+
+        # Query Network
+        # Projects input to query space. BatchNorm is crucial for PKM stability/convergence.
+        self.query_proj = nn.Linear(d_model, n_heads * query_dim)
+        self.query_bn = nn.BatchNorm1d(n_heads * query_dim)
+
+        # Sub-Keys (Codebooks)
+        # Two separate sets of keys for the product quantization
+        self.c1 = nn.Parameter(torch.randn(n_heads, n_sub_keys, query_dim // 2))
+        self.c2 = nn.Parameter(torch.randn(n_heads, n_sub_keys, query_dim // 2))
+
+        # Memory Values
+        # The actual values retrieved. Size is (n_sub_keys^2, d_model)
+        self.values = nn.Embedding(n_sub_keys * n_sub_keys, d_model)
+        nn.init.normal_(self.values.weight, mean=0, std=d_model**-0.5)
+
+    def _get_knn(self, queries, codebooks):
+        """
+        Calculates dot product scores and retrieves top-k indices and values.
+        """
+        # queries: (batch, head, sub_dim)
+        # codebooks: (head, n_sub_keys, sub_dim)
+        
+        # Calculate similarity (dot product)
+        scores = torch.einsum("bhd,hnd->bhn", queries, codebooks)
+        
+        # Select top-k
+        top_scores, top_indices = torch.topk(scores, k=self.k, dim=-1, largest=True)
+        return top_scores, top_indices
+
+    def forward(self, x):
+        bs, seq_len, d_model = x.shape
+
+        # 1. Query Projection
+        x_flat = x.view(-1, d_model)
+        q = self.query_proj(x_flat)
+        q = self.query_bn(q)
+        q = q.view(bs * seq_len, self.n_heads, self.query_dim)
+
+        # Split query into two halves for product quantization
+        q1, q2 = torch.chunk(q, 2, dim=-1)
+
+        # 2. Retrieve Top-K candidates for each half
+        scores1, idx1 = self._get_knn(q1, self.c1)
+        scores2, idx2 = self._get_knn(q2, self.c2)
+
+        # 3. Cartesian Product of Scores
+        # Sum every score from the first half with every score from the second half
+        # (BS, H, K, 1) + (BS, H, 1, K) -> (BS, H, K, K)
+        all_scores = scores1.unsqueeze(3) + scores2.unsqueeze(2)
+
+        # Flatten the KxK grid to K^2 to find the global top-k
+        all_scores_flat = all_scores.view(bs * seq_len, self.n_heads, -1)
+        
+        # Select the best combinations (global top-k)
+        global_scores, global_top_indices = torch.topk(all_scores_flat, self.k, dim=-1)
+
+        # 4. Index Mapping
+        # Map the flattened indices back to the original codebook indices
+        idx1_pos = global_top_indices // self.k
+        idx2_pos = global_top_indices % self.k
+
+        # Gather the actual sub-key indices
+        real_idx1 = torch.gather(idx1, 2, idx1_pos)
+        real_idx2 = torch.gather(idx2, 2, idx2_pos)
+
+        # Calculate the global memory index: i * N_keys + j
+        memory_indices = real_idx1 * self.n_sub_keys + real_idx2
+
+        # 5. Read from Memory
+        attn_weights = F.softmax(global_scores, dim=-1) # (BS, H, K)
+
+        flat_indices = memory_indices.view(-1)
+        values_selected = self.values(flat_indices) 
+        values_selected = values_selected.view(bs * seq_len, self.n_heads, self.k, d_model)
+
+        # Weighted sum of retrieved values
+        out_heads = (values_selected * attn_weights.unsqueeze(-1)).sum(dim=2)
+
+        # 6. Aggregation
+        # Sum outputs across all heads
+        output = out_heads.sum(dim=1) # (BS, d_model)
+        
+        return output.view(bs, seq_len, d_model)
