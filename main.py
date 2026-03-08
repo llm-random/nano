@@ -285,8 +285,6 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                         or layer_idx in heavy_logging_layers
                     ):
                         module.set_metric_logger(metric_logger, name)
-                else:
-                    module.set_metric_logger(metric_logger, name)
 
     if cfg.trainer.checkpoint.load.type == "huggingface":
         copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
