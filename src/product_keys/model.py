@@ -263,8 +263,8 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         # Split and aggregate keys
         k = k.view(batch, self.q_heads, self.m, self.m, self.dhead)
-        k1 = k[..., : self.dhead_half].sum(-2)  # (B, H, m, d/2)
-        k2 = k[..., self.dhead_half :].sum(-3)  # (B, H, m, d/2)
+        k1 = k[..., : self.dhead_half].mean(-2)  # (B, H, m, d/2)
+        k2 = k[..., self.dhead_half :].mean(-3)  # (B, H, m, d/2)
 
         # Split queries
         q1 = q[..., : self.dhead_half]  # (B, H, S, d/2)
