@@ -155,10 +155,10 @@ class RoPETopKAttention(nn.Module):
         return self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
 
 
-# - log the magnitudes of updates to the residual stream
-# - log grad norm
-# - replace RoPE with learned embeddings
-# - log the distribution of selected keys (how often each key is selected, how it evolves during training)
+# - log the magnitudes of updates to the residual stream [done] 
+# - log grad norm [done]
+# - replace RoPE with learned embeddings [done]
+# - log the distribution of selected keys (how often each key is selected, how it evolves during training) [done]
 # - normalize queries and keys before dot product (this can stabilize training and improve convergence)
 # - use smaller learning rate for this layer
 class RoPEProductKeysEncoderAttention(nn.Module):
@@ -196,12 +196,10 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         self.top_k = top_k
 
-        self.rope = RoPE(
-            dhead=self.dhead,
-            length=seq_len,
-            base=rope_base,
-            apply_freq_scaling=rope_scale_freqs,
-        )
+        self.q_pos_emb = nn.Parameter(torch.zeros(seq_len, self.dhead))
+        self.k_pos_emb = nn.Parameter(torch.zeros(seq_len, self.dhead))
+        trunc_normal_(self.q_pos_emb, std=0.02)
+        trunc_normal_(self.k_pos_emb, std=0.02)
 
         self.metric_logger = None
         self.log_name = ""
@@ -252,9 +250,9 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         batch, seq_len = x.shape[:-1]
         q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
-        q = self.rope(q)
+        q = q + self.q_pos_emb
         k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
-        k = self.rope(k)
+        k = k + self.k_pos_emb
 
         v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
 
