@@ -45,8 +45,6 @@ class Residual(nn.Module):
 
     def set_metric_logger(self, metric_logger):
         self.metric_logger = metric_logger
-        if hasattr(self.layer, "set_metric_logger"):
-            self.layer.set_metric_logger(metric_logger, f"{self.log_name}/layer")
 
     def forward(self, x):
         normalized = self.norm(x)
