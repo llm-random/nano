@@ -155,6 +155,12 @@ class RoPETopKAttention(nn.Module):
         return self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
 
 
+# - log the magnitudes of updates to the residual stream
+# - log grad norm
+# - replace RoPE with learned embeddings
+# - log the distribution of selected keys (how often each key is selected, how it evolves during training)
+# - normalize queries and keys before dot product (this can stabilize training and improve convergence)
+# - use smaller learning rate for this layer
 class RoPEProductKeysEncoderAttention(nn.Module):
     def __init__(
         self,
@@ -197,6 +203,13 @@ class RoPEProductKeysEncoderAttention(nn.Module):
             apply_freq_scaling=rope_scale_freqs,
         )
 
+        self.metric_logger = None
+        self.log_name = ""
+
+    def set_metric_logger(self, metric_logger, log_name=""):
+        self.metric_logger = metric_logger
+        self.log_name = log_name
+
     def __get_topk_candidates(self, query, key):
         scores = torch.matmul(query, key.transpose(-2, -1))
 
@@ -216,6 +229,14 @@ class RoPEProductKeysEncoderAttention(nn.Module):
             -1, -1, -1, -1, source_tensor.size(-1)
         )
         return torch.gather(source_tensor, 3, idx_expanded)
+
+    @staticmethod
+    def calculate_key_distribution(final_row_idxs, final_col_idxs, v_indices):
+        return {
+            "row_idxs": torch.stack(final_row_idxs).flatten(),
+            "col_idxs": torch.stack(final_col_idxs).flatten(),
+            "v_indices": torch.stack(v_indices).flatten(),
+        }
 
     def forward(self, x):
         query_states = self.q_proj(x)
@@ -287,6 +308,18 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         final_col_idxs = torch.gather(k2_idxs, 3, idx_in_k2)
 
         v_indices = (final_row_idxs * self.m) + final_col_idxs
+        
+        if self.metric_logger is not None:
+            self.metric_logger.accumulate_metrics(
+                layer_name=self.log_name,
+                calculate_fn=RoPEProductKeysEncoderAttention.calculate_key_distribution,
+                metrics={
+                    "final_row_idxs": final_row_idxs,
+                    "final_col_idxs": final_col_idxs,
+                    "v_indices": v_indices,
+                },
+            )
+
         v_flat_exp = v.unsqueeze(2).expand(-1, -1, seq_len, -1, -1)
         final_v = self.__gather_selected(v_flat_exp, v_indices)  # (B, H, S, K, D)
 
