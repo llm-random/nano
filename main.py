@@ -277,8 +277,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             if module.__class__.__name__ == "Residual":
                 module.set_metric_logger(metric_logger)
             elif isinstance(module, RoPEProductKeysEncoderAttention):
-                # We extract the layer number from name, for example: encoder.layers.0.attention_layer.layer
-                match = re.search(r"layers\.(\d+)\.", name)
+                match = re.search(r"blocks\.(\d+)\.", name)
                 if match:
                     layer_idx = int(match.group(1))
                     if (
@@ -287,7 +286,6 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                     ):
                         module.set_metric_logger(metric_logger, name)
                 else:
-                    # if it's not in standard transformer block structure, log it anyway
                     module.set_metric_logger(metric_logger, name)
 
     if cfg.trainer.checkpoint.load.type == "huggingface":
