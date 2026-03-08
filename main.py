@@ -1,3 +1,4 @@
+import re
 import os
 import hydra
 import yaml
@@ -197,9 +198,86 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
                 logger.info("Initialization failed, exiting...")
                 return None, None, None
     model = setup_distributed_training(model, cfg.trainer.distributed)
+
+    optimizer_groups = []
+    # If optimizer_param_groups is defined in config, use generic regex-based grouping
+    if (
+        hasattr(cfg.trainer, "optimizer_param_groups")
+        and cfg.trainer.optimizer_param_groups
+    ):
+        assigned_param_ids = set()
+        logger.info(
+            f"Model parameters: {[name for name, _ in model.named_parameters()]}"
+        )
+
+        for group_cfg in cfg.trainer.optimizer_param_groups:
+            group_regex = group_cfg.regex
+            group_lr = group_cfg.get("lr", learning_rate)
+            group_params = []
+            group_matches = []
+
+            # Determine filter criteria if provided
+            target_indices = None
+            layer_path_prefix = ""
+            if "indices_filter" in group_cfg and group_cfg.indices_filter:
+                raw_indices = group_cfg.indices_filter.get("indices", [])
+                if OmegaConf.is_list(raw_indices) or isinstance(
+                    raw_indices, (list, tuple)
+                ):
+                    target_indices = set(raw_indices)
+                layer_path_prefix = group_cfg.indices_filter.get("layer_path", "")
+
+            for name, param in model.named_parameters():
+                if id(param) in assigned_param_ids:
+                    continue
+
+                if re.search(group_regex, name):
+                    # Apply indices filter logic if configured
+                    if target_indices is not None and layer_path_prefix:
+                        # Assumption: The layer index is the number immediately following the prefix in the parameter name
+                        # Structure: {layer_path_prefix}.{INDEX}.{...}
+                        prefix_esc = re.escape(layer_path_prefix)
+                        # We use search to find prefix.INDEX. anywhere in the name
+                        match_idx = re.search(rf"{prefix_esc}\.(\d+)\.", name)
+
+                        if not match_idx:
+                            continue
+
+                        layer_idx = int(match_idx.group(1))
+                        if layer_idx not in target_indices:
+                            continue
+
+                    group_params.append(param)
+                    assigned_param_ids.add(id(param))
+                    group_matches.append(name)
+
+            if group_params:
+                logger.info(
+                    f"Optimizer group regex='{group_regex}' lr={group_lr} matched {len(group_params)} params: {group_matches}"
+                )
+                optimizer_groups.append({"params": group_params, "lr": group_lr})
+            else:
+                logger.warning(
+                    f"Optimizer group regex='{group_regex}' matched no parameters."
+                )
+
+        # Add remaining parameters to the default group
+        default_params = []
+        for name, param in model.named_parameters():
+            if id(param) not in assigned_param_ids:
+                default_params.append(param)
+
+        if default_params:
+            optimizer_groups.append({"params": default_params, "lr": learning_rate})
+            logger.info(
+                f"Default optimizer group lr={learning_rate} contains {len(default_params)} remaining params."
+            )
+
+    else:
+        optimizer_groups = [{"params": model.parameters(), "lr": learning_rate}]
+
     optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
+        optimizer_groups,
         weight_decay=cfg.trainer.weight_decay,
     )
     scheduler = instantiate(cfg.trainer.scheduler)(
@@ -328,7 +406,10 @@ def run(cfg: OmegaConf, metric_logger=None):
     if model is not None:
         logger.info(f"Model initialized")
 
-        trainer = instantiate(cfg.trainer)
+        # exclude optimizer_param_groups from trainer kwargs to avoid error
+        trainer_args = OmegaConf.to_container(cfg.trainer, resolve=True)
+        trainer_args.pop("optimizer_param_groups", None)
+        trainer = instantiate(trainer_args)
 
         if "distillation" in cfg:
             if cfg.distillation.load.type == "huggingface":
