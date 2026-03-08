@@ -271,12 +271,18 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
     heavy_logging_layers = cfg.infrastructure.metric_logger.get(
         "heavy_logging_layers", None
     )
+    if (
+        isinstance(heavy_logging_layers, str)
+        and heavy_logging_layers.lower() == "none"
+    ):
+        heavy_logging_layers = None
 
     for name, module in model.named_modules():
         if hasattr(module, "set_metric_logger"):
             if module.__class__.__name__ == "Residual":
                 module.set_metric_logger(metric_logger)
             elif isinstance(module, RoPEProductKeysEncoderAttention):
+                # We extract the layer number from name, for example: encoder.blocks.0.attention_layer.layer
                 match = re.search(r"blocks\.(\d+)\.", name)
                 if match:
                     layer_idx = int(match.group(1))
