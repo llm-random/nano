@@ -21,6 +21,7 @@ from src.core.checkpointing import (
 )
 from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger, WandbLogger
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
+from src.product_keys.model import RoPEProductKeysEncoderAttention
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +251,22 @@ class Trainer:
             self.metric_logger.log(
                 "tokens/train/grad_norm", self.processed_tokens, grad_norm.item()
             )
+
+        if self.metric_logger._should_log_heavy_metrics:
+            for name, module in self.model.named_modules():
+                if isinstance(module, RoPEProductKeysEncoderAttention):
+                    grads = [p.grad for p in module.parameters() if p.grad is not None]
+                    if grads:
+                        # torch.nn.utils.get_total_norm might not be available in all torch versions
+                        if hasattr(torch.nn.utils, "get_total_norm"):
+                            layer_grad_norm = torch.nn.utils.get_total_norm(grads)
+                        else:
+                            layer_grad_norm = torch.norm(
+                                torch.stack([torch.norm(g, 2) for g in grads]), 2
+                            )
+                        self.metric_logger.log(
+                            f"steps/{name}/grad_norm", self.step, layer_grad_norm.item()
+                        )
 
         self.loss_averaged_100.log(self.metric_logger, self.step, loss.item())
         self.time_diff_averaged_100.log(self.metric_logger, self.step, time.time())
