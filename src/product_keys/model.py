@@ -232,11 +232,18 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
     @staticmethod
     def calculate_key_distribution(final_row_idxs, final_col_idxs, v_indices):
-        return {
-            "row_idxs": torch.stack(final_row_idxs).flatten(),
-            "col_idxs": torch.stack(final_col_idxs).flatten(),
-            "v_indices": torch.stack(v_indices).flatten(),
-        }
+        # final_row_idxs is a list of tensors of shape (B, H, S, K)
+        stacked_rows = torch.stack(final_row_idxs)  # (Steps, B, H, S, K)
+        stacked_cols = torch.stack(final_col_idxs)
+        stacked_v = torch.stack(v_indices)
+
+        num_heads = stacked_rows.shape[2]
+        res = {}
+        for h in range(num_heads):
+            res[f"head_{h}/row_idxs"] = stacked_rows[:, :, h].flatten()
+            res[f"head_{h}/col_idxs"] = stacked_cols[:, :, h].flatten()
+            res[f"head_{h}/v_indices"] = stacked_v[:, :, h].flatten()
+        return res
 
     def forward(self, x):
         query_states = self.q_proj(x)
