@@ -209,7 +209,7 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         # QKNorm learnable scaling parameter (one per head)
         initial_temp = 1.0 / math.sqrt(self.dhead)
-        self.attn_temp = nn.Parameter(torch.full((1, self.q_heads, 1, 1), initial_temp))
+        self.attn_temp = nn.Parameter(torch.full((1, self.q_heads, 1, 1, 1), initial_temp))
 
         self.metric_logger = None
         self.log_name = ""
