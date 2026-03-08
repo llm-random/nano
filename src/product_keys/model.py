@@ -159,7 +159,7 @@ class RoPETopKAttention(nn.Module):
 # - log grad norm [done]
 # - replace RoPE with learned embeddings [done]
 # - log the distribution of selected keys (how often each key is selected, how it evolves during training) [done]
-# - normalize queries and keys before dot product (this can stabilize training and improve convergence)
+# - normalize queries and keys before dot product (this can stabilize training and improve convergence) [done]
 # - use smaller learning rate for this layer
 class RoPEProductKeysEncoderAttention(nn.Module):
     def __init__(
@@ -200,6 +200,16 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         self.k_pos_emb = nn.Parameter(torch.zeros(seq_len, self.dhead))
         trunc_normal_(self.q_pos_emb, std=0.02)
         trunc_normal_(self.k_pos_emb, std=0.02)
+
+        # Normalize the halves independently to balance Product Key retrieval
+        self.q_norm1 = nn.RMSNorm(self.dhead_half)
+        self.q_norm2 = nn.RMSNorm(self.dhead_half)
+        self.k_norm1 = nn.RMSNorm(self.dhead_half)
+        self.k_norm2 = nn.RMSNorm(self.dhead_half)
+
+        # QKNorm learnable scaling parameter (one per head)
+        initial_temp = 1.0 / math.sqrt(self.dhead)
+        self.attn_temp = nn.Parameter(torch.full((1, self.q_heads, 1, 1), initial_temp))
 
         self.metric_logger = None
         self.log_name = ""
@@ -261,14 +271,22 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
 
-        # Split and aggregate keys
+        # Split and aggregate keys (unnormalized)
         k = k.view(batch, self.q_heads, self.m, self.m, self.dhead)
-        k1 = k[..., : self.dhead_half].mean(-2)  # (B, H, m, d/2)
-        k2 = k[..., self.dhead_half :].mean(-3)  # (B, H, m, d/2)
+        k1_unnorm = k[..., : self.dhead_half].mean(-2)  # (B, H, m, d/2)
+        k2_unnorm = k[..., self.dhead_half :].mean(-3)  # (B, H, m, d/2)
 
-        # Split queries
-        q1 = q[..., : self.dhead_half]  # (B, H, S, d/2)
-        q2 = q[..., self.dhead_half :]  # (B, H, S, d/2)
+        # Split queries (unnormalized)
+        q1_unnorm = q[..., : self.dhead_half]  # (B, H, S, d/2)
+        q2_unnorm = q[..., self.dhead_half :]  # (B, H, S, d/2)
+
+        k1 = self.k_norm1(k1_unnorm)
+        k2 = self.k_norm2(k2_unnorm)
+        q1 = self.q_norm1(q1_unnorm)
+        q2 = self.q_norm2(q2_unnorm)
+
+        # Recombine normalized queries for the final attention step
+        q_normed = torch.cat([q1, q2], dim=-1)
 
         # --- First Retrieval (get top-k from each half) ---
         k1_vecs, k1_idxs = self.__get_topk_candidates(q1, k1)
@@ -331,8 +349,11 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         # --- Attention: Softmax(Q @ K.T) @ V ---
         # q needs unsqueeze to broadcast: (B, H, S, 1, D) @ (B, H, S, K, D).T
         attn_scores = torch.matmul(
-            q.unsqueeze(-2), final_k.transpose(-2, -1)
-        ) / math.sqrt(self.dhead)
+            q_normed.unsqueeze(-2), final_k.transpose(-2, -1)
+        ) 
+        
+        # Multiply by the learnable QKNorm temperature
+        attn_scores = attn_scores * self.attn_temp
 
         # ! no causal mask as we work in encoder-only setting
         # causal_mask = torch.triu(
