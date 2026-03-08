@@ -6,6 +6,7 @@ import torch.distributed as dist
 from typing import List
 
 from src.core.trainer import Trainer
+from src.product_keys.model import RoPEProductKeysEncoderAttention
 
 
 @define(slots=False)
@@ -84,3 +85,22 @@ class MaskedLMTrainer(Trainer):
             dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
 
         return avg_loss / float(os.environ["WORLD_SIZE"])
+
+    def log_metrics(self, loss, grad_norm):
+        super().log_metrics(loss, grad_norm)
+
+        if self.metric_logger._should_log_heavy_metrics:
+            for name, module in self.model.named_modules():
+                if isinstance(module, RoPEProductKeysEncoderAttention):
+                    grads = [p.grad for p in module.parameters() if p.grad is not None]
+                    if grads:
+                        # torch.nn.utils.get_total_norm might not be available in all torch versions
+                        if hasattr(torch.nn.utils, "get_total_norm"):
+                            layer_grad_norm = torch.nn.utils.get_total_norm(grads)
+                        else:
+                            layer_grad_norm = torch.norm(
+                                torch.stack([torch.norm(g, 2) for g in grads]), 2
+                            )
+                        self.metric_logger.log(
+                            f"steps/{name}/grad_norm", self.step, layer_grad_norm.item()
+                        )
