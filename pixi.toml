@@ -6,6 +6,7 @@ platforms = ["linux-64", "linux-aarch64", "osx-arm64"]   # drop osx-64 (Intel Ma
 version = "0.1.0"
 
 [tasks]
+install_hooks = "git config --local core.hooksPath .githooks"
 
 [dependencies]
 python = "==3.12.3"

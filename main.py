@@ -24,7 +24,7 @@ from src.core.checkpointing import (
     load_training_state,
     get_full_checkpoint_path,
 )
-from src.core.metric_loggers import NeptuneLogger, get_metric_logger
+from src.core.metric_loggers import NeptuneLogger, WandbLogger, get_metric_logger
 from src.core.model import Residual
 import platform
 
@@ -214,6 +214,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         metric_logger = get_metric_logger(
             metric_logger_config=cfg.infrastructure.metric_logger,
             tracker_run_id=training_state["run_id"],
+            full_config=cfg,
         )
 
         # Other loggers do not have `run` method
@@ -236,7 +237,23 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         metric_logger.run["learning_rate"] = learning_rate
         metric_logger.run["exp_lr"] = exp_lr
 
-    torch.manual_seed(cfg.common.model_seed)
+    elif isinstance(metric_logger, WandbLogger) and (
+        training_state["run_id"] is None
+        or cfg.infrastructure.metric_logger.new_wandb_job
+    ):
+        # Update wandb config
+        if metric_logger.run is not None:
+            metric_logger.run.log(
+                {
+                    "learning_rate": learning_rate,
+                    "exp_lr": exp_lr,
+                    "full_save_checkpoints_path": get_full_checkpoint_path(
+                        cfg.trainer.checkpoint.save.path
+                    ),
+                }
+            )
+
+    torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
 
     device = get_device()
 
