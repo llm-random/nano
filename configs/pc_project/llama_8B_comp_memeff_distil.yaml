@@ -1,51 +1,61 @@
 defaults:
-  - ../_cluster@_here_: entropy
-  - ../_model/llama@_here_: projected_mem_eff_1B
-  - ../_trainer@_here_: llama3_1B_distillation
+  - ../_cluster@_here_: helios
+  - ../_model/llama@_here_: projected_mem_eff_8B
+  - ../_trainer@_here_: llama3_8B_distillation
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
 
 common:
-  sequence_length: 1024
+  sequence_length: 2048
   batch_size: 512
 
-  dmodel: 448 # 10
-  dff: 1728
-  # dmodel: 960 # 30
-  # dff: 3840
-  # dmodel: 1344 # 50
-  # dff: 5376
+  dmodel: 1056 # 10p
+  dff: 3168
+  # dmodel: 2160 # 30p
+  # dff: 6480
+  # dmodel: 3072 # 50p
+  # dff: 9216
 
 
 trainer:
   _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
-  gradient_accumulation_steps: 8
 
-  n_steps: 2048
+  gradient_accumulation_steps: 8 # for 10p 30p and 2 nodes
+  # gradient_accumulation_steps: 16 # for 10p 30p and 2 nodes
+  # gradient_accumulation_steps: 32 # for 10p and 2 nodes
+  # gradient_accumulation_steps: 64 # for 30p 
+  # gradient_accumulation_steps: 128 # for 50p
+
+  gradient_clipping: 1.0
+
+  n_steps: 1024
+  # n_steps: 2048
   # n_steps: 4096
-  # n_steps: 8192
-  # n_steps: 12288
+  # n_steps: 6144
 
   only_compress_model_gradient_clipping: true
-  
-  learning_rate: 13
 
+  learning_rate: 13 # 10p optimal # for longer runs may differ
+  # learning_rate: 15 # 30p optimal
+  # learning_rate: 14 # 50p optimal
+
+    
   scheduler:
     warmup_steps: 40
 
   distributed:
     fsdp2: null
-    
-  eval_interval: 1000000 # PC_memeff does not work in eval inference mode
+
+  eval_interval: 1000000
   eval_dataloader: None
 
-  checkpoint: #only way to save PC_memeff model
-    save:
-      interval: 2047
+  checkpoint:
+    save: #only way to save PC_memeff model
+      interval: 1023
+      # interval: 2047
       # interval: 4095
-      # interval: 8191
-      # interval: 12287
+      # interval: 6143
       model_checkpoint_filename: __model_checkpoint_filename.pt
       path: ???
       training_state_filename: __training_state_filename.pt
@@ -58,35 +68,35 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-  source_model_path: ??? special PC_memeff checkpoint from llama_1B_conversion config experiment
+  source_model_path: ???  special PC_memeff checkpoint from llama_1B_conversion config experiment
   path_to_importances: ???
-
+  
   init_norms_with_ones: false
 
   separate_block_optimizers: true
 
   adjust_grad_norm: false
 
-  source_model_for_distillation: true
-
 distillation:
   load:
-    type: pc_memeff_base # uses internal teacher model representation for distillation to save memory - source_model_for_distillation: true
+    type: pc_memeff_base
+
+init_model_opt_sched_fn: 
+  source_model_for_distillation: true
 
 model:
   cast_bfloat16: false  # whether to cast bfloat16 when calculating compressed matrix
 
-#devchange
 infrastructure:
   metric_logger:
     name: Llame_PC
     tags:
       - nano
       - pc
-      - llama_1
+      - llama_8
       - projected_compression
-      - distillation
       - mem_eff
+      - distillation
       - 10p
       # - 30p
       # - 50p
@@ -94,4 +104,5 @@ infrastructure:
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:4
-    time: "0-24:00:00"
+    # nodes: 2
+    # time: "1-00:00:00"
