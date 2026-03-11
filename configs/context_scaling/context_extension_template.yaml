@@ -1,0 +1,92 @@
+# Context Extension Template
+#
+# Two-phase (or multi-phase) training workflow:
+#   Phase 1: Train model at short context (e.g. 2048) → save checkpoint
+#   Phase 2: Load checkpoint, extend to longer sequence_length (e.g. 8192) → continue training
+#
+# For progressive extension (2k → 4k → 8k → 16k), chain phases by updating:
+#   - common.sequence_length: target context length for this phase
+#   - trainer.checkpoint.load.path: path to previous phase's checkpoint
+#   - rope_original_max_position_embeddings: context length the model was originally trained at
+#
+# Key settings:
+#   - only_weights: true → resets optimizer/scheduler for fresh LR warmup
+#   - rope_original_max_position_embeddings: must match the source training context length
+#     (the length used in Phase 1), NOT the current target length
+
+defaults:
+  - ../_cluster@_here_: lem
+  - ../_model/context_scaling@_here_: k16
+  - ../_trainer@_here_: context_scaling
+  - ../_dataset@_here_: ctx_scl_dataset
+  - ../_checkpoints/context_scaling@_here_: shared_lem
+  - ../_misc@_here_: default
+  - ../_eval@_here_: none
+  - _self_
+
+common:
+  # Target context length for this extension phase
+  sequence_length: 8192
+  batch_size: 16
+  kv_heads: 16
+  dff: 2560
+  data_seed: 123
+  model_seed: 123
+
+model:
+  encoder:
+    block_fn:
+      attention_fn:
+        # Use context_scaling RoPEAttention with configurable freq scaling params
+        _target_: src.context_scaling.model.RoPEAttention
+        # Set original_max_position_embeddings to the context length used in Phase 1.
+        # This tells RoPE freq scaling what the "original" training length was.
+        rope_original_max_position_embeddings: 2048
+
+trainer:
+  gradient_accumulation_steps: 1
+  # Extension phase typically needs fewer steps than initial training
+  n_steps: 10_000
+  # Lower learning rate for extension phase
+  learning_rate: 2
+  eval_interval: 1000
+  eval_long_ctx_interval: -1
+  n_eval_long_ctx_steps: 64
+
+  checkpoint:
+    save:
+      type: nano
+
+    load:
+      type: nano
+      # Path to previous phase's checkpoint directory
+      path: null  # SET THIS to your Phase 1 checkpoint path
+      only_weights: true  # Reset optimizer/scheduler for fresh warmup
+
+  train_dataloader:
+    num_workers: 2
+    dataset:
+      data_generator:
+        path: ${cluster_switch.train_path_fineweb}
+
+  eval_dataloader:
+    num_workers: 2
+    dataset:
+      data_generator:
+        path: ${cluster_switch.eval_path_fineweb}
+
+  eval_long_ctx_dataloader: null
+
+infrastructure:
+  metric_logger:
+    heavy_metrics_calculation_interval: 5000
+    name: ctx_extension
+    tags:
+      - nano
+      - context_scaling
+      - context_extension
+
+  slurm:
+    time: "1-00:00:00"
+    gres: gpu:hopper:4
+    job-name: ${infrastructure.metric_logger.name}

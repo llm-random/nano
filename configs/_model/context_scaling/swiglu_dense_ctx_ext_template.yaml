@@ -1,0 +1,18 @@
+# Extends swiglu_dense_template with configurable RoPE freq scaling params
+# for context extension. Uses src.context_scaling.model.RoPEAttention which
+# accepts rope_factor, rope_low_freq_factor, rope_high_freq_factor, and
+# rope_original_max_position_embeddings.
+
+defaults:
+  - swiglu_dense_template
+  - _self_
+
+model:
+  encoder:
+    block_fn:
+      attention_fn:
+        _target_: src.context_scaling.model.RoPEAttention
+        rope_factor: 32
+        rope_low_freq_factor: 1
+        rope_high_freq_factor: 4
+        rope_original_max_position_embeddings: 8192
