@@ -50,6 +50,9 @@ class MetricLogger(ABC):
                     self.log(f"steps/{name}/{metric}", step, result)
                 accumulator.reset()
 
+    def flush(self):
+        pass
+
     def set_step(self, step):
         self.step = step
 
@@ -79,27 +82,25 @@ class DummyLogger(MetricLogger):
     def log(self, _name, _step, _value):
         pass
 
-
-class NeptuneLogger(MetricLogger):
-    def __init__(self, run, rank, config=None):
-        super().__init__(config)
-        self.run = run
-        self.rank = rank
-
-    def log(self, name, step, value):
-        if self.rank == 0:
-            self.run[name].append(value=value, step=step)
-
-
 class WandbLogger(MetricLogger):
     def __init__(self, run, should_log, config=None):
         super().__init__(config)
         self.run = run
         self.should_log = should_log
+        self._pending = {}
+
+        if self.should_log and self.run is not None:
+            wandb.define_metric("steps/*", step_metric="step")
+            wandb.define_metric("tokens/*", step_metric="steps/train/processed_tokens")
 
     def log(self, name, step, value):
         if self.should_log:
-            self.run.log({name: value}, step=step)
+            self._pending[name] = value
+
+    def flush(self):
+        if self.should_log and self._pending:
+            self.run.log(self._pending)
+            self._pending = {}
 
 
 class StdoutLogger(MetricLogger):
@@ -146,42 +147,8 @@ def get_metric_logger(
     full_config: Optional[OmegaConf] = None,
 ):
     _metric_logger = None
-    if metric_logger_config.type == "neptune":
-        neptune_run_id = (
-            None if metric_logger_config.new_neptune_job else tracker_run_id
-        )
-        rank = int(os.environ["RANK"])
-
-        if rank == 0:
-            neptune_logger = neptune.init_run(
-                project=metric_logger_config.project_name,
-                name=metric_logger_config.name,
-                tags=list(metric_logger_config.tags),
-                with_id=neptune_run_id,
-            )
-            _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
-
-            if int(os.environ["WORLD_SIZE"]) > 1:
-                run_id_container = [None]
-                if neptune_run_id is None:
-                    neptune_run_id = neptune_logger["sys/id"].fetch()
-
-                run_id_container[0] = neptune_run_id
-                dist.broadcast_object_list(run_id_container, src=0)
-        else:
-            run_id_container = [neptune_run_id]
-            dist.broadcast_object_list(run_id_container, src=0)
-            neptune_run_id = run_id_container[0]
-
-            neptune_logger = neptune.init_run(
-                project=metric_logger_config.project_name,
-                with_id=neptune_run_id,
-                capture_hardware_metrics=False,
-                name=metric_logger_config.name,
-                tags=list(metric_logger_config.tags),
-            )
-            _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
-    elif metric_logger_config.type == "wandb":
+    
+    if metric_logger_config.type == "wandb":
         if os.environ.get("WORLD_SIZE") != os.environ.get("LOCAL_WORLD_SIZE"):
             # TODO: Implement W&B multinode logging (https://docs.wandb.ai/models/track/log/distributed-training)
             raise NotImplementedError("W&B multinode logging is not implemented yet.")
