@@ -10,13 +10,12 @@ defaults:
 common: 
   batch_size: 512
 
-  #devchange
-  # dmodel: 1056 # 10p
-  # dff: 3168
-  dmodel: 2160 # 30p
-  dff: 6480
   # dmodel: 3072 # 50p
   # dff: 9216
+  # dmodel: 2160 # 30p
+  # dff: 6480
+  dmodel: 1056 # 10p
+  dff: 3168
 
 trainer:
   n_steps: 0 # not used
@@ -27,11 +26,10 @@ trainer:
     load:
       # type: finalized_pc
       type: nano
-      path: ??? # CHANGE
+      path: ???
     save:
       type: huggingface
-      path: ??? # CHANGE
-
+      path: ???
 
 infrastructure:
   metric_logger:
@@ -39,10 +37,10 @@ infrastructure:
     tags:
       - nano
       - pc
-      - llama_1
+      - hard_pruning
+      - llama_8
       - hf_conversion
-      - projected_compression
 
   slurm: 
     gres: gpu:4
-    time: "0-00:30:00"
+    time: "0-01:00:00"
