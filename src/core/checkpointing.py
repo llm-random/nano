@@ -5,7 +5,7 @@ from torch.distributed.checkpoint.stateful import Stateful
 from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 import torch.distributed.checkpoint as dcp
 
-from src.core.metric_loggers import NeptuneLogger, WandbLogger
+from src.core.metric_loggers import WandbLogger
 import logging
 
 logger = logging.getLogger(__name__)
@@ -50,9 +50,7 @@ def save_training_state(
     metric_logger=None,
 ):
     run_id = None
-    if isinstance(metric_logger, NeptuneLogger):
-        run_id = metric_logger.run["sys/id"].fetch()
-    elif isinstance(metric_logger, WandbLogger):
+    if isinstance(metric_logger, WandbLogger):
         run_id = metric_logger.run.id
 
     path = step_checkpoint_path(save_config.path, step)

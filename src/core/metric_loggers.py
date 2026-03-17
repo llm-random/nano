@@ -1,6 +1,5 @@
 import os
 import statistics
-import neptune
 from omegaconf import OmegaConf
 import wandb
 import torch
