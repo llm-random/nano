@@ -39,6 +39,6 @@ class Evaluator:
         for task_name, metrics in eval_results["results"].items():
             for metric_name, value in metrics.items():
                 clean_metric_name = metric_name.replace(",none", "")
-                self.metric_logger.log(f"eval/{task_name}/{clean_metric_name}", 0, value)
+                self.metric_logger.log(f"eval/{task_name}/{clean_metric_name}", value)
 
-        self.metric_logger.log("eval/limit", 0, eval_results["config"]["limit"])
+        self.metric_logger.log("eval/limit", eval_results["config"]["limit"])
