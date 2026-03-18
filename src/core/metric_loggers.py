@@ -158,9 +158,6 @@ def get_metric_logger(
     _metric_logger = None
 
     if metric_logger_config.type == "wandb":
-        if os.environ.get("WORLD_SIZE") != os.environ.get("LOCAL_WORLD_SIZE"):
-            # TODO: Implement W&B multinode logging (https://docs.wandb.ai/models/track/log/distributed-training)
-            raise NotImplementedError("W&B multinode logging is not implemented yet.")
         wandb_run_id = None if metric_logger_config.new_wandb_job else tracker_run_id
         rank = int(os.environ.get("RANK", 0))
         if rank == 0:
