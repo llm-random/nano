@@ -269,7 +269,6 @@ def get_mixture_of_datasets_dataloader(
     world_size_independent,
     collate_fn: Callable = collate_wrapper,
 ):
-    # print(datasets)
     dataset_paths = [d["path"] for d in datasets]
     dataset_weights = [d["weight"] for d in datasets]
 
