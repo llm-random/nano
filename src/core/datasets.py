@@ -259,7 +259,8 @@ def get_mixture_of_datasets_dataloader(datasets: list[dict], dataset_split, toke
         if not os.path.isdir(path):
             raise FileNotFoundError(f"Directory {path} not found")
 
-    assert abs(sum(dataset_weights) - 1) < 1e-6, f"Dataset weights must sum to 1, current sum: {sum(dataset_weights)}"
+    if abs(sum(dataset_weights) - 1) >= 1e-6:
+        raise ValueError(f"Dataset weights must sum to 1, current sum: {sum(dataset_weights)}")
     world_size = int(os.environ["WORLD_SIZE"])
     batch_size_per_device = total_batch_size // world_size
     logger.debug(f"Batch size per device: {batch_size_per_device}")
