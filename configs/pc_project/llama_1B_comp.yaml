@@ -17,8 +17,6 @@ common:
   dff: 3840
   # dmodel: 1344 # 50
   # dff: 5376
-  # dmodel: 1728 # 75
-  # dff: 6912
   
 
 trainer:
@@ -30,7 +28,6 @@ trainer:
     # - 6144
     # - 8192
     # - 12288
-    # - 16384
 
   # learning_rate: 12 # optimal 10%
   learning_rate: 13 # optimal 30%

@@ -1,0 +1,163 @@
+
+common_distillation:
+  dmodel: ???
+  dff: ???
+  datt: ???
+  n_blocks: ???
+  q_heads: ???
+  kv_heads: ???
+  vocab_size: ???
+
+distillation:
+  load:
+    type: huggingface
+    path: ???
+    
+  teacher_model: 
+    _target_: src.projected_compression.model.LLM
+
+    embedding:
+      _target_: src.projected_compression.model.TransformerEmbedding
+      vocab_size: ${common_distillation.vocab_size}
+      dmodel: ${common_distillation.dmodel}
+      init_fn:
+        _target_: src.projected_compression.model.trunc_normal_
+        _partial_: true
+
+    encoder:
+      _target_: src.projected_compression.model.TransformerEncoder
+      n_blocks: ${common_distillation.n_blocks}
+      block_fn:
+        _target_: src.projected_compression.model.TransformerBlock
+        _partial_: true
+        norm_fn:
+          _target_: src.core.model.RMSNorm
+          _partial_: true
+          eps: 1e-5
+          normalized_shape: ${common_distillation.dmodel}
+
+        attention_fn:
+          _target_: src.projected_compression.model.RoPEAttention
+          _partial_: true
+          dmodel: ${common_distillation.dmodel}
+          q_heads: ${common_distillation.q_heads}
+          kv_heads: ${common_distillation.kv_heads}
+          seq_len: ${common.sequence_length}
+          q_proj_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common_distillation.dmodel}
+            out_features: ${common_distillation.datt}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+
+          k_proj_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common_distillation.dmodel}
+            out_features: ${eval:'(${common_distillation.datt} // ${distillation.teacher_model.encoder.block_fn.attention_fn.q_heads}) * ${distillation.teacher_model.encoder.block_fn.attention_fn.kv_heads}'}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+
+          v_proj_fn: ${distillation.teacher_model.encoder.block_fn.attention_fn.k_proj_fn}
+
+          # o_proj_fn: ${distillation.teacher_model.encoder.block_fn.attention_fn.q_proj_fn} # TODO check have I done it right pls
+          o_proj_fn: 
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common_distillation.datt}
+            out_features: ${common_distillation.dmodel}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+
+          rope_base: 500000
+          rope_scale_freqs: true
+
+        ff_layer_fn:
+          _target_: src.projected_compression.model.ProjectedLlamaFeedForward
+          _partial_: true
+          ff_pre_act_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common_distillation.dmodel}
+            out_features: ${common_distillation.dff}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+          ff_post_act_fn:
+            _target_: src.projected_compression.model.Linear
+            _partial_: true
+            in_features: ${common_distillation.dff}
+            out_features: ${common_distillation.dmodel}
+            partial_init_fn:
+              _target_: src.projected_compression.model.llm_random_weight_init
+              _partial_: true
+              scale: 1
+          gate_fn: ${distillation.teacher_model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
+
+    head:
+      _target_: src.projected_compression.model.TransformerHead
+      linear_fn:
+        _target_: src.projected_compression.model.Linear
+        _partial_: true
+        in_features: ${common_distillation.dmodel}
+        out_features: ${common_distillation.vocab_size}
+        partial_init_fn:
+          _target_: src.projected_compression.model.llm_random_weight_init
+          _partial_: true
+          scale: 1
+      norm_fn:
+        _target_: src.core.model.RMSNorm
+        _partial_: true
+        eps: 1e-5
+        normalized_shape: ${common_distillation.dmodel}
+  
+trainer:
+  _partial_: true
+  _target_: src.core.trainer_distillation.TrainerDistillation
+  distillation_alpha: 0.5
+  distillation_temperature: 1.0
+  eval_interval: 100
+  n_eval_steps: 10
+  gradient_accumulation_steps: 1
+  gradient_clipping: 1.0
+  n_steps: null
+  learning_rate: null
+  weight_decay: 0.1
+
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
+
+  teacher_distributed:
+    fsdp2:
+      modules_to_shard: 
+        - ${distillation.teacher_model.embedding._target_}
+        - ${distillation.teacher_model.encoder.block_fn._target_}
+        - ${distillation.teacher_model.head._target_}
+
+  distributed:
+    fsdp2:
+      modules_to_shard: 
+        - ${model.embedding._target_}
+        - ${model.encoder.block_fn._target_}
+        - ${model.head._target_}
+  
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.llama_tokenize_fn
+      
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.llama_tokenize_fn

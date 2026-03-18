@@ -24,7 +24,7 @@ from src.core.checkpointing import (
     load_training_state,
     get_full_checkpoint_path,
 )
-from src.core.metric_loggers import NeptuneLogger, get_metric_logger
+from src.core.metric_loggers import NeptuneLogger, WandbLogger, get_metric_logger
 from src.core.model import Residual
 import platform
 
@@ -74,6 +74,10 @@ def setup_enviroment():
     if "WORLD_SIZE" not in os.environ:
         logger.warning("WORLD_SIZE is not set, setting it to 1")
         os.environ["WORLD_SIZE"] = "1"
+
+    if "LOCAL_WORLD_SIZE" not in os.environ:
+        logger.warning("LOCAL_WORLD_SIZE is not set, setting it to 1")
+        os.environ["LOCAL_WORLD_SIZE"] = "1"
 
     if "RANK" not in os.environ:
         if "SLURM_PROCID" in os.environ:
@@ -191,7 +195,7 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             res = fn(model)
             if res == False:
                 logger.info("Initialization failed, exiting...")
-                return None, None, None, None, None
+                return None, None, None
     model = setup_distributed_training(model, cfg.trainer.distributed)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -206,15 +210,13 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
 
 
 def initialize_training_components(cfg: OmegaConf, metric_logger=None):
-
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
     if metric_logger is None:
         metric_logger = get_metric_logger(
-            metric_logger_config=instantiate(
-                cfg.infrastructure.metric_logger, _convert_="all"
-            ),
-            neptune_run_id=training_state["run_id"],
+            metric_logger_config=cfg.infrastructure.metric_logger,
+            tracker_run_id=training_state["run_id"],
+            full_config=cfg,
         )
 
         # Other loggers do not have `run` method
@@ -236,6 +238,22 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         )
         metric_logger.run["learning_rate"] = learning_rate
         metric_logger.run["exp_lr"] = exp_lr
+
+    elif isinstance(metric_logger, WandbLogger) and (
+        training_state["run_id"] is None
+        or cfg.infrastructure.metric_logger.new_wandb_job
+    ):
+        # Update wandb config
+        if metric_logger.run is not None:
+            metric_logger.run.log(
+                {
+                    "learning_rate": learning_rate,
+                    "exp_lr": exp_lr,
+                    "full_save_checkpoints_path": get_full_checkpoint_path(
+                        cfg.trainer.checkpoint.save.path
+                    ),
+                }
+            )
 
     torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
 
@@ -267,10 +285,10 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             cfg, model, learning_rate
         )
     elif cfg.trainer.checkpoint.load.type == "nano":
+        # TODO! if you want to apply function on loaded model it does NOT work now, it applies function on newly inintialized model than it loads model weights
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
-
         load_checkpoint_from_file(
             cfg.trainer.checkpoint.load, model, optimizer, scheduler
         )
@@ -297,28 +315,58 @@ def run(cfg: OmegaConf, metric_logger=None):
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
-    model, optimizer, scheduler, training_state, metric_logger = (
-        initialize_training_components(cfg, metric_logger)
+    initialize_fn = (
+        instantiate(cfg.init_model_opt_sched_fn, _convert_="all")
+        if hasattr(cfg, "init_model_opt_sched_fn")
+        else initialize_training_components
+    )
+
+    model, optimizer, scheduler, training_state, metric_logger = initialize_fn(
+        cfg, metric_logger
     )
 
     if model is not None:
         logger.info(f"Model initialized")
 
         trainer = instantiate(cfg.trainer)
-        trainer(
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            training_state=training_state,
-            metric_logger=metric_logger,
-        ).train()
+
+        if "distillation" in cfg:
+            if cfg.distillation.load.type == "huggingface":
+                teacher_model = instantiate(
+                    cfg.distillation.teacher_model, _convert_="all"
+                ).to(get_device())
+                copy_llama_model_weights_from_HF(
+                    teacher_model, cfg.distillation.load.path
+                )
+                teacher_model = setup_distributed_training(
+                    teacher_model, cfg.trainer.teacher_distributed
+                )
+            elif cfg.distillation.load.type == "pc_memeff_base":
+                teacher_model = model.source_model
+
+            trainer(
+                teacher_model=teacher_model,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                training_state=training_state,
+                metric_logger=metric_logger,
+            ).train()
+        else:
+            trainer(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                training_state=training_state,
+                metric_logger=metric_logger,
+            ).train()
 
         # TODO
         # finetuning
 
-        evaluator = instantiate(cfg.evaluator)
-        if evaluator is not None:
-            evaluator(metric_logger=metric_logger).eval()
+    evaluator = instantiate(cfg.evaluator)
+    if evaluator is not None:
+        evaluator(metric_logger=metric_logger).eval()
 
     cleanup()
 

@@ -168,6 +168,7 @@ venv2
 
 .vscode
 .neptune
+wandb
 
 # test folder from submitit
 log_test 

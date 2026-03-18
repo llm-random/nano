@@ -126,7 +126,7 @@ def _calculate_magnitude_dimension_importances(model: nn.Module):
     dff_magnitudes = []
 
     # Embedding
-    embedding_weight = model.embedding.embedding.weight.data
+    embedding_weight = model.embedding.weight.data
     dmodel_magnitudes.append(torch.norm(embedding_weight, dim=0))
 
     # Head
