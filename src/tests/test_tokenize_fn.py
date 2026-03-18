@@ -12,8 +12,11 @@ Tests verify:
 - Both 'text' and 'content' columns are supported
 """
 import sys
-sys.path.insert(0, '/home/m1kush/mimuw/research/nano')
+from pathlib import Path
 
+# Ensure project root is on sys.path without using a hardcoded absolute path
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
 from transformers import AutoTokenizer, GPT2TokenizerFast
 from src.core.datasets import get_tokenize_fn
 
