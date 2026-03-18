@@ -4,6 +4,7 @@ from lm_eval.api.instance import Instance
 from attr import define
 from typing import Optional
 import json
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,13 +16,12 @@ from src.core.metric_loggers import MetricLogger
 class NanoLM(LM):
     """lm_eval wrapper for nano models, enabling evaluation without HF conversion."""
 
-    def __init__(self, model: nn.Module, tokenizer_name: str, device: str = "cpu"):
+    def __init__(self, model: nn.Module, tokenizer_name: str):
         super().__init__()
         self._model = model
         self._model.eval()
         self._tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-        self._device = torch.device(device)
-        self._model.to(self._device)
+        self._device = next(model.parameters()).device
 
     @property
     def eot_token_id(self):
@@ -141,7 +141,6 @@ class Evaluator:
     tokenizer: str
     tasks: list[str]
     limit: Optional[int]
-    device: str
     metric_logger: MetricLogger
     model: Optional[nn.Module]
 
@@ -150,7 +149,6 @@ class Evaluator:
             lm = NanoLM(
                 model=self.model,
                 tokenizer_name=self.tokenizer,
-                device=self.device,
             )
             results = evaluator.simple_evaluate(
                 model=lm,
@@ -171,10 +169,12 @@ class Evaluator:
                 log_samples=False,
             )
 
-        with open("eval_results.json", "w") as f:
-            json.dump(results, f, indent=2, default=str)
+        rank = int(os.environ.get("RANK", 0))
+        if rank == 0:
+            with open("eval_results.json", "w") as f:
+                json.dump(results, f, indent=2, default=str)
 
-        self.log_eval(results)
+            self.log_eval(results)
 
     def log_eval(self, eval_results: dict):
         """Log evaluation results."""
