@@ -176,7 +176,9 @@ class TrainerDistillation(Trainer):
 
             self.loss_averaged_100.log(self.metric_logger, self._last_ce_loss.item())
             self.total_loss_averaged_100.log(self.metric_logger, loss.item())
-            self.distill_loss_averaged_100.log(self.metric_logger, self._last_distill_loss.item())
+            self.distill_loss_averaged_100.log(
+                self.metric_logger, self._last_distill_loss.item()
+            )
         else:
             self.metric_logger.log("train/loss", loss.item())
             self.loss_averaged_100.log(self.metric_logger, loss.item())
@@ -223,8 +225,7 @@ class TrainerDistillation(Trainer):
                 self.metric_logger.log("eval/loss", avg_loss.item())
 
         if self._should_log_eval_input:
-            self.metric_logger.log("eval/batch", str(eval_fingerprint)
-            )
+            self.metric_logger.log("eval/batch", str(eval_fingerprint))
 
         self.step = saved_step
         self.metric_logger.set_step(saved_step)

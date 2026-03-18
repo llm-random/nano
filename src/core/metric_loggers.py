@@ -85,6 +85,7 @@ class DummyLogger(MetricLogger):
     def log(self, _name, _value):
         pass
 
+
 class WandbLogger(MetricLogger):
     def __init__(self, run, should_log, config=None):
         super().__init__(config)
@@ -116,7 +117,9 @@ class StdoutLogger(MetricLogger):
         logger.info("Logging to stdout.")
 
     def log(self, name, value):
-        logger.info(f"[device:{self.rank}] step:{self.step} tokens:{self.tokens} -> {name}: {value}")
+        logger.info(
+            f"[device:{self.rank}] step:{self.step} tokens:{self.tokens} -> {name}: {value}"
+        )
 
 
 class RecorderLogger(MetricLogger):
@@ -153,7 +156,7 @@ def get_metric_logger(
     full_config: Optional[OmegaConf] = None,
 ):
     _metric_logger = None
-    
+
     if metric_logger_config.type == "wandb":
         if os.environ.get("WORLD_SIZE") != os.environ.get("LOCAL_WORLD_SIZE"):
             # TODO: Implement W&B multinode logging (https://docs.wandb.ai/models/track/log/distributed-training)

@@ -216,7 +216,6 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             full_config=cfg,
         )
 
-
     learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
 
     if isinstance(metric_logger, WandbLogger) and (
