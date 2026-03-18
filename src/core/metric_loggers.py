@@ -1,6 +1,5 @@
 import os
 import statistics
-import neptune
 from omegaconf import OmegaConf
 import wandb
 import torch
@@ -20,6 +19,7 @@ class MetricLogger(ABC):
         )
         self.accumulators = {}
         self.step = 0
+        self.tokens = 0
 
     @property
     def _should_log_heavy_metrics(self) -> bool:
@@ -30,7 +30,7 @@ class MetricLogger(ABC):
         )
 
     @abstractmethod
-    def log(self, name, step, value):
+    def log(self, name, value):
         pass
 
     def accumulate_metrics(self, layer_name, calculate_fn, metrics, transform_fn=None):
@@ -43,15 +43,21 @@ class MetricLogger(ABC):
             else:
                 self.accumulators[layer_name].append(metrics)
 
-    def flush_accumulated_metrics(self, step):
+    def flush_accumulated_metrics(self):
         if self._should_log_heavy_metrics:
             for name, accumulator in self.accumulators.items():
                 for metric, result in accumulator.calculate().items():
-                    self.log(f"steps/{name}/{metric}", step, result)
+                    self.log(f"{name}/{metric}", result)
                 accumulator.reset()
+
+    def flush(self):
+        pass
 
     def set_step(self, step):
         self.step = step
+
+    def set_tokens(self, tokens):
+        self.tokens = tokens
 
 
 class MetricAccumulator:
@@ -76,19 +82,8 @@ class MetricAccumulator:
 
 
 class DummyLogger(MetricLogger):
-    def log(self, _name, _step, _value):
+    def log(self, _name, _value):
         pass
-
-
-class NeptuneLogger(MetricLogger):
-    def __init__(self, run, rank, config=None):
-        super().__init__(config)
-        self.run = run
-        self.rank = rank
-
-    def log(self, name, step, value):
-        if self.rank == 0:
-            self.run[name].append(value=value, step=step)
 
 
 class WandbLogger(MetricLogger):
@@ -96,10 +91,23 @@ class WandbLogger(MetricLogger):
         super().__init__(config)
         self.run = run
         self.should_log = should_log
+        self._pending = {}
 
-    def log(self, name, step, value):
+        if self.should_log and self.run is not None:
+            wandb.define_metric("steps/*", step_metric="step")
+            wandb.define_metric("tokens/*", step_metric="token_count")
+
+    def log(self, name, value):
         if self.should_log:
-            self.run.log({name: value}, step=step)
+            self._pending[f"steps/{name}"] = value
+            self._pending[f"tokens/{name}"] = value
+
+    def flush(self):
+        if self.should_log and self._pending:
+            self._pending["step"] = self.step
+            self._pending["token_count"] = self.tokens
+            self.run.log(self._pending)
+            self._pending = {}
 
 
 class StdoutLogger(MetricLogger):
@@ -108,8 +116,10 @@ class StdoutLogger(MetricLogger):
         self.rank = os.environ.get("RANK", 0)
         logger.info("Logging to stdout.")
 
-    def log(self, name, step, value):
-        logger.info(f"[device:{self.rank}] on step:{step} -> {name}: {value}")
+    def log(self, name, value):
+        logger.info(
+            f"[device:{self.rank}] step:{self.step} tokens:{self.tokens} -> {name}: {value}"
+        )
 
 
 class RecorderLogger(MetricLogger):
@@ -117,10 +127,10 @@ class RecorderLogger(MetricLogger):
         super().__init__(config)
         self.data = {}
 
-    def log(self, name, step, value):
+    def log(self, name, value):
         if name not in self.data:
             self.data[name] = []
-        self.data[name].append((value, step))
+        self.data[name].append((value, self.step))
 
     def clear(self):
         self.data = {}
@@ -146,45 +156,8 @@ def get_metric_logger(
     full_config: Optional[OmegaConf] = None,
 ):
     _metric_logger = None
-    if metric_logger_config.type == "neptune":
-        neptune_run_id = (
-            None if metric_logger_config.new_neptune_job else tracker_run_id
-        )
-        rank = int(os.environ["RANK"])
 
-        if rank == 0:
-            neptune_logger = neptune.init_run(
-                project=metric_logger_config.project_name,
-                name=metric_logger_config.name,
-                tags=list(metric_logger_config.tags),
-                with_id=neptune_run_id,
-            )
-            _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
-
-            if int(os.environ["WORLD_SIZE"]) > 1:
-                run_id_container = [None]
-                if neptune_run_id is None:
-                    neptune_run_id = neptune_logger["sys/id"].fetch()
-
-                run_id_container[0] = neptune_run_id
-                dist.broadcast_object_list(run_id_container, src=0)
-        else:
-            run_id_container = [neptune_run_id]
-            dist.broadcast_object_list(run_id_container, src=0)
-            neptune_run_id = run_id_container[0]
-
-            neptune_logger = neptune.init_run(
-                project=metric_logger_config.project_name,
-                with_id=neptune_run_id,
-                capture_hardware_metrics=False,
-                name=metric_logger_config.name,
-                tags=list(metric_logger_config.tags),
-            )
-            _metric_logger = NeptuneLogger(neptune_logger, rank, metric_logger_config)
-    elif metric_logger_config.type == "wandb":
-        if os.environ.get("WORLD_SIZE") != os.environ.get("LOCAL_WORLD_SIZE"):
-            # TODO: Implement W&B multinode logging (https://docs.wandb.ai/models/track/log/distributed-training)
-            raise NotImplementedError("W&B multinode logging is not implemented yet.")
+    if metric_logger_config.type == "wandb":
         wandb_run_id = None if metric_logger_config.new_wandb_job else tracker_run_id
         rank = int(os.environ.get("RANK", 0))
         if rank == 0:
@@ -229,14 +202,11 @@ class AveMetric:
         self.tail_len = average_tail_len
         self.metric_stack = []
 
-    def log(self, mlogger: MetricLogger, step, metric_val):
-        do_log = False
+    def log(self, mlogger: MetricLogger, metric_val):
         self.metric_stack.append(metric_val)
-        while len(self.metric_stack) > self.tail_len:
-            self.metric_stack.pop(0)
-            do_log = True
-        if do_log:
-            mlogger.log(self.name, step, statistics.mean(self.metric_stack))
+        if len(self.metric_stack) >= self.tail_len:
+            mlogger.log(self.name, statistics.mean(self.metric_stack))
+            self.metric_stack = []
 
 
 class AveDiffMetric(AveMetric):
@@ -244,7 +214,7 @@ class AveDiffMetric(AveMetric):
         super().__init__(average_tail_len, name)
         self.last_metric_val = first_metric_val
 
-    def log(self, mlogger, step, metric_val):
+    def log(self, mlogger, metric_val):
         metric_val_diff = metric_val - self.last_metric_val
         self.last_metric_val = metric_val
-        super().log(mlogger, step, metric_val_diff)
+        super().log(mlogger, metric_val_diff)

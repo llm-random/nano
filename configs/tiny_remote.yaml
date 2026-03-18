@@ -1,5 +1,5 @@
 defaults:
-  - _cluster@_here_: entropy_a100
+  - _cluster@_here_: entropy
   - _model@_here_: tiny
   - _trainer@_here_: llama
   - _dataset@_here_: c4
@@ -13,8 +13,9 @@ common:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 100
+  n_steps: 1001
   learning_rate: 1e-3
+  lm_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
 
   checkpoint:
     save:
@@ -25,6 +26,7 @@ infrastructure:
   max_concurrent_jobs: 1
 
   metric_logger:
+    # type: stdout
     name: tiny_remote
     tags:
       - nano
@@ -33,8 +35,8 @@ infrastructure:
 
   slurm:
     time: "00:10:00"
-    gres: gpu:1
+    gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}
 
 evaluator:
-  limit: 10
+  limit: 3
