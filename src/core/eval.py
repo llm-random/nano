@@ -4,6 +4,7 @@ from lm_eval.api.instance import Instance
 from attr import define
 from typing import Optional
 import json
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,13 +16,22 @@ from src.core.metric_loggers import MetricLogger
 class NanoLM(LM):
     """lm_eval wrapper for nano models, enabling evaluation without HF conversion."""
 
-    def __init__(self, model: nn.Module, tokenizer_name: str, device: str = "cpu"):
+    def __init__(
+        self,
+        model: nn.Module,
+        tokenizer_name: str,
+        max_length: int,
+        max_gen_toks: int,
+        batch_size: int,
+    ):
         super().__init__()
         self._model = model
         self._model.eval()
         self._tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-        self._device = torch.device(device)
-        self._model.to(self._device)
+        self._device = next(model.parameters()).device
+        self._max_length = max_length
+        self._max_gen_toks = max_gen_toks
+        self._batch_size = batch_size
 
     @property
     def eot_token_id(self):
@@ -29,15 +39,15 @@ class NanoLM(LM):
 
     @property
     def max_length(self):
-        return 2048
+        return self._max_length
 
     @property
     def max_gen_toks(self):
-        return 256
+        return self._max_gen_toks
 
     @property
     def batch_size(self):
-        return 1
+        return self._batch_size
 
     @property
     def device(self):
@@ -142,6 +152,9 @@ class Evaluator:
     tasks: list[str]
     limit: Optional[int]
     device: str
+    max_length: int
+    max_gen_toks: int
+    batch_size: int
     metric_logger: MetricLogger
     model: Optional[nn.Module]
 
@@ -150,7 +163,9 @@ class Evaluator:
             lm = NanoLM(
                 model=self.model,
                 tokenizer_name=self.tokenizer,
-                device=self.device,
+                max_length=self.max_length,
+                max_gen_toks=self.max_gen_toks,
+                batch_size=self.batch_size,
             )
             results = evaluator.simple_evaluate(
                 model=lm,
@@ -171,10 +186,12 @@ class Evaluator:
                 log_samples=False,
             )
 
-        with open("eval_results.json", "w") as f:
-            json.dump(results, f, indent=2, default=str)
+        rank = int(os.environ.get("RANK", 0))
+        if rank == 0:
+            with open("eval_results.json", "w") as f:
+                json.dump(results, f, indent=2, default=str)
 
-        self.log_eval(results)
+            self.log_eval(results)
 
     def log_eval(self, eval_results: dict):
         """Log evaluation results."""

@@ -9,3 +9,6 @@ evaluator:
     - piqa
   limit: null  # No limit, evaluate on full datasets
   device: cuda
+  max_length: ${common.sequence_length}
+  max_gen_toks: 256
+  batch_size: 1
