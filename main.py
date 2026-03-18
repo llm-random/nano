@@ -304,59 +304,47 @@ def run(cfg: OmegaConf, metric_logger=None):
         cfg, metric_logger
     )
 
-    if model is not None:
-        logger.info(f"Model initialized")
+    logger.info(f"Model initialized")
 
-        evaluator_partial = instantiate(cfg.evaluator)
-        lm_evaluator = (
-            evaluator_partial(metric_logger=metric_logger, model=model)
-            if evaluator_partial is not None
-            else None
-        )
+    evaluator_partial = instantiate(cfg.evaluator)
+    lm_evaluator = (
+        evaluator_partial(metric_logger=metric_logger, model=model)
+        if evaluator_partial is not None
+        else None
+    )
 
-        trainer = instantiate(cfg.trainer)
+    trainer = instantiate(cfg.trainer)
 
-        if "distillation" in cfg:
-            if cfg.distillation.load.type == "huggingface":
-                teacher_model = instantiate(
-                    cfg.distillation.teacher_model, _convert_="all"
-                ).to(get_device())
-                copy_llama_model_weights_from_HF(
-                    teacher_model, cfg.distillation.load.path
-                )
-                teacher_model = setup_distributed_training(
-                    teacher_model, cfg.trainer.teacher_distributed
-                )
-            elif cfg.distillation.load.type == "pc_memeff_base":
-                teacher_model = model.source_model
+    if "distillation" in cfg:
+        if cfg.distillation.load.type == "huggingface":
+            teacher_model = instantiate(
+                cfg.distillation.teacher_model, _convert_="all"
+            ).to(get_device())
+            copy_llama_model_weights_from_HF(teacher_model, cfg.distillation.load.path)
+            teacher_model = setup_distributed_training(
+                teacher_model, cfg.trainer.teacher_distributed
+            )
+        elif cfg.distillation.load.type == "pc_memeff_base":
+            teacher_model = model.source_model
 
-            trainer(
-                teacher_model=teacher_model,
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                training_state=training_state,
-                metric_logger=metric_logger,
-                evaluator=lm_evaluator,
-            ).train()
-        else:
-            trainer(
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                training_state=training_state,
-                metric_logger=metric_logger,
-                evaluator=lm_evaluator,
-            ).train()
-
-        # TODO
-        # finetuning
-
+        trainer(
+            teacher_model=teacher_model,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+            evaluator=lm_evaluator,
+        ).train()
     else:
-        lm_evaluator = None
-
-    if lm_evaluator is not None:
-        lm_evaluator.eval()
+        trainer(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+            evaluator=lm_evaluator,
+        ).train()
 
     cleanup()
 

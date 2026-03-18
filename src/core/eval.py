@@ -16,12 +16,22 @@ from src.core.metric_loggers import MetricLogger
 class NanoLM(LM):
     """lm_eval wrapper for nano models, enabling evaluation without HF conversion."""
 
-    def __init__(self, model: nn.Module, tokenizer_name: str):
+    def __init__(
+        self,
+        model: nn.Module,
+        tokenizer_name: str,
+        max_length: int,
+        max_gen_toks: int,
+        batch_size: int,
+    ):
         super().__init__()
         self._model = model
         self._model.eval()
         self._tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         self._device = next(model.parameters()).device
+        self._max_length = max_length
+        self._max_gen_toks = max_gen_toks
+        self._batch_size = batch_size
 
     @property
     def eot_token_id(self):
@@ -29,15 +39,15 @@ class NanoLM(LM):
 
     @property
     def max_length(self):
-        return 2048
+        return self._max_length
 
     @property
     def max_gen_toks(self):
-        return 256
+        return self._max_gen_toks
 
     @property
     def batch_size(self):
-        return 1
+        return self._batch_size
 
     @property
     def device(self):
@@ -141,6 +151,10 @@ class Evaluator:
     tokenizer: str
     tasks: list[str]
     limit: Optional[int]
+    device: str
+    max_length: int
+    max_gen_toks: int
+    batch_size: int
     metric_logger: MetricLogger
     model: Optional[nn.Module]
 
@@ -149,6 +163,9 @@ class Evaluator:
             lm = NanoLM(
                 model=self.model,
                 tokenizer_name=self.tokenizer,
+                max_length=self.max_length,
+                max_gen_toks=self.max_gen_toks,
+                batch_size=self.batch_size,
             )
             results = evaluator.simple_evaluate(
                 model=lm,
