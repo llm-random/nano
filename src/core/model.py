@@ -360,10 +360,14 @@ class RoPE(nn.Module):
         return inv_freq_llama
 
     def forward(self, x):
+        seq_len = x.shape[-2]
+        if seq_len > self.length:
+            self.length = seq_len
+            self.register_freqs()
         [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
         x_rotated = torch.cat([-y2, y1], dim=-1)
-        cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
-        sin_scaler = self.sin[: x.shape[-2], :].to(x.device, dtype=x.dtype)
+        cos_scaler = self.cos[:seq_len, :].to(x.device, dtype=x.dtype)
+        sin_scaler = self.sin[:seq_len, :].to(x.device, dtype=x.dtype)
         return x * cos_scaler + x_rotated * sin_scaler
 
 

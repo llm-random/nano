@@ -23,7 +23,7 @@ torchdata = "==0.11.0"
 black = "==25.1.0"
 torchao = "==0.11.0"
 torchtune = "==0.6.1"
-lm-eval = ">=0.4.0"
+lm-eval = {version = ">=0.4.0", extras = ["hf"]}
 jupyter = "*"
 ipykernel = "*"
 matplotlib = "*"
