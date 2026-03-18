@@ -51,7 +51,7 @@ class MetricLogger(ABC):
                 accumulator.reset()
 
     def flush(self):
-        pass
+        self.accumulators.clear()
 
     def set_step(self, step):
         self.step = step
@@ -103,6 +103,7 @@ class WandbLogger(MetricLogger):
             self._pending[f"tokens/{name}"] = value
 
     def flush(self):
+        super().flush()
         if self.should_log and self._pending:
             self._pending["step"] = self.step
             self._pending["token_count"] = self.tokens

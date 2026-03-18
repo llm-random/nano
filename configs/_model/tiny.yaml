@@ -6,7 +6,7 @@ common:
   n_blocks: 4
   q_heads: 4
   kv_heads: 2
-  vocab_size: 50257
+  vocab_size: 128256
   sequence_length: 256
   head_norm: true
   init_scale: 0.1
@@ -80,10 +80,15 @@ model:
         pre_attn_fn:
           _target_: src.core.model.QKNorm
           _partial_: true
-          norm_fn:
+          q_norm_fn:
             _target_: src.core.model.RMSNorm
             _partial_: true
-            normalized_shape: ${eval:'${common.datt} // ${common.q_heads}'}
+            normalized_shape: ${eval:'(${common.datt} // ${common.q_heads})'}
+            eps: 1e-6
+          k_norm_fn:
+            _target_: src.core.model.RMSNorm
+            _partial_: true
+            normalized_shape: ${eval:'(${common.datt} // ${common.q_heads})'}
             eps: 1e-6
 
         rope_base: 500000
