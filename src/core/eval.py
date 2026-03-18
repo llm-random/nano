@@ -1,7 +1,7 @@
 from lm_eval import evaluator
 from lm_eval.api.model import LM
 from lm_eval.api.instance import Instance
-from attr import define, field
+from attr import define
 from typing import Optional
 import json
 import torch
@@ -145,7 +145,7 @@ class Evaluator:
     limit: Optional[int]
     device: str
     metric_logger: MetricLogger
-    model: Optional[nn.Module] = field(default=None)
+    model: Optional[nn.Module]
 
     def eval(self):
         if self.model is not None:

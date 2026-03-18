@@ -307,6 +307,13 @@ def run(cfg: OmegaConf, metric_logger=None):
     if model is not None:
         logger.info(f"Model initialized")
 
+        evaluator_partial = instantiate(cfg.evaluator)
+        lm_evaluator = (
+            evaluator_partial(metric_logger=metric_logger, model=model)
+            if evaluator_partial is not None
+            else None
+        )
+
         trainer = instantiate(cfg.trainer)
 
         if "distillation" in cfg:
@@ -330,6 +337,7 @@ def run(cfg: OmegaConf, metric_logger=None):
                 scheduler=scheduler,
                 training_state=training_state,
                 metric_logger=metric_logger,
+                evaluator=lm_evaluator,
             ).train()
         else:
             trainer(
@@ -338,14 +346,17 @@ def run(cfg: OmegaConf, metric_logger=None):
                 scheduler=scheduler,
                 training_state=training_state,
                 metric_logger=metric_logger,
+                evaluator=lm_evaluator,
             ).train()
 
         # TODO
         # finetuning
 
-    evaluator = instantiate(cfg.evaluator)
-    if evaluator is not None:
-        evaluator(metric_logger=metric_logger, model=model).eval()
+    else:
+        lm_evaluator = None
+
+    if lm_evaluator is not None:
+        lm_evaluator.eval()
 
     cleanup()
 

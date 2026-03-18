@@ -20,6 +20,7 @@ from src.core.checkpointing import (
     step_checkpoint_path,
 )
 from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
+from src.core.eval import Evaluator
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
+    evaluator: Optional[Evaluator] = None
+    lm_eval_interval: int = 0
 
     def __attrs_post_init__(self):
         self.processed_tokens = self.training_state["processed_tokens"]
@@ -78,6 +81,15 @@ class Trainer:
     @property
     def _should_log_eval_input(self) -> bool:
         return self.step % (self.eval_interval * 100) == 0
+
+    @property
+    def _should_lm_eval(self) -> bool:
+        return (
+            self.lm_eval_interval > 0
+            and self.evaluator is not None
+            and self.step % self.lm_eval_interval == 0
+            and self.step != 0
+        )
 
     @property
     def _should_save_checkpoint(self) -> bool:
@@ -119,6 +131,9 @@ class Trainer:
 
             if self._should_evaluate:
                 self.eval()
+
+            if self._should_lm_eval:
+                self.evaluator.eval()
 
             self.metric_logger.flush()
 
