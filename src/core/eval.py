@@ -101,9 +101,7 @@ class NanoLM(LM):
             shift_labels = input_ids[:, 1:]
 
             log_probs = F.log_softmax(shift_logits, dim=-1)
-            token_log_probs = log_probs.gather(
-                2, shift_labels.unsqueeze(2)
-            ).squeeze(2)
+            token_log_probs = log_probs.gather(2, shift_labels.unsqueeze(2)).squeeze(2)
 
             total_log_prob = token_log_probs.sum().item()
             results.append(total_log_prob)
@@ -162,8 +160,7 @@ class Evaluator:
             )
         else:
             eval_model_args = (
-                f"pretrained={self.checkpoint_path},"
-                f"tokenizer={self.tokenizer}"
+                f"pretrained={self.checkpoint_path}," f"tokenizer={self.tokenizer}"
             )
             results = evaluator.simple_evaluate(
                 model="hf",
@@ -184,9 +181,7 @@ class Evaluator:
         for task_name, metrics in eval_results["results"].items():
             for metric_name, value in metrics.items():
                 clean_metric_name = metric_name.replace(",none", "")
-                self.metric_logger.log(
-                    f"eval/{task_name}/{clean_metric_name}", value
-                )
+                self.metric_logger.log(f"eval/{task_name}/{clean_metric_name}", value)
 
         self.metric_logger.log("eval/limit", eval_results["config"]["limit"])
         self.metric_logger.flush()
