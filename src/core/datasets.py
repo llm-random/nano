@@ -1,7 +1,6 @@
 import os
-from typing import Callable
+from typing import Callable, Dict, Any, Optional, List
 import torch
-from typing import Optional, List
 from datasets import load_from_disk
 import itertools
 import numpy as np
@@ -257,7 +256,7 @@ def collate_wrapper(examples):
 
 
 def get_mixture_of_datasets_dataloader(
-    datasets: list[dict],
+    datasets: List[Dict[str, Any]],
     dataset_split,
     tokenize_fn,
     total_batch_size,
