@@ -4,6 +4,7 @@ trainer:
   _target_: src.core.trainer.Trainer
   eval_interval: 100
   n_eval_steps: 10
+  lm_eval_interval: 0  # 0 = disabled; set to N to run lm_eval every N steps during training
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
   n_steps: null
