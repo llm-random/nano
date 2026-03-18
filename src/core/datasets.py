@@ -44,7 +44,10 @@ def get_tokenize_fn(model_name: str):
         # Some tokenizers (e.g., GPT-2) silently ignore this option
         if manual_add_eos is None:
             _test_tokens = tokenizer("test")["input_ids"]
-            manual_add_eos = tokenizer.eos_token_id is not None and _test_tokens[-1] != tokenizer.eos_token_id
+            manual_add_eos = (
+                tokenizer.eos_token_id is not None
+                and _test_tokens[-1] != tokenizer.eos_token_id
+            )
 
         if "text" in examples and "content" in examples:
             raise KeyError("Both 'text' and 'content' found in examples.")
@@ -53,7 +56,9 @@ def get_tokenize_fn(model_name: str):
         elif "content" in examples:
             source_col = "content"
         else:
-            raise KeyError(f"Neither 'text' nor 'content' found. Available keys: {list(examples.keys())}")
+            raise KeyError(
+                f"Neither 'text' nor 'content' found. Available keys: {list(examples.keys())}"
+            )
 
         texts = examples[source_col]
 
@@ -84,15 +89,15 @@ class GenericDataset(IterableDataset):
     NUM_SHARDS = 64
 
     def __init__(
-            self,
-            sequence_length,
-            tokenize_fn: Callable,
-            path: Optional[str] = None,
-            split: Optional[str] = None,
-            seed: Optional[int] = None,
-            use_new_sampling_method: bool = True,
-            shuffle: bool = True,
-            world_size_independent: bool = False,
+        self,
+        sequence_length,
+        tokenize_fn: Callable,
+        path: Optional[str] = None,
+        split: Optional[str] = None,
+        seed: Optional[int] = None,
+        use_new_sampling_method: bool = True,
+        shuffle: bool = True,
+        world_size_independent: bool = False,
     ):
         self.world_size = int(os.environ.get("WORLD_SIZE"))
         self.rank = int(os.environ.get("RANK"))
@@ -183,16 +188,16 @@ class MixtureOfDatasets(IterableDataset):
     NUM_SHARDS = 64
 
     def __init__(
-            self,
-            sequence_length,
-            tokenize_fn: Callable,
-            paths: Optional[List[str]] = None,
-            weights: Optional[List[float]] = None,
-            split: Optional[str] = None,
-            seed: Optional[int] = None,
-            use_new_sampling_method: bool = True,
-            shuffle: bool = True,
-            world_size_independent: bool = False,
+        self,
+        sequence_length,
+        tokenize_fn: Callable,
+        paths: Optional[List[str]] = None,
+        weights: Optional[List[float]] = None,
+        split: Optional[str] = None,
+        seed: Optional[int] = None,
+        use_new_sampling_method: bool = True,
+        shuffle: bool = True,
+        world_size_independent: bool = False,
     ):
         self.world_size = int(os.environ.get("WORLD_SIZE"))
         self.rank = int(os.environ.get("RANK"))
@@ -207,16 +212,19 @@ class MixtureOfDatasets(IterableDataset):
         self.shuffle = shuffle
         self.world_size_independent = world_size_independent
         self.data_generator = None
-        self.datasets = [GenericDataset(
-            sequence_length=sequence_length,
-            split=split,
-            tokenize_fn=tokenize_fn,
-            path=path,
-            seed=seed,
-            use_new_sampling_method=use_new_sampling_method,
-            shuffle=shuffle,
-            world_size_independent=world_size_independent,
-        ) for path in paths]
+        self.datasets = [
+            GenericDataset(
+                sequence_length=sequence_length,
+                split=split,
+                tokenize_fn=tokenize_fn,
+                path=path,
+                seed=seed,
+                use_new_sampling_method=use_new_sampling_method,
+                shuffle=shuffle,
+                world_size_independent=world_size_independent,
+            )
+            for path in paths
+        ]
 
     def __iter__(self):
         rng = random.Random(self.seed)
@@ -238,7 +246,9 @@ class MixtureOfDatasets(IterableDataset):
                 dataset_iterators[chosen_index] = iter(self.datasets[chosen_index])
                 sample = next(dataset_iterators[chosen_index])
             if self.rank == 0:
-                logger.debug(f"{self.split}, step {step}: Chose dataset {self.paths[chosen_index]}")
+                logger.debug(
+                    f"{self.split}, step {step}: Chose dataset {self.paths[chosen_index]}"
+                )
             yield sample
 
 
@@ -246,10 +256,19 @@ def collate_wrapper(examples):
     return torch.from_numpy(np.array(examples))
 
 
-def get_mixture_of_datasets_dataloader(datasets: list[dict], dataset_split, tokenize_fn, total_batch_size,
-                                       sequence_length,
-                                       num_workers, seed, shuffle, use_new_sampling_method, world_size_independent,
-                                       collate_fn: Callable = collate_wrapper):
+def get_mixture_of_datasets_dataloader(
+    datasets: list[dict],
+    dataset_split,
+    tokenize_fn,
+    total_batch_size,
+    sequence_length,
+    num_workers,
+    seed,
+    shuffle,
+    use_new_sampling_method,
+    world_size_independent,
+    collate_fn: Callable = collate_wrapper,
+):
     # print(datasets)
     dataset_paths = [d["path"] for d in datasets]
     dataset_weights = [d["weight"] for d in datasets]
@@ -260,22 +279,24 @@ def get_mixture_of_datasets_dataloader(datasets: list[dict], dataset_split, toke
             raise FileNotFoundError(f"Directory {path} not found")
 
     if abs(sum(dataset_weights) - 1) >= 1e-6:
-        raise ValueError(f"Dataset weights must sum to 1, current sum: {sum(dataset_weights)}")
+        raise ValueError(
+            f"Dataset weights must sum to 1, current sum: {sum(dataset_weights)}"
+        )
     world_size = int(os.environ["WORLD_SIZE"])
     batch_size_per_device = total_batch_size // world_size
     logger.debug(f"Batch size per device: {batch_size_per_device}")
     logger.debug(f"Total: {total_batch_size}")
 
     dataset = MixtureOfDatasets(
-            sequence_length=sequence_length + 1,
-            split=dataset_split,
-            tokenize_fn=tokenize_fn,
-            paths=dataset_paths,
-            weights=dataset_weights,
-            seed=seed,
-            use_new_sampling_method=use_new_sampling_method,
-            shuffle=shuffle,
-            world_size_independent=world_size_independent,
+        sequence_length=sequence_length + 1,
+        split=dataset_split,
+        tokenize_fn=tokenize_fn,
+        paths=dataset_paths,
+        weights=dataset_weights,
+        seed=seed,
+        use_new_sampling_method=use_new_sampling_method,
+        shuffle=shuffle,
+        world_size_independent=world_size_independent,
     )
 
     dataloader = DataLoader(
@@ -287,4 +308,3 @@ def get_mixture_of_datasets_dataloader(datasets: list[dict], dataset_split, toke
     )
 
     return dataloader
-

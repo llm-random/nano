@@ -11,6 +11,7 @@ Tests verify:
 - Batched tokenization works correctly
 - Both 'text' and 'content' columns are supported
 """
+
 import sys
 from pathlib import Path
 
@@ -45,7 +46,9 @@ def test_gpt2():
 
     # GPT-2 uses same token for BOS and EOS, but doesn't prepend BOS
     # We only care that EOS is appended
-    assert tokens_old == tokens_new, f"Backward compatibility broken! Old: {tokens_old}, New: {tokens_new}"
+    assert (
+        tokens_old == tokens_new
+    ), f"Backward compatibility broken! Old: {tokens_old}, New: {tokens_new}"
     assert tokens_new[-1] == tokenizer.eos_token_id, "EOS token not added!"
 
     # Test batched with 'text' column
@@ -58,7 +61,9 @@ def test_gpt2():
     # Test batched with 'content' column
     examples_content = {"content": ["Hello", "World", "Test"]}
     batch_result_content = tokenize_fn(examples_content)
-    for content_text, ids in zip(examples_content["content"], batch_result_content["input_ids"]):
+    for content_text, ids in zip(
+        examples_content["content"], batch_result_content["input_ids"]
+    ):
         assert ids[-1] == tokenizer.eos_token_id, f"Missing EOS for '{content_text}'"
     print("  ✓ Batched 'content' column works")
 
@@ -96,9 +101,13 @@ def test_llama():
         # Test batched with 'content' column
         examples_content = {"content": ["Hello", "World", "Test"]}
         batch_result_content = tokenize_fn(examples_content)
-        for content_text, ids in zip(examples_content["content"], batch_result_content["input_ids"]):
+        for content_text, ids in zip(
+            examples_content["content"], batch_result_content["input_ids"]
+        ):
             assert ids[0] == tokenizer.bos_token_id, f"Missing BOS for '{content_text}'"
-            assert ids[-1] == tokenizer.eos_token_id, f"Missing EOS for '{content_text}'"
+            assert (
+                ids[-1] == tokenizer.eos_token_id
+            ), f"Missing EOS for '{content_text}'"
         print("  ✓ Batched 'content' column works")
 
         print("✓ Llama tests passed!\n")
@@ -137,8 +146,12 @@ def test_smollm():
         # Test batched with 'content' column
         examples_content = {"content": ["Hello", "World", "Test"]}
         batch_result_content = tokenize_fn(examples_content)
-        for content_text, ids in zip(examples_content["content"], batch_result_content["input_ids"]):
-            assert ids[-1] == tokenizer.eos_token_id, f"Missing EOS for '{content_text}'"
+        for content_text, ids in zip(
+            examples_content["content"], batch_result_content["input_ids"]
+        ):
+            assert (
+                ids[-1] == tokenizer.eos_token_id
+            ), f"Missing EOS for '{content_text}'"
         print("  ✓ Batched 'content' column works")
 
         print("✓ SmolLM tests passed!\n")
@@ -185,4 +198,3 @@ if __name__ == "__main__":
     print("=" * 60)
     print("All tests completed!")
     print("=" * 60)
-
