@@ -211,6 +211,12 @@ class MixtureOfDatasets(IterableDataset):
         self.shuffle = shuffle
         self.world_size_independent = world_size_independent
         self.data_generator = None
+
+        if paths is None or weights is None:
+            raise ValueError("'paths' and 'weights' must both be provided.")
+        if len(paths) == 0 or len(weights) == 0:
+            raise ValueError("'paths' and 'weights' must not be empty.")
+
         self.datasets = [
             GenericDataset(
                 sequence_length=sequence_length,
