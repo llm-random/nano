@@ -239,6 +239,7 @@ class RoPEAttention(nn.Module):
         low_freq_factor=1,
         high_freq_factor=4,
         original_max_position_embeddings=8192,
+        causal=True,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -251,6 +252,7 @@ class RoPEAttention(nn.Module):
         self.kv_heads = kv_heads
         self.dhead = self.q_proj.weight.shape[0] // self.q_heads
         self.dmodel = dmodel
+        self.causal = causal
 
         self.rope = RoPE(
             dhead=self.dhead,
@@ -279,7 +281,7 @@ class RoPEAttention(nn.Module):
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
         attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=True
+            query=q, key=k, value=v, causal=self.causal
         )
 
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))

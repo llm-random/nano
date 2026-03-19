@@ -26,6 +26,7 @@ from src.core.checkpointing import (
 )
 from src.core.metric_loggers import NeptuneLogger, WandbLogger, get_metric_logger
 from src.core.model import Residual
+from src.product_keys.model import RoPEProductKeysEncoderAttention
 import platform
 
 logger = logging.getLogger(__name__)
@@ -265,9 +266,31 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         f"Model {model.__class__.__name__} created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters"
     )
     # Residual layers needs metric_logger for logging update norms
-    for _, module in model.named_modules():
-        if isinstance(module, Residual):
-            module.set_metric_logger(metric_logger)
+    import re
+
+    heavy_logging_layers = cfg.infrastructure.metric_logger.get(
+        "heavy_logging_layers", None
+    )
+    if (
+        isinstance(heavy_logging_layers, str)
+        and heavy_logging_layers.lower() == "none"
+    ):
+        heavy_logging_layers = None
+
+    for name, module in model.named_modules():
+        if hasattr(module, "set_metric_logger"):
+            if module.__class__.__name__ == "Residual":
+                module.set_metric_logger(metric_logger)
+            elif isinstance(module, RoPEProductKeysEncoderAttention):
+                # We extract the layer number from name, for example: encoder.blocks.0.attention_layer.layer
+                match = re.search(r"blocks\.(\d+)\.", name)
+                if match:
+                    layer_idx = int(match.group(1))
+                    if (
+                        heavy_logging_layers is None
+                        or layer_idx in heavy_logging_layers
+                    ):
+                        module.set_metric_logger(metric_logger, name)
 
     if cfg.trainer.checkpoint.load.type == "huggingface":
         copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)

@@ -33,6 +33,7 @@ class MetricLogger(ABC):
     def log(self, name, step, value):
         pass
 
+    # todo use this function to log the distribution of selected keys
     def accumulate_metrics(self, layer_name, calculate_fn, metrics, transform_fn=None):
         if self._should_log_heavy_metrics:
             if transform_fn is not None:
@@ -43,6 +44,7 @@ class MetricLogger(ABC):
             else:
                 self.accumulators[layer_name].append(metrics)
 
+    # todo remember to use this in the trainer and flush at the end of each step
     def flush_accumulated_metrics(self, step):
         if self._should_log_heavy_metrics:
             for name, accumulator in self.accumulators.items():
@@ -88,7 +90,14 @@ class NeptuneLogger(MetricLogger):
 
     def log(self, name, step, value):
         if self.rank == 0:
-            self.run[name].append(value=value, step=step)
+            if isinstance(value, torch.Tensor) and value.numel() > 1:
+                self.run[f"{name}/mean"].append(value.mean().item(), step=step)
+                self.run[f"{name}/std"].append(value.std().item(), step=step)
+                self.run[f"{name}/unique"].append(
+                    torch.unique(value).numel(), step=step
+                )
+            else:
+                self.run[name].append(value=value, step=step)
 
 
 class WandbLogger(MetricLogger):
@@ -99,6 +108,8 @@ class WandbLogger(MetricLogger):
 
     def log(self, name, step, value):
         if self.should_log:
+            if isinstance(value, torch.Tensor) and value.numel() > 1:
+                value = wandb.Histogram(value.cpu().float().numpy())
             self.run.log({name: value}, step=step)
 
 
