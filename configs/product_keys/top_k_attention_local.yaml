@@ -1,42 +1,33 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  - /_cluster/local@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/c4@_here_
+  - /_dataset/local_dummy@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
 
 common:
-  sequence_length: 1024
-  batch_size: 32
-  dmodel: 768
-  dff: 2042
+  sequence_length: 16
+  batch_size: 4
+  dmodel: 16
+  dff: 64
   datt: ${common.dmodel}
-  n_blocks: 12
-  q_heads: 12
-  kv_heads: 12
+  n_blocks: 4
+  q_heads: 2
+  kv_heads: 2
   vocab_size: 128256
 
 trainer:
-  _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
   gradient_accumulation_steps: 2
-  n_steps: 200
+  n_steps: 500
   learning_rate: 1e-3
-      
-
-  eval_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
 
   checkpoint:
-    load:
+    save:
       type: huggingface
-      path: /net/scratch/hscra/plgrid/plgggwozdz02/checkpoint
-      model_checkpoint_filename: model.safetensors
-
+      path: checkpoint
 
 infrastructure:
   metric_logger:
@@ -53,6 +44,8 @@ infrastructure:
     gres: gpu:1
     time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
+
+evaluator: null
 
 model:
   encoder:
@@ -87,6 +80,7 @@ model:
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
+        # o_proj_fn: ${model.encoder.block_fn.attention_fn.q_proj_fn} # TODO check have I done it right pls
         o_proj_fn: 
           _target_: src.projected_compression.model.Linear
           _partial_: true
