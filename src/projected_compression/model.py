@@ -21,6 +21,9 @@ from torch.nn.init import trunc_normal_
 from torch import zeros as zeros
 import torch.distributed as dist
 import torch.nn.functional as F
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def llm_random_weight_init(fan_in, scale):

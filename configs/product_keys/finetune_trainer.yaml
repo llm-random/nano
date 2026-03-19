@@ -10,27 +10,20 @@ defaults:
 
 common:
   sequence_length: 1024
-  batch_size: 64
-  dmodel: 1024
-  dff: 2724
+  batch_size: 32
+  dmodel: 768
+  dff: 2042
   datt: ${common.dmodel}
-  n_blocks: 16
-  q_heads: 16
-  kv_heads: 16
-  vocab_size: 50304
+  n_blocks: 12
+  q_heads: 12
+  kv_heads: 12
+  vocab_size: 128256
 
 trainer:
-  _target_: src.product_keys.finetuning.trainer.FinetuningTrainer
-  masking_percentage: 0.2
-  mask_token_id: 50257
-  unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
+  _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
   gradient_accumulation_steps: 2
-  n_steps: 77050
-  learning_rate: 5e-4
-  train_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+  n_steps: 200
+  learning_rate: 1e-3
       
 
   eval_dataloader:

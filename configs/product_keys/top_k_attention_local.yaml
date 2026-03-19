@@ -1,27 +1,27 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  - /_cluster/local@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/c4@_here_
+  - /_dataset/local_dummy@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
 
 common:
-  sequence_length: 1024
-  batch_size: 32
-  dmodel: 768
-  dff: 2042
+  sequence_length: 16
+  batch_size: 4
+  dmodel: 16
+  dff: 64
   datt: ${common.dmodel}
-  n_blocks: 12
-  q_heads: 12
-  kv_heads: 12
+  n_blocks: 4
+  q_heads: 2
+  kv_heads: 2
   vocab_size: 128256
 
 trainer:
   gradient_accumulation_steps: 2
-  n_steps: 40000
+  n_steps: 500
   learning_rate: 1e-3
 
   checkpoint:
@@ -45,9 +45,7 @@ infrastructure:
     time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
-evaluator:
-  limit: 1
-  device: cpu
+evaluator: null
 
 model:
   encoder:

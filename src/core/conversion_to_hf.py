@@ -94,6 +94,7 @@ def save_to_llama_3_hf(
     hf_state_dict = remap_nano_to_llama31_hf(nano_model_state_dict)
     hf_model.load_state_dict(hf_state_dict, strict=True)
 
-    print(f"Saving HF model with the following config {config}")
+    print(f"Saving HF model with the following config {config}, "
+          f"directory: {save_dir}")
 
     hf_model.save_pretrained(save_dir)
