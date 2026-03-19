@@ -5,7 +5,6 @@ import wandb
 import torch
 from typing import Optional
 from abc import ABC, abstractmethod
-from abc import ABC, abstractmethod
 import torch.distributed as dist
 import logging
 
@@ -26,7 +25,7 @@ class MetricLogger(ABC):
         return (
             self.step is not None
             and self.heavy_metrics_calculation_interval > 0
-            and (self.step) % self.heavy_metrics_calculation_interval == 0
+            and self.step % self.heavy_metrics_calculation_interval == 0
         )
 
     @abstractmethod
@@ -43,14 +42,11 @@ class MetricLogger(ABC):
             else:
                 self.accumulators[layer_name].append(metrics)
 
-    def flush_accumulated_metrics(self):
+    def flush(self):
         if self._should_log_heavy_metrics:
             for name, accumulator in self.accumulators.items():
                 for metric, result in accumulator.calculate().items():
                     self.log(f"{name}/{metric}", result)
-                accumulator.reset()
-
-    def flush(self):
         self.accumulators.clear()
 
     def set_step(self, step):
@@ -76,10 +72,6 @@ class MetricAccumulator:
     def calculate(self):
         return self.calculate_fn(**self.acc_dict)
 
-    def reset(self):
-        for key in self.acc_dict:
-            self.acc_dict[key] = []
-
 
 class DummyLogger(MetricLogger):
     def log(self, _name, _value):
@@ -90,7 +82,7 @@ class WandbLogger(MetricLogger):
     def __init__(self, run, should_log, config=None):
         super().__init__(config)
         self.run = run
-        self.should_log = should_log
+        self.should_log = should_log    # multigpu guard
         self._pending = {}
 
         if self.should_log and self.run is not None:
@@ -109,6 +101,7 @@ class WandbLogger(MetricLogger):
             self._pending["token_count"] = self.tokens
             self.run.log(self._pending)
             self._pending = {}
+
 
 
 class StdoutLogger(MetricLogger):
