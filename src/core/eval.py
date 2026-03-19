@@ -160,6 +160,7 @@ class Evaluator:
 
     def eval(self):
         if self.model is not None:
+            self.model.eval()
             lm = NanoLM(
                 model=self.model,
                 tokenizer_name=self.tokenizer,
@@ -201,4 +202,3 @@ class Evaluator:
                 self.metric_logger.log(f"eval/{task_name}/{clean_metric_name}", value)
 
         self.metric_logger.log("eval/limit", eval_results["config"]["limit"])
-        self.metric_logger.flush()

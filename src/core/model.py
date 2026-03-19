@@ -49,7 +49,7 @@ class Residual(nn.Module):
     def forward(self, x):
         normalized = self.norm(x)
         out = self.layer(normalized)
-        if self.metric_logger is not None:
+        if self.metric_logger is not None and self.training:
             self.metric_logger.accumulate_metrics(
                 layer_name=f"{self.log_name}",
                 transform_fn=Residual.intermediate_norms,

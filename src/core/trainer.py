@@ -224,7 +224,6 @@ class Trainer:
                 batch = batch.to(self.device)
                 loss = self.calculate_loss(batch)
                 losses.append(loss.item())
-                self.metric_logger.flush_accumulated_metrics()
             avg_loss = torch.tensor(losses).mean()
             self.metric_logger.log("eval/loss", avg_loss.item())
 
@@ -254,8 +253,6 @@ class Trainer:
 
         self.loss_averaged_100.log(self.metric_logger, loss.item())
         self.time_diff_averaged_100.log(self.metric_logger, time.time())
-
-        self.metric_logger.flush_accumulated_metrics()
 
     def save_checkpoint(self):
         if (

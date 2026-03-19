@@ -42,7 +42,6 @@ trainer:
       load_dataset_fn:
         path: ${cluster_switch.eval_path_c4}
 
-  eval_long_ctx_dataloader: null
 
 infrastructure:
   metric_logger:

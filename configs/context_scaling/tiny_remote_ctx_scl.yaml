@@ -5,6 +5,7 @@ defaults:
   - ../_dataset@_here_: ctx_scl_dataset
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
+  - ../_eval@_here_: basic
   - _self_
 
 common:
@@ -15,11 +16,15 @@ common:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 101
+  n_steps: 201
   learning_rate: 2e-3
-  eval_interval: 20
+  eval_interval: 100
+  lm_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
 
-  eval_long_ctx_dataloader: null
+  checkpoint:
+    save:
+      type: nano
+      path: checkpoint
 
   train_dataloader:
     dataset:
@@ -42,5 +47,5 @@ infrastructure:
 
   slurm:
     time: "00:30:00"
-    gres: gpu:1
+    gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}

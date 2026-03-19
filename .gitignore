@@ -197,3 +197,4 @@ checkpoints
 *.json
 *.arrow
 *.csv
+checkpoint/

@@ -1,7 +1,7 @@
 defaults:
   - ../../_cluster@_here_: lem
-  - ../../_model/context_scaling@_here_: k12
-  - ../../_trainer@_here_: context_scaling
+  - ../../_model/context_scaling@_here_: k16
+  - ../../_trainer@_here_: llama
   - ../../_dataset@_here_: ctx_scl_dataset
   - ../../_checkpoints/context_scaling@_here_: shared_lem
   - ../../_misc@_here_: default
@@ -11,13 +11,18 @@ defaults:
 common:
   sequence_length: 2048
   batch_size: 64
+  kv_heads: 16
+  dff: 2560
   data_seed: 123
+  # ^data_seed: [124, 125]
   model_seed: 123
+  # ^model_seed: [124, 125]
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 920_001
-  ^learning_rate: [11, 12, 13]
+  n_steps: 320_001
+  learning_rate: 11
+  # ^learning_rate: [10, 11, 12, 13]
   eval_interval: 5000
   eval_long_ctx_interval: -1
   n_eval_long_ctx_steps: 64
@@ -38,19 +43,17 @@ trainer:
       data_generator:
         path: ${cluster_switch.eval_path_fineweb}
 
-
 infrastructure:
   metric_logger:
     heavy_metrics_calculation_interval: 5000
     name: scaling
     tags:
       - nano
-      - k12
       - context_scaling
-      - 120B
+      - 42B
       - MHA
-      - WSD_scheduler
-      - fineweb_edu
+      - downstream_correlation
+      - 1903_grid
 
   slurm:
     time: "2-00:00:00"

@@ -5,6 +5,7 @@ defaults:
   - ../_dataset@_here_: ctx_scl_dataset
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
+  - ../_eval@_here_: basic
   - _self_
 
 common:
@@ -15,7 +16,7 @@ common:
   n_blocks: 4
   q_heads: 4
   kv_heads: 4
-  vocab_size: 50257
+  vocab_size: 50304
   sequence_length: 8
   batch_size: 2
   head_norm: true
@@ -28,17 +29,25 @@ common:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 100
+  n_steps: 201
   learning_rate: 1e-3
-  eval_interval: 10
-  eval_long_ctx_interval: 20
-  n_eval_long_ctx_steps: 2
+  eval_interval: 100
+  lm_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
+
+  checkpoint:
+    save:
+      type: nano
+      path: checkpoint
 
 infrastructure:
   metric_logger:
-    name: tiny_Local
+    name: tiny_local_ctx_scl
     tags:
       - nano
       - local
       - tiny
       - context_scaling
+
+evaluator:
+  limit: 1
+  device: cpu

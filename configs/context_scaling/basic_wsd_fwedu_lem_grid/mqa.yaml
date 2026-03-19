@@ -41,7 +41,6 @@ trainer:
       data_generator:
         path: ${cluster_switch.eval_path_fineweb}
 
-  eval_long_ctx_dataloader: null
 
 infrastructure:
   metric_logger:

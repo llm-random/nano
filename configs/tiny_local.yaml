@@ -19,7 +19,7 @@ trainer:
 
   checkpoint:
     save:
-      type: huggingface
+      type: nano
       path: checkpoint
 
 infrastructure:
