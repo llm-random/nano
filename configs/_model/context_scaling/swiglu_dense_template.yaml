@@ -1,4 +1,5 @@
 common:
+  tokenizer: gpt2
   model_seed: 123
 
 model:
@@ -27,7 +28,7 @@ model:
       attention_fn:
         _target_: src.core.model.RoPEAttention
         _partial_: true
-        compile: true
+        compile: false
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}

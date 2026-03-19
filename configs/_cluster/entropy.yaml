@@ -12,7 +12,7 @@ infrastructure:
     
   script:
     - '${export_env_variables_placeholders:}'
-    - 'export PROJECT_HOME_PATH=/storage_nvme_4/nano'
+    - 'export PROJECT_HOME_PATH=/storage_nvme_4/jm'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
 
     # hydra errors
@@ -25,6 +25,9 @@ infrastructure:
     - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
     - 'export XDG_STATE_HOME="$PIXI_HOME/state"'
     
+    # HF datasets requires explicit opt-in for datasets with custom code (e.g. allenai/social_i_qa)
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
+
     # activate pixi
     - 'cd "$PIXI_HOME"'
     - 'eval "$(pixi shell-hook)"'

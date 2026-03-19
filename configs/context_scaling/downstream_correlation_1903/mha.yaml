@@ -1,11 +1,11 @@
 defaults:
-  - ../../_cluster@_here_: lem
+  - ../../_cluster@_here_: entropy
   - ../../_model/context_scaling@_here_: k16
-  - ../../_trainer@_here_: llama
+  - ../../_trainer@_here_: context_scaling
   - ../../_dataset@_here_: ctx_scl_dataset
-  - ../../_checkpoints/context_scaling@_here_: shared_lem
+  - ../../_checkpoints/context_scaling@_here_: shared_entropy
   - ../../_misc@_here_: default
-  - ../../_eval@_here_: none
+  - ../../_eval@_here_: joint
   - _self_
 
 common:
@@ -14,22 +14,16 @@ common:
   kv_heads: 16
   dff: 2560
   data_seed: 123
-  # ^data_seed: [124, 125]
   model_seed: 123
-  # ^model_seed: [124, 125]
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 320_001
+  # n_steps: 320_001
+  n_steps: 1001
   learning_rate: 11
-  # ^learning_rate: [10, 11, 12, 13]
-  eval_interval: 5000
-  eval_long_ctx_interval: -1
-  n_eval_long_ctx_steps: 64
-
-  checkpoint:
-    save:
-      type: nano
+  # ^learning_rate: [11, 12, 13]
+  eval_interval: 100
+  lm_eval_interval: 100
 
   train_dataloader:
     num_workers: 2
@@ -45,8 +39,8 @@ trainer:
 
 infrastructure:
   metric_logger:
-    heavy_metrics_calculation_interval: 5000
-    name: scaling
+    heavy_metrics_calculation_interval: 100
+    name: scaling_dwnstrm
     tags:
       - nano
       - context_scaling
@@ -54,8 +48,9 @@ infrastructure:
       - MHA
       - downstream_correlation
       - 1903_grid
+      - remove
 
   slurm:
     time: "2-00:00:00"
-    gres: gpu:hopper:4
+    gres: gpu:4
     job-name: ${infrastructure.metric_logger.name}

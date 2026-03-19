@@ -8,6 +8,7 @@ defaults:
   - _eval@_here_: basic
 
 common:
+  tokenizer: meta-llama/Llama-3.1-8B
   sequence_length: 128
   batch_size: 16
 

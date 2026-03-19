@@ -6,11 +6,27 @@ from typing import Optional
 import json
 import os
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer
 
 from src.core.metric_loggers import MetricLogger
+
+
+class _SimpleAccelerator:
+    """Minimal accelerator shim for lm_eval distributed sync."""
+
+    def __init__(self, device: torch.device):
+        self._device = device
+
+    def gather(self, tensor: torch.Tensor) -> torch.Tensor:
+        gathered = [torch.zeros_like(tensor) for _ in range(dist.get_world_size())]
+        dist.all_gather(gathered, tensor)
+        return torch.stack(gathered)
+
+    def wait_for_everyone(self):
+        dist.barrier()
 
 
 class NanoLM(LM):
@@ -32,6 +48,12 @@ class NanoLM(LM):
         self._max_length = max_length
         self._max_gen_toks = max_gen_toks
         self._batch_size = batch_size
+
+        if dist.is_initialized():
+            self._rank = dist.get_rank()
+            self._world_size = dist.get_world_size()
+
+        self.accelerator = _SimpleAccelerator(self._device)
 
     @property
     def eot_token_id(self):
@@ -147,48 +169,33 @@ class NanoLM(LM):
 
 @define(slots=False)
 class Evaluator:
-    checkpoint_path: str
     tokenizer: str
     tasks: list[str]
     limit: Optional[int]
-    device: str
     max_length: int
     max_gen_toks: int
     batch_size: int
     metric_logger: MetricLogger
-    model: Optional[nn.Module]
+    model: nn.Module
 
     def eval(self):
-        if self.model is not None:
-            self.model.eval()
-            lm = NanoLM(
-                model=self.model,
-                tokenizer_name=self.tokenizer,
-                max_length=self.max_length,
-                max_gen_toks=self.max_gen_toks,
-                batch_size=self.batch_size,
-            )
-            results = evaluator.simple_evaluate(
-                model=lm,
-                tasks=list(self.tasks),
-                limit=self.limit,
-                log_samples=False,
-            )
-        else:
-            eval_model_args = (
-                f"pretrained={self.checkpoint_path}," f"tokenizer={self.tokenizer}"
-            )
-            results = evaluator.simple_evaluate(
-                model="hf",
-                model_args=eval_model_args,
-                tasks=list(self.tasks),
-                limit=self.limit,
-                device=self.device,
-                log_samples=False,
-            )
+        self.model.eval()
+        lm = NanoLM(
+            model=self.model,
+            tokenizer_name=self.tokenizer,
+            max_length=self.max_length,
+            max_gen_toks=self.max_gen_toks,
+            batch_size=self.batch_size,
+        )
+        results = evaluator.simple_evaluate(
+            model=lm,
+            tasks=list(self.tasks),
+            limit=self.limit,
+            log_samples=False,
+            confirm_run_unsafe_code=True,
+        )
 
-        rank = int(os.environ.get("RANK", 0))
-        if rank == 0:
+        if lm.rank == 0:
             with open("eval_results.json", "w") as f:
                 json.dump(results, f, indent=2, default=str)
 

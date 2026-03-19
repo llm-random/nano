@@ -9,6 +9,7 @@ defaults:
   - _self_
 
 common:
+  tokenizer: gpt2
   sequence_length: 512
   batch_size: 32
   model_seed: 123

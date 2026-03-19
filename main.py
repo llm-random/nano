@@ -68,6 +68,8 @@ def check_env_vars():
 
 
 def setup_enviroment():
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
     if "WORLD_SIZE" not in os.environ:
         logger.warning("WORLD_SIZE is not set, setting it to 1")
         os.environ["WORLD_SIZE"] = "1"

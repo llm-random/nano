@@ -1,12 +1,18 @@
-# Basic evaluation configuration
 evaluator:
   _partial_: true
   _target_: src.core.eval.Evaluator
   tokenizer: ${common.tokenizer}
   tasks:
-    - wikitext
+    - arc_easy
+    - arc_challenge
+    - hellaswag
     - piqa
+    - winogrande
+    - openbookqa
+    - sciq
+    - social_iqa
+    - lambada_standard
   limit: null  # No limit, evaluate on full datasets
   max_length: ${common.sequence_length}
-  max_gen_toks: 256
-  batch_size: 1
+  max_gen_toks: 16
+  batch_size: 32

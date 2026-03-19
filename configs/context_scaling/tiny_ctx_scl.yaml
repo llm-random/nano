@@ -10,17 +10,9 @@ defaults:
 
 common:
   _target_: src.definitions.Common
-  dmodel: 64
-  dff: 128
-  datt: 64
-  n_blocks: 4
-  q_heads: 4
-  kv_heads: 4
-  vocab_size: 50304
+  tokenizer: gpt2
   sequence_length: 8
   batch_size: 2
-  head_norm: true
-  init_scale: 0.1
   init_type: truncated_normal_fixed
   model_type: gpt
   model_seed: 123
@@ -50,4 +42,3 @@ infrastructure:
 
 evaluator:
   limit: 1
-  device: cpu
