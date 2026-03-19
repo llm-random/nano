@@ -38,7 +38,7 @@ trainer:
 
 infrastructure:
   metric_logger:
-    name: tiny_remote
+    name: tiny_remote_ctx_scl
     tags:
       - nano
       - remote
