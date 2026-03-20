@@ -175,6 +175,7 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         rope_base,
         rope_scale_freqs: bool,
         top_k: int,
+        init_scale: float = 0.02,
     ):
         super().__init__()
 
@@ -198,8 +199,9 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         self.q_pos_emb = nn.Parameter(torch.zeros(seq_len, self.dhead))
         self.k_pos_emb = nn.Parameter(torch.zeros(seq_len, self.dhead))
-        trunc_normal_(self.q_pos_emb, std=0.02)
-        trunc_normal_(self.k_pos_emb, std=0.02)
+        # todo grid on init std
+        trunc_normal_(self.q_pos_emb, std=init_scale)
+        trunc_normal_(self.k_pos_emb, std=init_scale)
 
         # Normalize the halves independently to balance Product Key retrieval
         self.q_norm1 = nn.RMSNorm(self.dhead_half)
@@ -239,6 +241,38 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         return torch.gather(source_tensor, 3, idx_expanded)
 
     @staticmethod
+    def calculate_metrics(
+        final_row_idxs,
+        final_col_idxs,
+        v_indices,
+        k1_unnorm,
+        k2_unnorm,
+        k1,
+        k2,
+        q_weight,
+        k_weight,
+        v_weight,
+    ):
+        res = RoPEProductKeysEncoderAttention.calculate_key_distribution(
+            final_row_idxs, final_col_idxs, v_indices
+        )
+
+        for name, tensors in [
+            ("k1_unnorm", k1_unnorm),
+            ("k2_unnorm", k2_unnorm),
+            ("k1", k1),
+            ("k2", k2),
+            ("q_proj_weight", q_weight),
+            ("k_proj_weight", k_weight),
+            ("v_proj_weight", v_weight),
+        ]:
+            t = torch.stack(tensors).float()
+            res[f"{name}/norm"] = torch.norm(t) / math.sqrt(len(tensors))
+            res[f"{name}/std"] = t.std()
+
+        return res
+
+    @staticmethod
     def calculate_key_distribution(final_row_idxs, final_col_idxs, v_indices):
         # final_row_idxs is a list of tensors of shape (B, H, S, K)
         stacked_rows = torch.stack(final_row_idxs)  # (Steps, B, H, S, K)
@@ -254,6 +288,10 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         return res
 
     def forward(self, x):
+        # todo
+        # - init scale init only on keys of this layer
+        # - log the norm and std of split keys before and after normalization
+        # - normy macierzy kqv i ich std
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
         value_states = self.v_proj(x)
@@ -335,11 +373,18 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         if self.metric_logger is not None:
             self.metric_logger.accumulate_metrics(
                 layer_name=self.log_name,
-                calculate_fn=RoPEProductKeysEncoderAttention.calculate_key_distribution,
+                calculate_fn=RoPEProductKeysEncoderAttention.calculate_metrics,
                 metrics={
                     "final_row_idxs": final_row_idxs,
                     "final_col_idxs": final_col_idxs,
                     "v_indices": v_indices,
+                    "k1_unnorm": k1_unnorm,
+                    "k2_unnorm": k2_unnorm,
+                    "k1": k1,
+                    "k2": k2,
+                    "q_weight": self.q_proj.weight,
+                    "k_weight": self.k_proj.weight,
+                    "v_weight": self.v_proj.weight,
                 },
             )
 
