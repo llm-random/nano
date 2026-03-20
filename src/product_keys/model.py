@@ -309,8 +309,8 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         # Split and aggregate keys (unnormalized)
         k = k.view(batch, self.q_heads, self.m, self.m, self.dhead)
-        k1_unnorm = k[..., : self.dhead_half].mean(-2)  # (B, H, m, d/2)
-        k2_unnorm = k[..., self.dhead_half :].mean(-3)  # (B, H, m, d/2)
+        k1_unnorm = k[..., : self.dhead_half].sum(-2)  # (B, H, m, d/2)
+        k2_unnorm = k[..., self.dhead_half :].sum(-3)  # (B, H, m, d/2)
 
         # Split queries (unnormalized)
         q1_unnorm = q[..., : self.dhead_half]  # (B, H, S, d/2)
@@ -368,21 +368,21 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         v_indices = (final_row_idxs * self.m) + final_col_idxs
         
-        if self.metric_logger is not None:
+        if self.metric_logger is not None and self.metric_logger._should_log_heavy_metrics:
             self.metric_logger.accumulate_metrics(
                 layer_name=self.log_name,
                 calculate_fn=RoPEProductKeysEncoderAttention.calculate_metrics,
                 metrics={
-                    "final_row_idxs": final_row_idxs.detach(),
-                    "final_col_idxs": final_col_idxs.detach(),
-                    "v_indices": v_indices.detach(),
-                    "k1_unnorm": k1_unnorm.detach(),
-                    "k2_unnorm": k2_unnorm.detach(),
-                    "k1": k1.detach(),
-                    "k2": k2.detach(),
-                    "q_weight": self.q_proj.weight.detach(),
-                    "k_weight": self.k_proj.weight.detach(),
-                    "v_weight": self.v_proj.weight.detach(),
+                    "final_row_idxs": final_row_idxs.detach().clone(),
+                    "final_col_idxs": final_col_idxs.detach().clone(),
+                    "v_indices": v_indices.detach().clone(),
+                    "k1_unnorm": k1_unnorm.detach().clone(),
+                    "k2_unnorm": k2_unnorm.detach().clone(),
+                    "k1": k1.detach().clone(),
+                    "k2": k2.detach().clone(),
+                    "q_weight": self.q_proj.weight.detach().clone(),
+                    "k_weight": self.k_proj.weight.detach().clone(),
+                    "v_weight": self.v_proj.weight.detach().clone(),
                 },
             )
 
