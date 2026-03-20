@@ -14,5 +14,5 @@ evaluator:
     - lambada_standard
   limit: null  # No limit, evaluate on full datasets
   max_length: ${common.sequence_length}
-  max_gen_toks: 16
+  max_gen_toks: 8
   batch_size: 32

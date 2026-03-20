@@ -51,6 +51,13 @@ infrastructure:
       - remove
 
   slurm:
-    time: "2-00:00:00"
+    # time: "2-00:00:00"
+    time: "00:30:00"
     gres: gpu:4
     job-name: ${infrastructure.metric_logger.name}
+
+# Add this to the bottom of your YAML:
+hydra:
+  sweeper:
+    params:
+      "../../_model/context_scaling@_here_": k12,k16,k20
