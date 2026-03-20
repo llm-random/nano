@@ -290,8 +290,6 @@ class RoPEProductKeysEncoderAttention(nn.Module):
     def forward(self, x):
         # todo
         # - init scale init only on keys of this layer
-        # - log the norm and std of split keys before and after normalization
-        # - normy macierzy kqv i ich std
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
         value_states = self.v_proj(x)
@@ -375,16 +373,16 @@ class RoPEProductKeysEncoderAttention(nn.Module):
                 layer_name=self.log_name,
                 calculate_fn=RoPEProductKeysEncoderAttention.calculate_metrics,
                 metrics={
-                    "final_row_idxs": final_row_idxs,
-                    "final_col_idxs": final_col_idxs,
-                    "v_indices": v_indices,
-                    "k1_unnorm": k1_unnorm,
-                    "k2_unnorm": k2_unnorm,
-                    "k1": k1,
-                    "k2": k2,
-                    "q_weight": self.q_proj.weight,
-                    "k_weight": self.k_proj.weight,
-                    "v_weight": self.v_proj.weight,
+                    "final_row_idxs": final_row_idxs.detach(),
+                    "final_col_idxs": final_col_idxs.detach(),
+                    "v_indices": v_indices.detach(),
+                    "k1_unnorm": k1_unnorm.detach(),
+                    "k2_unnorm": k2_unnorm.detach(),
+                    "k1": k1.detach(),
+                    "k2": k2.detach(),
+                    "q_weight": self.q_proj.weight.detach(),
+                    "k_weight": self.k_proj.weight.detach(),
+                    "v_weight": self.v_proj.weight.detach(),
                 },
             )
 
