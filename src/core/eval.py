@@ -87,56 +87,76 @@ class NanoLM(LM):
 
     def loglikelihood(self, requests: list[Instance]) -> list[tuple[float, bool]]:
         results = []
-        for request in requests:
-            context, continuation = request.args
+        for i in range(0, len(requests), self._batch_size):
+            batch = requests[i : i + self._batch_size]
 
-            context_enc = self.tok_encode(context)
-            continuation_enc = self.tok_encode(continuation)
+            # Encode all requests in this batch
+            encodings = []
+            cont_lens = []
+            for request in batch:
+                context, continuation = request.args
+                context_enc = self.tok_encode(context)
+                continuation_enc = self.tok_encode(continuation)
+                full_enc = (context_enc + continuation_enc)[-self.max_length :]
+                encodings.append(full_enc)
+                cont_lens.append(len(continuation_enc))
 
-            full_enc = (context_enc + continuation_enc)[-self.max_length :]
-            input_ids = torch.tensor([full_enc], device=self.device)
+            # Pad to same length for batched forward pass
+            max_len = max(len(e) for e in encodings)
+            pad_id = self._tokenizer.pad_token_id if self._tokenizer.pad_token_id is not None else 0
+            padded = [([pad_id] * (max_len - len(e))) + e for e in encodings]
+            input_ids = torch.tensor(padded, device=self.device)
 
             logits = self._model_forward(input_ids)
 
             shift_logits = logits[:, :-1, :]
             shift_labels = input_ids[:, 1:]
-
             log_probs = F.log_softmax(shift_logits, dim=-1)
 
-            cont_len = len(continuation_enc)
-            cont_log_probs = log_probs[0, -cont_len:]
-            cont_labels = shift_labels[0, -cont_len:]
+            for j, cont_len in enumerate(cont_lens):
+                cont_log_probs = log_probs[j, -cont_len:]
+                cont_labels = shift_labels[j, -cont_len:]
 
-            token_log_probs = cont_log_probs.gather(
-                1, cont_labels.unsqueeze(1)
-            ).squeeze(1)
-            total_log_prob = token_log_probs.sum().item()
+                token_log_probs = cont_log_probs.gather(
+                    1, cont_labels.unsqueeze(1)
+                ).squeeze(1)
+                total_log_prob = token_log_probs.sum().item()
 
-            greedy_tokens = cont_log_probs.argmax(dim=-1)
-            is_greedy = (greedy_tokens == cont_labels).all().item()
+                greedy_tokens = cont_log_probs.argmax(dim=-1)
+                is_greedy = (greedy_tokens == cont_labels).all().item()
 
-            results.append((total_log_prob, is_greedy))
+                results.append((total_log_prob, is_greedy))
 
         return results
 
     def loglikelihood_rolling(self, requests: list[Instance]) -> list[tuple[float]]:
         results = []
-        for request in requests:
-            (string,) = request.args
+        for i in range(0, len(requests), self._batch_size):
+            batch = requests[i : i + self._batch_size]
 
-            encoding = self.tok_encode(string)[-self.max_length :]
-            input_ids = torch.tensor([encoding], device=self.device)
+            encodings = []
+            for request in batch:
+                (string,) = request.args
+                encodings.append(self.tok_encode(string)[-self.max_length :])
+
+            max_len = max(len(e) for e in encodings)
+            pad_id = self._tokenizer.pad_token_id if self._tokenizer.pad_token_id is not None else 0
+            padded = [([pad_id] * (max_len - len(e))) + e for e in encodings]
+            seq_lens = [len(e) for e in encodings]
+            input_ids = torch.tensor(padded, device=self.device)
 
             logits = self._model_forward(input_ids)
 
             shift_logits = logits[:, :-1, :]
             shift_labels = input_ids[:, 1:]
-
             log_probs = F.log_softmax(shift_logits, dim=-1)
-            token_log_probs = log_probs.gather(2, shift_labels.unsqueeze(2)).squeeze(2)
 
-            total_log_prob = token_log_probs.sum().item()
-            results.append(total_log_prob)
+            for j, seq_len in enumerate(seq_lens):
+                # Only score the real tokens (exclude left-padding)
+                item_log_probs = log_probs[j, -seq_len + 1:]
+                item_labels = shift_labels[j, -seq_len + 1:]
+                token_log_probs = item_log_probs.gather(1, item_labels.unsqueeze(1)).squeeze(1)
+                results.append(token_log_probs.sum().item())
 
         return results
 
