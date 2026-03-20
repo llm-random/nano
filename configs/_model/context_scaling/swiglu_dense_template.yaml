@@ -28,7 +28,7 @@ model:
       attention_fn:
         _target_: src.core.model.RoPEAttention
         _partial_: true
-        compile: false
+        compile: false  # set true
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}

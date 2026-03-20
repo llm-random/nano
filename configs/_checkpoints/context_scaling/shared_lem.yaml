@@ -3,7 +3,7 @@ trainer:
     save:
       type: nano
       interval: ${eval:'((${trainer.n_steps} - 1) / 10)'}
-      path: /lustre/pd01/plgrid/plgllmefficont2/nano/context_scaling/models
+      path: /lustre/pd03/plgrid/plgllmefficont3/context_scaling/models
       model_checkpoint_filename: __model_checkpoint_filename.pt
       training_state_filename: __training_state_filename.pt
 

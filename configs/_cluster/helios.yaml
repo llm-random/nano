@@ -13,7 +13,7 @@ infrastructure:
   script:
     - '${export_env_variables_placeholders:}'
     - 'module load ML-bundle/25.04'
-    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi/nano'
+    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi3/context_scaling'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
     
     # hydra errors
@@ -22,10 +22,18 @@ infrastructure:
     # export pixi variables
     - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
+
+    # hardfixes
     - 'export XDG_DATA_HOME="$PROJECT_HOME_PATH/data"'
     - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'
     - 'export XDG_STATE_HOME="$PROJECT_HOME_PATH/state"'
+    - 'export RATTLER_CACHE_DIR="$XDG_CACHE_HOME/rattler"'
+    - 'export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"'
+    - 'export PIXI_CACHE_DIR="$XDG_CACHE_HOME/pixi"'
     
+    # HF datasets requires explicit opt-in for datasets with custom code (e.g. allenai/social_i_qa)
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
+
     # activate pixi
     - 'cd "$PIXI_HOME"'
     - 'eval "$(pixi shell-hook)"'

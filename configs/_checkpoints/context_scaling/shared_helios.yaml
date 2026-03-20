@@ -3,7 +3,7 @@ trainer:
     save:
       type: nano
       interval: -1
-      path: /net/storage/pr3/plgrid/plggllmeffi/nano/ctx_scaling/models
+      path: /net/storage/pr3/plgrid/plggllmeffi3/context_scaling/models
       model_checkpoint_filename: __model_checkpoint_filename.pt
       training_state_filename: __training_state_filename.pt
 
