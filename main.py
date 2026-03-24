@@ -233,6 +233,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                     ),
                 }
             )
+            upload_config_file(metric_logger)
 
     torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
 
