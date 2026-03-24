@@ -101,10 +101,16 @@ class NanoLM(LM):
                 encodings.append(full_enc)
                 cont_lens.append(len(continuation_enc))
 
-            # Pad to same length for batched forward pass
+            # Right-pad to same length for batched forward pass.
+            # With causal attention, real tokens never attend to right-side
+            # pad tokens, so no attention mask is needed.
             max_len = max(len(e) for e in encodings)
-            pad_id = self._tokenizer.pad_token_id if self._tokenizer.pad_token_id is not None else 0
-            padded = [([pad_id] * (max_len - len(e))) + e for e in encodings]
+            pad_id = (
+                self._tokenizer.pad_token_id
+                if self._tokenizer.pad_token_id is not None
+                else 0
+            )
+            padded = [e + [pad_id] * (max_len - len(e)) for e in encodings]
             input_ids = torch.tensor(padded, device=self.device)
 
             logits = self._model_forward(input_ids)
@@ -114,8 +120,9 @@ class NanoLM(LM):
             log_probs = F.log_softmax(shift_logits, dim=-1)
 
             for j, cont_len in enumerate(cont_lens):
-                cont_log_probs = log_probs[j, -cont_len:]
-                cont_labels = shift_labels[j, -cont_len:]
+                seq_len = len(encodings[j])
+                cont_log_probs = log_probs[j, seq_len - cont_len - 1 : seq_len - 1]
+                cont_labels = shift_labels[j, seq_len - cont_len - 1 : seq_len - 1]
 
                 token_log_probs = cont_log_probs.gather(
                     1, cont_labels.unsqueeze(1)
@@ -140,8 +147,12 @@ class NanoLM(LM):
                 encodings.append(self.tok_encode(string)[-self.max_length :])
 
             max_len = max(len(e) for e in encodings)
-            pad_id = self._tokenizer.pad_token_id if self._tokenizer.pad_token_id is not None else 0
-            padded = [([pad_id] * (max_len - len(e))) + e for e in encodings]
+            pad_id = (
+                self._tokenizer.pad_token_id
+                if self._tokenizer.pad_token_id is not None
+                else 0
+            )
+            padded = [e + [pad_id] * (max_len - len(e)) for e in encodings]
             seq_lens = [len(e) for e in encodings]
             input_ids = torch.tensor(padded, device=self.device)
 
@@ -152,10 +163,12 @@ class NanoLM(LM):
             log_probs = F.log_softmax(shift_logits, dim=-1)
 
             for j, seq_len in enumerate(seq_lens):
-                # Only score the real tokens (exclude left-padding)
-                item_log_probs = log_probs[j, -seq_len + 1:]
-                item_labels = shift_labels[j, -seq_len + 1:]
-                token_log_probs = item_log_probs.gather(1, item_labels.unsqueeze(1)).squeeze(1)
+                # Only score the real tokens (right-padding is ignored by causal attention)
+                item_log_probs = log_probs[j, : seq_len - 1]
+                item_labels = shift_labels[j, : seq_len - 1]
+                token_log_probs = item_log_probs.gather(
+                    1, item_labels.unsqueeze(1)
+                ).squeeze(1)
                 results.append(token_log_probs.sum().item())
 
         return results
