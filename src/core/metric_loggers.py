@@ -82,7 +82,7 @@ class WandbLogger(MetricLogger):
     def __init__(self, run, should_log, config=None):
         super().__init__(config)
         self.run = run
-        self.should_log = should_log    # multigpu guard
+        self.should_log = should_log  # multigpu guard
         self._pending = {}
 
         if self.should_log and self.run is not None:
@@ -101,7 +101,6 @@ class WandbLogger(MetricLogger):
             self._pending["token_count"] = self.tokens
             self.run.log(self._pending)
             self._pending = {}
-
 
 
 class StdoutLogger(MetricLogger):
