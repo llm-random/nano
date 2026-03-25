@@ -54,6 +54,7 @@ def update_remote_pixi(cfg: OmegaConf):
         4  # requires your create_slurm_parameters to map this
     )
     slurm_config["mem"] = "8G"  # normal mem, not mem-per-gpu
+    slurm_config["time"] = "00:30:00"
 
     print(f"Cluster: {server}")
 
