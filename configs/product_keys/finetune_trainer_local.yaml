@@ -8,6 +8,10 @@ defaults:
   - /_misc/default@_here_
   - _self_
 
+
+dataset:
+  seed: 42
+
 common:
   sequence_length: 16
   batch_size: 4
@@ -17,14 +21,16 @@ common:
   n_blocks: 4
   q_heads: 2
   kv_heads: 2
-  vocab_size: 128256
+  vocab_size: 50304
 
 
 trainer:
   _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
   gradient_accumulation_steps: 2
-  n_steps: 2
+  n_steps: 2000
   learning_rate: 1e-3
+  d_model: ${common.dmodel}
+  vocab_size: ${common.vocab_size}
 
   train_dataloader:
     dataset:
@@ -41,7 +47,7 @@ trainer:
   checkpoint:
     load:
       type: huggingface
-      path: checkpoint
+      path: checkpoint/2026-03-24
       model_checkpoint_filename: model.safetensors
     save:
       type: nano
@@ -53,8 +59,12 @@ infrastructure:
     type: stdout
 
 model:
+  _target_: src.product_keys.model.LLM
   encoder:
+    _target_: src.product_keys.model.TransformerEncoder
     block_fn:
+      _target_: src.product_keys.model.TransformerBlock
+      _partial_: true
       attention_fn:
         _target_: src.product_keys.model.RoPETopKAttention
         _partial_: true
@@ -62,6 +72,7 @@ model:
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
+        causal: false
 
         q_proj_fn:
           _target_: src.projected_compression.model.Linear
@@ -97,5 +108,5 @@ model:
 
         rope_base: 500000
         rope_scale_freqs: true
-        top_k: 16
+        top_k: 8
         top_k_before_softmax: true

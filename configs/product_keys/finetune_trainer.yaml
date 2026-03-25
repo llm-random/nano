@@ -34,7 +34,7 @@ trainer:
   checkpoint:
     load:
       type: huggingface
-      path: /net/scratch/hscra/plgrid/plgggwozdz02/checkpoint
+      path: ~/checkpoint
       model_checkpoint_filename: model.safetensors
 
 
