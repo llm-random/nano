@@ -4,14 +4,14 @@ defaults:
   - /_model/context_scaling@_here_: k20
   - /_trainer@_here_: context_scaling
   - /_dataset@_here_: ctx_scl_dataset
-  - /_checkpoints/context_scaling@_here_: shared_lem
   - /_misc@_here_: default
+  - /_checkpoints/context_scaling@_here_: shared_lem
   - /_eval@_here_: joint
   - _self_
 
 common:
   # MQA
-  kv_heads: 1
+  ^kv_heads: [1, 20]
 
   sequence_length: 2048
   batch_size: 64
@@ -48,10 +48,8 @@ infrastructure:
     tags:
       - nano
       - context_scaling
-      - 42B
-      - MQA
       - downstream_correlation
-      - 1903_grid
+      - 2503_grid
 
   slurm:
     time: "2-00:00:00"
