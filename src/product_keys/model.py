@@ -283,8 +283,7 @@ class LLM(LLM_projected_compression):
         super().__init__(*args, **kwargs)
 
     def forward(self, *args, **kwargs):
-        if "attention_mask" in kwargs:
-            attention_mask = kwargs.pop("attention_mask")
+        attention_mask = kwargs.pop("attention_mask", None)
         x = self.embedding(*args, **kwargs)
         x = self.encoder(x, attention_mask=attention_mask)
         x = self.head(x)
