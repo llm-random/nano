@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - /_cluster/entropy@_here_
+  - /_cluster/helios@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
@@ -9,7 +9,7 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 2048
+  sequence_length: 1024
   batch_size: 32
   dmodel: 768
   dff: 2042
@@ -21,7 +21,7 @@ common:
 
 trainer:
   gradient_accumulation_steps: 2
-  n_steps: 56000
+  n_steps: 40000
   learning_rate: 1e-3
 
   checkpoint:
@@ -31,13 +31,15 @@ trainer:
 
 infrastructure:
   metric_logger:
-    name: top_k_attention
-    project_name: pmtest/tml-bgw
+    type: wandb
+    wandb_entity: ideas_cv
+    project_name: tml-bgw
+    name: TML_BGW-${now:%Y-%m-%d_%H-%M-%S}
     tags:
       - nano
-      - top_k_attention
-      - "lr=${trainer.learning_rate}"
+      - pk_mlm
       - "seq_len=${common.sequence_length}"
+      - "n_layers=${common.n_blocks}"
   slurm:
     gres: gpu:1
     time: "1-00:00:00"
