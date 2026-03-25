@@ -7,9 +7,7 @@ import json
 from functools import partial
 
 from omegaconf import OmegaConf
-from hydra import initialize_config_dir, compose
 from hydra.utils import instantiate
-import resolver as _
 
 from datasets import load_from_disk
 from transformers import AutoTokenizer
@@ -49,16 +47,11 @@ def make_csv_name(run_id: str, template: str, cfg) -> str:
     return "+".join(parts) + ".csv"
 
 
-def load_hydra_cfg_from_yaml(yaml_path: Path):
+def load_cfg_from_yaml(yaml_path: Path):
     yaml_path = Path(yaml_path)
     if not yaml_path.exists():
-        raise FileNotFoundError(f"Hydra yaml_config not found: {yaml_path}")
-
-    with initialize_config_dir(
-        config_dir=str(yaml_path.parent.resolve()), version_base=None
-    ):
-        cfg = compose(config_name=yaml_path.stem)
-    return cfg
+        raise FileNotFoundError(f"Config not found: {yaml_path}")
+    return OmegaConf.load(yaml_path)
 
 
 def setup_distributed():
@@ -129,9 +122,22 @@ def tensors_rows_to_csv(tensors, path: str):
     print(f"✅ CSV saved")
 
 
+def get_latest_step(ckpt_dir: str) -> int:
+    steps = []
+    for name in os.listdir(ckpt_dir):
+        if name.startswith("step_"):
+            try:
+                steps.append(int(name.split("_", 1)[1]))
+            except ValueError:
+                continue
+    if not steps:
+        raise FileNotFoundError(f"No step_* checkpoints found in {ckpt_dir}")
+    return max(steps)
+
+
 def eval_model(
     ckpt_dir: str,  # directory that contains step_* (or numeric step dirs)
-    model_step: int,
+    model_step: int | None,
     cfg,
     dataset_dir: str,
     out_csv: str,
@@ -139,6 +145,10 @@ def eval_model(
     batch_size: int,
     device: torch.device,
 ):
+    if model_step is None:
+        model_step = get_latest_step(ckpt_dir)
+        print(f"No model_step specified, using latest: {model_step}")
+
     model = instantiate(cfg.model, _convert_="all").to(device)
     model.eval()
 
@@ -213,8 +223,8 @@ def main():
     parser.add_argument(
         "--model_step",
         type=int,
-        default=320000,
-        help="Checkpoint step directory name (numeric).",
+        default=None,
+        help="Checkpoint step to load. If not specified, uses the latest step_* in ckpt_dir.",
     )
 
     args = parser.parse_args()
@@ -242,7 +252,7 @@ def main():
     print(f"ckpt_dir: {ckpt_dir}")
     print(f"yaml_config_path: {yaml_path}")
 
-    cfg = load_hydra_cfg_from_yaml(yaml_path)
+    cfg = load_cfg_from_yaml(yaml_path)
     out_csv = os.path.join(out_dir, make_csv_name(run_id, args.out_csv_format, cfg))
 
     try:

@@ -3,35 +3,81 @@ import re
 from pathlib import Path
 import argparse
 import pandas as pd
-import neptune
+import wandb
 import json
+import yaml
 
 
-def get_neptune_table(
+def get_wandb_table(
     tags,
-    project="pmtest/llm-random",
+    project="ideas_cv/llm-random-test",
     negative_tags=None,
     columns=None,
     print_columns=False,
 ):
-    project = neptune.init_project(
-        project=project,
-        mode="read-only",
-        api_token=os.environ["NEPTUNE_API_TOKEN"],
-    )
-    runs_table = project.fetch_runs_table(tag=tags, columns=columns).to_pandas()
+    # WandB automatically looks for the WANDB_API_KEY environment variable.
+    # No need to explicitly pass it like Neptune's token, but you must ensure it's exported in your env.
+    api = wandb.Api()
+
+    # Ensure tags is a list
+    if isinstance(tags, str):
+        tags = [tags]
+
+    # Build WandB filter using MongoDB-like syntax.
+    # $and ensures the run contains ALL of the specified positive tags (matching Neptune's default).
+    filters = {"$and": [{"tags": tag} for tag in tags]} if tags else {}
+
+    # Fetch runs via API
+    runs = api.runs(path=project, filters=filters)
+
+    # Extract data into a list of dictionaries to convert to pandas
+    runs_data = []
+    for run in runs:
+        run_dict = {
+            "sys/id": run.id,
+            "sys/name": run.name,
+            "sys/state": run.state,
+            "sys/tags": run.tags,  # WandB tags are already a list of strings
+        }
+        # Flatten config (hyperparameters) and summary (metrics) into the dict.
+        # Adding prefixes keeps the structure clean and prevents key collisions.
+        run_dict.update({f"config/{k}": v for k, v in run.config.items()})
+        run_dict.update({f"summary/{k}": v for k, v in run.summary._json_dict.items()})
+
+        runs_data.append(run_dict)
+
+    runs_table = pd.DataFrame(runs_data)
+
+    if runs_table.empty:
+        print("df shape: (0, 0)")
+        return runs_table
+
+    # Filter down to specific columns if provided
+    if columns:
+        # We must keep "sys/tags" temporarily if negative_tags are provided
+        cols_to_keep = set(columns)
+        if negative_tags:
+            cols_to_keep.add("sys/tags")
+
+        available_cols = [col for col in cols_to_keep if col in runs_table.columns]
+        runs_table = runs_table[available_cols]
+
     print(f"df shape: {runs_table.shape}")
 
-    runs_table["sys/tags"] = runs_table["sys/tags"].apply(
-        lambda x: x.split(",") if isinstance(x, str) else x
-    )
-
+    # Apply negative tags filter
     if negative_tags:
+        if isinstance(negative_tags, str):
+            negative_tags = [negative_tags]
+
         for neg_tag in negative_tags:
+            # Filter out rows where the negative tag exists in the list of tags
             runs_table = runs_table[
-                ~runs_table["sys/tags"].apply(lambda x: neg_tag in x)
+                ~runs_table["sys/tags"].apply(
+                    lambda x: neg_tag in x if isinstance(x, list) else False
+                )
             ]
 
+    # Print columns
     if print_columns:
         print("\n=== Available columns ===")
         for col in sorted(runs_table.columns):
@@ -41,16 +87,21 @@ def get_neptune_table(
     return runs_table
 
 
-def download_yaml_config(run_id: str, out_yaml_path: Path) -> None:
-    run = neptune.init_run(
-        project="pmtest/llm-random",
-        with_id=run_id,
-        mode="read-only",
-        api_token=os.environ["NEPTUNE_API_TOKEN"],
-    )
+def download_yaml_config(
+    run_id: str,
+    out_yaml_path: Path,
+    project: str = "ideas_cv",
+) -> None:
+    api = wandb.Api()
+    run = api.run(f"{project}/{run_id}")
+
+    # Use run.config (the full resolved OmegaConf dict logged at wandb.init).
+    # Filter out job/ env-var keys injected by log_environs.
+    config = {k: v for k, v in run.config.items() if not k.startswith("job/")}
+
     out_yaml_path.parent.mkdir(parents=True, exist_ok=True)
-    run["yaml_config"].download(destination=str(out_yaml_path))
-    run.stop()
+    with open(out_yaml_path, "w", encoding="utf-8") as f:
+        yaml.dump(config, f, sort_keys=True)
 
 
 def update_slurm_array_line(sbatch_path: Path, num_jobs: int) -> None:
@@ -109,7 +160,7 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df = get_neptune_table(tags=args.tags)
+    df = get_wandb_table(tags=args.tags)
 
     csv_path = out_dir / "main.csv"
     df.to_csv(csv_path, index=False)

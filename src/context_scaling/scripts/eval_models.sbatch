@@ -45,4 +45,3 @@ srun --export=ALL --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scrip
     --out_dir eval_dmodel_768 \
     --seq_len 2048 \
     --batch_size 32 \
-    --model_step 920000
