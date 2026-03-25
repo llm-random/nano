@@ -13,7 +13,7 @@ common:
 
 
 trainer:
-  gradient_accumulation_steps: 1
+  gradient_accumulation_steps: 8
   ^n_steps: 
     - 4001
     # - 8001
@@ -32,6 +32,9 @@ trainer:
    save:
     type: nano
     path: null #change
+    interval: 2047
+    model_checkpoint_filename: __model_checkpoint_filename.pt
+    training_state_filename: __training_state_filename.pt
 
   train_dataloader:
     tokenize_fn: 
@@ -55,4 +58,4 @@ infrastructure:
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:1
-    time: "0-4:00:00"
+    time: "0-24:00:00"
