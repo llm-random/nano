@@ -17,33 +17,34 @@ common:
   n_blocks: 4
   q_heads: 2
   kv_heads: 2
-  vocab_size: 128256
+  vocab_size: 50304
 
 trainer:
+  _target_: src.product_keys.trainer.TrainerWithVocabSize
   gradient_accumulation_steps: 2
-  n_steps: 500
+  n_steps: 7000
   learning_rate: 1e-3
+  vocab_size: ${common.vocab_size}
 
   checkpoint:
     save:
       type: huggingface
-      path: checkpoint
+      path: checkpoint/${now:%Y-%m-%d}
+
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn  
+
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn  
+  
 
 infrastructure:
   metric_logger:
-    type: wandb
-    wandb_entity: ideas_cv
-    project_name: tml-bgw
-    name: TML_BGW-${now:%Y-%m-%d_%H-%M-%S}
-    tags:
-      - nano
-      - pk_mlm
-      - "seq_len=${common.sequence_length}"
-      - "n_layers=${common.n_blocks}"
-  slurm:
-    gres: gpu:1
-    time: "1-00:00:00"
-    job-name: ${infrastructure.metric_logger.name}
+    type: stdout
 
 evaluator: null
 

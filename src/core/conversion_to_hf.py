@@ -3,6 +3,7 @@ import re
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM
 import re
+from typing import Optional
 
 
 def remap_nano_to_llama31_hf(nano_dict):
@@ -80,6 +81,7 @@ def save_to_llama_3_hf(
     n_kvatt_heads: int,
     head_dim: int,
     nlayers: int,
+    vocab_size: Optional[int] = None
 ):
     config = AutoConfig.from_pretrained("meta-llama/Llama-3.1-8B")
 
@@ -89,6 +91,8 @@ def save_to_llama_3_hf(
     config.num_key_value_heads = int(n_kvatt_heads)
     config.head_dim = int(head_dim)
     config.num_hidden_layers = int(nlayers)
+    if vocab_size is not None:
+        config.vocab_size = int(vocab_size)
 
     hf_model = AutoModelForCausalLM.from_config(config)
     hf_state_dict = remap_nano_to_llama31_hf(nano_model_state_dict)

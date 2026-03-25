@@ -82,7 +82,8 @@ class GlueDataset(AbstractDataset):
             full_sample = next(sampler)
             tokens = full_sample['input_ids']
             label = full_sample['label']
-            yield (tokens, label)
+            attention_mask = full_sample['attention_mask']
+            yield (tokens, label, attention_mask)
 
     def get_infinite_sampler(self):
         epoch = 0
@@ -144,7 +145,7 @@ def glue_tokenize_fn(seq_len: int):
             padding="max_length",
             truncation=True,
             max_length=seq_len,
-        )
+        ) 
         return batch_encodings
 
     return tokenize_function
@@ -152,8 +153,10 @@ def glue_tokenize_fn(seq_len: int):
 def glue_collate_wrapper(examples):
     inputs = [item[0] for item in examples]
     labels = [item[1] for item in examples]
+    attention_masks = [item[2] for item in examples]
 
     collated_inputs = collate_wrapper(inputs)
     collated_labels = torch.tensor(labels, dtype=torch.int64)
+    collated_attention_masks = collate_wrapper(attention_masks)
 
-    return collated_inputs, collated_labels
+    return collated_inputs, collated_labels, collated_attention_masks
