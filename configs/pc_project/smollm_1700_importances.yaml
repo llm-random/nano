@@ -13,7 +13,7 @@ common:
 
 
 trainer:
-  gradient_accumulation_steps: 1 # not used
+  gradient_accumulation_steps: 8 # not used
   n_steps: 0 # not used
   learning_rate: 1 # not used
 
@@ -24,16 +24,19 @@ trainer:
    save:
     type: nano
     path: ??? # CHANGE
+    interval: 2047
+    model_checkpoint_filename: __model_checkpoint_filename.pt
+    training_state_filename: __training_state_filename.pt
 
   train_dataloader:
-    dataset:
-      tokenize_fn: 
-        _target_: src.core.datasets.smollm_1700_tokenize_fn
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B
 
   eval_dataloader:
-    dataset:
-      tokenize_fn: 
-        _target_: src.core.datasets.smollm_1700_tokenize_fn
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B
 
 
 infrastructure:
@@ -50,7 +53,7 @@ infrastructure:
     job-name: importances
     gres: gpu:1
     nodes: 1
-    time: "0-2:00:00"
+    time: "0-24:00:00"
 
 
 apply_functions:

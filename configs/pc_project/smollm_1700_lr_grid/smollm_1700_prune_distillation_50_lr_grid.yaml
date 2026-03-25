@@ -1,0 +1,74 @@
+defaults:
+  - ../../_cluster@_here_: entropy
+  - ../../_model/smollm@_here_: def_1700
+  - ../../_trainer@_here_: smollm_1700_distillation
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+  target_dmodel: 1344
+  target_dff: 5376
+
+trainer:
+  gradient_accumulation_steps: 8
+  ^n_steps:
+    - 2048 # 1B tokens
+
+  ^learning_rate:
+    - 11
+    - 12
+    - 13
+    - 14
+
+  scheduler:
+    warmup_steps: 40
+
+  checkpoint:
+    load:
+      type: huggingface
+      path: "HuggingFaceTB/SmolLM-1.7B"
+    save:
+      type: nano
+      path: ??? # CHANGE
+      interval: 2047
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: __training_state_filename.pt
+
+  eval_interval: 1000000
+  eval_dataloader: None
+  train_dataloader:
+    dataset:
+      seed: 1000
+      tokenize_fn:
+        _target_: src.core.datasets.get_tokenize_fn
+        model_name: HuggingFaceTB/SmolLM-1.7B
+
+infrastructure:
+  metric_logger:
+    name: SLLM_1700_prune_distill_50_lr_grid
+    tags:
+      - nano
+      - pc
+      - smollm_1700
+      - hard_pruning
+      - distillation
+      - 50p
+      - 1B_tokens
+      - lr_grid
+
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:4
+    time: "0-24:00:00"
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune
+    _partial_: true
+    dimensions_importances_path: ??? # CHANGE
+    target_dmodel: ${common.target_dmodel}
+    target_dff: ${common.target_dff}
+
+

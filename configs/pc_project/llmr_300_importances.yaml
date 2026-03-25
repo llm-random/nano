@@ -25,13 +25,14 @@ trainer:
     path: ??? # CHANGE
 
   train_dataloader:
-    dataset:
-      tokenize_fn: 
-        _target_: src.core.datasets.gpt2_tokenize_fn
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: gpt2
 
   eval_dataloader:
     tokenize_fn: 
-      _target_: src.core.datasets.gpt2_tokenize_fn
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: gpt2
 
 
 infrastructure:
