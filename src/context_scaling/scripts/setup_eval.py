@@ -154,6 +154,12 @@ def main():
         default=None,
         help="Optional path to an sbatch .sh file. If provided, updates '#SBATCH --array=...' to match number of runs.",
     )
+    parser.add_argument(
+        "--seq_len",
+        type=int,
+        default=None,
+        help="Eval sequence length for all jobs. If not specified, each job uses its training sequence length.",
+    )
 
     args = parser.parse_args()
 
@@ -176,11 +182,19 @@ def main():
         if not yaml_path.exists() or yaml_path.stat().st_size == 0:
             download_yaml_config(run_id, yaml_path)
 
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            run_cfg = yaml.safe_load(f)
+        seq_len = run_cfg["common"]["sequence_length"]
+
+        if args.seq_len is not None and args.seq_len < seq_len:
+            seq_len = args.seq_len
+
         records.append(
             {
                 "jobID": run_id,
                 "ckpt_path": ckpt_path,
                 "yaml_config_path": str(yaml_path),
+                "seq_len": seq_len,
             }
         )
 
