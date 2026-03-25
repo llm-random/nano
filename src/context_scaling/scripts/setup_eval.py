@@ -19,6 +19,8 @@ def get_wandb_table(
     # No need to explicitly pass it like Neptune's token, but you must ensure it's exported in your env.
     api = wandb.Api()
 
+    print(f"tags: {tags}")
+
     # Ensure tags is a list
     if isinstance(tags, str):
         tags = [tags]
@@ -62,8 +64,6 @@ def get_wandb_table(
         available_cols = [col for col in cols_to_keep if col in runs_table.columns]
         runs_table = runs_table[available_cols]
 
-    print(f"df shape: {runs_table.shape}")
-
     # Apply negative tags filter
     if negative_tags:
         if isinstance(negative_tags, str):
@@ -83,6 +83,8 @@ def get_wandb_table(
         for col in sorted(runs_table.columns):
             print(f"\t{col}")
         print("========================\n")
+
+    print(f"df shape: {runs_table.shape}")
 
     return runs_table
 
