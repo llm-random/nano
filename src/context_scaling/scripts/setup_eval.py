@@ -147,6 +147,7 @@ def update_slurm_array_line(sbatch_path: Path, num_jobs: int) -> None:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tags", nargs="+", required=True)
+    parser.add_argument("--negative_tags", nargs="+", default=None)
     parser.add_argument("--out_dir", type=str, default="eval_grid")
 
     # Optional: update an sbatch script to have correct array length
@@ -168,7 +169,7 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df = get_wandb_table(tags=args.tags)
+    df = get_wandb_table(tags=args.tags, negative_tags=args.negative_tags)
 
     csv_path = out_dir / "main.csv"
     df.to_csv(csv_path, index=False)
