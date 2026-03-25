@@ -213,7 +213,8 @@ def main():
     parser.add_argument(
         "--seq_len",
         type=int,
-        default=2048,
+        default=None,
+        help="Override eval sequence length. If not specified, uses common.sequence_length from the run's config.",
     )
     parser.add_argument(
         "--batch_size",
@@ -253,6 +254,10 @@ def main():
     print(f"yaml_config_path: {yaml_path}")
 
     cfg = load_cfg_from_yaml(yaml_path)
+
+    seq_len = args.seq_len if args.seq_len is not None else job["seq_len"]
+    print(f"seq_len={seq_len}, batch_size={args.batch_size}")
+
     out_csv = os.path.join(out_dir, make_csv_name(run_id, args.out_csv_format, cfg))
 
     try:
@@ -262,7 +267,7 @@ def main():
             cfg=cfg,
             dataset_dir=args.dataset_dir,
             out_csv=out_csv,
-            seq_len=args.seq_len,
+            seq_len=seq_len,
             batch_size=args.batch_size,
             device=device,
         )
