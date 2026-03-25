@@ -13,7 +13,7 @@ set -euo pipefail
 
 #---------- SCRIPT ----------
 ml CUDA/12.4.0
-export PROJECT_HOME_PATH=/lustre/pd01/plgrid/plgllmefficont2/nano/context_scaling
+export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/context_scaling
 export HF_HOME=$PROJECT_HOME_PATH/hf_cache
 export HYDRA_FULL_ERROR=1
 export PIXI_HOME=$PROJECT_HOME_PATH/pixi
@@ -40,8 +40,8 @@ export LOCAL_RANK=0
 
 srun --export=ALL --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scripts/eval_models.py \
     --dataset_dir /lustre/pd01/plgrid/plgllmefficont2/datasets/c4/long_context_2048n8192 \
-    --jobs_json eval_dmodel_768 \
-    --out_csv_format "dmodel,kv_heads,common/dff,trainer/learning_rate" \
-    --out_dir eval_dmodel_768 \
+    --jobs_json 1903_grid \
+    --out_csv_format "dmodel,kv_heads,trainer.learning_rate,common.sequence_length" \
+    --out_dir 1903_grid \
     --seq_len 2048 \
     --batch_size 32 \
