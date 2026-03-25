@@ -89,17 +89,16 @@ def get_wandb_table(
     return runs_table
 
 
-def download_yaml_config(
-    run_id: str,
+def save_yaml_config_from_row(
+    row: pd.Series,
     out_yaml_path: Path,
-    project: str = "ideas_cv",
 ) -> None:
-    api = wandb.Api()
-    run = api.run(f"{project}/{run_id}")
-
-    # Use run.config (the full resolved OmegaConf dict logged at wandb.init).
-    # Filter out job/ env-var keys injected by log_environs.
-    config = {k: v for k, v in run.config.items() if not k.startswith("job/")}
+    """Reconstruct the run config from dataframe row's config/* columns."""
+    PREFIX = "config/"
+    config = {}
+    for col in row.index:
+        if isinstance(col, str) and col.startswith(PREFIX):
+            config[col[len(PREFIX):]] = row[col]
 
     out_yaml_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_yaml_path, "w", encoding="utf-8") as f:
@@ -183,7 +182,7 @@ def main():
 
         yaml_path = yaml_dir / f"{run_id}.yaml"
         if not yaml_path.exists() or yaml_path.stat().st_size == 0:
-            download_yaml_config(run_id, yaml_path)
+            save_yaml_config_from_row(row, yaml_path)
 
         with open(yaml_path, "r", encoding="utf-8") as f:
             run_cfg = yaml.safe_load(f)
