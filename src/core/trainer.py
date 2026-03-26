@@ -49,6 +49,7 @@ class Trainer:
         self.start_step = self.training_state["next_step"]
         self.device = next(self.model.parameters()).device
         self.loss_interval_100 = 0.0
+        self._last_moe_load_balancing_loss = torch.zeros((), device=self.device)
 
         if self.eval_dataloader is not None and hasattr(
             self.eval_dataloader, "__iter__"
@@ -169,30 +170,47 @@ class Trainer:
                 reduction="none",
             )
             loss = mask_loss.mean()
+            moe_load_balancing_loss = torch.zeros((), device=predicted_ids.device)
             if self.model.training:
-                loss = loss + self._calculate_moe_load_balancing_loss(
+                moe_load_balancing_loss = self._calculate_moe_load_balancing_loss(
                     device=predicted_ids.device,
                 )
+                loss = loss + moe_load_balancing_loss
             loss = loss / self.gradient_accumulation_steps
-            return loss
+            moe_load_balancing_loss = (
+                moe_load_balancing_loss / self.gradient_accumulation_steps
+            )
+            return loss, moe_load_balancing_loss
 
         losses = []
+        moe_load_balancing_losses = []
         for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
             input_ids, target_ids = self._preprocess_input(batch_chunk)
             input_ids = input_ids.to(self.device)
             if self.model.training:
                 self._update_processed_tokens(input_ids)
 
-            loss = _hack_for_python_garbage_collection(input_ids, target_ids)
+            loss, moe_load_balancing_loss = _hack_for_python_garbage_collection(
+                input_ids, target_ids
+            )
             if self.model.training:
                 loss.backward()
             losses.append(loss.item())
+            moe_load_balancing_losses.append(moe_load_balancing_loss.item())
 
         # gloo backend supports only sum reduce operation, therfore we first divide by world size and then sum
         avg_loss = torch.tensor(losses, device=loss.device).sum()
+        avg_moe_load_balancing_loss = torch.tensor(
+            moe_load_balancing_losses,
+            device=loss.device,
+        ).sum()
         if dist.is_initialized():
             dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
+            dist.all_reduce(avg_moe_load_balancing_loss, op=dist.ReduceOp.SUM)
 
+        self._last_moe_load_balancing_loss = avg_moe_load_balancing_loss / float(
+            os.environ["WORLD_SIZE"]
+        )
         return avg_loss / float(os.environ["WORLD_SIZE"])
 
     def _calculate_moe_load_balancing_loss(self, device):
@@ -243,6 +261,10 @@ class Trainer:
     def log_metrics(self, loss, grad_norm):
         self.metric_logger.set_tokens(self.processed_tokens)
         self.metric_logger.log("train/loss", loss.item())
+        self.metric_logger.log(
+            "train/moe_load_balancing_loss",
+            self._last_moe_load_balancing_loss.item(),
+        )
         self.metric_logger.log("train/lr", self.scheduler.get_last_lr()[0])
         self.metric_logger.log("train/grad_norm", grad_norm.item())
 

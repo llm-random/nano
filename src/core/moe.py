@@ -80,21 +80,22 @@ class MoE(nn.Module):
             self.router_weight,
         )
         router_probs = F.softmax(router_logits, dim=-1, dtype=torch.float32)
-        router_weights, selected_experts = torch.topk(
+        # For each token, keep only the top-k experts and their routing probabilities
+        topk_probs, selected_experts = torch.topk(
             router_probs,
             k=self.num_experts_per_tok,
             dim=-1,
         )
-        router_weights = router_weights / router_weights.sum(
+        topk_probs = topk_probs / topk_probs.sum(
             dim=-1, keepdim=True
-        ).clamp_min(torch.finfo(router_weights.dtype).eps)
+        ).clamp_min(torch.finfo(topk_probs.dtype).eps)
 
-        # Keep only the highest-gated assignments per expert up to its capacity.
+        # Keep only the highest-gated assignments per expert up to its capacity
         flat_tokens = torch.arange(
             num_tokens, device=hidden_states.device, dtype=torch.long
         ).repeat_interleave(self.num_experts_per_tok)
         flat_experts = selected_experts.reshape(-1)
-        flat_weights = router_weights.reshape(-1)
+        flat_weights = topk_probs.reshape(-1)
         total_assignments = flat_experts.numel()
         capacity = max(
             1,
@@ -135,7 +136,7 @@ class MoE(nn.Module):
             torch.finfo(kept_weights.dtype).eps
         )
 
-        # Dispatch the surviving tokens into expert-capacity slots and run the expert MLP batched per expert.
+        # Dispatch the surviving tokens into expert-capacity slots and run the expert MLP batched per expert
         flat_capacity = self.num_experts * capacity
         dispatch_index = kept_experts * capacity + kept_slots
         expert_inputs = hidden_states.new_zeros(flat_capacity, self.dmodel)
@@ -161,7 +162,7 @@ class MoE(nn.Module):
             self.ff_post_act_weight,
         )
 
-        # Gather only the kept expert outputs back to tokens and sum the top-k contributions.
+        # Gather only the kept expert outputs back to tokens and sum the top-k contributions
         token_updates = expert_outputs.view(flat_capacity, self.dmodel).index_select(
             0, dispatch_index
         )
@@ -170,7 +171,7 @@ class MoE(nn.Module):
         output = output.index_add(0, kept_tokens, token_updates)
         output = output.reshape(original_shape)
 
-        # Match the switch-style load-balancing term using pre-capacity routing statistics.
+        # Match the switch-style load-balancing term using pre-capacity routing statistics
         if self.training:
             expert_frequency = flat_experts.bincount(
                 minlength=self.num_experts
