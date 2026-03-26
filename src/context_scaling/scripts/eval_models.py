@@ -32,7 +32,7 @@ def flatten_dict(d, parent_key="", sep="."):
     return dict(items)
 
 
-def make_csv_name(run_id: str, template: str, cfg) -> str:
+def make_csv_name(run_id: str, template: str, cfg, model_step: int) -> str:
     flat_cfg = flatten_dict(OmegaConf.to_container(cfg, resolve=True))
 
     parts = [run_id]
@@ -43,6 +43,7 @@ def make_csv_name(run_id: str, template: str, cfg) -> str:
                 kw_leaf = kw.split(".")[-1]
                 parts.append(f"{kw_leaf}={v}")
                 break
+    parts.append(f"step={model_step}")
 
     return "+".join(parts) + ".csv"
 
@@ -137,7 +138,7 @@ def get_latest_step(ckpt_dir: str) -> int:
 
 def eval_model(
     ckpt_dir: str,  # directory that contains step_* (or numeric step dirs)
-    model_step: int | None,
+    model_step: int,
     cfg,
     dataset_dir: str,
     out_csv: str,
@@ -145,10 +146,6 @@ def eval_model(
     batch_size: int,
     device: torch.device,
 ):
-    if model_step is None:
-        model_step = get_latest_step(ckpt_dir)
-        print(f"No model_step specified, using latest: {model_step}")
-
     model = instantiate(cfg.model, _convert_="all").to(device)
     model.eval()
 
@@ -258,12 +255,17 @@ def main():
     seq_len = args.seq_len if args.seq_len is not None else job["seq_len"]
     print(f"seq_len={seq_len}, batch_size={args.batch_size}")
 
-    out_csv = os.path.join(out_dir, make_csv_name(run_id, args.out_csv_format, cfg))
+    model_step = (
+        args.model_step if args.model_step is not None else get_latest_step(ckpt_dir)
+    )
+    out_csv = os.path.join(
+        out_dir, make_csv_name(run_id, args.out_csv_format, cfg, model_step)
+    )
 
     try:
         eval_model(
             ckpt_dir=ckpt_dir,
-            model_step=args.model_step,
+            model_step=model_step,
             cfg=cfg,
             dataset_dir=args.dataset_dir,
             out_csv=out_csv,

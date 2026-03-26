@@ -98,7 +98,7 @@ def save_yaml_config_from_row(
     config = {}
     for col in row.index:
         if isinstance(col, str) and col.startswith(PREFIX):
-            config[col[len(PREFIX):]] = row[col]
+            config[col[len(PREFIX) :]] = row[col]
 
     out_yaml_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_yaml_path, "w", encoding="utf-8") as f:
