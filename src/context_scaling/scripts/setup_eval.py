@@ -1,5 +1,6 @@
 import os
 import re
+import warnings
 from pathlib import Path
 import argparse
 import pandas as pd
@@ -105,6 +106,37 @@ def save_yaml_config_from_row(
         yaml.dump(config, f, sort_keys=True)
 
 
+def resolve_model_step(ckpt_path: str, model_step: int | None) -> int | str:
+    """Return the step number to eval, or a warning message if unresolvable."""
+    if not ckpt_path:
+        if model_step is not None:
+            return model_step
+        return "MISSING_CKPT_PATH"
+
+    ckpt_dir = Path(ckpt_path)
+
+    if model_step is not None:
+        step_dir = ckpt_dir / f"step_{model_step}"
+        if not step_dir.exists():
+            warnings.warn(f"Checkpoint not found: {step_dir}")
+            return f"NOT_FOUND:step_{model_step}"
+        return model_step
+
+    # find latest step_*
+    steps = []
+    if ckpt_dir.exists():
+        for name in os.listdir(ckpt_dir):
+            if name.startswith("step_"):
+                try:
+                    steps.append(int(name.split("_", 1)[1]))
+                except ValueError:
+                    continue
+    if not steps:
+        warnings.warn(f"No step_* checkpoints found in {ckpt_dir}")
+        return "NO_CHECKPOINTS"
+    return max(steps)
+
+
 def update_slurm_array_line(sbatch_path: Path, num_jobs: int) -> None:
     """
     Update (in-place) the first '#SBATCH --array=...' line to match num_jobs.
@@ -162,6 +194,12 @@ def main():
         default=None,
         help="Eval sequence length for all jobs. If not specified, each job uses its training sequence length.",
     )
+    parser.add_argument(
+        "--model_step",
+        type=int,
+        default=None,
+        help="Checkpoint step to eval. If not specified, uses the latest step_* in each ckpt_dir.",
+    )
 
     args = parser.parse_args()
 
@@ -191,12 +229,15 @@ def main():
         if args.seq_len is not None and args.seq_len < seq_len:
             seq_len = args.seq_len
 
+        model_step = resolve_model_step(ckpt_path, args.model_step)
+
         records.append(
             {
                 "jobID": run_id,
                 "ckpt_path": ckpt_path,
                 "yaml_config_path": str(yaml_path),
                 "seq_len": seq_len,
+                "model_step": model_step,
             }
         )
 

@@ -256,7 +256,9 @@ def main():
     print(f"seq_len={seq_len}, batch_size={args.batch_size}")
 
     model_step = (
-        args.model_step if args.model_step is not None else get_latest_step(ckpt_dir)
+        args.model_step
+        if args.model_step is not None
+        else job["model_step"]
     )
     out_csv = os.path.join(
         out_dir, make_csv_name(run_id, args.out_csv_format, cfg, model_step)
