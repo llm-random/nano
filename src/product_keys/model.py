@@ -200,8 +200,8 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         self.q_pos_emb = nn.Parameter(torch.zeros(seq_len, self.dhead))
         self.k_pos_emb = nn.Parameter(torch.zeros(seq_len, self.dhead))
         # todo grid on init std
-        trunc_normal_(self.q_pos_emb, std=init_scale)
-        trunc_normal_(self.k_pos_emb, std=init_scale)
+        trunc_normal_(self.q_pos_emb, std=0.1)
+        trunc_normal_(self.k_pos_emb, std=0.1)
 
         # Normalize the halves independently to balance Product Key retrieval
         self.q_norm1 = nn.RMSNorm(self.dhead_half)
