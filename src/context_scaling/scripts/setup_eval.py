@@ -108,6 +108,9 @@ def save_yaml_config_from_row(
 
 def resolve_model_step(ckpt_path: str, model_step: int | None) -> int | str:
     """Return the step number to eval, or a warning message if unresolvable."""
+    print("resolving model_step")
+    print(f"ckpt_path: {ckpt_path}")
+    print(f"model_step: {model_step}")
     if not ckpt_path:
         if model_step is not None:
             return model_step
