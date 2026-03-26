@@ -219,7 +219,7 @@ def main():
 
     for _, row in df.iterrows():
         run_id = str(row["sys/id"])
-        ckpt_path = str(row.get("job/full_save_checkpoints_path", ""))
+        ckpt_path = str(row.get("summary/full_save_checkpoints_path", ""))
 
         yaml_path = yaml_dir / f"{run_id}.yaml"
         if not yaml_path.exists() or yaml_path.stat().st_size == 0:
