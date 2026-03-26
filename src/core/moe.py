@@ -31,17 +31,13 @@ class MoE(nn.Module):
         super().__init__()
 
         if activation_function != "swiglu":
-            raise ValueError(
-                f"MoE supports only swiglu, got {activation_function}."
-            )
+            raise ValueError(f"MoE supports only swiglu, got {activation_function}.")
         if num_experts_per_tok > num_experts:
             raise ValueError(
                 f"num_experts_per_tok={num_experts_per_tok} must be <= num_experts={num_experts}."
             )
         if capacity_factor <= 0:
-            raise ValueError(
-                f"capacity_factor must be > 0, got {capacity_factor}."
-            )
+            raise ValueError(f"capacity_factor must be > 0, got {capacity_factor}.")
 
         self.dmodel = dmodel
         self.dff = dff
@@ -53,15 +49,9 @@ class MoE(nn.Module):
         self.aux_loss = None
 
         self.router_weight = nn.Parameter(torch.empty(num_experts, dmodel))
-        self.ff_pre_act_weight = nn.Parameter(
-            torch.empty(num_experts, dff, dmodel)
-        )
-        self.gate_weight = nn.Parameter(
-            torch.empty(num_experts, dff, dmodel)
-        )
-        self.ff_post_act_weight = nn.Parameter(
-            torch.empty(num_experts, dmodel, dff)
-        )
+        self.ff_pre_act_weight = nn.Parameter(torch.empty(num_experts, dff, dmodel))
+        self.gate_weight = nn.Parameter(torch.empty(num_experts, dff, dmodel))
+        self.ff_post_act_weight = nn.Parameter(torch.empty(num_experts, dmodel, dff))
 
         _truncated_normal_(self.router_weight, dmodel, init_scale)
         _truncated_normal_(self.ff_pre_act_weight, dmodel, init_scale)
@@ -86,9 +76,9 @@ class MoE(nn.Module):
             k=self.num_experts_per_tok,
             dim=-1,
         )
-        topk_probs = topk_probs / topk_probs.sum(
-            dim=-1, keepdim=True
-        ).clamp_min(torch.finfo(topk_probs.dtype).eps)
+        topk_probs = topk_probs / topk_probs.sum(dim=-1, keepdim=True).clamp_min(
+            torch.finfo(topk_probs.dtype).eps
+        )
 
         # Keep only the highest-gated assignments per expert up to its capacity
         flat_tokens = torch.arange(
@@ -99,14 +89,10 @@ class MoE(nn.Module):
         total_assignments = flat_experts.numel()
         capacity = max(
             1,
-            math.ceil(
-                self.capacity_factor * total_assignments / self.num_experts
-            ),
+            math.ceil(self.capacity_factor * total_assignments / self.num_experts),
         )
         weight_order = torch.argsort(flat_weights, descending=True, stable=True)
-        grouped_order = torch.argsort(
-            flat_experts[weight_order], stable=True
-        )
+        grouped_order = torch.argsort(flat_experts[weight_order], stable=True)
         sort_order = weight_order[grouped_order]
         sorted_experts = flat_experts[sort_order]
         sorted_tokens = flat_tokens[sort_order]
@@ -166,21 +152,21 @@ class MoE(nn.Module):
         token_updates = expert_outputs.view(flat_capacity, self.dmodel).index_select(
             0, dispatch_index
         )
-        token_updates = token_updates * kept_weights.to(hidden_states.dtype).unsqueeze(-1)
+        token_updates = token_updates * kept_weights.to(hidden_states.dtype).unsqueeze(
+            -1
+        )
         output = hidden_states.new_zeros(num_tokens, self.dmodel)
         output = output.index_add(0, kept_tokens, token_updates)
         output = output.reshape(original_shape)
 
         # Match the switch-style load-balancing term using pre-capacity routing statistics
         if self.training:
-            expert_frequency = flat_experts.bincount(
-                minlength=self.num_experts
-            )
+            expert_frequency = flat_experts.bincount(minlength=self.num_experts)
             expert_frequency = expert_frequency.to(router_probs.dtype)
             expert_frequency = expert_frequency / expert_frequency.sum().clamp_min(1)
-            self.aux_loss = self.num_experts * (
-                router_probs.mean(dim=0) * expert_frequency
-            ).sum()
+            self.aux_loss = (
+                self.num_experts * (router_probs.mean(dim=0) * expert_frequency).sum()
+            )
         else:
             self.aux_loss = None
 
