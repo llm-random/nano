@@ -3,10 +3,9 @@ defaults:
   - _self_
 
 common:
-  dmodel: 512
+  dmodel: 768
   dff: 2048
   dhead: 64
-  sequence_length: 2048
-  n_blocks: 2
-  q_heads: 8
-  kv_heads: 8
+  n_blocks: 12
+  q_heads: 32
+  kv_heads: 32
