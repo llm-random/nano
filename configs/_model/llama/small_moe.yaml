@@ -1,0 +1,27 @@
+defaults:
+  - base_model
+  - _self_
+
+common:
+  dmodel: 512
+  dff: 2048
+  dhead: 64
+  sequence_length: 2048
+  n_blocks: 2
+  q_heads: 8
+  kv_heads: 8
+
+model:
+  encoder:
+    block_fn:
+      ff_layer_fn:
+        _target_: src.core.moe.MoE
+        _partial_: true
+        dmodel: ${common.dmodel}
+        dff: ${common.dff}
+        num_experts: 4
+        num_experts_per_tok: 2
+        capacity_factor: 1.25
+        moe_load_balancing_loss_factor: 0.01
+        activation_function: swiglu
+        init_scale: 1.0

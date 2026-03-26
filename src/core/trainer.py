@@ -168,7 +168,12 @@ class Trainer:
                 target_ids.reshape(-1).long(),
                 reduction="none",
             )
-            loss = mask_loss.mean() / self.gradient_accumulation_steps
+            loss = mask_loss.mean()
+            if self.model.training:
+                loss = loss + self._calculate_moe_load_balancing_loss(
+                    device=predicted_ids.device,
+                )
+            loss = loss / self.gradient_accumulation_steps
             return loss
 
         losses = []
@@ -189,6 +194,15 @@ class Trainer:
             dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
 
         return avg_loss / float(os.environ["WORLD_SIZE"])
+
+    def _calculate_moe_load_balancing_loss(self, device):
+        loss = torch.zeros((), device=device)
+        for module in self.model.modules():
+            aux_loss = getattr(module, "aux_loss", None)
+            factor = getattr(module, "moe_load_balancing_loss_factor", 0.0)
+            if aux_loss is not None and factor:
+                loss = loss + aux_loss.to(device=device) * factor
+        return loss
 
     def eval(self):
         self.model.eval()

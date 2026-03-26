@@ -1,6 +1,6 @@
 defaults:
   - _cluster@_here_: entropy
-  - _model/jk_moe_check@_here_: tiny
+  - _model/llama@_here_: small_moe
   - _trainer@_here_: llama
   - _dataset@_here_: c4
   - _checkpoints@_here_: none
@@ -9,7 +9,7 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 128
+  sequence_length: 1024
   batch_size: 128
 
 trainer:
@@ -29,17 +29,16 @@ infrastructure:
     type: wandb
     wandb_entity: ideas_cv
     project_name: llm-random-test
-    name: moe
+    name: moe_fixed
     tags:
       - nano
       - remote
-      - tiny
+      - small
       - moe
 
   slurm:
-    time: "00:10:00"
+    time: "1-00:00:00"
     gres: gpu:1
     job-name: ${infrastructure.metric_logger.name}
 
-evaluator:
-  limit: 10
+evaluator: null
