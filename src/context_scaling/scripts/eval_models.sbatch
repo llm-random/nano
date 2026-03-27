@@ -1,12 +1,12 @@
 #!/bin/bash -l
 
-#SBATCH --array=0-19
+#SBATCH --array=0-7
 #SBATCH --cpus-per-gpu=12
-#SBATCH --gres=gpu:hopper:1
-#SBATCH --job-name=tiny_remote
+#SBATCH --gres=gpu:1
+#SBATCH --job-name=ctx_long_batch_eval
 #SBATCH --mem-per-gpu=90G
 #SBATCH --nodes=1
-#SBATCH --partition=plgrid-lem-gpu-h100
+#SBATCH --partition=h100
 #SBATCH --time=00:30:00
 
 set -euo pipefail
