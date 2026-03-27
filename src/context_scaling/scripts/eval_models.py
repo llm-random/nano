@@ -252,7 +252,7 @@ def main():
 
     cfg = load_cfg_from_yaml(yaml_path)
 
-    seq_len = args.seq_len if args.seq_len is not None else job["seq_len"]
+    seq_len = min(args.seq_len, job["seq_len"]) if args.seq_len is not None else job["seq_len"]
     print(f"seq_len={seq_len}, batch_size={args.batch_size}")
 
     model_step = (
