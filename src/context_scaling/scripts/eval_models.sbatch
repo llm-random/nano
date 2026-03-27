@@ -12,7 +12,6 @@
 set -euo pipefail
 
 #---------- SCRIPT ----------
-ml CUDA/12.4.0
 export PROJECT_HOME_PATH=/storage_nvme_4/jm
 export HF_HOME=$PROJECT_HOME_PATH/hf_cache
 export HYDRA_FULL_ERROR=1
