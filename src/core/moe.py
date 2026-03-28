@@ -24,6 +24,7 @@ class MoE(nn.Module):
         num_experts_per_tok: int,
         capacity_factor: float = 1.25,
         moe_load_balancing_loss_factor: float = 0.0,
+        moe_router_z_loss_factor: float = 0.0,
         activation_function: str = "swiglu",
         init_scale: float = 1.0,
         **_ignored_kwargs,
@@ -45,8 +46,11 @@ class MoE(nn.Module):
         self.num_experts_per_tok = num_experts_per_tok
         self.capacity_factor = capacity_factor
         self.moe_load_balancing_loss_factor = moe_load_balancing_loss_factor
+        self.moe_router_z_loss_factor = moe_router_z_loss_factor
         self.is_moe = True
         self.aux_loss = None
+        self.moe_load_balancing_loss = None
+        self.router_z_loss = None
 
         self.router_weight = nn.Parameter(torch.empty(num_experts, dmodel))
         self.ff_pre_act_weight = nn.Parameter(torch.empty(num_experts, dff, dmodel))
@@ -69,7 +73,8 @@ class MoE(nn.Module):
             hidden_states,
             self.router_weight,
         )
-        router_probs = F.softmax(router_logits, dim=-1, dtype=torch.float32)
+        router_logits = router_logits.to(dtype=torch.float32)
+        router_probs = F.softmax(router_logits, dim=-1)
         # For each token, keep only the top-k experts and their routing probabilities
         topk_probs, selected_experts = torch.topk(
             router_probs,
@@ -148,10 +153,14 @@ class MoE(nn.Module):
             expert_frequency = flat_experts.bincount(minlength=self.num_experts)
             expert_frequency = expert_frequency.to(router_probs.dtype)
             expert_frequency = expert_frequency / expert_frequency.sum().clamp_min(1)
-            self.aux_loss = (
+            self.moe_load_balancing_loss = (
                 self.num_experts * (router_probs.mean(dim=0) * expert_frequency).sum()
             )
+            self.aux_loss = self.moe_load_balancing_loss
+            self.router_z_loss = torch.logsumexp(router_logits, dim=-1).square().mean()
         else:
             self.aux_loss = None
+            self.moe_load_balancing_loss = None
+            self.router_z_loss = None
 
         return output

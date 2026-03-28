@@ -51,6 +51,7 @@ class Trainer:
         self.loss_interval_100 = 0.0
         self._last_reported_loss = torch.zeros((), device=self.device)
         self._last_moe_load_balancing_loss = torch.zeros((), device=self.device)
+        self._last_moe_router_z_loss = torch.zeros((), device=self.device)
 
         if self.eval_dataloader is not None and hasattr(
             self.eval_dataloader, "__iter__"
@@ -171,32 +172,38 @@ class Trainer:
                 reduction="none",
             )
             # Keep the reported loss as pure CE so train/loss stays comparable to eval/loss;
-            # the MoE load-balancing term is optimized and logged separately.
+            # MoE auxiliary terms are optimized and logged separately.
             reported_loss = mask_loss.mean()
             loss = reported_loss
             moe_load_balancing_loss = torch.zeros((), device=predicted_ids.device)
+            moe_router_z_loss = torch.zeros((), device=predicted_ids.device)
             if self.model.training:
                 moe_load_balancing_loss = self._calculate_moe_load_balancing_loss(
                     device=predicted_ids.device,
                 )
-                loss = loss + moe_load_balancing_loss
+                moe_router_z_loss = self._calculate_moe_router_z_loss(
+                    device=predicted_ids.device,
+                )
+                loss = loss + moe_load_balancing_loss + moe_router_z_loss
             reported_loss = reported_loss / self.gradient_accumulation_steps
             loss = loss / self.gradient_accumulation_steps
             moe_load_balancing_loss = (
                 moe_load_balancing_loss / self.gradient_accumulation_steps
             )
-            return loss, reported_loss, moe_load_balancing_loss
+            moe_router_z_loss = moe_router_z_loss / self.gradient_accumulation_steps
+            return loss, reported_loss, moe_load_balancing_loss, moe_router_z_loss
 
         losses = []
         reported_losses = []
         moe_load_balancing_losses = []
+        moe_router_z_losses = []
         for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
             input_ids, target_ids = self._preprocess_input(batch_chunk)
             input_ids = input_ids.to(self.device)
             if self.model.training:
                 self._update_processed_tokens(input_ids)
 
-            loss, reported_loss, moe_load_balancing_loss = (
+            loss, reported_loss, moe_load_balancing_loss, moe_router_z_loss = (
                 _hack_for_python_garbage_collection(input_ids, target_ids)
             )
             if self.model.training:
@@ -204,6 +211,7 @@ class Trainer:
             losses.append(loss.item())
             reported_losses.append(reported_loss.item())
             moe_load_balancing_losses.append(moe_load_balancing_loss.item())
+            moe_router_z_losses.append(moe_router_z_loss.item())
 
         # gloo backend supports only sum reduce operation, therfore we first divide by world size and then sum
         avg_loss = torch.tensor(losses, device=loss.device).sum()
@@ -215,25 +223,56 @@ class Trainer:
             moe_load_balancing_losses,
             device=loss.device,
         ).sum()
+        avg_moe_router_z_loss = torch.tensor(
+            moe_router_z_losses,
+            device=loss.device,
+        ).sum()
         if dist.is_initialized():
             dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
             dist.all_reduce(avg_reported_loss, op=dist.ReduceOp.SUM)
             dist.all_reduce(avg_moe_load_balancing_loss, op=dist.ReduceOp.SUM)
+            dist.all_reduce(avg_moe_router_z_loss, op=dist.ReduceOp.SUM)
 
         self._last_reported_loss = avg_reported_loss / float(os.environ["WORLD_SIZE"])
         self._last_moe_load_balancing_loss = avg_moe_load_balancing_loss / float(
             os.environ["WORLD_SIZE"]
         )
+        self._last_moe_router_z_loss = avg_moe_router_z_loss / float(
+            os.environ["WORLD_SIZE"]
+        )
         return avg_loss / float(os.environ["WORLD_SIZE"])
 
-    def _calculate_moe_load_balancing_loss(self, device):
+    def _calculate_weighted_moe_loss(
+        self,
+        device,
+        loss_attr,
+        factor_attr,
+        fallback_loss_attr=None,
+    ):
         loss = torch.zeros((), device=device)
         for module in self.model.modules():
-            aux_loss = getattr(module, "aux_loss", None)
-            factor = getattr(module, "moe_load_balancing_loss_factor", 0.0)
+            aux_loss = getattr(module, loss_attr, None)
+            if aux_loss is None and fallback_loss_attr is not None:
+                aux_loss = getattr(module, fallback_loss_attr, None)
+            factor = getattr(module, factor_attr, 0.0)
             if aux_loss is not None and factor:
                 loss = loss + aux_loss.to(device=device) * factor
         return loss
+
+    def _calculate_moe_load_balancing_loss(self, device):
+        return self._calculate_weighted_moe_loss(
+            device=device,
+            loss_attr="moe_load_balancing_loss",
+            factor_attr="moe_load_balancing_loss_factor",
+            fallback_loss_attr="aux_loss",
+        )
+
+    def _calculate_moe_router_z_loss(self, device):
+        return self._calculate_weighted_moe_loss(
+            device=device,
+            loss_attr="router_z_loss",
+            factor_attr="moe_router_z_loss_factor",
+        )
 
     def eval(self):
         self.model.eval()
@@ -277,6 +316,10 @@ class Trainer:
         self.metric_logger.log(
             "train/moe_load_balancing_loss",
             self._last_moe_load_balancing_loss.item(),
+        )
+        self.metric_logger.log(
+            "train/moe_router_z_loss",
+            self._last_moe_router_z_loss.item(),
         )
         self.metric_logger.log("train/lr", self.scheduler.get_last_lr()[0])
         self.metric_logger.log("train/grad_norm", grad_norm.item())
