@@ -252,14 +252,14 @@ def main():
 
     cfg = load_cfg_from_yaml(yaml_path)
 
-    seq_len = min(args.seq_len, job["seq_len"]) if args.seq_len is not None else job["seq_len"]
+    seq_len = (
+        min(args.seq_len, job["seq_len"])
+        if args.seq_len is not None
+        else job["seq_len"]
+    )
     print(f"seq_len={seq_len}, batch_size={args.batch_size}")
 
-    model_step = (
-        args.model_step
-        if args.model_step is not None
-        else job["model_step"]
-    )
+    model_step = args.model_step if args.model_step is not None else job["model_step"]
     out_csv = os.path.join(
         out_dir, make_csv_name(run_id, args.out_csv_format, cfg, model_step)
     )
