@@ -3,9 +3,9 @@ defaults:
   - _self_
 
 common:
-  dmodel: 768
-  dff: 2048
+  dmodel: 1024
+  dff: 2816
   dhead: 64
-  n_blocks: 12
-  q_heads: 32
-  kv_heads: 32
+  n_blocks: 16
+  q_heads: 16
+  kv_heads: 16

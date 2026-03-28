@@ -1,6 +1,6 @@
 defaults:
   - _cluster@_here_: entropy
-  - _model/llama@_here_: small
+  - _model/llama@_here_: small_moe
   - _trainer@_here_: llama
   - _dataset@_here_: c4
   - _checkpoints@_here_: none
@@ -12,15 +12,24 @@ common:
   sequence_length: 1024
   batch_size: 32
 
+model:
+  embedding:
+    vocab_size: 50257
+
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 10000
-  learning_rate: 1e-3
+  n_steps: 40000
+  learning_rate: 5e-4
 
-  checkpoint:
-    save:
-      type: nano
-      path: checkpoint
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
 
 infrastructure:
   max_concurrent_jobs: 1
@@ -29,7 +38,7 @@ infrastructure:
     type: wandb
     wandb_entity: ideas_cv
     project_name: llm-random-test
-    name: test_dense_32
+    name: test_long_fix2_moe_16
     tags:
       - nano
       - remote
