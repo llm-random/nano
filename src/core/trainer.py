@@ -49,6 +49,7 @@ class Trainer:
         self.start_step = self.training_state["next_step"]
         self.device = next(self.model.parameters()).device
         self.loss_interval_100 = 0.0
+        self._last_reported_loss = torch.zeros((), device=self.device)
         self._last_moe_load_balancing_loss = torch.zeros((), device=self.device)
 
         if self.eval_dataloader is not None and hasattr(
@@ -169,20 +170,25 @@ class Trainer:
                 target_ids.reshape(-1).long(),
                 reduction="none",
             )
-            loss = mask_loss.mean()
+            # Keep the reported loss as pure CE so train/loss stays comparable to eval/loss;
+            # the MoE load-balancing term is optimized and logged separately.
+            reported_loss = mask_loss.mean()
+            loss = reported_loss
             moe_load_balancing_loss = torch.zeros((), device=predicted_ids.device)
             if self.model.training:
                 moe_load_balancing_loss = self._calculate_moe_load_balancing_loss(
                     device=predicted_ids.device,
                 )
                 loss = loss + moe_load_balancing_loss
+            reported_loss = reported_loss / self.gradient_accumulation_steps
             loss = loss / self.gradient_accumulation_steps
             moe_load_balancing_loss = (
                 moe_load_balancing_loss / self.gradient_accumulation_steps
             )
-            return loss, moe_load_balancing_loss
+            return loss, reported_loss, moe_load_balancing_loss
 
         losses = []
+        reported_losses = []
         moe_load_balancing_losses = []
         for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
             input_ids, target_ids = self._preprocess_input(batch_chunk)
@@ -190,24 +196,31 @@ class Trainer:
             if self.model.training:
                 self._update_processed_tokens(input_ids)
 
-            loss, moe_load_balancing_loss = _hack_for_python_garbage_collection(
-                input_ids, target_ids
+            loss, reported_loss, moe_load_balancing_loss = (
+                _hack_for_python_garbage_collection(input_ids, target_ids)
             )
             if self.model.training:
                 loss.backward()
             losses.append(loss.item())
+            reported_losses.append(reported_loss.item())
             moe_load_balancing_losses.append(moe_load_balancing_loss.item())
 
         # gloo backend supports only sum reduce operation, therfore we first divide by world size and then sum
         avg_loss = torch.tensor(losses, device=loss.device).sum()
+        avg_reported_loss = torch.tensor(
+            reported_losses,
+            device=loss.device,
+        ).sum()
         avg_moe_load_balancing_loss = torch.tensor(
             moe_load_balancing_losses,
             device=loss.device,
         ).sum()
         if dist.is_initialized():
             dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
+            dist.all_reduce(avg_reported_loss, op=dist.ReduceOp.SUM)
             dist.all_reduce(avg_moe_load_balancing_loss, op=dist.ReduceOp.SUM)
 
+        self._last_reported_loss = avg_reported_loss / float(os.environ["WORLD_SIZE"])
         self._last_moe_load_balancing_loss = avg_moe_load_balancing_loss / float(
             os.environ["WORLD_SIZE"]
         )
@@ -260,7 +273,7 @@ class Trainer:
 
     def log_metrics(self, loss, grad_norm):
         self.metric_logger.set_tokens(self.processed_tokens)
-        self.metric_logger.log("train/loss", loss.item())
+        self.metric_logger.log("train/loss", self._last_reported_loss.item())
         self.metric_logger.log(
             "train/moe_load_balancing_loss",
             self._last_moe_load_balancing_loss.item(),
@@ -268,7 +281,7 @@ class Trainer:
         self.metric_logger.log("train/lr", self.scheduler.get_last_lr()[0])
         self.metric_logger.log("train/grad_norm", grad_norm.item())
 
-        self.loss_averaged_100.log(self.metric_logger, loss.item())
+        self.loss_averaged_100.log(self.metric_logger, self._last_reported_loss.item())
         self.time_diff_averaged_100.log(self.metric_logger, time.time())
 
         self.metric_logger.flush_accumulated_metrics()

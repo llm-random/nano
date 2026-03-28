@@ -76,9 +76,6 @@ class MoE(nn.Module):
             k=self.num_experts_per_tok,
             dim=-1,
         )
-        topk_probs = topk_probs / topk_probs.sum(dim=-1, keepdim=True).clamp_min(
-            torch.finfo(topk_probs.dtype).eps
-        )
 
         # Keep only the highest-gated assignments per expert up to its capacity
         flat_tokens = torch.arange(
@@ -108,19 +105,6 @@ class MoE(nn.Module):
         kept_tokens = sorted_tokens[keep]
         kept_slots = slot_in_expert[keep]
         kept_weights = sorted_weights[keep]
-        token_weight_sums = torch.zeros(
-            num_tokens,
-            dtype=kept_weights.dtype,
-            device=hidden_states.device,
-        )
-        token_weight_sums = token_weight_sums.index_add(
-            0,
-            kept_tokens,
-            kept_weights,
-        )
-        kept_weights = kept_weights / token_weight_sums[kept_tokens].clamp_min(
-            torch.finfo(kept_weights.dtype).eps
-        )
 
         # Dispatch the surviving tokens into expert-capacity slots and run the expert MLP batched per expert
         flat_capacity = self.num_experts * capacity
