@@ -204,11 +204,6 @@ def submit_experiment(
             cemetery_dir = cfg.infrastructure.cemetery_experiments_dir
             connection.run(f"mkdir -p {cemetery_dir}")
 
-            if "NEPTUNE_API_TOKEN" in os.environ:
-                connection.config["run"]["env"]["NEPTUNE_API_TOKEN"] = os.environ[
-                    "NEPTUNE_API_TOKEN"
-                ]
-
             if "WANDB_API_KEY" in os.environ:
                 connection.config["run"]["env"]["WANDB_API_KEY"] = os.environ[
                     "WANDB_API_KEY"

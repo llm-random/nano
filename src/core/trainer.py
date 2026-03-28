@@ -19,7 +19,7 @@ from src.core.checkpointing import (
     save_training_state,
     step_checkpoint_path,
 )
-from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger, WandbLogger
+from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -64,8 +64,8 @@ class Trainer:
             for _ in range(n_skip_eval_batches):
                 next(self.eval_iterator)
 
-        self.loss_averaged_100 = AveMetric(100, "steps/100/train/loss")
-        self.time_diff_averaged_100 = AveDiffMetric(100, "steps/100/time", time.time())
+        self.loss_averaged_100 = AveMetric(100, "100/train/loss")
+        self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
 
     @property
     def _should_evaluate(self) -> bool:
@@ -102,6 +102,7 @@ class Trainer:
         ):
             self.step = step
             self.metric_logger.set_step(step)
+            self.metric_logger.set_tokens(self.processed_tokens)
             self.model.train()
             loss = self.calculate_loss(batch)
 
@@ -118,6 +119,8 @@ class Trainer:
 
             if self._should_evaluate:
                 self.eval()
+
+            self.metric_logger.flush()
 
         if self._should_save_final_checkpoint:
             if self.checkpoint.save.type == "nano":
@@ -201,21 +204,15 @@ class Trainer:
                 batch = batch.to(self.device)
                 loss = self.calculate_loss(batch)
                 losses.append(loss.item())
-                self.metric_logger.flush_accumulated_metrics(self.step)
+                self.metric_logger.flush_accumulated_metrics()
             avg_loss = torch.tensor(losses).mean()
-            self.metric_logger.log("steps/eval/loss", self.step, avg_loss.item())
-            if not isinstance(self.metric_logger, (WandbLogger)):
-                # TODO: Fix W&B logging with alternative x-axis
-                self.metric_logger.log(
-                    "tokens/eval/loss", self.processed_tokens, avg_loss.item()
-                )
+            self.metric_logger.log("eval/loss", avg_loss.item())
 
         if self._should_log_eval_input:
-            self.metric_logger.log(
-                f"steps/eval/batch", self.step, str(eval_fingerprint)
-            )
+            self.metric_logger.log("eval/batch", str(eval_fingerprint))
 
         self.step = saved_step  # Restore step
+        self.metric_logger.set_step(saved_step)
 
     def clip_gradient(self):
         if self.gradient_clipping is not None:
@@ -230,31 +227,15 @@ class Trainer:
         self.processed_tokens += batch.numel() * int(os.environ["WORLD_SIZE"])
 
     def log_metrics(self, loss, grad_norm):
-        self.metric_logger.log("step", self.step, self.step)
-        self.metric_logger.log("steps/train/loss", self.step, loss.item())
-        self.metric_logger.log(
-            "steps/train/lr", self.step, (self.scheduler.get_last_lr()[0])
-        )
-        self.metric_logger.log("steps/train/grad_norm", self.step, grad_norm.item())
-        self.metric_logger.log(
-            "steps/train/processed_tokens", self.step, self.processed_tokens
-        )
-        if not isinstance(self.metric_logger, (WandbLogger)):
-            # TODO: Fix W&B logging with alternative x-axis
-            self.metric_logger.log(
-                "tokens/train/loss", self.processed_tokens, loss.item()
-            )
-            self.metric_logger.log(
-                "tokens/lr", self.processed_tokens, (self.scheduler.get_last_lr()[0])
-            )
-            self.metric_logger.log(
-                "tokens/train/grad_norm", self.processed_tokens, grad_norm.item()
-            )
+        self.metric_logger.set_tokens(self.processed_tokens)
+        self.metric_logger.log("train/loss", loss.item())
+        self.metric_logger.log("train/lr", self.scheduler.get_last_lr()[0])
+        self.metric_logger.log("train/grad_norm", grad_norm.item())
 
-        self.loss_averaged_100.log(self.metric_logger, self.step, loss.item())
-        self.time_diff_averaged_100.log(self.metric_logger, self.step, time.time())
+        self.loss_averaged_100.log(self.metric_logger, loss.item())
+        self.time_diff_averaged_100.log(self.metric_logger, time.time())
 
-        self.metric_logger.flush_accumulated_metrics(self.step)
+        self.metric_logger.flush_accumulated_metrics()
 
     def save_checkpoint(self):
         if (
