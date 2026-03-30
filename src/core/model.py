@@ -7,7 +7,6 @@ from typing import Callable, Optional
 import torch
 import torch.nn.functional as F
 import torch.distributed as dist
-from torch.nn.attention import SDPBackend
 from torch.nn.init import trunc_normal_
 from torch import zeros
 from torch.nn import (
@@ -370,11 +369,12 @@ class RoPE(nn.Module):
         if seq_len > self.length:
             self.length = seq_len
             self.register_freqs()
+        if self.cos.device != x.device or self.cos.dtype != x.dtype:
+            self.cos = self.cos.to(x.device, dtype=x.dtype)
+            self.sin = self.sin.to(x.device, dtype=x.dtype)
         [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
         x_rotated = torch.cat([-y2, y1], dim=-1)
-        cos_scaler = self.cos[:seq_len, :].to(x.device, dtype=x.dtype)
-        sin_scaler = self.sin[:seq_len, :].to(x.device, dtype=x.dtype)
-        return x * cos_scaler + x_rotated * sin_scaler
+        return x * self.cos[:seq_len, :] + x_rotated * self.sin[:seq_len, :]
 
 
 class RoPEAttention(nn.Module):
@@ -456,17 +456,13 @@ def attention_mechanism(
     value: torch.Tensor,
     causal: bool,
 ):
-    # https://github.com/pytorch/pytorch/blob/ce503c1b40207dab770c28cbd4568cd9e105277b/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp#L556
-    with torch.nn.attention.sdpa_kernel(
-        [SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]
-    ):
-        return F.scaled_dot_product_attention(
-            query=query,
-            key=key,
-            value=value,
-            attn_mask=None,
-            is_causal=causal,
-        )
+    return F.scaled_dot_product_attention(
+        query=query,
+        key=key,
+        value=value,
+        attn_mask=None,
+        is_causal=causal,
+    )
 
 
 class AttentionMechanism(nn.Module):

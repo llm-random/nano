@@ -46,6 +46,7 @@ class Trainer:
     distributed: Optional[dict]
     evaluator: Optional[Evaluator] = None
     lm_eval_interval: int = 0
+    compile: Optional[dict] = None
 
     def __attrs_post_init__(self):
         self.processed_tokens = self.training_state["processed_tokens"]
@@ -116,9 +117,13 @@ class Trainer:
             self.metric_logger.set_step(step)
             self.metric_logger.set_tokens(self.processed_tokens)
             self.model.train()
-            loss = self.calculate_loss(batch)
+            avg_loss, reduce_handle = self.calculate_loss(batch)
 
             grad_norm = self.clip_gradient()
+
+            if reduce_handle is not None:
+                reduce_handle.wait()
+            loss = avg_loss / float(os.environ["WORLD_SIZE"])
 
             self.log_metrics(loss, grad_norm)
 
@@ -206,9 +211,11 @@ class Trainer:
         # gloo backend supports only sum reduce operation, therfore we first divide by world size and then sum
         avg_loss = torch.tensor(losses, device=loss.device).sum()
         if dist.is_initialized():
-            dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
+            handle = dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM, async_op=True)
+        else:
+            handle = None
 
-        return avg_loss / float(os.environ["WORLD_SIZE"])
+        return avg_loss, handle
 
     def eval(self):
         self.model.eval()
@@ -222,7 +229,10 @@ class Trainer:
                 batch_fingerprint = create_batch_fingerprint(batch)
                 eval_fingerprint.extend(batch_fingerprint)
                 batch = batch.to(self.device)
-                loss = self.calculate_loss(batch)
+                avg_loss, reduce_handle = self.calculate_loss(batch)
+                if reduce_handle is not None:
+                    reduce_handle.wait()
+                loss = avg_loss / float(os.environ["WORLD_SIZE"])
                 losses.append(loss.item())
             avg_loss = torch.tensor(losses).mean()
             self.metric_logger.log("eval/loss", avg_loss.item())

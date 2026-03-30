@@ -6,7 +6,7 @@ trainer:
   train_dataloader:
     _target_: src.context_scaling.dataset.get_dataloader
     total_batch_size: ${common.batch_size}
-    num_workers: 0
+    num_workers: 4
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}
@@ -28,7 +28,7 @@ trainer:
   eval_dataloader:
     _target_: src.context_scaling.dataset.get_dataloader
     total_batch_size: ${common.batch_size}
-    num_workers: 0
+    num_workers: 4
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}

@@ -9,6 +9,10 @@ trainer:
   learning_rate: null
   weight_decay: 0.1
 
+  compile:
+    enabled: false
+    mode: "reduce-overhead"
+
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.WSDScheduler

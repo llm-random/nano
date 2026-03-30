@@ -281,12 +281,18 @@ def get_dataloader(
     logger.debug(f"Batch size per device: {batch_size_per_device}")
     logger.debug(f"Total: {total_batch_size}")
 
+    worker_kwargs = {}
+    if num_workers > 0:
+        worker_kwargs["persistent_workers"] = True
+        worker_kwargs["prefetch_factor"] = 4
+
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size_per_device,
         collate_fn=collate_fn,
         pin_memory=True,
         num_workers=num_workers,
+        **worker_kwargs,
     )
 
     return dataloader

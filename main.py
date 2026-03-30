@@ -196,6 +196,13 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
                 logger.info("Initialization failed, exiting...")
                 return None, None, None
     model = setup_distributed_training(model, cfg.trainer.distributed)
+
+    compile_cfg = cfg.trainer.get("compile")
+    if compile_cfg is not None and compile_cfg.get("enabled", False):
+        compile_mode = compile_cfg.get("mode", "reduce-overhead")
+        logger.info(f"Compiling model with mode='{compile_mode}'")
+        model = torch.compile(model, mode=compile_mode)
+
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=learning_rate,
