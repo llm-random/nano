@@ -40,7 +40,7 @@ export LOCAL_RANK=0
 
 srun --export=ALL --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scripts/eval_models.py \
     --dataset_dir /lustre/pd01/plgrid/plgllmefficont2/datasets/c4/long_context_2048n8192 \
-    --jobs_json 2503_grid \
-    --out_dir 2503_grid \
+    --jobs_json 2503_grid_namesfix \
+    --out_dir 2503_grid_namesfix \
     --seq_len 2048 \
     --batch_size 32 \
