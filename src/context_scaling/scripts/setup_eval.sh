@@ -25,7 +25,7 @@ export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
 #
 # Optionally updates your sbatch array length if you pass --sbatch_path.
 python src/context_scaling/scripts/setup_eval.py \
-    --tags 2503_grid_namesfix \
+    --tags 2503_grid \
     --negative_tags remove \
     --out_dir 2503_grid_namesfix \
     --sbatch_path src/context_scaling/scripts/eval_models.sbatch
