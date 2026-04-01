@@ -32,20 +32,19 @@ def flatten_dict(d, parent_key="", sep="."):
     return dict(items)
 
 
-def make_csv_name(run_id: str, template: str, cfg, model_step: int) -> str:
+def append_to_index(out_dir: str, csv_filename: str, run_id: str, model_step: int, cfg, seq_len: int):
+    """Append one entry to index.jsonl with full flat config + eval metadata."""
     flat_cfg = flatten_dict(OmegaConf.to_container(cfg, resolve=True))
-
-    parts = [run_id]
-    for kw in template.split(","):
-        kw = kw.strip().replace("/", ".")
-        for k, v in flat_cfg.items():
-            if kw in k:
-                kw_leaf = kw.split(".")[-1]
-                parts.append(f"{kw_leaf}={v}")
-                break
-    parts.append(f"step={model_step}")
-
-    return "+".join(parts) + ".csv"
+    entry = {
+        "csv": csv_filename,
+        "run_id": run_id,
+        "model_step": model_step,
+        "eval_seq_len": seq_len,
+    }
+    entry.update(flat_cfg)
+    index_path = os.path.join(out_dir, "index.jsonl")
+    with open(index_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, default=str) + "\n")
 
 
 def load_cfg_from_yaml(yaml_path: Path):
@@ -196,12 +195,6 @@ def main():
         help="Path to dataset loaded with load_from_disk",
     )
     parser.add_argument(
-        "--out_csv_format",
-        type=str,
-        default="kv_heads,dff",
-        help="Comma-separated keywords for CSV filename template",
-    )
-    parser.add_argument(
         "--out_dir",
         type=str,
         default=".",
@@ -260,9 +253,7 @@ def main():
     print(f"seq_len={seq_len}, batch_size={args.batch_size}")
 
     model_step = args.model_step if args.model_step is not None else job["model_step"]
-    out_csv = os.path.join(
-        out_dir, make_csv_name(run_id, args.out_csv_format, cfg, model_step)
-    )
+    out_csv = os.path.join(out_dir, f"{run_id}_step_{model_step}.csv")
 
     try:
         eval_model(
@@ -275,6 +266,8 @@ def main():
             batch_size=args.batch_size,
             device=device,
         )
+        csv_filename = os.path.basename(out_csv)
+        append_to_index(str(out_dir), csv_filename, run_id, model_step, cfg, seq_len)
     finally:
         if dist.is_initialized():
             dist.destroy_process_group()
