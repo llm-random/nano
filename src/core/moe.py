@@ -48,7 +48,6 @@ class MoE(nn.Module):
         self.moe_load_balancing_loss_factor = moe_load_balancing_loss_factor
         self.moe_router_z_loss_factor = moe_router_z_loss_factor
         self.is_moe = True
-        self.aux_loss = None
         self.moe_load_balancing_loss = None
         self.router_z_loss = None
 
@@ -156,10 +155,8 @@ class MoE(nn.Module):
             self.moe_load_balancing_loss = (
                 self.num_experts * (router_probs.mean(dim=0) * expert_frequency).sum()
             )
-            self.aux_loss = self.moe_load_balancing_loss
             self.router_z_loss = torch.logsumexp(router_logits, dim=-1).square().mean()
         else:
-            self.aux_loss = None
             self.moe_load_balancing_loss = None
             self.router_z_loss = None
 

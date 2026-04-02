@@ -247,16 +247,13 @@ class Trainer:
         device,
         loss_attr,
         factor_attr,
-        fallback_loss_attr=None,
     ):
         loss = torch.zeros((), device=device)
         for module in self.model.modules():
-            aux_loss = getattr(module, loss_attr, None)
-            if aux_loss is None and fallback_loss_attr is not None:
-                aux_loss = getattr(module, fallback_loss_attr, None)
+            module_loss = getattr(module, loss_attr, None)
             factor = getattr(module, factor_attr, 0.0)
-            if aux_loss is not None and factor:
-                loss = loss + aux_loss.to(device=device) * factor
+            if module_loss is not None and factor:
+                loss = loss + module_loss.to(device=device) * factor
         return loss
 
     def _calculate_moe_load_balancing_loss(self, device):
@@ -264,7 +261,6 @@ class Trainer:
             device=device,
             loss_attr="moe_load_balancing_loss",
             factor_attr="moe_load_balancing_loss_factor",
-            fallback_loss_attr="aux_loss",
         )
 
     def _calculate_moe_router_z_loss(self, device):
