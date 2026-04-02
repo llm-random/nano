@@ -25,6 +25,7 @@ class MoE(nn.Module):
         capacity_factor: float = 1.25,
         moe_load_balancing_loss_factor: float = 0.0,
         moe_router_z_loss_factor: float = 0.0,
+        normalize_router_logits: bool = False,
         activation_function: str = "swiglu",
         init_scale: float = 1.0,
         **_ignored_kwargs,
@@ -39,6 +40,10 @@ class MoE(nn.Module):
             )
         if capacity_factor <= 0:
             raise ValueError(f"capacity_factor must be > 0, got {capacity_factor}.")
+        if normalize_router_logits and num_experts_per_tok == 1:
+            raise AssertionError(
+                "normalize_router_logits requires num_experts_per_tok > 1."
+            )
 
         self.dmodel = dmodel
         self.dff = dff
@@ -47,6 +52,7 @@ class MoE(nn.Module):
         self.capacity_factor = capacity_factor
         self.moe_load_balancing_loss_factor = moe_load_balancing_loss_factor
         self.moe_router_z_loss_factor = moe_router_z_loss_factor
+        self.normalize_router_logits = normalize_router_logits
         self.is_moe = True
         self.moe_load_balancing_loss = None
         self.router_z_loss = None
@@ -109,6 +115,11 @@ class MoE(nn.Module):
         kept_tokens = sorted_tokens[keep]
         kept_slots = slot_in_expert[keep]
         kept_weights = sorted_weights[keep]
+        if self.normalize_router_logits and kept_weights.numel() > 0:
+            # Renormalize only the surviving expert weights so each token sums to 1 after capacity pruning.
+            token_weight_sums = kept_weights.new_zeros(num_tokens)
+            token_weight_sums.index_add_(0, kept_tokens, kept_weights)
+            kept_weights = kept_weights / token_weight_sums.index_select(0, kept_tokens)
 
         # Dispatch the surviving tokens into expert-capacity slots and run the expert MLP batched per expert
         flat_capacity = self.num_experts * capacity

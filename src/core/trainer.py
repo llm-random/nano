@@ -48,6 +48,9 @@ class Trainer:
         self.processed_tokens = self.training_state["processed_tokens"]
         self.start_step = self.training_state["next_step"]
         self.device = next(self.model.parameters()).device
+        self._has_moe_modules = any(
+            getattr(module, "is_moe", False) for module in self.model.modules()
+        )
         self.loss_interval_100 = 0.0
         self._last_reported_loss = torch.zeros((), device=self.device)
         self._last_moe_load_balancing_loss = torch.zeros((), device=self.device)
@@ -177,7 +180,7 @@ class Trainer:
             loss = reported_loss
             moe_load_balancing_loss = torch.zeros((), device=predicted_ids.device)
             moe_router_z_loss = torch.zeros((), device=predicted_ids.device)
-            if self.model.training:
+            if self.model.training and self._has_moe_modules:
                 moe_load_balancing_loss = self._calculate_moe_load_balancing_loss(
                     device=predicted_ids.device,
                 )
@@ -309,14 +312,15 @@ class Trainer:
     def log_metrics(self, loss, grad_norm):
         self.metric_logger.set_tokens(self.processed_tokens)
         self.metric_logger.log("train/loss", self._last_reported_loss.item())
-        self.metric_logger.log(
-            "train/moe_load_balancing_loss",
-            self._last_moe_load_balancing_loss.item(),
-        )
-        self.metric_logger.log(
-            "train/moe_router_z_loss",
-            self._last_moe_router_z_loss.item(),
-        )
+        if self._has_moe_modules:
+            self.metric_logger.log(
+                "train/moe_load_balancing_loss",
+                self._last_moe_load_balancing_loss.item(),
+            )
+            self.metric_logger.log(
+                "train/moe_router_z_loss",
+                self._last_moe_router_z_loss.item(),
+            )
         self.metric_logger.log("train/lr", self.scheduler.get_last_lr()[0])
         self.metric_logger.log("train/grad_norm", grad_norm.item())
 
