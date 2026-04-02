@@ -192,3 +192,9 @@ checkpoints
 
 # MAS (madragonse)
 *mastest*
+
+*.csv
+*.arrow
+data_long_ctx/
+data_test/
+eval_results.json

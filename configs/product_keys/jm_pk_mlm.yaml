@@ -1,0 +1,70 @@
+# @package _global_
+defaults:
+  - /_cluster/lem@_here_
+  - /_model/pk_attn_k16@_here_
+  - /_trainer/llama@_here_
+  - /_dataset/c4@_here_
+  - /_checkpoints/none@_here_
+  - /_misc/default@_here_
+  - _self_
+
+common:
+  sequence_length: 256
+  batch_size: 256
+  init_scale: 0.1
+
+trainer:
+  _target_: src.product_keys.trainer.MaskedLMTrainer
+  masking_percentage: 0.2
+  mask_token_id: 50257
+  unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
+  gradient_accumulation_steps: 2
+  # n_steps: 77050
+  n_steps: 3000
+  # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+  ^learning_rate: [14, 13, 12, 11, 10]
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    ^warmup_steps: [150, 300, 700, 1500]
+  train_dataloader:
+    dataset:
+      seed: 42
+      tokenize_fn:
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+
+
+infrastructure:
+  metric_logger:
+    type: wandb
+    wandb_entity: ideas_cv
+    name: jm_debug
+    project_name: tml-bgw
+    heavy_metrics_calculation_interval: 150
+    heavy_logging_layers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    tags:
+      - nano
+      - pk_mlm
+      - 2026.04.02
+      - jm
+      - warmup_steps=${trainer.scheduler.warmup_steps}
+      - learned_embeddings
+      - QKNorm
+      - initialization_grid
+      - init_scale_${common.init_scale}
+      - init_only_keys
+      - "lr=${trainer.learning_rate}"
+      - "seq_len=${common.sequence_length}"
+      - "n_layers=${common.n_blocks}"
+      - "dmodel=${common.dmodel}"
+      - seed=${trainer.train_dataloader.dataset.seed}
+  slurm:
+    gres: gpu:hopper:2
+    time: "1-00:00:00"
+    job-name: ${infrastructure.metric_logger.name}
+
