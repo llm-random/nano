@@ -10,7 +10,7 @@ defaults:
 
 common:
   sequence_length: 1024
-  batch_size: 32
+  batch_size: 64
 
 model:
   embedding:
@@ -18,7 +18,7 @@ model:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 40000
+  n_steps: 1000
   learning_rate: 5e-4
 
   train_dataloader:
@@ -38,7 +38,7 @@ infrastructure:
     type: wandb
     wandb_entity: ideas_cv
     project_name: llm-random-test
-    name: test_long_fix2_moe_16
+    name: moe_2gpu
     tags:
       - nano
       - remote
@@ -46,8 +46,8 @@ infrastructure:
       - moe
 
   slurm:
-    time: "1-00:00:00"
-    gres: gpu:1
+    time: "0-02:00:00"
+    gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}
 
 evaluator: null
