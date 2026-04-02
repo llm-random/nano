@@ -9,7 +9,7 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 512
+  sequence_length: 256
   batch_size: 256
   init_scale: 0.1
 
