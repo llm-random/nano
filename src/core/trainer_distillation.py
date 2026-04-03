@@ -172,7 +172,9 @@ class TrainerDistillation(Trainer):
         self.metric_logger.log("train/total_loss", loss_metrics.total_loss.item())
         self.metric_logger.log("train/distill_loss", loss_metrics.distill_loss.item())
 
-        self.loss_averaged_100.log(self.metric_logger, loss_metrics.reported_loss.item())
+        self.loss_averaged_100.log(
+            self.metric_logger, loss_metrics.reported_loss.item()
+        )
         self.total_loss_averaged_100.log(
             self.metric_logger, loss_metrics.total_loss.item()
         )

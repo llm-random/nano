@@ -323,7 +323,9 @@ class Trainer:
         if grad_norm is not None:
             self.metric_logger.log("train/grad_norm", grad_norm.item())
 
-        self.loss_averaged_100.log(self.metric_logger, loss_metrics.reported_loss.item())
+        self.loss_averaged_100.log(
+            self.metric_logger, loss_metrics.reported_loss.item()
+        )
         if self._has_moe_modules:
             self.total_loss_averaged_100.log(
                 self.metric_logger, loss_metrics.total_loss.item()
