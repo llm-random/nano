@@ -7,7 +7,7 @@ from typing import Optional
 import torch.distributed as dist
 import logging
 
-from src.core.trainer import Trainer
+from src.core.trainer import LossMetrics, Trainer
 from src.core.metric_loggers import AveMetric
 from src.core.utils import create_batch_fingerprint
 
@@ -83,7 +83,7 @@ class TrainerDistillation(Trainer):
         # Scale by temperature^2 to normalize
         return kl_loss * (self.distillation_temperature**2)
 
-    def calculate_loss(self, batch):
+    def calculate_loss(self, batch) -> LossMetrics:
         """Override to compute both CE loss and distillation loss"""
 
         def _compute_losses(input_ids, target_ids):
@@ -122,7 +122,7 @@ class TrainerDistillation(Trainer):
             return total_loss, ce_loss, distill_loss
 
         total_losses = []
-        ce_losses = []
+        reported_losses = []
         distill_losses = []
 
         for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
@@ -137,51 +137,50 @@ class TrainerDistillation(Trainer):
             if self.model.training:
                 total_loss.backward()
 
-            total_losses.append(total_loss.item())
-            ce_losses.append(ce_loss.item())
-            distill_losses.append(distill_loss.item())
+            total_losses.append(total_loss.detach())
+            reported_losses.append(ce_loss.detach())
+            distill_losses.append(distill_loss.detach())
 
         # Average and synchronize across devices
-        avg_total_loss = torch.tensor(total_losses, device=self.device).sum()
-        avg_ce_loss = torch.tensor(ce_losses, device=self.device).sum()
-        avg_distill_loss = torch.tensor(distill_losses, device=self.device).sum()
+        avg_total_loss = torch.stack(total_losses).sum()
+        avg_reported_loss = torch.stack(reported_losses).sum()
+        avg_distill_loss = torch.stack(distill_losses).sum()
 
         if dist.is_initialized():
             dist.all_reduce(avg_total_loss, op=dist.ReduceOp.SUM)
-            dist.all_reduce(avg_ce_loss, op=dist.ReduceOp.SUM)
+            dist.all_reduce(avg_reported_loss, op=dist.ReduceOp.SUM)
             dist.all_reduce(avg_distill_loss, op=dist.ReduceOp.SUM)
 
         world_size = float(os.environ["WORLD_SIZE"])
+        return LossMetrics(
+            total_loss=avg_total_loss / world_size,
+            reported_loss=avg_reported_loss / world_size,
+            distill_loss=avg_distill_loss / world_size,
+        )
 
-        # Store individual losses for logging
-        self._last_ce_loss = avg_ce_loss / world_size
-        self._last_distill_loss = avg_distill_loss / world_size
-
-        return avg_total_loss / world_size
-
-    def log_metrics(self, loss, grad_norm):
+    def log_metrics(self, loss_metrics: LossMetrics, grad_norm):
         """Override to add distillation-specific metrics"""
         self.metric_logger.set_tokens(self.processed_tokens)
         self.metric_logger.log("train/lr", self.scheduler.get_last_lr()[0])
-        self.metric_logger.log("train/grad_norm", grad_norm.item())
+        if grad_norm is not None:
+            self.metric_logger.log("train/grad_norm", grad_norm.item())
 
         self.time_diff_averaged_100.log(self.metric_logger, time.time())
 
-        # Add distillation-specific metrics
-        if hasattr(self, "_last_ce_loss"):
-            # `loss` is cross entropy loss on language modeling; `total_loss` is training loss!
-            self.metric_logger.log("train/loss", self._last_ce_loss.item())
-            self.metric_logger.log("train/total_loss", loss.item())
-            self.metric_logger.log("train/distill_loss", self._last_distill_loss.item())
+        # `reported_loss` is cross entropy loss on language modeling; `total_loss` is training loss.
+        self.metric_logger.log("train/loss", loss_metrics.reported_loss.item())
+        self.metric_logger.log("train/total_loss", loss_metrics.total_loss.item())
+        self.metric_logger.log("train/distill_loss", loss_metrics.distill_loss.item())
 
-            self.loss_averaged_100.log(self.metric_logger, self._last_ce_loss.item())
-            self.total_loss_averaged_100.log(self.metric_logger, loss.item())
-            self.distill_loss_averaged_100.log(
-                self.metric_logger, self._last_distill_loss.item()
-            )
-        else:
-            self.metric_logger.log("train/loss", loss.item())
-            self.loss_averaged_100.log(self.metric_logger, loss.item())
+        self.loss_averaged_100.log(
+            self.metric_logger, loss_metrics.reported_loss.item()
+        )
+        self.total_loss_averaged_100.log(
+            self.metric_logger, loss_metrics.total_loss.item()
+        )
+        self.distill_loss_averaged_100.log(
+            self.metric_logger, loss_metrics.distill_loss.item()
+        )
 
         self.metric_logger.flush_accumulated_metrics()
 
@@ -203,26 +202,20 @@ class TrainerDistillation(Trainer):
                 eval_fingerprint.extend(batch_fingerprint)
                 batch = batch.to(self.device)
 
-                loss = self.calculate_loss(batch)
-                losses.append(loss.item())
-
-                if hasattr(self, "_last_ce_loss"):
-                    ce_losses.append(self._last_ce_loss.item())
-                    distill_losses.append(self._last_distill_loss.item())
+                loss_metrics = self.calculate_loss(batch)
+                losses.append(loss_metrics.total_loss.detach())
+                ce_losses.append(loss_metrics.reported_loss.detach())
+                distill_losses.append(loss_metrics.distill_loss.detach())
 
                 self.metric_logger.flush_accumulated_metrics()
 
-            avg_loss = torch.tensor(losses).mean()
-
-            if ce_losses:
-                avg_ce_loss = torch.tensor(ce_losses).mean()
-                avg_distill_loss = torch.tensor(distill_losses).mean()
-                # `loss` is cross entropy loss on language modeling; `total_loss` is training loss!
-                self.metric_logger.log("eval/loss", avg_ce_loss.item())
-                self.metric_logger.log("eval/distill_loss", avg_distill_loss.item())
-                self.metric_logger.log("eval/total_loss", avg_loss.item())
-            else:
-                self.metric_logger.log("eval/loss", avg_loss.item())
+            avg_loss = torch.stack(losses).mean()
+            avg_ce_loss = torch.stack(ce_losses).mean()
+            avg_distill_loss = torch.stack(distill_losses).mean()
+            # `reported_loss` is cross entropy loss on language modeling; `total_loss` is training loss.
+            self.metric_logger.log("eval/loss", avg_ce_loss.item())
+            self.metric_logger.log("eval/distill_loss", avg_distill_loss.item())
+            self.metric_logger.log("eval/total_loss", avg_loss.item())
 
         if self._should_log_eval_input:
             self.metric_logger.log("eval/batch", str(eval_fingerprint))
