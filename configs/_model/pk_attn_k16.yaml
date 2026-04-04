@@ -88,6 +88,7 @@ model:
         rope_base: 500000
         rope_scale_freqs: true
         top_k: 16
+        initial_attn_temp: 1.0
         init_scale: ${common.init_scale}
 
       ff_layer_fn:

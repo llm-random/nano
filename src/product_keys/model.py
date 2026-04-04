@@ -175,6 +175,7 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         rope_base,
         rope_scale_freqs: bool,
         top_k: int,
+        initial_attn_temp: float,
         init_scale: float = 0.02,
     ):
         super().__init__()
@@ -210,8 +211,7 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         self.k_norm2 = nn.RMSNorm(self.dhead_half)
 
         # QKNorm learnable scaling parameter (one per head)
-        initial_temp = 1.0 / math.sqrt(self.dhead)
-        self.attn_temp = nn.Parameter(torch.full((1, self.q_heads, 1, 1, 1), initial_temp))
+        self.attn_temp = nn.Parameter(torch.full((1, self.q_heads, 1, 1, 1), initial_attn_temp))
 
         self.metric_logger = None
         self.log_name = ""
