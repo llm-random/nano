@@ -145,7 +145,7 @@ class LlamaAttention(nn.Module):
         self.attention_mechanism = AttentionMechanism()
         self.rope = LlamaRoPE(dhead=self.head_dim, length=seq_len, base=500000)
 
-    def forward(self, x):
+    def forward(self, x, attention_mask=None):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
         value_states = self.v_proj(x)
@@ -162,7 +162,7 @@ class LlamaAttention(nn.Module):
         v = repeat_kv(v, self.q_heads // self.kv_heads)
 
         attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=self.causal
+            query=q, key=k, value=v, causal=self.causal, attention_mask=attention_mask
         )
 
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))

@@ -91,7 +91,7 @@ class RoPETopKAttention(nn.Module):
         # standard attention if seq_len is smaller or equal top_k
         if seq_len <= self.top_k:
             attention_output = self.attention_mechanism(
-                query=q, key=k, value=v, causal=self.causal
+                query=q, key=k, value=v, causal=self.causal, attention_mask=attention_mask
             )
             return self.o_proj(
                 attention_output.transpose(1, 2).contiguous().flatten(-2)

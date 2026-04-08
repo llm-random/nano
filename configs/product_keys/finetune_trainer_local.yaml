@@ -27,7 +27,7 @@ common:
 trainer:
   _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
   gradient_accumulation_steps: 2
-  n_steps: 2000
+  n_steps: 3
   learning_rate: 1e-3
   d_model: ${common.dmodel}
   vocab_size: ${common.vocab_size}
