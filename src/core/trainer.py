@@ -59,13 +59,21 @@ class Trainer:
             self.eval_iterator = iter(self.eval_dataloader)
         self.step = self.start_step - 1
 
-        if self.start_step > 0:
+        if self.start_step > 0 and self.eval_interval > 0:
             n_skip_eval_batches = (
                 (self.start_step - 1) // self.eval_interval * self.n_eval_steps
             )
             logger.debug(f"Skipping {n_skip_eval_batches} eval batches")
             for _ in range(n_skip_eval_batches):
                 next(self.eval_iterator)
+
+        self.train_iterator = iter(self.train_dataloader)
+        if self.start_step > 0 and self.checkpoint.load.rewind_data:
+            logger.info(
+                f"Rewinding train dataloader: skipping {self.start_step} batches"
+            )
+            for _ in range(self.start_step):
+                next(self.train_iterator)
 
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
@@ -110,7 +118,7 @@ class Trainer:
 
     def train(self):
         for step, batch in zip(
-            range(self.start_step, self.n_steps), self.train_dataloader
+            range(self.start_step, self.n_steps), self.train_iterator
         ):
             self.step = step
             self.metric_logger.set_step(step)
