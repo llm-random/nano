@@ -5,7 +5,10 @@ from attr import define, field
 import torch.distributed as dist
 from typing import List
 
+from src.core.conversion_to_hf import save_to_llama_3_hf
 from src.core.trainer import Trainer
+from src.core.checkpointing import get_full_checkpoint_path
+from src.core.utils import cast_state_dict_to_tensors
 
 
 @define(slots=False)
@@ -86,3 +89,60 @@ class MaskedLMTrainer(Trainer):
             dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
 
         return avg_loss / float(os.environ["WORLD_SIZE"])
+
+@define(slots=False)
+class TrainerWithVocabSize(Trainer):
+    """
+        Trainer which enables saving different vocab size as checkpoint.
+    """
+    vocab_size: int
+
+    def train(self):
+        for step, batch in zip(
+            range(self.start_step, self.n_steps), self.train_dataloader
+        ):
+            self.step = step
+            self.metric_logger.set_step(step)
+            self.model.train()
+            loss = self.calculate_loss(batch)
+
+            grad_norm = self.clip_gradient()
+
+            self.log_metrics(loss, grad_norm)
+
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            self.scheduler.step()
+
+            if self._should_save_checkpoint:
+                self.save_checkpoint()
+
+            if self._should_evaluate:
+                self.eval()
+
+        if self._should_save_final_checkpoint:
+            if self.checkpoint.save.type == "nano":
+                self.save_checkpoint()
+            elif self.checkpoint.save.type == "huggingface":
+                # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
+                model_state_dict = self.model.state_dict()
+                full_state = cast_state_dict_to_tensors(model_state_dict)
+
+                if os.environ["RANK"] == "0":
+                    dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = (
+                        self.model.encoder.get_model_dimensions()
+                    )
+
+                    save_to_llama_3_hf(  # dev fixed values
+                        full_state,
+                        save_dir=get_full_checkpoint_path(self.checkpoint.save.path),
+                        dmodel=dmodel,
+                        dff=dff,
+                        n_att_heads=n_att_heads,
+                        n_kvatt_heads=n_kvatt_heads,
+                        head_dim=head_dim,
+                        nlayers=nlayers,
+                        vocab_size = self.vocab_size
+                    )
+            elif self.checkpoint.save.type == "pc_finalize":
+                self.save_pc_finalized_checkpoint()

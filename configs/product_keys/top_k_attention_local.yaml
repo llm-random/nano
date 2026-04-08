@@ -1,59 +1,52 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  - /_cluster/local@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/c4@_here_
+  - /_dataset/local_dummy@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
 
 common:
-  sequence_length: 1024
-  batch_size: 64
-  dmodel: 1024
-  dff: 2724
+  sequence_length: 16
+  batch_size: 4
+  dmodel: 16
+  dff: 64
   datt: ${common.dmodel}
-  n_blocks: 16
-  q_heads: 16
-  kv_heads: 16
+  n_blocks: 4
+  q_heads: 2
+  kv_heads: 2
   vocab_size: 50304
 
 trainer:
-  _target_: src.product_keys.trainer.MaskedLMTrainer
-  masking_percentage: 0.2
-  mask_token_id: 50257
-  unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
+  _target_: src.product_keys.trainer.TrainerWithVocabSize
   gradient_accumulation_steps: 2
-  n_steps: 77050
-  learning_rate: 5e-4
+  n_steps: 7000
+  learning_rate: 1e-3
+  vocab_size: ${common.vocab_size}
+
+  checkpoint:
+    save:
+      type: huggingface
+      path: checkpoint/${now:%Y-%m-%d}
+
   train_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
-      
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn  
 
   eval_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
-
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn  
+  
 
 infrastructure:
   metric_logger:
-    type: wandb
-    wandb_entity: ideas_cv
-    project_name: tml-bgw
-    name: TML_BGW-${now:%Y-%m-%d_%H-%M-%S}
-    tags:
-      - nano
-      - pk_mlm
-      - "seq_len=${common.sequence_length}"
-      - "n_layers=${common.n_blocks}"
-  slurm:
-    gres: gpu:1
-    time: "1-00:00:00"
-    job-name: ${infrastructure.metric_logger.name}
+    type: stdout
+
+evaluator: null
 
 model:
   encoder:
@@ -88,6 +81,7 @@ model:
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
+        # o_proj_fn: ${model.encoder.block_fn.attention_fn.q_proj_fn} # TODO check have I done it right pls
         o_proj_fn: 
           _target_: src.projected_compression.model.Linear
           _partial_: true
