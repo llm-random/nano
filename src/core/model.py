@@ -46,9 +46,9 @@ class Residual(nn.Module):
     def set_metric_logger(self, metric_logger):
         self.metric_logger = metric_logger
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         normalized = self.norm(x)
-        out = self.layer(normalized)
+        out = self.layer(normalized, **kwargs)
         if self.metric_logger is not None:
             self.metric_logger.accumulate_metrics(
                 layer_name=f"{self.log_name}",
@@ -179,8 +179,8 @@ class TransformerBlock(nn.Module):
             log_name=f"{self.log_name}/residual_feedforward",
         )
 
-    def forward(self, x):
-        x = self.attention_layer(x)
+    def forward(self, x, **kwargs):
+        x = self.attention_layer(x, **kwargs)
         x = self.ff_layer(x)
         return x
 
@@ -207,9 +207,9 @@ class TransformerTower(nn.Module):
         super().__init__()
         self.blocks = nn.ModuleList([block_fn(i) for i in range(n_blocks)])
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         for block in self.blocks:
-            x = block(x)
+            x = block(x, **kwargs)
         return x
 
 
@@ -265,8 +265,9 @@ class LLM(nn.Module):
         self.head = head
 
     def forward(self, *args, **kwargs):
+        attention_mask = kwargs.pop("attention_mask", None)
         x = self.embedding(*args, **kwargs)
-        x = self.encoder(x)
+        x = self.encoder(x, attention_mask=attention_mask)
         x = self.head(x)
         return x
 
@@ -400,7 +401,7 @@ class RoPEAttention(nn.Module):
             apply_freq_scaling=rope_scale_freqs,
         )
 
-    def forward(self, x):
+    def forward(self, x, attention_mask: Optional[torch.Tensor] = None):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
         value_states = self.v_proj(x)
@@ -418,7 +419,7 @@ class RoPEAttention(nn.Module):
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
         attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=True
+            query=q, key=k, value=v, causal=True, attention_mask=attention_mask
         )
 
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
@@ -431,6 +432,7 @@ def attention_mechanism(
     key: torch.Tensor,
     value: torch.Tensor,
     causal: bool,
+    attention_mask: Optional[torch.Tensor] = None,
 ):
     # https://github.com/pytorch/pytorch/blob/ce503c1b40207dab770c28cbd4568cd9e105277b/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp#L556
     with torch.nn.attention.sdpa_kernel(
@@ -440,7 +442,7 @@ def attention_mechanism(
             query=query,
             key=key,
             value=value,
-            attn_mask=None,
+            attn_mask=attention_mask,
             is_causal=causal,
         )
 
@@ -456,12 +458,14 @@ class AttentionMechanism(nn.Module):
         key: torch.Tensor,
         value: torch.Tensor,
         causal: bool,
+        attention_mask: Optional[torch.Tensor] = None,
     ):
         return attention_mechanism(
             query=query,
             key=key,
             value=value,
             causal=causal,
+            attention_mask=attention_mask,
         )
 
 
