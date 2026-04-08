@@ -1,5 +1,5 @@
 defaults:
-  - _cluster@_here_: entropy
+  - _cluster@_here_: helios
   - _model@_here_: tiny
   - _trainer@_here_: llama
   - _dataset@_here_: c4
@@ -21,19 +21,19 @@ trainer:
   checkpoint:
     save:
       type: nano
-      interval: 250
-      path: /storage_nvme_4/nano/models
+      interval: -1
+      # path: /storage_nvme_4/nano/models
       model_checkpoint_filename: __model_checkpoint_filename.pt
       training_state_filename: __training_state_filename.pt
 
     load:
       type: nano
       # ^path: [/storage_nvme_4/nano/models/148147/0/step_250, /storage_nvme_4/nano/models/148147/0/step_500, /storage_nvme_4/nano/models/148147/0/step_750]
-      path: /storage_nvme_4/nano/models/148147/0/step_250
+      # path: /storage_nvme_4/nano/models/148147/0/step_250
       model_checkpoint_filename: __model_checkpoint_filename.pt
       training_state_filename: __training_state_filename.pt # not tested
       only_weights: false # false not tested
-
+      rewind_data: true
 
   train_dataloader:
     dataset:
@@ -59,7 +59,7 @@ infrastructure:
 
   slurm:
     time: "00:10:00"
-    gres: gpu:2
+    gres: gpu:1
     job-name: ${infrastructure.metric_logger.name}
 
 # evaluator:
