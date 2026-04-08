@@ -419,7 +419,7 @@ class RoPEAttention(nn.Module):
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
         attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=True, attention_mask=attention_mask
+            query=q, key=k, value=v, causal=self.causal, attention_mask=attention_mask
         )
 
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))

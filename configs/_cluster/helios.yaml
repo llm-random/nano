@@ -9,6 +9,7 @@ infrastructure:
     nodes: 1
     partition: plgrid-gpu-gh200
     time: "2-00:00:00"
+    account: plgllmefficont3-gpu-gh200
 
   script:
     - '${export_env_variables_placeholders:}'
