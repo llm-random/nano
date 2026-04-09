@@ -17,15 +17,13 @@ common:
   dff: 3840
   # dmodel: 1344 # 50
   # dff: 5376
-  # dmodel: 1728 # 75
-  # dff: 6912
 
 
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 0
   
-  learning_rate: 6.103515625e-05
+  learning_rate: 20 # not used 
 
   checkpoint:
     load:

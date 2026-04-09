@@ -1,0 +1,74 @@
+defaults:
+  - ../_cluster@_here_: helios
+  - ../_model@_here_: llama_3_8
+  - ../_trainer@_here_: llama3_8B_distillation
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+  target_dmodel: 1056 # 10p
+  target_dff: 3168
+  # target_dmodel: 2160 # 30p
+  # target_dff: 6480
+  # target_dmodel: 3072 # 50p
+  # target_dff: 9216
+  
+trainer:
+  gradient_accumulation_steps: 32 # 50p # 30p # 10p
+  ^n_steps: 
+    # - 6144
+    # - 4096
+    # - 2048
+    - 1024
+
+  learning_rate: 9 #optimal fo 10p # optimal lrs may vary in longer trainings
+  # learning_rate: 13 #optimal fo 30p
+  # learning_rate: 12 #optimal fo 50p
+
+  scheduler:
+    warmup_steps: 40
+
+  eval_interval: 1000000
+  eval_dataloader: None
+
+  checkpoint:
+   load:
+    type: huggingface
+    path: "meta-llama/Llama-3.1-8B" 
+   save:  
+    type: nano
+    path: ???
+
+infrastructure:
+  metric_logger:
+    name: Llame_HP
+    tags:
+      - nano
+      - pc
+      - llama_8
+      - hard_pruning
+      - distillation
+      - 10p
+      # - 30p
+      # - 50p
+  
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    # gres: "gpu:hopper:4"
+    gres: gpu:4
+    # nodes: 2 #dev
+    time: "0-10:00:00" # 10p
+    # time: "0-12:00:00" # 30p
+    # time: "0-14:00:00" # 50p
+ 
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune
+    _partial_: true
+    dimensions_importances_path: ???
+    target_dmodel: ${common.target_dmodel}
+    target_dff: ${common.target_dff}

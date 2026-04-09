@@ -1,14 +1,14 @@
 
 infrastructure:
   metric_logger:
-    project_name: pmtest/llm-random
     heavy_metrics_calculation_interval: 100
-    new_neptune_job: true
     new_wandb_job: true
-    type: neptune
     name: default
+    type: wandb
+    wandb_entity: ideas_cv
+    project_name: llm-random-test
     tags:
-      - nano
+      - new_wandb_job
 
   git:
     remote_name: cemetery

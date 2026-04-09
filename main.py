@@ -18,13 +18,12 @@ import torch.distributed as dist
 import logging
 from hydra.utils import instantiate
 import logging
-from neptune.integrations.python_logger import NeptuneHandler
 from src.core.checkpointing import (
     load_checkpoint_from_file,
     load_training_state,
     get_full_checkpoint_path,
 )
-from src.core.metric_loggers import NeptuneLogger, WandbLogger, get_metric_logger
+from src.core.metric_loggers import WandbLogger, get_metric_logger
 from src.core.model import Residual
 import platform
 
@@ -61,9 +60,7 @@ def upload_config_file(metric_logger):
     slurm_array_task_id = os.environ.get("SLURM_ARRAY_TASK_ID")
     file_path = f"generated_configs/config_{slurm_array_task_id}.yaml"
     if slurm_array_task_id is not None and os.path.exists(file_path):
-        metric_logger.run["yaml_config"].upload(
-            f"generated_configs/config_{slurm_array_task_id}.yaml"
-        )
+        metric_logger.run.save(file_path)
 
 
 def check_env_vars():
@@ -179,8 +176,8 @@ def log_environs(metric_logger):
     ]
 
     environs = os.environ
-    for environ_key in scrap_keys:
-        metric_logger.run[f"job/{environ_key}"] = str(environs.get(environ_key))
+    env_dict = {f"job/{k}": str(environs.get(k)) for k in scrap_keys}
+    metric_logger.run.config.update(env_dict)
 
 
 def get_device():
@@ -219,27 +216,9 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             full_config=cfg,
         )
 
-        # Other loggers do not have `run` method
-        if isinstance(metric_logger, NeptuneLogger):
-            npt_handler = NeptuneHandler(run=metric_logger.run)
-            logger.addHandler(npt_handler)
-
     learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
 
-    if isinstance(metric_logger, NeptuneLogger) and (
-        training_state["run_id"] is None
-        or cfg.infrastructure.metric_logger.new_neptune_job
-    ):
-        metric_logger.run["job_config"] = cfg
-        upload_config_file(metric_logger)
-        log_environs(metric_logger)
-        metric_logger.run[f"job/full_save_checkpoints_path"] = get_full_checkpoint_path(
-            cfg.trainer.checkpoint.save.path
-        )
-        metric_logger.run["learning_rate"] = learning_rate
-        metric_logger.run["exp_lr"] = exp_lr
-
-    elif isinstance(metric_logger, WandbLogger) and (
+    if isinstance(metric_logger, WandbLogger) and (
         training_state["run_id"] is None
         or cfg.infrastructure.metric_logger.new_wandb_job
     ):

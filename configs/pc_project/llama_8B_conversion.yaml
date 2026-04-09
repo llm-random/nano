@@ -1,0 +1,35 @@
+# notebook for producing a PC checkpoint used for PC_memeff training
+
+defaults:
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: helios
+  - ../_model/llama@_here_: 8B
+  - _self_
+
+
+trainer:
+  checkpoint:
+    load:
+      type: huggingface
+      path: "meta-llama/Llama-3.1-8B"
+
+    save:
+      path: ???
+
+infrastructure:
+  metric_logger:
+    name: PC_save_pretrained_hf_to_nano
+    tags:
+      - nano
+      - pc
+      - save_pretrained
+      - 8B
+  
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:1
+    time: "0-1:00:00"
+
+init_model_opt_sched_fn: 
+  _target_: src.core.llama.save_pretrained_llama_as_nano
+  _partial_: true

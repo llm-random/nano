@@ -1,6 +1,6 @@
 defaults:
   - ../_cluster@_here_: helios
-  - ../_model/llama@_here_: projected_mem_eff_8B
+  - ../_model/llama@_here_: projected_mem_eff_1B
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
@@ -10,17 +10,16 @@ init_model_opt_sched_fn:
   _partial_: true
   _target_: src.projected_compression.convert_memeff_to_hf.convert_pc_to_hf
 
-
 common:
   sequence_length: 2048
   batch_size: 512
 
-  dmodel: 1056 # 10p
-  dff: 3168
-  # dmodel: 2160 # 30p
-  # dff: 6480
-  # dmodel: 3072 # 50p
-  # dff: 9216
+  dmodel: 448 # 10
+  dff: 1728
+  # dmodel: 960 # 30
+  # dff: 3840
+  # dmodel: 1344 # 50
+  # dff: 5376
 
 trainer:
   _target_: src.projected_compression.trainer.PCTrainer
@@ -39,10 +38,9 @@ trainer:
   checkpoint:
     load:
       path: ???
-
     save:
       path: ???
-   
+
 projected_compression:
   modules_to_shard:
     - src.projected_compression.mem_eff.CompressibleBlock
@@ -50,15 +48,13 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-
-  source_model_path: ??? # special PC_memeff checkpoint from llama_1B_conversion config experiment
+  source_model_path: ??? # ONLY FOR MODEL INIT (BASE MODEL HF) - special PC_memeff checkpoint from llama_1B_conversion config experiment
   path_to_importances: ???
 
   init_norms_with_ones: false
   separate_block_optimizers: true
   adjust_grad_norm: false
-
-  original_llama_path: "meta-llama/Llama-3.1-8B"
+  original_llama_path: "meta-llama/Llama-3.2-1B"
 
 model:
   cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
@@ -69,11 +65,10 @@ infrastructure:
     tags: 
       - nano
       - pc
-      - llama_8
+      - llama_1
       - MEM_EFF_PC_to_HF
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
-    gres: gpu:4 # helios
-    # gres: "gpu:hopper:4" #lem
+    gres: gpu:4
     time: "0-01:00:00"

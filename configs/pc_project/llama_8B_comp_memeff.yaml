@@ -1,0 +1,96 @@
+defaults:
+  - ../_cluster@_here_: lem
+  - ../_model/llama@_here_: projected_mem_eff_8B
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+  dmodel: 1056 # 10p
+  dff: 3168
+  # dmodel: 2160 # 30p
+  # dff: 6480
+  # dmodel: 3072 # 50p
+  # dff: 9216
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  # gradient_accumulation_steps: 8 # 4 NODES 50% !!!!!
+  # gradient_accumulation_steps: 16 # 4 NODES 50% !!!!!
+  gradient_accumulation_steps: 16 # for 10p 30p and 2 nodes
+  # gradient_accumulation_steps: 32 # 2 nodes 50p
+  # gradient_accumulation_steps: 64 # for 30p 
+  # gradient_accumulation_steps: 128 # for 50p
+  # gradient_accumulation_steps: 16 # for 2 nodes 8 gpus
+
+  n_steps: 1024
+  # n_steps: 2048
+  # n_steps: 4096
+  # n_steps: 6144
+
+  only_compress_model_gradient_clipping: true
+  
+  learning_rate: 13 # 10p optimal # 14
+  # learning_rate: 15 # 30p optimal # 16
+  # learning_rate: 15 # 50p optimal # 14 -> 15?
+  # learning_rate: 14 # 50p optimal # 14 -> 15?
+
+  scheduler:
+    warmup_steps: 40
+
+  distributed:
+    fsdp2: null
+    
+  eval_dataloader: null
+
+  checkpoint:
+    save: #only way to save PC_memeff model
+      interval: 1023
+      # interval: 2047
+      # interval: 4095
+      # interval: 6143
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      path: ???
+      training_state_filename: __training_state_filename.pt
+      type: nano
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: ??? # special PC_memeff checkpoint from llama_1B_conversion config experiment
+  path_to_importances: ???
+
+  init_norms_with_ones: false
+  separate_block_optimizers: true
+  adjust_grad_norm: false
+
+model:
+  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
+
+infrastructure:
+  metric_logger:
+    name: Llame_PC
+    tags:
+      - nano
+      - pc
+      - llama_8
+      - projected_compression
+      - mem_eff
+      - 10p
+      # - 30p
+      # - 50p
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: "gpu:hopper:4" #lem
+    # gres: gpu:4 #helios
+    nodes: 2
+    time: "1-00:00:00"

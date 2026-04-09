@@ -21,7 +21,6 @@ trainer:
    load:
     type: huggingface
     path: "meta-llama/Llama-3.1-8B"
-
    save:
     type: nano
     path: ??? # CHANGE
