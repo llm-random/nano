@@ -1,0 +1,61 @@
+# @package _global_
+defaults:
+  - /_cluster/local@_here_
+  - /_model/tiny@_here_
+  - /_trainer/llama@_here_
+  - /_dataset/local_dummy@_here_
+  - /_checkpoints/none@_here_
+  - /_misc/default@_here_
+  - _self_
+
+common:
+  sequence_length: 16
+  batch_size: 4
+  dmodel: 16
+  dff: 16
+  datt: ${common.dmodel}
+  n_blocks: 4
+  q_heads: 4
+  kv_heads: 4
+  vocab_size: 50304
+  ^init_scale: [0.01, 0.1]
+  # init_scale: 0.1
+
+trainer:
+  _target_: src.product_keys.trainer.MaskedLMTrainer
+  masking_percentage: 0.2
+  mask_token_id: 50257
+  unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
+  gradient_accumulation_steps: 4
+  # n_steps: 77050
+  n_steps: 150
+  # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+  learning_rate: 2e-3
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
+  train_dataloader:
+    dataset:
+      seed: 42
+      tokenize_fn:
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+
+
+infrastructure:
+  metric_logger:
+    type: stdout
+  slurm:
+    gres: gpu:2
+    time: "1-00:00:00"
+    job-name: ${infrastructure.metric_logger.name}
+
+model:
+  encoder:
+    block_fn:
+      attention_fn: ${model.encoder.block_fn.ff_layer_fn}
