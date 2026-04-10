@@ -6,7 +6,7 @@ infrastructure:
     name: default
     type: wandb
     wandb_entity: ideas_cv
-    project_name: llm-random-test
+    project_name: pc_smollm
     tags:
       - new_wandb_job
 

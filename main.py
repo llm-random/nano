@@ -234,7 +234,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                 }
             )
 
-    torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
+    torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
     device = get_device()
 

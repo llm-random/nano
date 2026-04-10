@@ -55,7 +55,7 @@ def init_pc_attributes(cfg, metric_logger):
         metric_logger.run["learning_rate"] = learning_rate
         metric_logger.run["exp_lr"] = exp_lr
 
-    torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
+    torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
     model = create_model(
         cfg.model,

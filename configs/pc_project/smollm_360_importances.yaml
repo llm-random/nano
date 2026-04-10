@@ -23,8 +23,8 @@ trainer:
     path: "HuggingFaceTB/SmolLM-360M"
    save:
     type: nano
-    path: ??? # CHANGE
-    interval: 2047
+    path: /storage_nvme_1/md/checkpoints
+    interval: ${eval:'${trainer.n_steps} - 1'}
     model_checkpoint_filename: __model_checkpoint_filename.pt
     training_state_filename: __training_state_filename.pt
 

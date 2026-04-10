@@ -2,9 +2,10 @@ defaults:
   - ../../_cluster@_here_: entropy
   - ../../_model/smollm@_here_: def_1700
   - ../../_trainer@_here_: llama
-  - ../../_dataset@_here_: fineweb
+  - ../../_dataset@_here_: smollm_corpus
   - ../../_checkpoints@_here_: none
   - ../../_misc@_here_: default
+  - _self_
 
 common:
   sequence_length: 1024
@@ -15,7 +16,10 @@ common:
 trainer:
   gradient_accumulation_steps: 8
   ^n_steps:
-    - 2048 # 1B tokens
+    # - 2048 # 1B tokens
+    - 4096 # 2B tokens
+    # - 8192 # 4B tokens
+    # - 12288 # 6B tokens
 
   ^learning_rate:
     - 11
@@ -32,8 +36,8 @@ trainer:
       path: "HuggingFaceTB/SmolLM-1.7B"
     save:
       type: nano
-      path: ??? # CHANGE
-      interval: 2047
+      path: /storage_nvme_1/md/checkpoints
+      interval: ${eval:'${trainer.n_steps} - 1'}
       model_checkpoint_filename: __model_checkpoint_filename.pt
       training_state_filename: __training_state_filename.pt
 
@@ -57,9 +61,8 @@ infrastructure:
       - hard_pruning
       - no_distillation
       - 70p
-      - 1B_tokens
+      - 2B_tokens
       - lr_grid
-
   slurm:
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:4
@@ -68,8 +71,6 @@ infrastructure:
 apply_functions:
   - _target_: src.projected_compression.pruning.prune
     _partial_: true
-    dimensions_importances_path: ??? # CHANGE
+    dimensions_importances_path: /home/m1kush/llmrandom_cemetery/SmolLM_1700_importances_2026-03-28_15-44-28/None/144636/0/minitron_dimensions_importances.pt # CHANGE
     target_dmodel: ${common.target_dmodel}
     target_dff: ${common.target_dff}
-
-
