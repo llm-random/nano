@@ -269,8 +269,13 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
+        # run_decay feature, scheduler needs to be a decay scheduler on the decay runs.
+        reset_scheduler = cfg.trainer.checkpoint.load.get("reset_scheduler", False)
         load_checkpoint_from_file(
-            cfg.trainer.checkpoint.load, model, optimizer, scheduler
+            cfg.trainer.checkpoint.load,
+            model,
+            optimizer,
+            scheduler,
         )
         if cfg.trainer.checkpoint.load.only_weights:
             optimizer = torch.optim.AdamW(
@@ -281,6 +286,9 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             scheduler = instantiate(cfg.trainer.scheduler)(
                 optimizer=optimizer, n_steps=cfg.trainer.n_steps
             )
+        # run_decay feature
+        elif reset_scheduler:
+            scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)
     else:
         raise Exception(
             f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}"

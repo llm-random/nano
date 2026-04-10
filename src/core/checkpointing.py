@@ -121,7 +121,7 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
     if checkpoint_path is None:
         return
 
-    if checkpoint_path is not None:
+    else:
         if (
             isinstance(model, FSDP)
             or model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard"
@@ -140,5 +140,4 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
             model.load_state_dict(checkpoint["model"])
             optimizer.load_state_dict(checkpoint["optim"])
             scheduler.load_state_dict(checkpoint["scheduler"])
-            logger.info(f"Loaded non-sharded sheduler from '{checkpoint_path}'")
             logger.debug(f"Loaded non-sharded checkpoint from '{checkpoint_path}'")

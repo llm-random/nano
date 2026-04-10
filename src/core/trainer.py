@@ -1,3 +1,4 @@
+import math
 import os
 import time
 from attr import define
@@ -69,14 +70,34 @@ class Trainer:
 
         self.train_iterator = iter(self.train_dataloader)
         if self.start_step > 0 and self.checkpoint.load.rewind_data:
-            logger.info(
-                f"Rewinding train dataloader: skipping {self.start_step} batches"
-            )
-            for _ in range(self.start_step):
-                next(self.train_iterator)
+            self._rewind_train_iterator(self.start_step)
 
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
+
+    def _rewind_train_iterator(self, n_batches: int):
+        logger.info(f"Rewinding train dataloader: skipping {n_batches} batches")
+        milestones = {
+            max(1, int(round(10 ** (i * math.log10(n_batches) / 10))))
+            for i in range(1, 11)
+        }
+        start_time = time.time()
+        for i in range(n_batches):
+            next(self.train_iterator)
+            step = i + 1
+            if step in milestones:
+                elapsed = time.time() - start_time
+                rate = step / elapsed if elapsed > 0 else float("inf")
+                eta = (n_batches - step) / rate if rate > 0 else 0
+                logger.info(
+                    f"Rewinding: {step}/{n_batches} "
+                    f"({100 * step / n_batches:.1f}%), "
+                    f"{rate:.1f} batch/s, elapsed {elapsed:.0f}s, eta {eta:.0f}s"
+                )
+        logger.info(
+            f"Rewind complete: {n_batches} batches in "
+            f"{time.time() - start_time:.0f}s"
+        )
 
     @property
     def _should_evaluate(self) -> bool:

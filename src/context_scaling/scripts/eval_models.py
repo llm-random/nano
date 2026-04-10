@@ -32,7 +32,9 @@ def flatten_dict(d, parent_key="", sep="."):
     return dict(items)
 
 
-def append_to_index(out_dir: str, csv_filename: str, run_id: str, model_step: int, cfg, seq_len: int):
+def append_to_index(
+    out_dir: str, csv_filename: str, run_id: str, model_step: int, cfg, seq_len: int
+):
     """Append one entry to index.jsonl with full flat config + eval metadata."""
     flat_cfg = flatten_dict(OmegaConf.to_container(cfg, resolve=True))
     entry = {
