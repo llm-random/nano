@@ -13,4 +13,5 @@ trainer:
       model_checkpoint_filename: __model_checkpoint_filename.pt
       training_state_filename: null # not tested
       only_weights: true # false not tested
+      reset_scheduler: false
       rewind_data: false

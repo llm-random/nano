@@ -1,0 +1,57 @@
+defaults:
+  - _cluster@_here_: entropy
+  - _model@_here_: tiny
+  - _trainer@_here_: context_scaling
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+
+common:
+  tokenizer: gpt2
+  sequence_length: 128
+  batch_size: 128
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 1001
+  learning_rate: 1e-3
+  lm_eval_interval: 0
+
+  checkpoint:
+    save:
+      type: nano
+      interval: 100
+      path: /storage_nvme_4/nano/models
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: __training_state_filename.pt
+
+    load:
+      type: nano
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: null
+      only_weights: true
+      rewind_data: false
+
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+
+infrastructure:
+  max_concurrent_jobs: 1
+
+  metric_logger:
+    name: test_decay
+    tags:
+      - nano
+      - test_decay
+
+  slurm:
+    time: "00:10:00"
+    gres: gpu:1
+    job-name: ${infrastructure.metric_logger.name}
