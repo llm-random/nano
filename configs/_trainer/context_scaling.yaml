@@ -8,6 +8,7 @@ trainer:
   n_steps: null
   learning_rate: null
   weight_decay: 0.1
+  final_lm_eval: false
 
   scheduler:
     _partial_: true

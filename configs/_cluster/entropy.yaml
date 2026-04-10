@@ -13,7 +13,7 @@ infrastructure:
   script:
     - '${export_env_variables_placeholders:}'
     - 'export PROJECT_HOME_PATH=/storage_nvme_4/nano'
-    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/$USER/hf_cache'
 
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
