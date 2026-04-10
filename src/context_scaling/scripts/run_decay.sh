@@ -1,9 +1,13 @@
 #!/bin/bash -l
 set -euo pipefail
 
-# Small test harness for run_decay.py.
-# Assumes a base run produced by `configs/test_decay.yaml` already exists in wandb
-# (tagged "test_decay", 1001 training steps, checkpoints every 100 steps on entropy).
+# Smoke test for run_decay.py against base runs produced by configs/test_decay.yaml
+# (tiny model, 1001 training steps, checkpoints every 100 steps on entropy).
+#
+# Exercises the new features:
+#   - --eval_config: custom evaluator block overrides the base run's evaluator
+#   - --decay_fraction 0.0: eval-only mode (no LR decay, zero training steps,
+#     trainer post-loop hook fires the evaluator once per checkpoint)
 
 pixi run python src/context_scaling/scripts/run_decay.py \
     --tags test_decay \
@@ -12,8 +16,8 @@ pixi run python src/context_scaling/scripts/run_decay.py \
     --steps 200 500 \
     --decay_fraction 0.1 \
     --train_data_seed 999 \
-    --save_ckpt_base /storage_nvme_4/nano/models/test_decay_decay \
-    --job_name test_decay_decay \
+    --eval_config configs/_eval/test_tasks.yaml \
+    --job_name test_decay_eval \
     --max_concurrent_jobs 2 \
     --slurm_time "00:10:00" \
     --submit

@@ -54,6 +54,7 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
+    final_lm_eval: bool
     evaluator: Optional[Evaluator] = None
     lm_eval_interval: int = 0
 
@@ -176,6 +177,25 @@ class Trainer:
             if self._should_lm_eval:
                 self.evaluator.eval()
 
+            self.metric_logger.flush()
+
+        # Fires once after the loop; also works when zero steps ran (run_decay eval-only).
+        # Skipped if the in-loop lm_eval already ran on this step to avoid double-firing.
+        loop_ran = self.n_steps > self.start_step
+        already_fired_in_loop = (
+            loop_ran
+            and self.lm_eval_interval > 0
+            and self.step > 0
+            and self.step % self.lm_eval_interval == 0
+        )
+        if (
+            self.final_lm_eval
+            and self.evaluator is not None
+            and not already_fired_in_loop
+        ):
+            self.metric_logger.set_step(self.step)
+            self.metric_logger.set_tokens(self.processed_tokens)
+            self.evaluator.eval()
             self.metric_logger.flush()
 
         if self._should_save_final_checkpoint:

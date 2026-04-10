@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 class TrainingState(Stateful):
     def __init__(self, model, optimizer, scheduler):
+        # scheduler=None skips scheduler load — used by run_decay.py for fresh LinearLR.
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -22,11 +23,13 @@ class TrainingState(Stateful):
         model_state_dict, optimizer_state_dict = get_state_dict(
             self.model, self.optimizer
         )
-        return {
+        sd = {
             "model": model_state_dict,
             "optim": optimizer_state_dict,
-            "scheduler": self.scheduler.state_dict(),
         }
+        if self.scheduler is not None:
+            sd["scheduler"] = self.scheduler.state_dict()
+        return sd
 
     def load_state_dict(self, state_dict):
         set_state_dict(
@@ -35,7 +38,8 @@ class TrainingState(Stateful):
             model_state_dict=state_dict["model"],
             optim_state_dict=state_dict["optim"],
         )
-        self.scheduler.load_state_dict(state_dict["scheduler"])
+        if self.scheduler is not None:
+            self.scheduler.load_state_dict(state_dict["scheduler"])
 
 
 def step_checkpoint_path(path, step):
@@ -121,23 +125,25 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
     if checkpoint_path is None:
         return
 
+    # reset_scheduler is used by run_decay.py to swap in a fresh LinearLR schedule.
+    reset_scheduler = getattr(load_config, "reset_scheduler", False)
+    scheduler_for_load = None if reset_scheduler else scheduler
+
+    if (
+        isinstance(model, FSDP)
+        or model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard"
+    ):
+        # Sharded load
+        state_dict = {"app": TrainingState(model, optimizer, scheduler_for_load)}
+        dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_path)
+        logger.debug(f"Loaded sharded checkpoint from '{checkpoint_path}'")
     else:
-        if (
-            isinstance(model, FSDP)
-            or model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard"
-        ):
-            # Sharded load
-            state_dict = {"app": TrainingState(model, optimizer, scheduler)}
-            dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_path)
-            logger.debug(f"Loaded sharded checkpoint from '{checkpoint_path}'")
-        else:
-            # Non-sharded load
-            checkpoint_model = (
-                f"{checkpoint_path}/{load_config.model_checkpoint_filename}"
-            )
-            checkpoint = torch.load(checkpoint_model)
-            logger.info(f"Loading model from '{checkpoint_path}'")
-            model.load_state_dict(checkpoint["model"])
-            optimizer.load_state_dict(checkpoint["optim"])
+        # Non-sharded load
+        checkpoint_model = f"{checkpoint_path}/{load_config.model_checkpoint_filename}"
+        checkpoint = torch.load(checkpoint_model)
+        logger.info(f"Loading model from '{checkpoint_path}'")
+        model.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optim"])
+        if not reset_scheduler:
             scheduler.load_state_dict(checkpoint["scheduler"])
-            logger.debug(f"Loaded non-sharded checkpoint from '{checkpoint_path}'")
+        logger.debug(f"Loaded non-sharded checkpoint from '{checkpoint_path}'")
