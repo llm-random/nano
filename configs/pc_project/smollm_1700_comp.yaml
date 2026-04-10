@@ -2,9 +2,10 @@ defaults:
   - ../_cluster@_here_: entropy 
   - ../_model/smollm@_here_: projected_1700
   - ../_trainer@_here_: llama
-  - ../_dataset@_here_: fineweb
+  - ../_dataset@_here_: smollm_corpus
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
+  - _self_
 
 
 common:
@@ -26,7 +27,7 @@ common:
 
 
 trainer:
-  gradient_accumulation_steps: 16
+  gradient_accumulation_steps: 8
   ^n_steps: 
     - 2048 # 1B tokens
     # - 4096
@@ -43,7 +44,7 @@ trainer:
   # learning_rate: ??? # CHANGE #optimal fo randomi 50%
 
   scheduler:
-    warmup_steps: 80
+    warmup_steps: 40
 
   checkpoint:
    load:
@@ -51,17 +52,20 @@ trainer:
     path: "HuggingFaceTB/SmolLM-1.7B"
    save:
     type: nano
-    path: ??? # CHANGE
+    path: /storage_nvme_1/md/checkpoints
+    interval: ${eval:'${trainer.n_steps} - 1'}
+    model_checkpoint_filename: __model_checkpoint_filename.pt
+    training_state_filename: __training_state_filename.pt
 
   train_dataloader:
-    dataset:
-      tokenize_fn: 
-        _target_: src.core.datasets.smollm_1700_tokenize_fn
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B
 
   eval_dataloader:
-    dataset:
-      tokenize_fn: 
-        _target_: src.core.datasets.smollm_1700_tokenize_fn
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B
 
 
 infrastructure:
@@ -81,7 +85,7 @@ infrastructure:
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:4
-    time: "0-12:00:00"
+    time: "0-24:00:00"
 
 
 apply_functions:
