@@ -9,7 +9,7 @@ import argparse
 import json
 import yaml
 
-from setup_eval import (
+from wandb_utils import (
     get_wandb_table,
     save_yaml_config_from_row,
 )
