@@ -1,0 +1,21 @@
+_target_: src.projected_compression.model.ProjectedLlamaFeedForward
+_partial_: true
+ff_pre_act_fn:
+  _target_: src.projected_compression.model.Linear
+  _partial_: true
+  in_features: ${common.dmodel}
+  out_features: ${common.dff}
+  partial_init_fn:
+    _target_: src.projected_compression.model.llm_random_weight_init
+    _partial_: true
+    scale: 1
+ff_post_act_fn:
+  _target_: src.projected_compression.model.Linear
+  _partial_: true
+  in_features: ${common.dff}
+  out_features: ${common.dmodel}
+  partial_init_fn:
+    _target_: src.projected_compression.model.llm_random_weight_init
+    _partial_: true
+    scale: 1
+gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}

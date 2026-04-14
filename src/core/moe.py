@@ -21,7 +21,7 @@ class MoE(nn.Module):
         dmodel: int,
         dff: int,
         num_experts: int,
-        num_experts_per_tok: int,
+        topk: int,
         capacity_factor: float = 1.25,
         moe_load_balancing_loss_factor: float = 0.0,
         moe_router_z_loss_factor: float = 0.0,
@@ -33,21 +33,17 @@ class MoE(nn.Module):
 
         if activation_function != "swiglu":
             raise ValueError(f"MoE supports only swiglu, got {activation_function}.")
-        if num_experts_per_tok > num_experts:
-            raise ValueError(
-                f"num_experts_per_tok={num_experts_per_tok} must be <= num_experts={num_experts}."
-            )
+        if topk > num_experts:
+            raise ValueError(f"topk={topk} must be <= num_experts={num_experts}.")
         if capacity_factor <= 0:
             raise ValueError(f"capacity_factor must be > 0, got {capacity_factor}.")
-        if normalize_router_logits and num_experts_per_tok == 1:
-            raise AssertionError(
-                "normalize_router_logits requires num_experts_per_tok > 1."
-            )
+        if normalize_router_logits and topk == 1:
+            raise AssertionError("normalize_router_logits requires topk > 1.")
 
         self.dmodel = dmodel
         self.dff = dff
         self.num_experts = num_experts
-        self.num_experts_per_tok = num_experts_per_tok
+        self.topk = topk
         self.capacity_factor = capacity_factor
         self.moe_load_balancing_loss_factor = moe_load_balancing_loss_factor
         self.moe_router_z_loss_factor = moe_router_z_loss_factor
@@ -82,14 +78,14 @@ class MoE(nn.Module):
         # For each token, keep only the top-k experts and their routing probabilities
         topk_probs, selected_experts = torch.topk(
             router_probs,
-            k=self.num_experts_per_tok,
+            k=self.topk,
             dim=-1,
         )
 
         # Keep only the highest-gated assignments per expert up to its capacity
         flat_tokens = torch.arange(
             num_tokens, device=hidden_states.device, dtype=torch.long
-        ).repeat_interleave(self.num_experts_per_tok)
+        ).repeat_interleave(self.topk)
         flat_experts = selected_experts.reshape(-1)
         flat_weights = topk_probs.reshape(-1)
         total_assignments = flat_experts.numel()
