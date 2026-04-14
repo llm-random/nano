@@ -13,14 +13,15 @@ infrastructure:
 
   script:
     - '${export_env_variables_placeholders:}'
-    - 'export HF_HOME="/lustre/pd01/plgrid/plgllmefficont2/crewtool/hf"'
+    - 'export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/nano'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
 
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
 
     # export pixi variables
-    - 'export PIXI_HOME=/lustre/pd01/plgrid/plgllmefficont2/pixi'
-    - 'export PATH="$PIXI_HOME/bin:$PATH"'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi'
+    - 'export PATH="$HOME/.pixi/bin:$PATH"'
     - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
     - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
     - 'export XDG_STATE_HOME="$PIXI_HOME/state"'

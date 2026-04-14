@@ -13,14 +13,14 @@ infrastructure:
   script:
     - '${export_env_variables_placeholders:}'
     - 'module load ML-bundle/25.04'
-    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi/nano'
+    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmefficont3/nano'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
     
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
     
     # export pixi variables
-    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
     - 'export XDG_DATA_HOME="PROJECT_HOME_PATH/data"'
     - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'
@@ -32,7 +32,7 @@ infrastructure:
     - 'cd -'
 
 cluster_switch:
-  train_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/train"
-  eval_path_c4: "/net/scratch/hscra/plgrid/plgmaciejpioro/c4/validation"
-  train_path_fineweb: "/net/scratch/hscra/plgrid/plgmaciejpioro/fineweb-edu/train/train"
-  eval_path_fineweb: "/net/scratch/hscra/plgrid/plgmaciejpioro/fineweb-edu/train/train"
+  train_path_c4: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/c4/train"
+  eval_path_c4: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/c4/validation"
+  train_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
+  eval_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
