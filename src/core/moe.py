@@ -28,7 +28,6 @@ class MoE(nn.Module):
         normalize_router_logits: bool = False,
         activation_function: str = "swiglu",
         init_scale: float = 1.0,
-        **_ignored_kwargs,
     ):
         super().__init__()
 
