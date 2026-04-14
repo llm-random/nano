@@ -33,7 +33,7 @@ class PCTrainer(Trainer):
             self.model.train()
 
             self.model.prepare_compressed_weights()
-            loss = self.calculate_loss(batch)
+            loss_metrics = self.calculate_loss(batch)
 
             if self.only_compress_model_gradient_clipping:
                 grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -56,7 +56,7 @@ class PCTrainer(Trainer):
                     self.model.parameters(), self.gradient_clipping, grad_norm
                 )
 
-            self.log_metrics(loss, grad_norm)
+            self.log_metrics(loss_metrics, grad_norm)
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.scheduler.step()

@@ -5,7 +5,7 @@ from attr import define, field
 import torch.distributed as dist
 from typing import List
 
-from src.core.trainer import Trainer
+from src.core.trainer import LossMetrics, Trainer
 
 
 @define(slots=False)
@@ -45,7 +45,7 @@ class MaskedLMTrainer(Trainer):
 
         return input_ids, labels
 
-    def calculate_loss(self, batch):
+    def calculate_loss(self, batch) -> LossMetrics:
         """
         Calculates the MLM loss.
         The loss is calculated only for the masked tokens.
@@ -78,11 +78,12 @@ class MaskedLMTrainer(Trainer):
             loss = _mlm_loss_calculation(input_ids, target_ids)
             if self.model.training:
                 loss.backward()
-            losses.append(loss.item())
+            losses.append(loss.detach())
 
         # gloo backend supports only sum reduce operation, therfore we first divide by world size and then sum
-        avg_loss = torch.tensor(losses, device=loss.device).sum()
+        avg_loss = torch.stack(losses).sum()
         if dist.is_initialized():
             dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
 
-        return avg_loss / float(os.environ["WORLD_SIZE"])
+        avg_loss = avg_loss / float(os.environ["WORLD_SIZE"])
+        return LossMetrics(total_loss=avg_loss, reported_loss=avg_loss)

@@ -188,8 +188,13 @@ class TransformerBlock(nn.Module):
 class TransformerTower(nn.Module):
     def get_model_dimensions(self):
         # Works only for llama3 transforermer architecture
-        dmodel = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[1]
-        dff = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[0]
+        ff_layer = self.blocks[0].ff_layer.layer
+        if getattr(ff_layer, "is_moe", False):
+            dmodel = ff_layer.dmodel
+            dff = ff_layer.dff
+        else:
+            dmodel = ff_layer.ff_pre_act.weight.shape[1]
+            dff = ff_layer.ff_pre_act.weight.shape[0]
         datt = self.blocks[0].attention_layer.layer.q_proj.weight.shape[0]
         n_att_heads = self.blocks[0].attention_layer.layer.q_heads
         n_kvatt_heads = self.blocks[0].attention_layer.layer.kv_heads
