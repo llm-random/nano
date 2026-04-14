@@ -48,7 +48,7 @@ class PCDistillationTrainer(TrainerDistillation):
                     shared_gradient_norms=False,
                 )
             else:
-                grad_norm = self.model.pass_gradient_to_projections(
+                grad_norm, _, _, _ = self.model.pass_gradient_to_projections(
                     self.block_optimizers,
                     self.block_schedulers,
                     self.gradient_clipping,

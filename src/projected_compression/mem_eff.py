@@ -7,6 +7,26 @@ from src.projected_compression.initialization import get_topk_indices
 from torch.distributed.tensor import distribute_tensor, DTensor
 
 
+def get_global_grad_norm(params_or_grads, device=None):
+    """Compute true global L2 grad norm for FSDP2 Shard(0) DTensor grads.
+    torch.nn.utils.get_total_norm only computes local-shard norms without
+    cross-rank reduction, underestimating by ~sqrt(world_size)."""
+    local_norm_sq = torch.tensor(0.0)
+    for g in params_or_grads:
+        if isinstance(g, nn.Parameter):
+            g = g.grad
+        if g is None:
+            continue
+        local_g = g.to_local() if hasattr(g, 'to_local') else g
+        if device is None:
+            device = local_g.device
+            local_norm_sq = local_norm_sq.to(device)
+        local_norm_sq += local_g.float().norm(2.0) ** 2
+    if dist.is_initialized():
+        dist.all_reduce(local_norm_sq, op=dist.ReduceOp.SUM)
+    return local_norm_sq.sqrt()
+
+
 class MemoryEfficientProjectedCompression(nn.Module):
     # fmt: off
     def __init__(
@@ -152,26 +172,6 @@ class MemoryEfficientProjectedCompression(nn.Module):
         self, optimizers: List, schedulers, gradient_clipping, shared_gradient_norms
     ):
 
-        def get_global_grad_norm(params_or_grads):
-            """Compute true global L2 grad norm for FSDP2 Shard(0) DTensor grads.
-            torch.nn.utils.get_total_norm only computes local-shard norms without
-            cross-rank reduction, underestimating by ~sqrt(world_size)."""
-            device = None
-            local_norm_sq = torch.tensor(0.0)
-            for g in params_or_grads:
-                if isinstance(g, nn.Parameter):
-                    g = g.grad
-                if g is None:
-                    continue
-                local_g = g.to_local() if hasattr(g, 'to_local') else g
-                if device is None:
-                    device = local_g.device
-                    local_norm_sq = local_norm_sq.to(device)
-                local_norm_sq += local_g.float().norm(2.0) ** 2
-            if dist.is_initialized():
-                dist.all_reduce(local_norm_sq, op=dist.ReduceOp.SUM)
-            return local_norm_sq.sqrt()
-
         def get_module_grad_norm(module: nn.Module):
             return get_global_grad_norm(p.grad for p in module.parameters() if p.grad is not None)
 
@@ -201,7 +201,7 @@ class MemoryEfficientProjectedCompression(nn.Module):
                 backward_block(block_proj, block_source, block_target)
 
             final_grad_norm = get_global_grad_norm(v.grad for v in self.parameters() if v.grad is not None)
-            return final_grad_norm, []
+            return final_grad_norm, [], None, None
         else:
             projection_blocks_grad_norms = []
             start_grad_norm = get_global_grad_norm(v.grad for v in self.projections.parameters() if v.grad is not None)
@@ -289,16 +289,25 @@ class MemoryEfficientProjectedCompression(nn.Module):
                     scheduler.step()
 
                 # Clip head and embedding projections independently.
+                head_params = [p for p in self.projections.head.parameters() if p.grad is not None]
+                head_norm = get_global_grad_norm(p.grad for p in head_params)
                 if gradient_clipping:
-                    head_params = [p for p in self.projections.parameters() if p.grad is not None]
-                    head_norm = get_global_grad_norm(p.grad for p in head_params)
                     torch.nn.utils.clip_grads_with_norm_(head_params, gradient_clipping, head_norm)
+
+                embedding_params = (
+                    [self.projections.embedding] if self.projections.embedding.grad is not None else []
+                ) + [p for p in self.projections.auxiliary_embedding_weights.parameters() if p.grad is not None]
+                embedding_norm = get_global_grad_norm(p.grad for p in embedding_params)
+                if gradient_clipping:
+                    torch.nn.utils.clip_grads_with_norm_(embedding_params, gradient_clipping, embedding_norm)
 
                 final_grad_norm = torch.tensor(
                     [start_grad_norm.item()] + [n.item() for n in projection_blocks_grad_norms]
                 ).norm()
 
-        return final_grad_norm, projection_blocks_grad_norms
+                return final_grad_norm, projection_blocks_grad_norms, head_norm, embedding_norm
+
+        return final_grad_norm, projection_blocks_grad_norms, None, None
 
     def backward_compressed_weights(self, proj, source_weight, target_weight):
         source_weight = source_weight.detach()

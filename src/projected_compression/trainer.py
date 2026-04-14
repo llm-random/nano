@@ -1,8 +1,11 @@
 import logging
 import os
 import torch
+import torch.distributed as dist
+from typing import Optional, Union
 from src.core.checkpointing import step_checkpoint_path
 from src.core.trainer import Trainer
+from src.projected_compression.mem_eff import get_global_grad_norm
 from attr import define
 import torch.distributed.checkpoint as dcp
 
@@ -12,6 +15,7 @@ logger = logging.getLogger(__name__)
 @define(slots=False)
 class PCTrainer(Trainer):
     only_compress_model_gradient_clipping: bool
+    only_target_model_gradient_clipping: Optional[Union[float, str]] = None  # float = per-block projection clip threshold; "no_projection_clip" = clip target model only
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -37,8 +41,25 @@ class PCTrainer(Trainer):
             self.model.prepare_compressed_weights()
             loss = self.calculate_loss(batch)
 
-            if self.only_compress_model_gradient_clipping:
-                total_grad_norm, projection_grad_norms = self.model.pass_gradient_to_projections(
+            if self.only_target_model_gradient_clipping:
+                # Clip target model params (Wc + norms) globally as a normal model,
+                # then propagate those clipped Wc grads to projection params unclipped.
+                target_params_with_grad = [p for p in self.model.target_model.parameters() if p.grad is not None]
+                target_norm = get_global_grad_norm(target_params_with_grad)
+                if self.gradient_clipping:
+                    torch.nn.utils.clip_grads_with_norm_(
+                        target_params_with_grad, self.gradient_clipping, target_norm
+                    )
+                projection_clip = None if self.only_target_model_gradient_clipping == "no_projection_clip" else self.only_target_model_gradient_clipping
+                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = self.model.pass_gradient_to_projections(
+                    self.block_optimizers,
+                    self.block_schedulers,
+                    gradient_clipping=projection_clip,
+                    shared_gradient_norms=False,
+                )
+                grad_norm = target_norm
+            elif self.only_compress_model_gradient_clipping:
+                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = self.model.pass_gradient_to_projections(
                     self.block_optimizers,
                     self.block_schedulers,
                     self.gradient_clipping,
@@ -49,7 +70,7 @@ class PCTrainer(Trainer):
                     self.model.parameters(), self.gradient_clipping, grad_norm
                 )
             else:
-                total_grad_norm, projection_grad_norms = self.model.pass_gradient_to_projections(
+                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = self.model.pass_gradient_to_projections(
                     self.block_optimizers,
                     self.block_schedulers,
                     self.gradient_clipping,
@@ -62,7 +83,7 @@ class PCTrainer(Trainer):
 
             self.log_metrics(loss, grad_norm)
             self.metric_logger.log("train/total_grad_norm", total_grad_norm.item())
-            self.log_projection_grad_norms(projection_grad_norms)
+            self.log_projection_grad_norms(projection_grad_norms, head_norm, embedding_norm)
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.scheduler.step()
@@ -78,13 +99,17 @@ class PCTrainer(Trainer):
 
             self.metric_logger.flush() # <--- THIS SENDS TO WANDB
 
-    def log_projection_grad_norms(self, projection_grad_norms):
+    def log_projection_grad_norms(self, projection_grad_norms, head_norm=None, embedding_norm=None):
         if not projection_grad_norms:
             return
         total_proj_norm = torch.tensor([n.item() for n in projection_grad_norms]).norm()
         self.metric_logger.log("train/projection_grad_norm", total_proj_norm.item())
         for i, norm in enumerate(projection_grad_norms):
             self.metric_logger.log(f"train/projection_grad_norm_block_{i}", norm.item())
+        if head_norm is not None:
+            self.metric_logger.log("train/projection_grad_norm_head", head_norm.item())
+        if embedding_norm is not None:
+            self.metric_logger.log("train/projection_grad_norm_embedding", embedding_norm.item())
 
     def save_checkpoint(self):
         checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
