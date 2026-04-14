@@ -219,9 +219,22 @@ class Trainer:
             if isinstance(self.model, FSDP):
                 return self.model.clip_grad_norm_(self.gradient_clipping)
             else:
-                return torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self.gradient_clipping
+                # Plain clip_grad_norm_ on FSDP2 DTensor sharded grads only computes
+                # the local shard norm without cross-rank reduction, underestimating
+                # the global norm by ~sqrt(world_size). Compute it correctly:
+                params = [p for p in self.model.parameters() if p.grad is not None]
+                local_norm_sq = torch.tensor(0.0, device=self.device)
+                for p in params:
+                    g = p.grad
+                    local_g = g.to_local() if hasattr(g, "to_local") else g
+                    local_norm_sq += local_g.float().norm(2.0) ** 2
+                if dist.is_initialized():
+                    dist.all_reduce(local_norm_sq, op=dist.ReduceOp.SUM)
+                total_norm = local_norm_sq.sqrt()
+                torch.nn.utils.clip_grads_with_norm_(
+                    params, self.gradient_clipping, total_norm
                 )
+                return total_norm
 
     def _update_processed_tokens(self, batch):
         self.processed_tokens += batch.numel() * int(os.environ["WORLD_SIZE"])

@@ -1,5 +1,6 @@
 defaults:
   - ../_cluster@_here_: entropy
+  # - ../_cluster@_here_: helios
   - ../_model/llama@_here_: projected_mem_eff_1B
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: fineweb
@@ -10,17 +11,39 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  dmodel: 448
+  dmodel: 448 # 10
   dff: 1728
+  # dmodel: 960 # 30
+  # dff: 3840
+  # dmodel: 1344 # 50
+  # dff: 5376
 
 
 trainer:
   _target_: src.projected_compression.trainer.PCTrainer
   gradient_accumulation_steps: 8
-  n_steps: 2048
+  # gradient_accumulation_steps: 4
+  ^n_steps:
+    # - 3 # debug run
+    - 2048 # 1B tokens
+    # - 4096
+    # - 6144
+    # - 8192
+    # - 12288
+
+  gradient_clipping: 0.0625
+  # gradient_clipping: 0.125
+  # gradient_clipping: 0.25
+  # gradient_clipping: 0.5
+  # gradient_clipping: 2.0
   only_compress_model_gradient_clipping: true
+  # only_compress_model_gradient_clipping: false
   
-  learning_rate: 13
+  learning_rate: 12 # optimal 10%
+  # learning_rate: 13 # optimal 30%
+  # learning_rate: 14 # optimal 1B 50%
+  # learning_rate: 15 # optimal 75%
+  # learning_rate: 14 # optimal for randomi 50%
 
   scheduler:
     warmup_steps: 40
@@ -29,6 +52,8 @@ trainer:
     fsdp2: null
 
   eval_dataloader: None
+  eval_interval: 0
+
 
 projected_compression:
   modules_to_shard:
@@ -37,23 +62,29 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-  source_model_path: ??? #  special PC_memeff checkpoint from llama_1B_conversion config experiment
-  path_to_importances: ???
+  source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt # entropy ACTIVATIONS
+  path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt
+
+  # source_model_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama31b.pt # helios ACTIVATIONS
+  # path_to_importances: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_1_fw_importances/minitron_dimensions_importances.pt
 
   init_norms_with_ones: false
 
   separate_block_optimizers: true
+  # separate_block_optimizers: false
 
   adjust_grad_norm: false
 
 
 
 model:
-  cast_bfloat16: false
+  # cast_bfloat16: false
+  cast_bfloat16: true
 
 infrastructure:
   metric_logger:
-    name: Llame_PC
+    # name: test_llama_pc_memeff
+    name: test_llama_pc_memeff_norm_debug
     tags:
       - nano
       - pc
@@ -61,6 +92,8 @@ infrastructure:
       - projected_compression
       - mem_eff
       - 10p
+      - norm_debug
+      - gc_00625
       # - 30p
       # - 50p
 

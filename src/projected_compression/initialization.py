@@ -1,15 +1,13 @@
 import torch
 from src.core.checkpointing import get_full_checkpoint_path, load_training_state
-from src.core.metric_loggers import NeptuneLogger, get_metric_logger
+from src.core.metric_loggers import WandbLogger, get_metric_logger
 from src.core.utils import solve_config_lr
-from main import log_environs, upload_config_file
 from src.core.distributed_training import setup_fsdp2_model
 from torch.distributed.tensor import distribute_tensor, DTensor
 from hydra.utils import instantiate
 import logging
 import platform
 import os
-from neptune.integrations.python_logger import NeptuneHandler
 import torch.distributed.checkpoint as dcp
 
 logger = logging.getLogger(__name__)
@@ -28,32 +26,29 @@ def init_pc_attributes(cfg, metric_logger):
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
     if metric_logger is None:
+        # Reverted instantiate here. Passing raw OmegaConf dict so dot notation works inside get_metric_logger.
         metric_logger = get_metric_logger(
-            metric_logger_config=instantiate(
-                cfg.infrastructure.metric_logger, _convert_="all"
-            ),
-            neptune_run_id=training_state["run_id"],
+            metric_logger_config=cfg.infrastructure.metric_logger,
+            tracker_run_id=training_state["run_id"],
+            full_config=cfg,
         )
-
-        # Other loggers do not have `run` method
-        if isinstance(metric_logger, NeptuneLogger):
-            npt_handler = NeptuneHandler(run=metric_logger.run)
-            logger.addHandler(npt_handler)
 
     learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
 
-    if isinstance(metric_logger, NeptuneLogger) and (
+    if isinstance(metric_logger, WandbLogger) and (
         training_state["run_id"] is None
-        or cfg.infrastructure.metric_logger.new_neptune_job
+        or cfg.infrastructure.metric_logger.new_wandb_job
     ):
-        metric_logger.run["job_config"] = cfg
-        upload_config_file(metric_logger)
-        log_environs(metric_logger)
-        metric_logger.run[f"job/full_save_checkpoints_path"] = get_full_checkpoint_path(
-            cfg.trainer.checkpoint.save.path
-        )
-        metric_logger.run["learning_rate"] = learning_rate
-        metric_logger.run["exp_lr"] = exp_lr
+        if metric_logger.run is not None:
+            metric_logger.run.log(
+                {
+                    "learning_rate": learning_rate,
+                    "exp_lr": exp_lr,
+                    "full_save_checkpoints_path": get_full_checkpoint_path(
+                        cfg.trainer.checkpoint.save.path
+                    ),
+                }
+            )
 
     torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
 
@@ -102,7 +97,6 @@ def init_pc_attributes(cfg, metric_logger):
         load_checkpoint(model, optimizer, scheduler, cfg.trainer.checkpoint.load.path)
 
     return model, optimizer, scheduler, training_state, metric_logger
-
 
 def load_checkpoint(model, optimizer, scheduler, checkpoint_folder):
     dcp.load(model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model")
@@ -177,8 +171,9 @@ def create_model(cfg_model, cfg_projected_compression, source_model_for_distilla
     sharded_sd = get_sharded_sd(model.source_model.state_dict(), source_sd)
     model.source_model.load_state_dict(sharded_sd, strict=False, assign=True)
 
-    # It is used in forward step, but we do not need gradient
-    model.source_model.embedding.weight.requires_grad = False
+    # Source model weights are frozen — they provide fixed basis for projections.
+    for param in model.source_model.parameters():
+        param.requires_grad = False
 
     # Initializing model.target_model
     model.target_model.to_empty(device="cuda")
