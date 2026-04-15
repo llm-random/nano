@@ -151,6 +151,7 @@ class Trainer:
         )
 
     def train(self):
+        fired_lm_eval_this_step = False
         for step, batch in zip(
             range(self.start_step, self.n_steps), self.train_iterator
         ):
@@ -176,22 +177,14 @@ class Trainer:
 
             if self._should_lm_eval:
                 self.evaluator.eval()
+                fired_lm_eval_this_step = True
 
             self.metric_logger.flush()
 
-        # Fires once after the loop; also works when zero steps ran (run_decay eval-only).
-        # Skipped if the in-loop lm_eval already ran on this step to avoid double-firing.
-        loop_ran = self.n_steps > self.start_step
-        already_fired_in_loop = (
-            loop_ran
-            and self.lm_eval_interval > 0
-            and self.step > 0
-            and self.step % self.lm_eval_interval == 0
-        )
         if (
             self.final_lm_eval
             and self.evaluator is not None
-            and not already_fired_in_loop
+            and not fired_lm_eval_this_step
         ):
             self.metric_logger.set_step(self.step)
             self.metric_logger.set_tokens(self.processed_tokens)
