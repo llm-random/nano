@@ -84,6 +84,7 @@ class Trainer:
             self._rewind_train_iterator(self.start_step)
 
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
+        self.total_loss_averaged_100 = AveMetric(100, "100/train/total_loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
 
     def _rewind_train_iterator(self, n_batches: int):
@@ -331,7 +332,6 @@ class Trainer:
                 batch = batch.to(self.device)
                 loss_metrics = self.calculate_loss(batch)
                 losses.append(loss_metrics.reported_loss.detach())
-                self.metric_logger.flush_accumulated_metrics()
             avg_loss = torch.stack(losses).mean()
             self.metric_logger.log("eval/loss", avg_loss.item())
 

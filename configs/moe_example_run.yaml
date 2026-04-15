@@ -1,8 +1,8 @@
 defaults:
   - _cluster@_here_: entropy
   - _model/llama@_here_: small_moe
-  - _trainer@_here_: llama
-  - _dataset@_here_: c4
+  - _trainer@_here_: context_scaling
+  - _dataset@_here_: ctx_scl_dataset
   - _checkpoints@_here_: none
   - _misc@_here_: default
   - _eval@_here_: basic
@@ -18,8 +18,8 @@ model:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 1000
-  learning_rate: 5e-4
+  n_steps: 1001
+  learning_rate: 12
 
   train_dataloader:
     dataset:

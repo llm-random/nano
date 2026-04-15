@@ -1,14 +1,13 @@
 defaults:
   - _cluster@_here_: local
   - _model@_here_: tiny
-  - _trainer@_here_: llama
-  - _dataset@_here_: local_dummy
+  - _trainer@_here_: context_scaling
+  - _dataset@_here_: ctx_scl_dataset
   - _checkpoints@_here_: none
   - _misc@_here_: default
   # - _eval@_here_: basic
 
 common:
-  tokenizer: meta-llama/Llama-3.1-8B
   sequence_length: 16
   batch_size: 2
 
