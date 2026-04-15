@@ -157,7 +157,6 @@ class RoPETopKAttention(nn.Module):
 
 # - log the magnitudes of updates to the residual stream [done] 
 # - log grad norm [done]
-# - replace RoPE with learned embeddings [done]
 # - log the distribution of selected keys (how often each key is selected, how it evolves during training) [done]
 # - normalize queries and keys before dot product (this can stabilize training and improve convergence) [done]
 # - use smaller learning rate for this layer
@@ -197,11 +196,13 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         self.top_k = top_k
 
-        self.q_pos_emb = nn.Parameter(torch.zeros(seq_len, self.dhead))
-        self.k_pos_emb = nn.Parameter(torch.zeros(seq_len, self.dhead))
-        # todo grid on init std
-        trunc_normal_(self.q_pos_emb, std=0.1)
-        trunc_normal_(self.k_pos_emb, std=0.1)
+        self.rope = RoPE(
+            dhead=self.dhead,
+            length=seq_len,
+            base=rope_base,
+            apply_freq_scaling=rope_scale_freqs,
+        )
+
 
         # Normalize the halves independently to balance Product Key retrieval
         self.q_norm1 = nn.RMSNorm(self.dhead_half)
@@ -296,9 +297,9 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         batch, seq_len = x.shape[:-1]
         q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
-        q = q + self.q_pos_emb
+        q = self.rope(q)
         k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
-        k = k + self.k_pos_emb
+        k = self.rope(k)
 
         v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
 

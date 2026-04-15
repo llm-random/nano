@@ -51,20 +51,18 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_mlm_init_only_keys_warmup01
+    name: pk_mlm_bring_back_rope_init_grid
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 1000
     heavy_logging_layers: [0, 10, 15]
     tags:
       - nano
       - pk_mlm
-      - 2026.03.24
+      - 2026.04.15
       - warmup_steps=${trainer.scheduler.warmup_steps}
-      - learned_embeddings
+      - RoPE
       - QKNorm
       - initialization_grid
-      - init_scale_${common.init_scale}
-      - init_only_keys
       - "lr=${trainer.learning_rate}"
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
@@ -94,7 +92,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1 #${common.init_scale}
+            scale: ${common.init_scale}
 
         k_proj_fn:
           _target_: src.projected_compression.model.Linear
@@ -114,7 +112,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1  #${common.init_scale}
+            scale: ${common.init_scale}
 
         o_proj_fn: 
           _target_: src.projected_compression.model.Linear
@@ -124,7 +122,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1  # ${common.init_scale}
+            scale: ${common.init_scale}
 
         rope_base: 500000
         rope_scale_freqs: true
