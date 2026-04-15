@@ -1,0 +1,18 @@
+defaults:
+  - swiglu_dense_template
+  - _self_
+
+common:
+  _target_: src.definitions.Common
+  dmodel: 1536
+  dff: 3840
+  datt: 1536
+  n_blocks: 24
+  q_heads: 24
+  kv_heads: 24
+  vocab_size: 50304
+  sequence_length: 256
+  head_norm: true
+  init_scale: 0.1
+  init_type: truncated_normal_fixed
+  model_type: gpt

@@ -1,0 +1,44 @@
+defaults:
+  - ../_cluster@_here_: local
+  - ../_model/context_scaling@_here_: tiny
+  - ../_trainer@_here_: context_scaling
+  - ../_dataset@_here_: ctx_scl_dataset
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - ../_eval@_here_: basic
+  - _self_
+
+common:
+  _target_: src.definitions.Common
+  tokenizer: gpt2
+  sequence_length: 8
+  batch_size: 2
+  init_type: truncated_normal_fixed
+  model_type: gpt
+  model_seed: 123
+  data_seed: 123
+
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 201
+  learning_rate: 1e-3
+  eval_interval: 100
+  lm_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
+
+  checkpoint:
+    save:
+      type: nano
+      path: checkpoint
+
+infrastructure:
+  metric_logger:
+    name: tiny_local_ctx_scl
+    tags:
+      - nano
+      - local
+      - tiny
+      - context_scaling
+
+evaluator:
+  limit: 1

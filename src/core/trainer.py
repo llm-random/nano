@@ -1,3 +1,4 @@
+import math
 import os
 import time
 from attr import define
@@ -20,6 +21,7 @@ from src.core.checkpointing import (
     step_checkpoint_path,
 )
 from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
+from src.core.eval import Evaluator
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,8 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
+    evaluator: Optional[Evaluator] = None
+    lm_eval_interval: int = 0
 
     def __attrs_post_init__(self):
         self.processed_tokens = self.training_state["processed_tokens"]
@@ -67,7 +71,7 @@ class Trainer:
             self.eval_iterator = iter(self.eval_dataloader)
         self.step = self.start_step - 1
 
-        if self.start_step > 0:
+        if self.start_step > 0 and self.eval_interval > 0:
             n_skip_eval_batches = (
                 (self.start_step - 1) // self.eval_interval * self.n_eval_steps
             )
@@ -75,10 +79,36 @@ class Trainer:
             for _ in range(n_skip_eval_batches):
                 next(self.eval_iterator)
 
+        self.train_iterator = iter(self.train_dataloader)
+        if self.start_step > 0 and self.checkpoint.load.rewind_data:
+            self._rewind_train_iterator(self.start_step)
+
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
-        if self._has_moe_modules:
-            self.total_loss_averaged_100 = AveMetric(100, "100/train/total_loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
+
+    def _rewind_train_iterator(self, n_batches: int):
+        logger.info(f"Rewinding train dataloader: skipping {n_batches} batches")
+        milestones = {
+            max(1, int(round(10 ** (i * math.log10(n_batches) / 10))))
+            for i in range(1, 11)
+        }
+        start_time = time.time()
+        for i in range(n_batches):
+            next(self.train_iterator)
+            step = i + 1
+            if step in milestones:
+                elapsed = time.time() - start_time
+                rate = step / elapsed if elapsed > 0 else float("inf")
+                eta = (n_batches - step) / rate if rate > 0 else 0
+                logger.info(
+                    f"Rewinding: {step}/{n_batches} "
+                    f"({100 * step / n_batches:.1f}%), "
+                    f"{rate:.1f} batch/s, elapsed {elapsed:.0f}s, eta {eta:.0f}s"
+                )
+        logger.info(
+            f"Rewind complete: {n_batches} batches in "
+            f"{time.time() - start_time:.0f}s"
+        )
 
     @property
     def _should_evaluate(self) -> bool:
@@ -91,6 +121,15 @@ class Trainer:
     @property
     def _should_log_eval_input(self) -> bool:
         return self.step % (self.eval_interval * 100) == 0
+
+    @property
+    def _should_lm_eval(self) -> bool:
+        return (
+            self.lm_eval_interval > 0
+            and self.evaluator is not None
+            and self.step % self.lm_eval_interval == 0
+            and self.step != 0
+        )
 
     @property
     def _should_save_checkpoint(self) -> bool:
@@ -111,7 +150,7 @@ class Trainer:
 
     def train(self):
         for step, batch in zip(
-            range(self.start_step, self.n_steps), self.train_dataloader
+            range(self.start_step, self.n_steps), self.train_iterator
         ):
             self.step = step
             self.metric_logger.set_step(step)
@@ -133,6 +172,9 @@ class Trainer:
             if self._should_evaluate:
                 self.eval()
 
+            if self._should_lm_eval:
+                self.evaluator.eval()
+
             self.metric_logger.flush()
 
         if self._should_save_final_checkpoint:
@@ -144,9 +186,14 @@ class Trainer:
                 full_state = cast_state_dict_to_tensors(model_state_dict)
 
                 if os.environ["RANK"] == "0":
-                    dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = (
-                        self.model.encoder.get_model_dimensions()
-                    )
+                    (
+                        dmodel,
+                        dff,
+                        n_att_heads,
+                        n_kvatt_heads,
+                        head_dim,
+                        nlayers,
+                    ) = self.model.encoder.get_model_dimensions()
 
                     save_to_llama_3_hf(  # dev fixed values
                         full_state,
@@ -319,9 +366,9 @@ class Trainer:
                 "train/moe_router_z_loss",
                 loss_metrics.moe_router_z_loss.item(),
             )
+
         self.metric_logger.log("train/lr", self.scheduler.get_last_lr()[0])
-        if grad_norm is not None:
-            self.metric_logger.log("train/grad_norm", grad_norm.item())
+        self.metric_logger.log("train/grad_norm", grad_norm.item())
 
         self.loss_averaged_100.log(
             self.metric_logger, loss_metrics.reported_loss.item()
@@ -331,8 +378,6 @@ class Trainer:
                 self.metric_logger, loss_metrics.total_loss.item()
             )
         self.time_diff_averaged_100.log(self.metric_logger, time.time())
-
-        self.metric_logger.flush_accumulated_metrics()
 
     def save_checkpoint(self):
         if (

@@ -60,6 +60,7 @@ def generate_sbatch_script(
         array_spec = f"0-{n_experiments - 1}"
 
     lines.append(f"#SBATCH --array={array_spec}")
+    lines.append("#SBATCH --requeue")
 
     lines.extend(slurm_parameters)
 

@@ -2,22 +2,22 @@ import torch
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, ConstantLR
 
 
-class TrapezoidalLR(SequentialLR):
+class WSDScheduler(SequentialLR):
     def __init__(
         self,
-        optimizer,
-        warmup_steps,
-        constant_steps,
-        decay_steps,
+        optimizer: torch.optim.Optimizer,
+        n_steps: int,
+        warmup_steps: int,
+        decay_steps: int,
     ):
         self.warmup_steps = warmup_steps
-        self.constant_steps = constant_steps
         self.decay_steps = decay_steps
+        self.constant_steps = n_steps - warmup_steps - decay_steps
 
         # Define individual schedulers
         warmup_scheduler = LinearLR(
             optimizer,
-            start_factor=0.1,
+            start_factor=1e-12,  # can't use 0.0
             end_factor=1.0,
             total_iters=warmup_steps,
         )
@@ -25,7 +25,7 @@ class TrapezoidalLR(SequentialLR):
         constant_scheduler = ConstantLR(
             optimizer,
             factor=1.0,
-            total_iters=constant_steps,
+            total_iters=self.constant_steps,
         )
 
         linear_decay_scheduler = LinearLR(
@@ -36,9 +36,9 @@ class TrapezoidalLR(SequentialLR):
         )
 
         schedulers = [warmup_scheduler, constant_scheduler, linear_decay_scheduler]
-        milestones = [warmup_steps, warmup_steps + constant_steps]
+        milestones = [warmup_steps, warmup_steps + self.constant_steps]
 
-        super(TrapezoidalLR, self).__init__(
+        super(WSDScheduler, self).__init__(
             optimizer, schedulers=schedulers, milestones=milestones
         )
 

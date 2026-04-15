@@ -2,10 +2,11 @@
 evaluator:
   _partial_: true
   _target_: src.core.eval.Evaluator
-  checkpoint_path: ${trainer.checkpoint.save.path}
-  tokenizer: meta-llama/Llama-3.1-8B
+  tokenizer: ${common.tokenizer}
   tasks:
     - wikitext
     - piqa
   limit: null  # No limit, evaluate on full datasets
-  device: cuda
+  max_length: ${common.sequence_length}
+  max_gen_toks: 256
+  batch_size: 1

@@ -22,10 +22,18 @@ infrastructure:
     # export pixi variables
     - 'export PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
-    - 'export XDG_DATA_HOME="PROJECT_HOME_PATH/data"'
+
+    # hardfixes
+    - 'export XDG_DATA_HOME="$PROJECT_HOME_PATH/data"'
     - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'
     - 'export XDG_STATE_HOME="$PROJECT_HOME_PATH/state"'
+    - 'export RATTLER_CACHE_DIR="$XDG_CACHE_HOME/rattler"'
+    - 'export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"'
+    - 'export PIXI_CACHE_DIR="$XDG_CACHE_HOME/pixi"'
     
+    # HF datasets requires explicit opt-in for datasets with custom code (e.g. allenai/social_i_qa)
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
+
     # activate pixi
     - 'cd "$PIXI_HOME"'
     - 'eval "$(pixi shell-hook)"'

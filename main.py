@@ -68,6 +68,8 @@ def check_env_vars():
 
 
 def setup_enviroment():
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
     if "WORLD_SIZE" not in os.environ:
         logger.warning("WORLD_SIZE is not set, setting it to 1")
         os.environ["WORLD_SIZE"] = "1"
@@ -199,9 +201,7 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         lr=learning_rate,
         weight_decay=cfg.trainer.weight_decay,
     )
-    scheduler = instantiate(cfg.trainer.scheduler)(
-        optimizer=optimizer, n_steps=cfg.trainer.n_steps
-    )
+    scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)
 
     return model, optimizer, scheduler
 
@@ -233,6 +233,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                     ),
                 }
             )
+            upload_config_file(metric_logger)
 
     torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
 
@@ -268,8 +269,13 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
+        # run_decay feature, scheduler needs to be a decay scheduler on the decay runs.
+        reset_scheduler = cfg.trainer.checkpoint.load.get("reset_scheduler", False)
         load_checkpoint_from_file(
-            cfg.trainer.checkpoint.load, model, optimizer, scheduler
+            cfg.trainer.checkpoint.load,
+            model,
+            optimizer,
+            scheduler,
         )
         if cfg.trainer.checkpoint.load.only_weights:
             optimizer = torch.optim.AdamW(
@@ -280,6 +286,9 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             scheduler = instantiate(cfg.trainer.scheduler)(
                 optimizer=optimizer, n_steps=cfg.trainer.n_steps
             )
+        # run_decay feature
+        elif reset_scheduler:
+            scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)
     else:
         raise Exception(
             f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}"
@@ -304,48 +313,47 @@ def run(cfg: OmegaConf, metric_logger=None):
         cfg, metric_logger
     )
 
-    if model is not None:
-        logger.info(f"Model initialized")
+    logger.info(f"Model initialized")
 
-        trainer = instantiate(cfg.trainer)
+    evaluator_partial = instantiate(cfg.evaluator)
+    lm_evaluator = (
+        evaluator_partial(metric_logger=metric_logger, model=model)
+        if evaluator_partial is not None
+        else None
+    )
 
-        if "distillation" in cfg:
-            if cfg.distillation.load.type == "huggingface":
-                teacher_model = instantiate(
-                    cfg.distillation.teacher_model, _convert_="all"
-                ).to(get_device())
-                copy_llama_model_weights_from_HF(
-                    teacher_model, cfg.distillation.load.path
-                )
-                teacher_model = setup_distributed_training(
-                    teacher_model, cfg.trainer.teacher_distributed
-                )
-            elif cfg.distillation.load.type == "pc_memeff_base":
-                teacher_model = model.source_model
+    trainer = instantiate(cfg.trainer)
 
-            trainer(
-                teacher_model=teacher_model,
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                training_state=training_state,
-                metric_logger=metric_logger,
-            ).train()
-        else:
-            trainer(
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                training_state=training_state,
-                metric_logger=metric_logger,
-            ).train()
+    if "distillation" in cfg:
+        if cfg.distillation.load.type == "huggingface":
+            teacher_model = instantiate(
+                cfg.distillation.teacher_model, _convert_="all"
+            ).to(get_device())
+            copy_llama_model_weights_from_HF(teacher_model, cfg.distillation.load.path)
+            teacher_model = setup_distributed_training(
+                teacher_model, cfg.trainer.teacher_distributed
+            )
+        elif cfg.distillation.load.type == "pc_memeff_base":
+            teacher_model = model.source_model
 
-        # TODO
-        # finetuning
-
-    evaluator = instantiate(cfg.evaluator)
-    if evaluator is not None:
-        evaluator(metric_logger=metric_logger).eval()
+        trainer(
+            teacher_model=teacher_model,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+            evaluator=lm_evaluator,
+        ).train()
+    else:
+        trainer(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+            evaluator=lm_evaluator,
+        ).train()
 
     cleanup()
 

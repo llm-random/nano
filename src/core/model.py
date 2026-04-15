@@ -23,7 +23,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def llm_random_weight_init(fan_in, scale):
+def trunc_normal_init(fan_in, scale):
     std = scale * (1 / fan_in) ** 0.5
     low = -2 * std
     high = 2 * std
@@ -49,7 +49,7 @@ class Residual(nn.Module):
     def forward(self, x):
         normalized = self.norm(x)
         out = self.layer(normalized)
-        if self.metric_logger is not None:
+        if self.metric_logger is not None and self.training:
             self.metric_logger.accumulate_metrics(
                 layer_name=f"{self.log_name}",
                 transform_fn=Residual.intermediate_norms,
@@ -185,7 +185,7 @@ class TransformerBlock(nn.Module):
         return x
 
 
-class TransformerTower(nn.Module):
+class TransformerEncoder(nn.Module):
     def get_model_dimensions(self):
         # Works only for llama3 transforermer architecture
         ff_layer = self.blocks[0].ff_layer.layer
@@ -291,12 +291,18 @@ class MLP(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    def __init__(self, dmodel, dff, linear_fn):
+    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn, compile: bool = False):
         super().__init__()
-        self.ff_pre_act = linear_fn(dmodel, dff)
-        self.gate = linear_fn(dmodel, dff)
         self.silu = nn.SiLU()
-        self.ff_post_act = linear_fn(dff, dmodel)
+        self.ff_pre_act = ff_pre_act_fn()
+        self.ff_post_act = ff_post_act_fn()
+        self.gate = gate_fn()
+
+        if compile:
+            self.forward = torch.compile(
+                self.forward,
+                mode="max-autotune-no-cudagraphs",
+            )
 
     def forward(self, x):
         gated = self.gate(x)
@@ -365,10 +371,14 @@ class RoPE(nn.Module):
         return inv_freq_llama
 
     def forward(self, x):
+        seq_len = x.shape[-2]
+        if seq_len > self.length:
+            self.length = seq_len
+            self.register_freqs()
         [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
         x_rotated = torch.cat([-y2, y1], dim=-1)
-        cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
-        sin_scaler = self.sin[: x.shape[-2], :].to(x.device, dtype=x.dtype)
+        cos_scaler = self.cos[:seq_len, :].to(x.device, dtype=x.dtype)
+        sin_scaler = self.sin[:seq_len, :].to(x.device, dtype=x.dtype)
         return x * cos_scaler + x_rotated * sin_scaler
 
 
@@ -379,18 +389,21 @@ class RoPEAttention(nn.Module):
         k_proj_fn,
         v_proj_fn,
         o_proj_fn,
+        pre_attn_fn,
         dmodel,
         q_heads,
         kv_heads,
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
+        compile: bool = False,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
         self.k_proj = k_proj_fn()
         self.v_proj = v_proj_fn()
         self.o_proj = o_proj_fn()
+        self.pre_attn_fn = pre_attn_fn() if pre_attn_fn is not None else None
         self.attention_mechanism = AttentionMechanism()
 
         self.q_heads = q_heads
@@ -404,6 +417,12 @@ class RoPEAttention(nn.Module):
             base=rope_base,
             apply_freq_scaling=rope_scale_freqs,
         )
+
+        if compile:
+            self.forward = torch.compile(
+                self.forward,
+                mode="max-autotune-no-cudagraphs",
+            )
 
     def forward(self, x):
         query_states = self.q_proj(x)
@@ -422,6 +441,11 @@ class RoPEAttention(nn.Module):
 
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
+
+        # Apply QKNorm before reshape (normalizes over full datt, not per-head)
+        if self.pre_attn_fn is not None:
+            q, k, v = self.pre_attn_fn(q, k, v)
+
         attention_output = self.attention_mechanism(
             query=q, key=k, value=v, causal=True
         )
@@ -468,6 +492,16 @@ class AttentionMechanism(nn.Module):
             value=value,
             causal=causal,
         )
+
+
+class QKNorm(nn.Module):
+    def __init__(self, q_norm_fn: Callable, k_norm_fn: Callable):
+        super().__init__()
+        self.q_norm = q_norm_fn()
+        self.k_norm = k_norm_fn()
+
+    def forward(self, q, k, v):
+        return self.q_norm(q), self.k_norm(k), v
 
 
 def init_kaiming_uniform(shape, fan_in, scale, dtype=torch.float32):

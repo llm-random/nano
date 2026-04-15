@@ -1,30 +1,56 @@
 defaults:
-  - _cluster@_here_: entropy_a100
+  - _cluster@_here_: helios
   - _model@_here_: tiny
   - _trainer@_here_: llama
   - _dataset@_here_: c4
   - _checkpoints@_here_: none
   - _misc@_here_: default
-  - _eval@_here_: basic
+  # - _eval@_here_: basic
 
 common:
+  tokenizer: gpt2
   sequence_length: 128
-  batch_size: 16
+  batch_size: 128
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 100
+  n_steps: 1001
   learning_rate: 1e-3
+  lm_eval_interval: 0  # 0 = disabled; set to N to run lm_eval every N steps during training
 
   checkpoint:
     save:
-      type: huggingface
-      path: checkpoint
+      type: nano
+      interval: -1
+      # path: /storage_nvme_4/nano/models
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: __training_state_filename.pt
+
+    load:
+      type: nano
+      # ^path: [/storage_nvme_4/nano/models/148147/0/step_250, /storage_nvme_4/nano/models/148147/0/step_500, /storage_nvme_4/nano/models/148147/0/step_750]
+      # path: /storage_nvme_4/nano/models/148147/0/step_250
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: __training_state_filename.pt # not tested
+      only_weights: false # false not tested
+      rewind_data: true
+
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+      
+
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
 
 infrastructure:
   max_concurrent_jobs: 1
 
   metric_logger:
+    # type: stdout
     name: tiny_remote
     tags:
       - nano
@@ -36,5 +62,5 @@ infrastructure:
     gres: gpu:1
     job-name: ${infrastructure.metric_logger.name}
 
-evaluator:
-  limit: 10
+# evaluator:
+#   limit: 3

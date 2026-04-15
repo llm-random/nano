@@ -52,6 +52,8 @@ class Common(BaseModel):
     init_scale: float
     vocab_size: int
     head_norm: bool
+    model_seed: int
+    data_seed: int
 
 
 class SchedulerConfig(BaseModel):

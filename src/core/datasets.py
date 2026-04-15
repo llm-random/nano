@@ -109,7 +109,6 @@ def smollm_1700_tokenize_fn():
 
 
 class AbstractDataset(IterableDataset):
-
     def __init__(
         self,
         sequence_length,
