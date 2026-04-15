@@ -60,11 +60,6 @@ def build_decay_config(
     cfg["trainer"]["n_steps"] = source_step + decay_steps
 
     if not eval_only:
-        original_train_seed = cfg["trainer"]["train_dataloader"]["dataset"]["seed"]
-        assert train_data_seed is not None and train_data_seed != original_train_seed, (
-            f"train_data_seed ({train_data_seed}) must be set and differ from the "
-            f"base run's training data seed ({original_train_seed})."
-        )
         cfg["trainer"]["train_dataloader"]["dataset"]["seed"] = train_data_seed
 
         # Pure linear decay from peak LR to 0
@@ -183,6 +178,18 @@ def generate_configs(args):
         # Use infrastructure from first run for sbatch generation
         if infrastructure is None:
             infrastructure = base_config.get("infrastructure", {})
+
+        if not eval_only:
+            original_train_seed = base_config["trainer"]["train_dataloader"]["dataset"][
+                "seed"
+            ]
+            assert (
+                args.train_data_seed is not None
+                and args.train_data_seed != original_train_seed
+            ), (
+                f"--train_data_seed ({args.train_data_seed}) must be set and differ from "
+                f"run {run_id} ({run_name})'s training data seed ({original_train_seed})."
+            )
 
         # Determine which checkpoint steps to decay from
         if args.steps is not None:
