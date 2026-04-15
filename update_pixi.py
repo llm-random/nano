@@ -107,11 +107,11 @@ def update_remote_pixi(cfg: OmegaConf):
         slurm_config["output"] = f"{remote_tmp_dir}/pixi_install_%j.out"
 
         # Copy pixi.toml / pixi.lock into $HOME temp dir
-        print(f"Copying pixi.toml to {remote_tmp_dir}/...")
+        print(f"Copying pixi.toml to {remote_tmp_dir}")
         connection.put(str(pixi_toml), remote=f"{remote_tmp_dir}/pixi.toml")
 
         if pixi_lock.exists():
-            print(f"Copying pixi.lock to {remote_tmp_dir}/...")
+            print(f"Copying pixi.lock to {remote_tmp_dir}")
             connection.put(str(pixi_lock), remote=f"{remote_tmp_dir}/pixi.lock")
 
         # Run pixi install on compute node using srun
