@@ -13,19 +13,26 @@ infrastructure:
   script:
     - '${export_env_variables_placeholders:}'
     - 'module load ML-bundle/25.04'
-    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmefficont3/nano'
-    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi3/nano'
     
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
     
     # export pixi variables
     - 'export PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/$USER/hf_cache'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
-    - 'export XDG_DATA_HOME="PROJECT_HOME_PATH/data"'
-    - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'
-    - 'export XDG_STATE_HOME="$PROJECT_HOME_PATH/state"'
     
+    # HF datasets requires explicit opt-in for datasets with custom code (e.g. allenai/social_i_qa)
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
+
+    # Route package caches to the active grant's storage to avoid `Quota exceeded
+    # (os error 122)` from rattler during pixi install. Remote ~/.bashrc still points
+    # these at the old plggllmeffi grant (full); tying to PROJECT_HOME_PATH overrides it.
+    - 'export RATTLER_CACHE_DIR=$PROJECT_HOME_PATH/cache/rattler'
+    - 'export UV_CACHE_DIR=$PROJECT_HOME_PATH/cache/uv'
+    - 'export XDG_CACHE_HOME=$PROJECT_HOME_PATH/cache'
+
     # activate pixi
     - 'cd "$PIXI_HOME"'
     - 'eval "$(pixi shell-hook)"'
