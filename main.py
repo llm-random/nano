@@ -26,7 +26,6 @@ from src.core.checkpointing import (
 )
 from src.core.metric_loggers import WandbLogger, get_metric_logger
 from src.core.model import Residual
-from src.core.moe import MoE
 import platform
 
 logger = logging.getLogger(__name__)
@@ -213,20 +212,6 @@ def build_simpleP_param_groups(model, base_lr, simpleP_cfg, model_dmodel, model_
                 if param in scaled_params:
                     continue
                 lr_scale = get_lr_scale(module.in_features)
-                param_groups.append({"params": [param], "lr": base_lr * lr_scale})
-                scaled_params.add(param)
-        elif isinstance(module, MoE):
-            moe_params = {
-                "router_weight": module.dmodel,
-                "ff_pre_act_weight": module.dmodel,
-                "gate_weight": module.dmodel,
-                "ff_post_act_weight": module.dff,
-            }
-            for name, fan_in in moe_params.items():
-                param = getattr(module, name)
-                if param in scaled_params:
-                    continue
-                lr_scale = get_lr_scale(fan_in)
                 param_groups.append({"params": [param], "lr": base_lr * lr_scale})
                 scaled_params.add(param)
 
