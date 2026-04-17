@@ -1,0 +1,31 @@
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model/context_scaling@_here_: k4
+  - ../_trainer@_here_: context_scaling
+  - ../_dataset@_here_: ctx_scl_dataset
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 64
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 5001
+  ^learning_rate: [7, 8, 9, 10, 11]
+  eval_interval: 500
+
+infrastructure:
+  metric_logger:
+    name: simpleP_small
+    tags:
+      - nano
+      - simpleP
+      - k4
+
+  slurm:
+    time: "0-04:00:00"
+    gres: gpu:1
+    job-name: ${infrastructure.metric_logger.name}
