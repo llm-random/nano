@@ -1,5 +1,6 @@
 import os
 import statistics
+import time
 from omegaconf import OmegaConf
 import wandb
 import torch
@@ -9,6 +10,28 @@ import torch.distributed as dist
 import logging
 
 logger = logging.getLogger(__name__)
+
+WANDB_INIT_TIMEOUT_SECONDS = 300
+WANDB_INIT_MAX_ATTEMPTS = 3
+WANDB_INIT_RETRY_BACKOFF_SECONDS = 10
+
+
+def _init_wandb_with_retry(**init_kwargs):
+    last_exc = None
+    for attempt in range(1, WANDB_INIT_MAX_ATTEMPTS + 1):
+        try:
+            return wandb.init(
+                settings=wandb.Settings(init_timeout=WANDB_INIT_TIMEOUT_SECONDS),
+                **init_kwargs,
+            )
+        except wandb.errors.CommError as exc:
+            last_exc = exc
+            logger.warning(
+                f"wandb.init failed on attempt {attempt}/{WANDB_INIT_MAX_ATTEMPTS}: {exc}"
+            )
+            if attempt < WANDB_INIT_MAX_ATTEMPTS:
+                time.sleep(WANDB_INIT_RETRY_BACKOFF_SECONDS * attempt)
+    raise last_exc
 
 
 class MetricLogger(ABC):
@@ -159,7 +182,7 @@ def get_metric_logger(
                 if full_config
                 else None
             )
-            wandb_logger = wandb.init(
+            wandb_logger = _init_wandb_with_retry(
                 entity=metric_logger_config.wandb_entity,
                 project=metric_logger_config.project_name,
                 name=metric_logger_config.name,
