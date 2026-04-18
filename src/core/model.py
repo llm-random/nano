@@ -30,12 +30,12 @@ def trunc_normal_init(fan_in, scale):
     return partial(trunc_normal_, mean=0.0, std=std, a=low, b=high)
 
 
-def _tag_simpleP_scale(weight: torch.Tensor, base_fan_in: Optional[int]):
-    # Read by build_simpleP_param_groups in main.py to set per-param LR.
+def _tag_simpleP_scale(module: nn.Module, base_fan_in: Optional[int]):
+    # Tag the module, not the weight: FSDP2 replaces Parameter objects, but module identity survives.
     if base_fan_in is None:
         return
-    fan_in = weight.shape[1]
-    weight.simpleP_scale = base_fan_in / fan_in
+    fan_in = module.weight.shape[1]
+    module._simpleP_scale = base_fan_in / fan_in
 
 
 # linear takes partial function which returns init_fn upon giving fan_in as an input, but sometimes it does not depend on fan_in
@@ -236,7 +236,7 @@ class TransformerHead(nn.Module):
         super().__init__()
         self.norm = norm_fn()
         self.linear = linear_fn()
-        _tag_simpleP_scale(self.linear.weight, base_dmodel)
+        _tag_simpleP_scale(self.linear, base_dmodel)
 
     def forward(self, x):
         x = self.norm(x)
@@ -302,8 +302,8 @@ class MLP(nn.Module):
         self.relu = nn.ReLU()
         self.ff_pre_act = ff_pre_act_fn()
         self.ff_post_act = ff_post_act_fn()
-        _tag_simpleP_scale(self.ff_pre_act.weight, base_dmodel)
-        _tag_simpleP_scale(self.ff_post_act.weight, base_dff)
+        _tag_simpleP_scale(self.ff_pre_act, base_dmodel)
+        _tag_simpleP_scale(self.ff_post_act, base_dff)
 
     def forward(self, x):
         x = self.ff_pre_act(x)
@@ -327,9 +327,9 @@ class SwiGLU(nn.Module):
         self.ff_pre_act = ff_pre_act_fn()
         self.ff_post_act = ff_post_act_fn()
         self.gate = gate_fn()
-        _tag_simpleP_scale(self.ff_pre_act.weight, base_dmodel)
-        _tag_simpleP_scale(self.gate.weight, base_dmodel)
-        _tag_simpleP_scale(self.ff_post_act.weight, base_dff)
+        _tag_simpleP_scale(self.ff_pre_act, base_dmodel)
+        _tag_simpleP_scale(self.gate, base_dmodel)
+        _tag_simpleP_scale(self.ff_post_act, base_dff)
 
         if compile:
             self.forward = torch.compile(
@@ -440,7 +440,7 @@ class RoPEAttention(nn.Module):
         self.pre_attn_fn = pre_attn_fn() if pre_attn_fn is not None else None
         self.attention_mechanism = AttentionMechanism()
         for proj in (self.q_proj, self.k_proj, self.v_proj, self.o_proj):
-            _tag_simpleP_scale(proj.weight, base_dmodel)
+            _tag_simpleP_scale(proj, base_dmodel)
 
         self.q_heads = q_heads
         self.kv_heads = kv_heads

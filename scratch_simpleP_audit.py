@@ -3,6 +3,7 @@
 Usage:
     pixi run python scratch_simpleP_audit.py --config-name=simpleP/k8
 """
+
 import hydra
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
@@ -21,7 +22,9 @@ def main(cfg: OmegaConf):
     if simpleP is None:
         print("simpleP: NOT configured (vanilla)")
     else:
-        print(f"base_dmodel={simpleP.base_model.dmodel}, base_dff={simpleP.base_model.dff}")
+        print(
+            f"base_dmodel={simpleP.base_model.dmodel}, base_dff={simpleP.base_model.dff}"
+        )
         print(f"expected scale for dmodel fan_in: {simpleP.base_model.dmodel/dmodel}")
         print(f"expected scale for dff fan_in:    {simpleP.base_model.dff/dff}")
 
@@ -51,7 +54,9 @@ def main(cfg: OmegaConf):
     for lr in sorted(by_lr.keys()):
         gs = by_lr[lr]
         n_params = sum(sum(p.numel() for p in g["params"]) for g in gs)
-        print(f"\n=== LR = {lr:.6g}  (× base) ===  [{len(gs)} groups, {n_params:,} params total]")
+        print(
+            f"\n=== LR = {lr:.6g}  (× base) ===  [{len(gs)} groups, {n_params:,} params total]"
+        )
         # Collect and unique (name, shape) rows.
         rows = []
         for g in gs:

@@ -189,18 +189,41 @@ def get_device():
 
 
 def build_simpleP_param_groups(model, base_lr):
-    groups_by_scale = {}
-    for param in model.parameters():
-        scale = getattr(param, "simpleP_scale", 1.0)
-        groups_by_scale.setdefault(scale, []).append(param)
-    for scale, params in sorted(groups_by_scale.items()):
-        n = sum(p.numel() for p in params)
+    # Walk modules (not parameters): FSDP2 replaces Parameter objects but keeps module identity,
+    # so module._simpleP_scale set at __init__ time survives sharding.
+    scale_to_entries = {}  # scale -> list[(full_name, param)]
+    tagged_param_ids = set()
+    for mod_name, module in model.named_modules():
+        scale = getattr(module, "_simpleP_scale", None)
+        if scale is None:
+            continue
+        param = module.weight
+        full_name = f"{mod_name}.weight" if mod_name else "weight"
+        scale_to_entries.setdefault(scale, []).append((full_name, param))
+        tagged_param_ids.add(id(param))
+
+    # Remaining params (embedding, norms, biases, etc.) default to scale=1.0.
+    untagged = [
+        (name, p)
+        for name, p in model.named_parameters()
+        if id(p) not in tagged_param_ids
+    ]
+    if untagged:
+        scale_to_entries.setdefault(1.0, []).extend(untagged)
+
+    for scale in sorted(scale_to_entries.keys()):
+        entries = scale_to_entries[scale]
+        n = sum(p.numel() for _, p in entries)
         logger.info(
-            f"simpleP group: scale={scale:.4g}, lr={base_lr * scale:.4g}, n_params={n:,}"
+            f"simpleP group: scale={scale:.4g}, lr={base_lr * scale:.4g}, "
+            f"n_tensors={len(entries)}, n_params={n:,}"
         )
+        for name, p in entries:
+            logger.info(f"  {name}  shape={tuple(p.shape)}  numel={p.numel():,}")
+
     return [
-        {"params": params, "lr": base_lr * scale}
-        for scale, params in groups_by_scale.items()
+        {"params": [p for _, p in entries], "lr": base_lr * scale}
+        for scale, entries in scale_to_entries.items()
     ]
 
 
@@ -225,6 +248,11 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             model.parameters(),
             lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
+        )
+
+    for i, group in enumerate(optimizer.param_groups):
+        logger.info(
+            f"optimizer group {i}: lr={group['lr']}, n_params={sum(p.numel() for p in group['params']):,}"
         )
 
     scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)

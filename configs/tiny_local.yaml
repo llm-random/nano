@@ -1,6 +1,6 @@
 defaults:
   - _cluster@_here_: local
-  - _model@_here_: tiny
+  - _model_context_scaling@_here_: k4
   - _trainer@_here_: context_scaling
   - _dataset@_here_: ctx_scl_dataset
   - _checkpoints@_here_: none
@@ -10,6 +10,11 @@ defaults:
 common:
   sequence_length: 16
   batch_size: 2
+
+simpleP:
+  base_model:
+    dmodel: 128
+    dff: 312
 
 trainer:
   gradient_accumulation_steps: 1
