@@ -188,6 +188,52 @@ def get_device():
     return device
 
 
+def register_simpleP_debug_hooks(optimizer, model, log_every=50):
+    # Samples one param per group and logs lr + ||Δw|| post-step. ||Δw|| is the actual weight
+    # change applied by the optimizer, so this catches scheduler stomping or FSDP2 issues
+    # that the init-time lr log cannot see.
+    id_to_name = {id(p): n for n, p in model.named_parameters()}
+    sample_names = [
+        id_to_name.get(id(g["params"][0]), "<unknown>") if g["params"] else "<empty>"
+        for g in optimizer.param_groups
+    ]
+
+    def _local(t):
+        return t.to_local() if hasattr(t, "to_local") else t
+
+    state = {"step": 0, "snaps": {}}
+
+    def pre(opt, args, kwargs):
+        # Log on step 1, 2, 3 (first-step signal is cleanest for AdamW) and then every log_every.
+        if not (state["step"] < 3 or state["step"] % log_every == 0):
+            return
+        for gi, g in enumerate(opt.param_groups):
+            if g["params"]:
+                state["snaps"][gi] = _local(g["params"][0].detach()).clone()
+
+    def post(opt, args, kwargs):
+        if state["step"] < 3 or state["step"] % log_every == 0:
+            for gi, g in enumerate(opt.param_groups):
+                if gi not in state["snaps"]:
+                    continue
+                p_local = _local(g["params"][0].detach())
+                before = state["snaps"][gi]
+                delta = (p_local - before).float().norm().item()
+                wnorm = before.float().norm().item()
+                numel = before.numel()
+                logger.info(
+                    f"[simpleP step {state['step']}] group {gi} ({sample_names[gi]}): "
+                    f"lr={g['lr']:.4g}, ||Δw||={delta:.4g}, "
+                    f"||Δw||/sqrt(numel)={delta / max(numel, 1) ** 0.5:.4e}, "
+                    f"||Δw||/||w||={delta / max(wnorm, 1e-12):.4e}"
+                )
+            state["snaps"].clear()
+        state["step"] += 1
+
+    optimizer.register_step_pre_hook(pre)
+    optimizer.register_step_post_hook(post)
+
+
 def build_simpleP_param_groups(model, base_lr):
     # Walk modules (not parameters): FSDP2 replaces Parameter objects but keeps module identity,
     # so module._simpleP_scale set at __init__ time survives sharding.
@@ -254,6 +300,9 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         logger.info(
             f"optimizer group {i}: lr={group['lr']}, n_params={sum(p.numel() for p in group['params']):,}"
         )
+
+    if simpleP_cfg:
+        register_simpleP_debug_hooks(optimizer, model)
 
     scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)
 
@@ -332,11 +381,20 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             scheduler,
         )
         if cfg.trainer.checkpoint.load.only_weights:
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=learning_rate,
-                weight_decay=cfg.trainer.weight_decay,
-            )
+            simpleP_cfg = cfg.get("simpleP", None)
+            if simpleP_cfg:
+                param_groups = build_simpleP_param_groups(model, learning_rate)
+                optimizer = torch.optim.AdamW(
+                    param_groups,
+                    weight_decay=cfg.trainer.weight_decay,
+                )
+                register_simpleP_debug_hooks(optimizer, model)
+            else:
+                optimizer = torch.optim.AdamW(
+                    model.parameters(),
+                    lr=learning_rate,
+                    weight_decay=cfg.trainer.weight_decay,
+                )
             scheduler = instantiate(cfg.trainer.scheduler)(
                 optimizer=optimizer, n_steps=cfg.trainer.n_steps
             )

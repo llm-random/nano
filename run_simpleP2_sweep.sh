@@ -12,10 +12,10 @@ for model in "${MODELS[@]}"; do
     pixi run python run_exp.py \
         --config-path=configs/simpleP --config-name="${model}"
 
-    echo "=== launching vanilla ${model} ==="
-    pixi run python run_exp.py \
-        --config-path=configs/simpleP --config-name="${model}" \
-        ~simpleP \
-        infrastructure.metric_logger.name="vanilla3_${model}" \
-        "infrastructure.metric_logger.tags=[nano, vanilla3, ${model}]"
+    # echo "=== launching vanilla ${model} ==="
+    # pixi run python run_exp.py \
+    #     --config-path=configs/simpleP --config-name="${model}" \
+    #     ~simpleP \
+    #     infrastructure.metric_logger.name="vanilla4_${model}" \
+    #     "infrastructure.metric_logger.tags=[nano, vanilla4, ${model}]"
 done

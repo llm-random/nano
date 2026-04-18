@@ -1,5 +1,5 @@
 defaults:
-  - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: lem
   - ../_model/context_scaling@_here_: k12
   - ../_trainer@_here_: context_scaling
   - ../_dataset@_here_: ctx_scl_dataset
@@ -25,13 +25,13 @@ simpleP:
 
 infrastructure:
   metric_logger:
-    name: simpleP3_k12
+    name: simpleP4_k12
     tags:
       - nano
-      - simpleP3
+      - simpleP4
       - k12
 
   slurm:
     time: "0-04:00:00"
-    gres: gpu:2
+    gres: gpu:hopper:2
     job-name: ${infrastructure.metric_logger.name}
