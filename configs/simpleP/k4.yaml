@@ -14,15 +14,21 @@ common:
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 5001
-  ^learning_rate: [7, 8, 9, 10, 11]
+  ^learning_rate: [5]
+  # ^learning_rate: [7, 9, 11, 13]
   eval_interval: 500
+
+simpleP:
+  base_model:
+    dmodel: 256
+    dff: 640
 
 infrastructure:
   metric_logger:
-    name: simpleP_small
+    name: simpleP2_k4
     tags:
       - nano
-      - simpleP
+      - simpleP2
       - k4
 
   slurm:

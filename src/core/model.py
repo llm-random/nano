@@ -30,6 +30,14 @@ def trunc_normal_init(fan_in, scale):
     return partial(trunc_normal_, mean=0.0, std=std, a=low, b=high)
 
 
+def _tag_simpleP_scale(weight: torch.Tensor, base_fan_in: Optional[int]):
+    # Read by build_simpleP_param_groups in main.py to set per-param LR.
+    if base_fan_in is None:
+        return
+    fan_in = weight.shape[1]
+    weight.simpleP_scale = base_fan_in / fan_in
+
+
 # linear takes partial function which returns init_fn upon giving fan_in as an input, but sometimes it does not depend on fan_in
 dummy_weight_init = lambda _: trunc_normal_
 dummy_zeros = lambda _: zeros
@@ -219,10 +227,16 @@ class TransformerEncoder(nn.Module):
 
 
 class TransformerHead(nn.Module):
-    def __init__(self, linear_fn: Callable, norm_fn: Callable):
+    def __init__(
+        self,
+        linear_fn: Callable,
+        norm_fn: Callable,
+        base_dmodel: Optional[int],
+    ):
         super().__init__()
         self.norm = norm_fn()
         self.linear = linear_fn()
+        _tag_simpleP_scale(self.linear.weight, base_dmodel)
 
     def forward(self, x):
         x = self.norm(x)
@@ -277,11 +291,19 @@ class LLM(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, ff_pre_act_fn, ff_post_act_fn):
+    def __init__(
+        self,
+        ff_pre_act_fn,
+        ff_post_act_fn,
+        base_dmodel: Optional[int],
+        base_dff: Optional[int],
+    ):
         super().__init__()
         self.relu = nn.ReLU()
         self.ff_pre_act = ff_pre_act_fn()
         self.ff_post_act = ff_post_act_fn()
+        _tag_simpleP_scale(self.ff_pre_act.weight, base_dmodel)
+        _tag_simpleP_scale(self.ff_post_act.weight, base_dff)
 
     def forward(self, x):
         x = self.ff_pre_act(x)
@@ -291,12 +313,23 @@ class MLP(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn, compile: bool = False):
+    def __init__(
+        self,
+        ff_pre_act_fn,
+        ff_post_act_fn,
+        gate_fn,
+        base_dmodel: Optional[int],
+        base_dff: Optional[int],
+        compile: bool = False,
+    ):
         super().__init__()
         self.silu = nn.SiLU()
         self.ff_pre_act = ff_pre_act_fn()
         self.ff_post_act = ff_post_act_fn()
         self.gate = gate_fn()
+        _tag_simpleP_scale(self.ff_pre_act.weight, base_dmodel)
+        _tag_simpleP_scale(self.gate.weight, base_dmodel)
+        _tag_simpleP_scale(self.ff_post_act.weight, base_dff)
 
         if compile:
             self.forward = torch.compile(
@@ -396,6 +429,7 @@ class RoPEAttention(nn.Module):
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
+        base_dmodel: Optional[int],
         compile: bool = False,
     ):
         super().__init__()
@@ -405,6 +439,8 @@ class RoPEAttention(nn.Module):
         self.o_proj = o_proj_fn()
         self.pre_attn_fn = pre_attn_fn() if pre_attn_fn is not None else None
         self.attention_mechanism = AttentionMechanism()
+        for proj in (self.q_proj, self.k_proj, self.v_proj, self.o_proj):
+            _tag_simpleP_scale(proj.weight, base_dmodel)
 
         self.q_heads = q_heads
         self.kv_heads = kv_heads

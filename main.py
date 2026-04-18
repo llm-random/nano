@@ -14,7 +14,6 @@ from omegaconf import OmegaConf
 
 import os
 import torch
-import torch.nn as nn
 import torch.distributed as dist
 import logging
 from hydra.utils import instantiate
@@ -189,37 +188,20 @@ def get_device():
     return device
 
 
-def build_simpleP_param_groups(model, base_lr, simpleP_cfg, model_dmodel, model_dff):
-    base_dmodel = simpleP_cfg.base_model.dmodel
-    base_dff = simpleP_cfg.base_model.dff
-
-    def get_lr_scale(fan_in):
-        if fan_in == model_dff:
-            return base_dff / fan_in
-        if fan_in == model_dmodel:
-            return base_dmodel / fan_in
-        logger.warning(
-            f"simpleP: fan_in={fan_in} matches neither dmodel={model_dmodel} nor dff={model_dff}, using base_dmodel"
+def build_simpleP_param_groups(model, base_lr):
+    groups_by_scale = {}
+    for param in model.parameters():
+        scale = getattr(param, "simpleP_scale", 1.0)
+        groups_by_scale.setdefault(scale, []).append(param)
+    for scale, params in sorted(groups_by_scale.items()):
+        n = sum(p.numel() for p in params)
+        logger.info(
+            f"simpleP group: scale={scale:.4g}, lr={base_lr * scale:.4g}, n_params={n:,}"
         )
-        return base_dmodel / fan_in
-
-    scaled_params = set()
-    param_groups = []
-
-    for module in model.modules():
-        if isinstance(module, nn.Linear):
-            for param in module.parameters():
-                if param in scaled_params:
-                    continue
-                lr_scale = get_lr_scale(module.in_features)
-                param_groups.append({"params": [param], "lr": base_lr * lr_scale})
-                scaled_params.add(param)
-
-    unscaled = [p for p in model.parameters() if p not in scaled_params]
-    if unscaled:
-        param_groups.append({"params": unscaled, "lr": base_lr})
-
-    return param_groups
+    return [
+        {"params": params, "lr": base_lr * scale}
+        for scale, params in groups_by_scale.items()
+    ]
 
 
 def get_model_optimizer_scheduler(cfg, model, learning_rate):
@@ -233,9 +215,7 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
 
     simpleP_cfg = cfg.get("simpleP", None)
     if simpleP_cfg:
-        param_groups = build_simpleP_param_groups(
-            model, learning_rate, simpleP_cfg, cfg.common.dmodel, cfg.common.dff
-        )
+        param_groups = build_simpleP_param_groups(model, learning_rate)
         optimizer = torch.optim.AdamW(
             param_groups,
             weight_decay=cfg.trainer.weight_decay,

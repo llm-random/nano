@@ -25,8 +25,8 @@ simpleP:
 infrastructure:
   metric_logger:
     type: stdout
-    name: simpleP_tiny_local
+    name: simpleP2_tiny_local
     tags:
       - nano
       - local
-      - simpleP
+      - simpleP2

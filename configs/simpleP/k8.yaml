@@ -24,10 +24,10 @@ simpleP:
 
 infrastructure:
   metric_logger:
-    name: simpleP_k8
+    name: simpleP2_k8
     tags:
       - nano
-      - simpleP
+      - simpleP2
       - k8
 
   slurm:

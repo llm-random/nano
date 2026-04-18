@@ -44,6 +44,7 @@ model:
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
+        base_dmodel: ${oc.select:simpleP.base_model.dmodel,null}
         q_proj_fn:
           _target_: src.core.model.Linear
           _partial_: true
@@ -97,6 +98,8 @@ model:
       ff_layer_fn:
         _target_: src.core.model.SwiGLU
         _partial_: true
+        base_dmodel: ${oc.select:simpleP.base_model.dmodel,null}
+        base_dff: ${oc.select:simpleP.base_model.dff,null}
         ff_pre_act_fn:
           _target_: src.core.model.Linear
           _partial_: true
@@ -119,6 +122,7 @@ model:
 
   head:
     _target_: src.core.model.TransformerHead
+    base_dmodel: ${oc.select:simpleP.base_model.dmodel,null}
     linear_fn:
       _target_: src.core.model.Linear
       _partial_: true
