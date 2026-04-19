@@ -33,6 +33,10 @@ infrastructure:
     - 'export UV_CACHE_DIR=$PROJECT_HOME_PATH/cache/uv'
     - 'export XDG_CACHE_HOME=$PROJECT_HOME_PATH/cache'
 
+    # Prepend env's libstdc++ so triton's libtriton.so resolves CXXABI_1.3.15 (GCC 14 ABI).
+    # Helios's system/module libstdc++ is too old and breaks torch.compile on aarch64.
+    - 'export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"'
+
     # activate pixi
     - 'cd "$PIXI_HOME"'
     - 'eval "$(pixi shell-hook)"'
