@@ -51,7 +51,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_mlm_bring_back_rope_lr_grid
+    name: pk_mlm_bring_back_rope_no_qknorm_lr_grid
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 1000
     heavy_logging_layers: [0, 10, 15]
@@ -61,7 +61,7 @@ infrastructure:
       - 2026.04.19
       - warmup_steps=${trainer.scheduler.warmup_steps}
       - RoPE
-      - QKNorm
+      - No_QKNorm
       - learning_rate_grid
       # - "lr=${trainer.learning_rate}"
       - "seq_len=${common.sequence_length}"

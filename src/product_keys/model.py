@@ -204,11 +204,11 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         )
 
 
-        # Normalize the halves independently to balance Product Key retrieval
-        self.q_norm1 = nn.RMSNorm(self.dhead_half)
-        self.q_norm2 = nn.RMSNorm(self.dhead_half)
-        self.k_norm1 = nn.RMSNorm(self.dhead_half)
-        self.k_norm2 = nn.RMSNorm(self.dhead_half)
+        # # Normalize the halves independently to balance Product Key retrieval
+        # self.q_norm1 = nn.RMSNorm(self.dhead_half)
+        # self.q_norm2 = nn.RMSNorm(self.dhead_half)
+        # self.k_norm1 = nn.RMSNorm(self.dhead_half)
+        # self.k_norm2 = nn.RMSNorm(self.dhead_half)
 
         # QKNorm learnable scaling parameter (one per head)
         initial_temp = 1.0 / math.sqrt(self.dhead)
@@ -317,10 +317,14 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         q1_unnorm = q[..., : self.dhead_half]  # (B, H, S, d/2)
         q2_unnorm = q[..., self.dhead_half :]  # (B, H, S, d/2)
 
-        k1 = self.k_norm1(k1_unnorm)
-        k2 = self.k_norm2(k2_unnorm)
-        q1 = self.q_norm1(q1_unnorm)
-        q2 = self.q_norm2(q2_unnorm)
+        # k1 = self.k_norm1(k1_unnorm)
+        # k2 = self.k_norm2(k2_unnorm)
+        # q1 = self.q_norm1(q1_unnorm)
+        # q2 = self.q_norm2(q2_unnorm)
+        k1 = k1_unnorm
+        k2 = k2_unnorm
+        q1 = q1_unnorm
+        q2 = q2_unnorm
 
         # Recombine normalized queries for the final attention step
         q_normed = torch.cat([q1, q2], dim=-1)
