@@ -33,9 +33,13 @@ wandb = ">=0.23.1, <0.24"
 
 [target.linux-64.pypi-dependencies]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+triton = "==3.3.1"
 
 [target.linux-aarch64.pypi-dependencies]
-torch = { version = "==2.6", index = "https://download.pytorch.org/whl/cu126"}
+torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+
+[target.linux-aarch64.dependencies]
+triton = "==3.3.1"
 
 # macOS (Apple Silicon): CPU wheels (PyPI has arm64 wheels)
 [target.osx-arm64.pypi-dependencies]
