@@ -13,14 +13,14 @@ infrastructure:
   script:
     - '${export_env_variables_placeholders:}'
     - 'module load ML-bundle/25.04'
-    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi3/nano'
+    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi3/nano/$USER'
     
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
     
     # export pixi variables
-    - 'export PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi'
-    - 'export HF_HOME=$PROJECT_HOME_PATH/$USER/hf_cache'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
     
     # HF datasets requires explicit opt-in for datasets with custom code (e.g. allenai/social_i_qa)
@@ -32,6 +32,10 @@ infrastructure:
     - 'export RATTLER_CACHE_DIR=$PROJECT_HOME_PATH/cache/rattler'
     - 'export UV_CACHE_DIR=$PROJECT_HOME_PATH/cache/uv'
     - 'export XDG_CACHE_HOME=$PROJECT_HOME_PATH/cache'
+
+    # Prepend env's libstdc++ so triton's libtriton.so resolves CXXABI_1.3.15 (GCC 14 ABI).
+    # Helios's system/module libstdc++ is too old and breaks torch.compile on aarch64.
+    - 'export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"'
 
     # activate pixi
     - 'cd "$PIXI_HOME"'

@@ -12,14 +12,14 @@ infrastructure:
     
   script:
     - '${export_env_variables_placeholders:}'
-    - 'export PROJECT_HOME_PATH=/storage_nvme_4/nano'
+    - 'export PROJECT_HOME_PATH=/storage_nvme_4/nano/$USER'
 
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
     
     # export pixi variables
-    - 'export PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi'
-    - 'export HF_HOME=$PROJECT_HOME_PATH/$USER/hf_cache'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
     
     # HF datasets requires explicit opt-in for datasets with custom code (e.g. allenai/social_i_qa)
