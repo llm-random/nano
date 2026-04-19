@@ -1,5 +1,5 @@
 defaults:
-  - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: lem
   - ../_model/context_scaling@_here_: k8
   - ../_trainer@_here_: context_scaling
   - ../_dataset@_here_: ctx_scl_dataset
@@ -14,23 +14,24 @@ common:
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 5001
-  ^learning_rate: [7, 8, 9, 10, 11]
+  ^learning_rate: [4, 5, 6, 7, 8, 9, 10, 11, 12]
   eval_interval: 500
 
-simpleP:
-  base_model:
-    dmodel: 256
-    dff: 640
+# simpleP:
+#   base_model:
+#     dmodel: 256
+#     dff: 640
 
 infrastructure:
   metric_logger:
     name: simpleP2_k8
     tags:
       - nano
-      - simpleP2
+      # - simpleP4
+      - vanilla2
       - k8
 
   slurm:
     time: "0-04:00:00"
-    gres: gpu:1
+    gres: gpu:hopper:1
     job-name: ${infrastructure.metric_logger.name}

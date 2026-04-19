@@ -1,5 +1,5 @@
 defaults:
-  - ../_cluster@_here_: lem
+  - ../_cluster@_here_: entropy
   - ../_model/context_scaling@_here_: k20
   - ../_trainer@_here_: context_scaling
   - ../_dataset@_here_: ctx_scl_dataset
@@ -15,7 +15,8 @@ trainer:
   gradient_accumulation_steps: 1
   n_steps: 5001
   # ^learning_rate: [5]
-  ^learning_rate: [5, 7, 9, 11, 13]
+  # ^learning_rate: [5, 7, 9, 11, 13]
+  ^learning_rate: [4, 6, 8, 10, 12]
   eval_interval: 500
 
 simpleP:
@@ -33,5 +34,5 @@ infrastructure:
 
   slurm:
     time: "0-04:00:00"
-    gres: gpu:hopper:4
+    gres: gpu:4
     job-name: ${infrastructure.metric_logger.name}

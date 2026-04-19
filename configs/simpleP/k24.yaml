@@ -1,6 +1,6 @@
 defaults:
-  - ../_cluster@_here_: entropy
-  - ../_model/context_scaling@_here_: k4
+  - ../_cluster@_here_: lem
+  - ../_model/context_scaling@_here_: k24
   - ../_trainer@_here_: context_scaling
   - ../_dataset@_here_: ctx_scl_dataset
   - ../_checkpoints@_here_: none
@@ -14,9 +14,7 @@ common:
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 5001
-  # ^learning_rate: [5]
-  # ^learning_rate: [5, 7, 9, 11, 13]
-  ^learning_rate: [4, 6, 8, 10, 12]
+  ^learning_rate: [4, 5, 6, 7, 8, 9, 10, 11]
   eval_interval: 500
 
 simpleP:
@@ -26,13 +24,13 @@ simpleP:
 
 infrastructure:
   metric_logger:
-    name: simpleP4_k4
+    name: simpleP4_k24
     tags:
       - nano
       - simpleP4
-      - k4
+      - k24
 
   slurm:
     time: "0-04:00:00"
-    gres: gpu:1
+    gres: gpu:hopper:4
     job-name: ${infrastructure.metric_logger.name}
