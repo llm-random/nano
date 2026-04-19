@@ -24,6 +24,7 @@ def load_pc_state_dict_to_llama(state_dict, original_llama):
     conf.intermediate_size = state_dict[
         "encoder.blocks.0.ff_layer.layer.gate.weight"
     ].shape[0]
+    conf.torch_dtype = None  # prevent saved config.json from causing dtype mismatch on load
 
     llama = LlamaForCausalLM(conf)
 

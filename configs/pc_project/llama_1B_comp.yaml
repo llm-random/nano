@@ -23,12 +23,19 @@ trainer:
   gradient_accumulation_steps: 8
   # gradient_accumulation_steps: 4
   ^n_steps: 
-    - 3 # debug
-    # - 2048 # 1B tokens
+    # - 3 # debug
+    - 2048 # 1B tokens
     # - 4096
     # - 6144
     # - 8192
     # - 12288
+
+  # gradient_clipping: 0.0625
+  # gradient_clipping: 0.125
+  gradient_clipping: 0.25
+  # gradient_clipping: 0.5
+  # gradient_clipping: 1.0
+  # gradient_clipping: 2.0
 
   learning_rate: 12 # optimal 10%
   # learning_rate: 13 # optimal 30%

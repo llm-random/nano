@@ -1,7 +1,7 @@
 defaults:
-  # - ../_cluster@_here_: entropy
-  - ../_cluster@_here_: lem
-  # - ../_cluster@_here_: helios
+  # - ../_cluster@_here_: entropy #switch
+  # - ../_cluster@_here_: lem
+  - ../_cluster@_here_: helios
   - ../_model/llama@_here_: projected_mem_eff_8B
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: fineweb
@@ -12,6 +12,7 @@ common:
   sequence_length: 2048
   batch_size: 512
 
+  #switch
   dmodel: 1056 # 10p
   dff: 3168
   # dmodel: 2160 # 30p
@@ -19,37 +20,43 @@ common:
   # dmodel: 3072 # 50p
   # dff: 9216
 
-trainer:
+trainer: #switch
   _target_: src.projected_compression.trainer.PCTrainer
+  # gradient_accumulation_steps: 8 # 4 NODES 50% !!!!!
+  # gradient_accumulation_steps: 16 # 4 NODES 50% !!!!!
+  # gradient_accumulation_steps: 16 # for 10p 30p and 2 nodes
+  gradient_accumulation_steps: 32 # 2 nodes 50p
+  # gradient_accumulation_steps: 64 # for 30p
+  # gradient_accumulation_steps: 128 # for 50p (1 node 4 gpus)
+  # gradient_accumulation_steps: 16 # for 2 nodes 8 gpus
 
-  # gradient_accumulation_steps: 16 # for 2 nodes
-  gradient_accumulation_steps: 32 # for 1 node 10%
+  # gradient_accumulation_steps: 16 # for 2 nodes 8 gpus
 
+  # ^gradient_accumulation_steps: 
+  #   - 2
+  #   - 4
+  #   - 8
+  #   - 16
+  #   - 32
+  #   - 64
 
+  n_steps: 100 #switch
   # n_steps: 1024
   # n_steps: 2048
   # n_steps: 4096
   # n_steps: 6144
-  ^n_steps: 
-    - 1024
-    - 2048
-    - 4096
-    - 6144
   
-  # learning_rate: 12 # 10p optimal # 14
-  # learning_rate: 15 # 30p optimal # 16
+  #switch
+  # learning_rate: 13 # 10p optimal # 14
+  learning_rate: 15 # 30p optimal # 16
   # learning_rate: 15 # 50p optimal # 14 -> 15?
   # learning_rate: 14 # 50p optimal # 14 -> 15?
-  ^learning_rate: 
-    # - 12
-    - 13
-    # - 14
+  # ^learning_rate: 
+  #   # - 12
+  #   # - 13
+  #   # - 14
     # - 15
-    # - 16
-
-  # learning_rate: 12 # 10p
-  # learning_rate: 15 # 30p
-  # learning_rate: 15 # 50p
+  #   # - 16
 
   scheduler:
     warmup_steps: 40
@@ -60,12 +67,14 @@ trainer:
   eval_dataloader: None
   eval_interval: 0
 
+  # Path to the original HuggingFace LLaMA 3 8B model directory.
+  # If set, saves an fp32 HF-format checkpoint alongside the dcp checkpoint for lm_eval.
+  # original_llama_path: /path/to/llama3_8B_hf
 
-  gradient_clipping: 0.25 #best
-  # --- Gradient clipping ---
+  # --- Gradient clipping --- #switch
   # Single value applied to whichever params are being clipped (see modes below).
   # gradient_clipping: 0.0625
-  # gradient_clipping: 0.125
+  gradient_clipping: 0.125
   # gradient_clipping: 0.25
   # gradient_clipping: 0.5
   # gradient_clipping: 1.0
@@ -73,9 +82,8 @@ trainer:
   # ^gradient_clipping: 
   #   - 0.0625
   #   - 0.125
-    # - 0.25
-    # - 0.5
-    # - 1.0
+  #   - 0.25
+  #   - 0.5
 
   # --- Gradient clipping mode (pick one) ---
   #
@@ -92,12 +100,11 @@ trainer:
   # only_target_model_gradient_clipping: "no_projection_clip"
   #
   # Mode A-C: same as B but also clip proj grads per-block at the same threshold.
-  only_compress_model_gradient_clipping: false
-  only_target_model_gradient_clipping: 1.0 #best
+  only_compress_model_gradient_clipping: false #switch
   # only_target_model_gradient_clipping: 0.0625
-  # only_target_model_gradient_clipping: 0.125
+  only_target_model_gradient_clipping: 0.125
   # only_target_model_gradient_clipping: 0.25
-  # only_target_model_gradient_clipping: 0.5
+  # only_target_model_gradient_clipping: 1.0
   # only_target_model_gradient_clipping: 10.0
   #
   # Mode D: shared global norm, approx 3x backward — extra proj pass collects per-block
@@ -107,6 +114,7 @@ trainer:
   # only_target_model_gradient_clipping: false
 
   original_llama_path: meta-llama/Llama-3.1-8B
+
   checkpoint:
     save: #switch
       interval: 0  # 0 = only save at the end of training
@@ -124,14 +132,15 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
+  #switch
   # source_model_path: /storage_nvme_3/mstefaniak/pc/llama38b.pt # entropy
   # path_to_importances: /storage_nvme_3/mstefaniak/pc/llama8_fw_importances_8m/117045/0/minitron_dimensions_importances.pt
 
-  source_model_path: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/hf_to_nano_converted/llama8b_in_nano.pt"
-  path_to_importances: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/8b/minitron_dimensions_importances.pt" # LEM
+  # source_model_path: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/hf_to_nano_converted/llama8b_in_nano.pt"
+  # path_to_importances: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/8b/minitron_dimensions_importances.pt" # LEM
 
-  # source_model_path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama38b.pt
-  # path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/20260120_importances/minitron_dimensions_importances.pt # helios
+  source_model_path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama38b.pt
+  path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/20260120_importances/minitron_dimensions_importances.pt # helios
 
   init_norms_with_ones: false
 
@@ -159,8 +168,8 @@ model:
 
 infrastructure:
   metric_logger:
-    name: llama8_pc_memeff
-    tags:
+    name: test_llama8_pc_memeff
+    tags: #switch
       - nano
       - pc
       - llama_8
@@ -170,9 +179,10 @@ infrastructure:
       # - 30p
       # - 50p
 
-  slurm: 
+  slurm: #switch
     job-name: ${infrastructure.metric_logger.name}
-    gres: "gpu:hopper:4" # lem
-    # gres: gpu:4 # helios, entropy
+    # gres: "gpu:hopper:4" # lem
+    gres: gpu:4 # helios, entropy
     # nodes: 2
-    time: "2-00:00:00"
+    # time: "1-00:00:00"
+    time: "0-10:00:00"

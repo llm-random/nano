@@ -11,11 +11,11 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  # dmodel: 448 # 10
-  # dff: 1728
-  dmodel: 960 # 30
-  dff: 3840
-  # dmodel: 1344 # 50
+  dmodel: 448 # 10%
+  dff: 1728
+  # dmodel: 960  # 30%
+  # dff: 3840
+  # dmodel: 1344 # 50%
   # dff: 5376
 
 
@@ -31,28 +31,54 @@ trainer:
     # - 8192
     # - 12288
 
+  # --- Gradient clipping ---
+  # Single value applied to whichever params are being clipped (see modes below).
   # gradient_clipping: 0.0625
   # gradient_clipping: 0.125
   # gradient_clipping: 0.25
   # gradient_clipping: 0.5
-  gradient_clipping: 1.0
+  # gradient_clipping: 1.0
   # gradient_clipping: 2.0
 
-  # only_compress_model_gradient_clipping: false  # approximate PC 2x backward
-  only_compress_model_gradient_clipping: true
+  ^gradient_clipping: 
+   - 0.25
+   - 0.125
 
-  # only_target_model_gradient_clipping: false            # no target clipping
-  # only_target_model_gradient_clipping: 10.0
+  # --- Gradient clipping mode (pick one) ---
+  #
+  # Mode A: per-block independent clipping, approx 2x backward — loss.backward() gives
+  #   dL/dWc; proj backward uses UNCLIPPED dL/dWc to compute dL/dP and zeroes dL/dWc;
+  #   each block's proj grads clipped with its own norm independently; only norm layer
+  #   grads remain after, clipped using total proj grad norm as scale.
+  # only_compress_model_gradient_clipping: true
+  # only_target_model_gradient_clipping: false
+  #
+  # Mode A-B: clip Wc first (like a normal model), then propagate CLIPPED dL/dWc to
+  #   projections without additional clipping on proj grads.
+  only_compress_model_gradient_clipping: false
+  only_target_model_gradient_clipping: "no_projection_clip"
+  #
+  # Mode A-C: same as B but also clip proj grads per-block at the same threshold.
+  # only_compress_model_gradient_clipping: false
+  # only_target_model_gradient_clipping: 0.25
   # only_target_model_gradient_clipping: 1.0
-  # only_target_model_gradient_clipping: 0.5            # clip target model + per-block projections at 0.5
-  only_target_model_gradient_clipping: 0.25            # clip target model + per-block projections at 0.5
-  # only_target_model_gradient_clipping: "no_projection_clip"  # clip target model only, projections unclipped
-  
-  # learning_rate: 12 # optimal 10%
-  learning_rate: 13 # optimal 30%
-  # learning_rate: 14 # optimal 1B 50%
+  # ^only_target_model_gradient_clipping: 
+  #   - 10
+  #   - 1
+  #   - 0.5
+  #   - 0.25
+  #   - 0.125
+  # #
+  # Mode D: shared global norm, approx 3x backward — extra proj pass collects per-block
+  #   norms first; global norm across all blocks + norm layers used to clip both proj
+  #   grads (per block) and Wc grads with the same scale.
+  # only_compress_model_gradient_clipping: false
+  # only_target_model_gradient_clipping: false
+
+  learning_rate: 12 # optimal 10%
+  # learning_rate: 13 # optimal 30%
+  # learning_rate: 14 # optimal 50%
   # learning_rate: 15 # optimal 75%
-  # learning_rate: 14 # optimal for randomi 50%
 
   scheduler:
     warmup_steps: 40
@@ -71,19 +97,30 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-  source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt # entropy ACTIVATIONS
+  source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt # entropy
   path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt
 
-  # source_model_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama31b.pt # helios ACTIVATIONS
+  # source_model_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama31b.pt # helios
   # path_to_importances: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_1_fw_importances/minitron_dimensions_importances.pt
 
   init_norms_with_ones: false
 
+  # --- Optimizer mode (pick one) ---
+  #
+  # Separate per-block optimizers: each CompressibleBlock has its own AdamW.
+  # Allows per-block gradient clipping and independent learning rate schedules.
   separate_block_optimizers: true
+  #
+  # Single optimizer covering all parameters (original PC, simpler but shared grad norm).
   # separate_block_optimizers: false
 
   adjust_grad_norm: false
 
+  # cpu_offload_projections: false is the correct setting for 4× H100 80GB.
+  # All proj blocks + optimizer state stay on GPU (FSDP2-sharded via modules_to_shard).
+  # cpu_offload was ~10s/step due to PCIe bottleneck; full-GPU is ~1.5s/step.
+  cpu_offload_projections: false
+  # cpu_offload_projections: true  # only if running on fewer / smaller GPUs and VRAM is tight
 
 
 model:
@@ -92,8 +129,7 @@ model:
 
 infrastructure:
   metric_logger:
-    # name: test_llama_pc_memeff
-    name: test_llama_pc_memeff_norm_debug
+    name: test_llama_pc_memeff
     tags:
       - nano
       - pc
@@ -101,13 +137,8 @@ infrastructure:
       - projected_compression
       - mem_eff
       - 10p
-      - norm_debug
-      # - gc_00625
-      # - 30p
-      # - 50p
-      - dont_cast_16
 
-  slurm: 
+  slurm:
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:4
     time: "0-24:00:00"
