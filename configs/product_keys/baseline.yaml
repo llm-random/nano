@@ -18,6 +18,7 @@ common:
   q_heads: 16
   kv_heads: 16
   vocab_size: 50304
+  init_scale: 0.5
 
 trainer:
   _target_: src.product_keys.trainer.MaskedLMTrainer
@@ -25,8 +26,9 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
-  n_steps: 77050
+  n_steps: 15000  # 77050
   ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+  # note that schedular is not 0.1 as is the case with pk_mlm but the default 0.01
   train_dataloader:
     dataset:
       tokenize_fn:
@@ -41,14 +43,20 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: baseline
+    name: baseline_lr_grid
     project_name: tml-bgw
+    heavy_metrics_calculation_interval: 1000
+    heavy_logging_layers: [0, 10, 15]
     tags:
       - nano
       - baseline
+      - 2026.04.19
+      - warmup_steps=${trainer.scheduler.warmup_steps}
+      - learning_rate_grid
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "dmodel=${common.dmodel}"
+      - seed=${trainer.train_dataloader.dataset.seed}
   slurm:
     gres: gpu:2
     time: "1-00:00:00"
