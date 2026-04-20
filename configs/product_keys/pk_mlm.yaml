@@ -1,10 +1,9 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  - /_cluster/entropy@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
-  - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
 
@@ -28,9 +27,9 @@ trainer:
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
   # n_steps: 77050
-  n_steps: 15000
-  ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
-  # learning_rate: 2e-3
+  n_steps: 15
+  # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+  learning_rate: 2e-3
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
@@ -45,24 +44,29 @@ trainer:
     dataset:
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+  checkpoint:
+    save:
+      interval: -1
+    load:
+      path: null
+      only_weights: false # false not tested
 
 
 infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_mlm_bring_back_rope_no_qknorm_lr_grid
+    name: pk_mlm_bring_back_rope_test_saving
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 1000
     heavy_logging_layers: [0, 10, 15]
     tags:
       - nano
       - pk_mlm
-      - 2026.04.19
+      - 2026.04.20
       - warmup_steps=${trainer.scheduler.warmup_steps}
       - RoPE
-      - No_QKNorm
-      - learning_rate_grid
+      # - learning_rate_grid
       # - "lr=${trainer.learning_rate}"
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
@@ -70,7 +74,7 @@ infrastructure:
       - seed=${trainer.train_dataloader.dataset.seed}
   slurm:
     gres: gpu:2
-    time: "1-00:00:00"
+    time: "0-01:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
 model:
