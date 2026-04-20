@@ -1,5 +1,5 @@
 defaults:
-  - ../_cluster@_here_: helios
+  - ../_cluster@_here_: entropy
   - ../_model/context_scaling@_here_: k16
   - ../_trainer@_here_: context_scaling
   - ../_dataset@_here_: ctx_scl_dataset
@@ -8,13 +8,17 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 1024
-  batch_size: 64
+  sequence_length: 2048
+  batch_size: 8
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 5001
-  ^learning_rate: [4, 5, 6, 7, 8, 9, 10, 11]
+  n_steps: 40001
+  # n_steps: 20001
+  # n_steps: 10001
+  # n_steps: 5001
+  # n_steps: 2501
+  ^learning_rate: [4, 6, 8, 10, 12]
   eval_interval: 500
 
 simpleP:
@@ -24,13 +28,13 @@ simpleP:
 
 infrastructure:
   metric_logger:
-    name: simpleP2_k16
+    name: simpleP_k16
     tags:
       - nano
-      - simpleP4
+      - simpleP_bsgrid
       - k16
 
   slurm:
-    time: "0-04:00:00"
-    gres: gpu:2
+    time: "0-03:00:00"
+    gres: gpu:4
     job-name: ${infrastructure.metric_logger.name}

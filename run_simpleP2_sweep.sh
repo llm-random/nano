@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
-# Launches k4, k12, k20 in both vanilla and simpleP2 variants via run_exp.py.
-# The ^learning_rate grid in each config expands to {7, 9, 11, 13}, i.e. 2^-7 ... 2^-13.
-# At k4 (dmodel == base_dmodel) every simpleP scale is 1.0, so simpleP2 and vanilla
+# Launches k4, k8, k16, k24 in both simpleP_long and vanilla_long variants via run_exp.py.
+# The ^learning_rate grid expands to {4, 5, 6, 7, 8, 9, 10, 11}, i.e. 2^-4 ... 2^-11.
+# Runs 40_000 steps (previous sweep was 5_000) within the same 4h slurm budget.
+# At k4 (dmodel == base_dmodel) every simpleP scale is 1.0, so simpleP_long and vanilla_long
 # should produce identical curves — useful as a sanity check on the plumbing.
 set -euo pipefail
 
-MODELS=(k4 k12 k20)
+MODELS=(k4 k8 k16 k24)
 
 for model in "${MODELS[@]}"; do
-    echo "=== launching simpleP2 ${model} ==="
+    echo "=== launching simpleP_long ${model} ==="
     pixi run python run_exp.py \
         --config-path=configs/simpleP --config-name="${model}"
 
-    echo "=== launching vanilla ${model} ==="
+    echo "=== launching vanilla_long ${model} ==="
     pixi run python run_exp.py \
         --config-path=configs/simpleP --config-name="${model}" \
         ~simpleP \
-        infrastructure.metric_logger.name="vanilla2_${model}" \
-        "infrastructure.metric_logger.tags=[nano, vanilla2, ${model}]"
+        infrastructure.metric_logger.name="vanilla_long_${model}" \
+        "infrastructure.metric_logger.tags=[nano, vanilla_long, ${model}]"
 done

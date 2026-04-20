@@ -8,14 +8,12 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 1024
-  batch_size: 64
+  sequence_length: 2048
+  ^batch_size: [32, 64]
 
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 5001
-  # ^learning_rate: [5]
-  # ^learning_rate: [5, 7, 9, 11, 13]
   ^learning_rate: [4, 6, 8, 10, 12]
   eval_interval: 500
 
@@ -26,13 +24,13 @@ simpleP:
 
 infrastructure:
   metric_logger:
-    name: simpleP4_k12
+    name: simpleP_k12
     tags:
       - nano
-      - simpleP4
+      - simpleP_bsgrid
       - k12
 
   slurm:
-    time: "0-04:00:00"
+    time: "0-03:00:00"
     gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}
