@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - /_cluster/entropy@_here_
+  - /_cluster/helios@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
@@ -27,17 +27,18 @@ trainer:
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
   # n_steps: 77050
-  n_steps: 15
-  # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
-  learning_rate: 2e-3
+  n_steps: 15000
+  ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+  # learning_rate: 2e-3
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
     final_lr_fraction: 0.1
-    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.05)'}
   train_dataloader:
     dataset:
-      seed: 42
+      # seed: 42
+      ^seed: [42, 123, 1000]
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   eval_dataloader:
@@ -56,7 +57,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_mlm_bring_back_rope_test_saving
+    name: pk_mlm_bring_back_rope_lr_grid
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 1000
     heavy_logging_layers: [0, 10, 15]
@@ -66,12 +67,13 @@ infrastructure:
       - 2026.04.20
       - warmup_steps=${trainer.scheduler.warmup_steps}
       - RoPE
-      # - learning_rate_grid
-      # - "lr=${trainer.learning_rate}"
+      - learning_rate_grid
+      - "lr=${trainer.learning_rate}"
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "dmodel=${common.dmodel}"
       - seed=${trainer.train_dataloader.dataset.seed}
+      - find_optimal_lr
   slurm:
     gres: gpu:2
     time: "0-01:00:00"
