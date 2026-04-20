@@ -234,42 +234,40 @@ def register_simpleP_debug_hooks(optimizer, model, log_every=50):
     optimizer.register_step_post_hook(post)
 
 
-def build_simpleP_param_groups(model, base_lr):
+def build_simpleP_param_groups(model, base_lr, scale):
     # Walk modules (not parameters): FSDP2 replaces Parameter objects but keeps module identity,
-    # so module._simpleP_scale set at __init__ time survives sharding.
-    scale_to_entries = {}  # scale -> list[(full_name, param)]
-    tagged_param_ids = set()
+    # so module._simpleP_scaled set at __init__ time survives sharding.
+    scaled, unscaled = [], []
+    scaled_ids = set()
     for mod_name, module in model.named_modules():
-        scale = getattr(module, "_simpleP_scale", None)
-        if scale is None:
+        if not getattr(module, "_simpleP_scaled", False):
             continue
-        param = module.weight
-        full_name = f"{mod_name}.weight" if mod_name else "weight"
-        scale_to_entries.setdefault(scale, []).append((full_name, param))
-        tagged_param_ids.add(id(param))
-
-    # Remaining params (embedding, norms, biases, etc.) default to scale=1.0.
-    untagged = [
-        (name, p)
-        for name, p in model.named_parameters()
-        if id(p) not in tagged_param_ids
+        # Default to ("weight",) for Linear-like; MoE overrides with its expert weights.
+        for pname in getattr(module, "_simpleP_scaled_params", ("weight",)):
+            param = getattr(module, pname)
+            full_name = f"{mod_name}.{pname}" if mod_name else pname
+            scaled.append((full_name, param))
+            scaled_ids.add(id(param))
+    # Everything else (embeddings, norms, biases) stays at base_lr.
+    unscaled = [
+        (name, p) for name, p in model.named_parameters() if id(p) not in scaled_ids
     ]
-    if untagged:
-        scale_to_entries.setdefault(1.0, []).extend(untagged)
 
-    for scale in sorted(scale_to_entries.keys()):
-        entries = scale_to_entries[scale]
+    for label, group_lr, entries in (
+        ("scaled", base_lr * scale, scaled),
+        ("unscaled", base_lr, unscaled),
+    ):
         n = sum(p.numel() for _, p in entries)
         logger.info(
-            f"simpleP group: scale={scale:.4g}, lr={base_lr * scale:.4g}, "
+            f"simpleP group [{label}]: lr={group_lr:.4g}, "
             f"n_tensors={len(entries)}, n_params={n:,}"
         )
         for name, p in entries:
             logger.info(f"  {name}  shape={tuple(p.shape)}  numel={p.numel():,}")
 
     return [
-        {"params": [p for _, p in entries], "lr": base_lr * scale}
-        for scale, entries in scale_to_entries.items()
+        {"params": [p for _, p in scaled], "lr": base_lr * scale},
+        {"params": [p for _, p in unscaled], "lr": base_lr},
     ]
 
 
@@ -284,7 +282,8 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
 
     simpleP_cfg = cfg.get("simpleP", None)
     if simpleP_cfg:
-        param_groups = build_simpleP_param_groups(model, learning_rate)
+        scale = simpleP_cfg.base_dmodel / cfg.common.dmodel
+        param_groups = build_simpleP_param_groups(model, learning_rate, scale)
         optimizer = torch.optim.AdamW(
             param_groups,
             weight_decay=cfg.trainer.weight_decay,
@@ -301,7 +300,7 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             f"optimizer group {i}: lr={group['lr']}, n_params={sum(p.numel() for p in group['params']):,}"
         )
 
-    if simpleP_cfg:
+    if simpleP_cfg and simpleP_cfg.get("debug_hooks", False):
         register_simpleP_debug_hooks(optimizer, model)
 
     scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)
@@ -383,12 +382,16 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         if cfg.trainer.checkpoint.load.only_weights:
             simpleP_cfg = cfg.get("simpleP", None)
             if simpleP_cfg:
-                param_groups = build_simpleP_param_groups(model, learning_rate)
+                scale = simpleP_cfg.base_dmodel / cfg.common.dmodel
+                param_groups = build_simpleP_param_groups(
+                    model, learning_rate, scale
+                )
                 optimizer = torch.optim.AdamW(
                     param_groups,
                     weight_decay=cfg.trainer.weight_decay,
                 )
-                register_simpleP_debug_hooks(optimizer, model)
+                if simpleP_cfg.get("debug_hooks", False):
+                    register_simpleP_debug_hooks(optimizer, model)
             else:
                 optimizer = torch.optim.AdamW(
                     model.parameters(),

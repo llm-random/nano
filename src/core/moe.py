@@ -57,6 +57,14 @@ class MoE(nn.Module):
         self.gate_weight = nn.Parameter(torch.empty(num_experts, dff, dmodel))
         self.ff_post_act_weight = nn.Parameter(torch.empty(num_experts, dmodel, dff))
 
+        # Router stays at base_lr; only the expert weights get simpleP-scaled.
+        self._simpleP_scaled = True
+        self._simpleP_scaled_params = (
+            "ff_pre_act_weight",
+            "gate_weight",
+            "ff_post_act_weight",
+        )
+
         _truncated_normal_(self.router_weight, dmodel, init_scale)
         _truncated_normal_(self.ff_pre_act_weight, dmodel, init_scale)
         _truncated_normal_(self.gate_weight, dmodel, init_scale)
