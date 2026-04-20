@@ -76,7 +76,7 @@ infrastructure:
       - find_optimal_lr
   slurm:
     gres: gpu:2
-    time: "0-01:00:00"
+    time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
 model:
