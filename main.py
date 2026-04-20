@@ -188,6 +188,89 @@ def get_device():
     return device
 
 
+def register_simpleP_debug_hooks(optimizer, model, log_every=50):
+    # Samples one param per group and logs lr + ||Δw|| post-step. ||Δw|| is the actual weight
+    # change applied by the optimizer, so this catches scheduler stomping or FSDP2 issues
+    # that the init-time lr log cannot see.
+    id_to_name = {id(p): n for n, p in model.named_parameters()}
+    sample_names = [
+        id_to_name.get(id(g["params"][0]), "<unknown>") if g["params"] else "<empty>"
+        for g in optimizer.param_groups
+    ]
+
+    def _local(t):
+        return t.to_local() if hasattr(t, "to_local") else t
+
+    state = {"step": 0, "snaps": {}}
+
+    def pre(opt, args, kwargs):
+        # Log on step 1, 2, 3 (first-step signal is cleanest for AdamW) and then every log_every.
+        if not (state["step"] < 3 or state["step"] % log_every == 0):
+            return
+        for gi, g in enumerate(opt.param_groups):
+            if g["params"]:
+                state["snaps"][gi] = _local(g["params"][0].detach()).clone()
+
+    def post(opt, args, kwargs):
+        if state["step"] < 3 or state["step"] % log_every == 0:
+            for gi, g in enumerate(opt.param_groups):
+                if gi not in state["snaps"]:
+                    continue
+                p_local = _local(g["params"][0].detach())
+                before = state["snaps"][gi]
+                delta = (p_local - before).float().norm().item()
+                wnorm = before.float().norm().item()
+                numel = before.numel()
+                logger.info(
+                    f"[simpleP step {state['step']}] group {gi} ({sample_names[gi]}): "
+                    f"lr={g['lr']:.4g}, ||Δw||={delta:.4g}, "
+                    f"||Δw||/sqrt(numel)={delta / max(numel, 1) ** 0.5:.4e}, "
+                    f"||Δw||/||w||={delta / max(wnorm, 1e-12):.4e}"
+                )
+            state["snaps"].clear()
+        state["step"] += 1
+
+    optimizer.register_step_pre_hook(pre)
+    optimizer.register_step_post_hook(post)
+
+
+def build_simpleP_param_groups(model, base_lr, scale):
+    # Walk modules (not parameters): FSDP2 replaces Parameter objects but keeps module identity,
+    # so module._simpleP_scaled set at __init__ time survives sharding.
+    scaled, unscaled = [], []
+    scaled_ids = set()
+    for mod_name, module in model.named_modules():
+        if not getattr(module, "_simpleP_scaled", False):
+            continue
+        # Default to ("weight",) for Linear-like; MoE overrides with its expert weights.
+        for pname in getattr(module, "_simpleP_scaled_params", ("weight",)):
+            param = getattr(module, pname)
+            full_name = f"{mod_name}.{pname}" if mod_name else pname
+            scaled.append((full_name, param))
+            scaled_ids.add(id(param))
+    # Everything else (embeddings, norms, biases) stays at base_lr.
+    unscaled = [
+        (name, p) for name, p in model.named_parameters() if id(p) not in scaled_ids
+    ]
+
+    for label, group_lr, entries in (
+        ("scaled", base_lr * scale, scaled),
+        ("unscaled", base_lr, unscaled),
+    ):
+        n = sum(p.numel() for _, p in entries)
+        logger.info(
+            f"simpleP group [{label}]: lr={group_lr:.4g}, "
+            f"n_tensors={len(entries)}, n_params={n:,}"
+        )
+        for name, p in entries:
+            logger.info(f"  {name}  shape={tuple(p.shape)}  numel={p.numel():,}")
+
+    return [
+        {"params": [p for _, p in scaled], "lr": base_lr * scale},
+        {"params": [p for _, p in unscaled], "lr": base_lr},
+    ]
+
+
 def get_model_optimizer_scheduler(cfg, model, learning_rate):
     if cfg.get("apply_functions", None):
         for fn in instantiate(cfg.apply_functions):
@@ -196,11 +279,30 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
                 logger.info("Initialization failed, exiting...")
                 return None, None, None
     model = setup_distributed_training(model, cfg.trainer.distributed)
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=cfg.trainer.weight_decay,
-    )
+
+    simpleP_cfg = cfg.get("simpleP", None)
+    if simpleP_cfg:
+        scale = simpleP_cfg.base_dmodel / cfg.common.dmodel
+        param_groups = build_simpleP_param_groups(model, learning_rate, scale)
+        optimizer = torch.optim.AdamW(
+            param_groups,
+            weight_decay=cfg.trainer.weight_decay,
+        )
+    else:
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=cfg.trainer.weight_decay,
+        )
+
+    for i, group in enumerate(optimizer.param_groups):
+        logger.info(
+            f"optimizer group {i}: lr={group['lr']}, n_params={sum(p.numel() for p in group['params']):,}"
+        )
+
+    if simpleP_cfg and simpleP_cfg.get("debug_hooks", False):
+        register_simpleP_debug_hooks(optimizer, model)
+
     scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)
 
     return model, optimizer, scheduler
@@ -278,11 +380,24 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             scheduler,
         )
         if cfg.trainer.checkpoint.load.only_weights:
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=learning_rate,
-                weight_decay=cfg.trainer.weight_decay,
-            )
+            simpleP_cfg = cfg.get("simpleP", None)
+            if simpleP_cfg:
+                scale = simpleP_cfg.base_dmodel / cfg.common.dmodel
+                param_groups = build_simpleP_param_groups(
+                    model, learning_rate, scale
+                )
+                optimizer = torch.optim.AdamW(
+                    param_groups,
+                    weight_decay=cfg.trainer.weight_decay,
+                )
+                if simpleP_cfg.get("debug_hooks", False):
+                    register_simpleP_debug_hooks(optimizer, model)
+            else:
+                optimizer = torch.optim.AdamW(
+                    model.parameters(),
+                    lr=learning_rate,
+                    weight_decay=cfg.trainer.weight_decay,
+                )
             scheduler = instantiate(cfg.trainer.scheduler)(
                 optimizer=optimizer, n_steps=cfg.trainer.n_steps
             )

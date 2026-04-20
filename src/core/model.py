@@ -223,6 +223,7 @@ class TransformerHead(nn.Module):
         super().__init__()
         self.norm = norm_fn()
         self.linear = linear_fn()
+        self.linear._simpleP_scaled = True
 
     def forward(self, x):
         x = self.norm(x)
@@ -282,6 +283,8 @@ class MLP(nn.Module):
         self.relu = nn.ReLU()
         self.ff_pre_act = ff_pre_act_fn()
         self.ff_post_act = ff_post_act_fn()
+        self.ff_pre_act._simpleP_scaled = True
+        self.ff_post_act._simpleP_scaled = True
 
     def forward(self, x):
         x = self.ff_pre_act(x)
@@ -297,6 +300,9 @@ class SwiGLU(nn.Module):
         self.ff_pre_act = ff_pre_act_fn()
         self.ff_post_act = ff_post_act_fn()
         self.gate = gate_fn()
+        self.ff_pre_act._simpleP_scaled = True
+        self.gate._simpleP_scaled = True
+        self.ff_post_act._simpleP_scaled = True
 
         if compile:
             self.forward = torch.compile(
@@ -405,6 +411,8 @@ class RoPEAttention(nn.Module):
         self.o_proj = o_proj_fn()
         self.pre_attn_fn = pre_attn_fn() if pre_attn_fn is not None else None
         self.attention_mechanism = AttentionMechanism()
+        for proj in (self.q_proj, self.k_proj, self.v_proj, self.o_proj):
+            proj._simpleP_scaled = True
 
         self.q_heads = q_heads
         self.kv_heads = kv_heads

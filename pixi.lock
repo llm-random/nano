@@ -253,8 +253,18 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/53/60/7be26e610767316c028a2cbedb9a3beabdbe33e2182c373f71a1c0b88f36/zstandard-0.25.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       linux-aarch64:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/arm-variant-1.2.0-sbsa.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/bzip2-1.0.8-h4777abc_9.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.2.25-hbd8a1cb_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-crt-tools-12.9.86-h579c4fd_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-cudart-12.9.79-h3ae8b8a_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/cuda-cudart_linux-aarch64-12.9.79-h3ae8b8a_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-cuobjdump-12.9.82-h40ab4d6_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-cupti-12.9.79-he38c790_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-nvcc-tools-12.9.86-h614329b_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-nvdisasm-12.9.88-h40ab4d6_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-nvvm-tools-12.9.86-h7b14b0b_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/cuda-version-12.9-h4f385c5_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/icu-78.2-hcab7f73_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/ld_impl_linux-aarch64-2.45.1-default_h1979696_101.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/libexpat-2.7.4-hfae3067_0.conda
@@ -273,8 +283,11 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/ncurses-6.5-ha32ae93_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/openssl-3.6.1-h546c87b_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/python-3.12.3-h43d1f9e_0_cpython.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.12-8_cp312.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/readline-8.3-hb682ff5_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/setuptools-82.0.1-pyh332efcf_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tk-8.6.13-noxft_h0dc03b3_103.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/triton-3.3.1-cuda129py312hc444ad8_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2025c-hc9c84f9_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/xz-5.8.2-hd704e39_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/xz-gpl-tools-5.8.2-hd704e39_0.conda
@@ -441,14 +454,13 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/1c/78/504fdd027da3b84ff1aecd9f6957e65f35134534ccc6da8628eb71e76d3f/send2trash-2.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/89/fa/d3d5ebcba3cb9e6d3775a096251860c41a6bc53a1b9461151df83fe93255/sentencepiece-0.2.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/9a/66/20465097782d7e1e742d846407ea7262d338c6e876ddddad38ca8907b38f/sentry_sdk-2.55.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9d/76/f789f7a86709c6b087c5a2f52f911838cad707cc613162401badc665acfe/setuptools-82.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c1/d4/59e74daffcb57a07668852eeeb6035af9f32cbfd7a1d2511f17d2fe6a738/smmap-5.0.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/46/2c/1462b1d0a634697ae9e55b3cecdcb64788e8b7d63f54d923fcd0bb140aed/soupsieve-2.8.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/9a/7620d1e9dcb02839ed6d4b14064e609cdd7a8ae1e47289aa0456796dd9ca/sqlitedict-2.1.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/dc/a4/90123871996bfb8a7148cd11d61e7a0ddc0118114c071730b3dc3a05c7bc/submitit-1.5.2-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/b2/fe/81695a1aa331a842b582453b605175f419fe8540355886031328089d840a/sympy-1.13.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/08/64/fa4160151976ee4b2cf0c1217a99443ffaeb991956feddfeac9eee9952f8/tabledata-1.3.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/99/55/db07de81b5c630da5cbf5c7df646580ca26dfaefa593667fc6f2fe016d2e/tabulate-0.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/05/a2/ed023f2edd1e011b4d99b6727bce8253842d66c3fbf9ed0a26fc09a92571/tcolorpy-0.1.7-py3-none-any.whl
@@ -457,7 +469,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/66/c5/ed88504d2f4a5fd6856990b230b56d85a777feab84e6129af0822f5d0f70/tiktoken-0.12.0-cp312-cp312-manylinux_2_28_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/e6/34/ebdc18bae6aa14fbee1a08b63c015c72b64868ff7dae68808ab500c492e2/tinycss2-1.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/aa/8f/24f39d7b5c726b7b0be95dca04f344df278a3fe3a4deb15a975d194cbb32/tokenizers-0.21.4-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
-      - pypi: https://download-r2.pytorch.org/whl/cu126/torch-2.6.0%2Bcu126-cp312-cp312-linux_aarch64.whl
+      - pypi: https://download-r2.pytorch.org/whl/cu128/torch-2.7.1%2Bcu128-cp312-cp312-manylinux_2_28_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/59/69/c36ac1f5fbaa710230bd0e76bfb0a65a3b4a1d6b12225b600b0cd03f4105/torchao-0.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/d4/af694ef718aedbe95a72760ab9ff7a6a7a44ace2d7f70c27bfeb67c5c503/torchdata-0.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/eb/de/da079f77188a5e3c53163c4488fad2a23733bab25a895e9a2dfc9aa5bbe6/torchtune-0.6.1-py3-none-any.whl
@@ -937,6 +949,14 @@ packages:
   - cffi>=1.0.1 ; python_full_version < '3.14'
   - cffi>=2.0.0b1 ; python_full_version >= '3.14'
   requires_python: '>=3.9'
+- conda: https://conda.anaconda.org/conda-forge/noarch/arm-variant-1.2.0-sbsa.conda
+  sha256: 0658cac65071ace5beded633851681e6f0b381040c8ce313bbe2a0ab410c5072
+  md5: b7d6244b9c7a660f10336645e73c2cd2
+  license: BSD-3-Clause
+  license_family: BSD
+  purls: []
+  size: 7126
+  timestamp: 1742928603302
 - pypi: https://files.pythonhosted.org/packages/ed/c9/d7977eaacb9df673210491da99e6a247e93df98c715fc43fd136ce1d3d33/arrow-1.4.0-py3-none-any.whl
   name: arrow
   version: 1.4.0
@@ -1380,6 +1400,116 @@ packages:
   - check-sdist ; extra == 'pep8test'
   - click>=8.0.1 ; extra == 'pep8test'
   requires_python: '>=3.8,!=3.9.0,!=3.9.1'
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-crt-tools-12.9.86-h579c4fd_2.conda
+  sha256: dad493fdcef9a5b84269bdd22b5dfbe73300d99057f2fc1a1ad1114a944167c7
+  md5: 6f66ef2abe496ac82066ea6b9f33ab90
+  depends:
+  - arm-variant * sbsa
+  - cuda-version >=12.9,<12.10.0a0
+  license: LicenseRef-NVIDIA-End-User-License-Agreement
+  purls: []
+  size: 29186
+  timestamp: 1753975202369
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-cudart-12.9.79-h3ae8b8a_0.conda
+  sha256: 3d6699fc27ffabf28a9d359b48e7b88437e4d945844718a58608627998db5d1b
+  md5: df78e19e5fe656631d1470aa0fcf6ced
+  depends:
+  - arm-variant * sbsa
+  - cuda-cudart_linux-aarch64 12.9.79 h3ae8b8a_0
+  - cuda-version >=12.9,<12.10.0a0
+  - libgcc >=13
+  - libstdcxx >=13
+  license: LicenseRef-NVIDIA-End-User-License-Agreement
+  purls: []
+  size: 23466
+  timestamp: 1749218349235
+- conda: https://conda.anaconda.org/conda-forge/noarch/cuda-cudart_linux-aarch64-12.9.79-h3ae8b8a_0.conda
+  sha256: 4900ff2f000a4f8a70a7bc8576469640aa6590618fa9e73c84e066e025dcb760
+  md5: cc2459ad427431e089d78d760cf24437
+  depends:
+  - arm-variant * sbsa
+  - cuda-version >=12.9,<12.10.0a0
+  license: LicenseRef-NVIDIA-End-User-License-Agreement
+  purls: []
+  size: 212993
+  timestamp: 1749218341193
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-cuobjdump-12.9.82-h40ab4d6_1.conda
+  sha256: 347ac7977b8704adcda59923d4833514a8d6da7184296258968cd97be17d4201
+  md5: 37d3a19bf8c8bb01423d3589e35a4956
+  depends:
+  - arm-variant * sbsa
+  - cuda-nvdisasm
+  - cuda-version >=12.9,<12.10.0a0
+  - libgcc >=14
+  - libstdcxx >=14
+  license: LicenseRef-NVIDIA-End-User-License-Agreement
+  purls: []
+  size: 253148
+  timestamp: 1761107512937
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-cupti-12.9.79-he38c790_1.conda
+  sha256: 51758e8c3afb19060f9005b3443399c18d4146f3a38c5df791b3f5e1e8f6a13b
+  md5: 40167627874a723f05104205b2299ba2
+  depends:
+  - __glibc >=2.28,<3.0.a0
+  - arm-variant * sbsa
+  - cuda-version >=12.9,<12.10.0a0
+  - libgcc >=14
+  - libstdcxx >=14
+  constrains:
+  - arm-variant * sbsa
+  license: LicenseRef-NVIDIA-End-User-License-Agreement
+  purls: []
+  size: 1615202
+  timestamp: 1761098749346
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-nvcc-tools-12.9.86-h614329b_2.conda
+  sha256: 1cc064e076c417bca2de7fb6ee28df0964cbad25eada2131a48b43ab36cdea33
+  md5: ab332ca8da729b13bf7e5b0022c2702c
+  depends:
+  - arm-variant * sbsa
+  - cuda-crt-tools 12.9.86 h579c4fd_2
+  - cuda-nvvm-tools 12.9.86 h7b14b0b_2
+  - cuda-version >=12.9,<12.10.0a0
+  - libgcc >=12
+  - libstdcxx >=12
+  constrains:
+  - gcc_impl_linux-aarch64 >=6,<15.0a0
+  license: LicenseRef-NVIDIA-End-User-License-Agreement
+  purls: []
+  size: 23974390
+  timestamp: 1753975366926
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-nvdisasm-12.9.88-h40ab4d6_1.conda
+  sha256: 6e644aac03bdbd76c49c96fcf94356bc95bfefd03cdf7b12e6c15ee35021cdd2
+  md5: f82b2d1a6834da9f835bba9175dd7d6d
+  depends:
+  - arm-variant * sbsa
+  - cuda-version >=12.9,<12.10.0a0
+  - libgcc >=14
+  - libstdcxx >=14
+  license: LicenseRef-NVIDIA-End-User-License-Agreement
+  purls: []
+  size: 5471918
+  timestamp: 1761098823971
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cuda-nvvm-tools-12.9.86-h7b14b0b_2.conda
+  sha256: f5cf91e491e150e37cd224fa648c07f6b1cd2cbfee5affba10625df7ba0b0425
+  md5: 9a35dcda5573a713183f5159ec282364
+  depends:
+  - arm-variant * sbsa
+  - cuda-version >=12.9,<12.10.0a0
+  - libgcc >=12
+  license: LicenseRef-NVIDIA-End-User-License-Agreement
+  purls: []
+  size: 24411824
+  timestamp: 1753975273689
+- conda: https://conda.anaconda.org/conda-forge/noarch/cuda-version-12.9-h4f385c5_3.conda
+  sha256: 5f5f428031933f117ff9f7fcc650e6ea1b3fef5936cf84aa24af79167513b656
+  md5: b6d5d7f1c171cbd228ea06b556cfa859
+  constrains:
+  - cudatoolkit 12.9|12.9.*
+  - __cuda >=12
+  license: LicenseRef-NVIDIA-End-User-License-Agreement
+  purls: []
+  size: 21578
+  timestamp: 1746134436166
 - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
   name: cycler
   version: 0.12.1
@@ -4935,6 +5065,17 @@ packages:
   - mkdocs-literate-nav ; extra == 'dev'
   - mike ; extra == 'dev'
   requires_python: '>=3.8'
+- conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.12-8_cp312.conda
+  build_number: 8
+  sha256: 80677180dd3c22deb7426ca89d6203f1c7f1f256f2d5a94dc210f6e758229809
+  md5: c3efd25ac4d74b1584d2f7a57195ddf1
+  constrains:
+  - python 3.12.* *_cpython
+  license: BSD-3-Clause
+  license_family: BSD
+  purls: []
+  size: 6958
+  timestamp: 1752805918820
 - pypi: https://files.pythonhosted.org/packages/10/99/781fe0c827be2742bcc775efefccb3b048a3a9c6ce9aec0cbf4a101677e5/pytz-2026.1.post1-py2.py3-none-any.whl
   name: pytz
   version: 2026.1.post1
@@ -5727,6 +5868,17 @@ packages:
   - importlib-metadata>=7.0.2 ; python_full_version < '3.10' and extra == 'type'
   - jaraco-develop>=7.21 ; sys_platform != 'cygwin' and extra == 'type'
   requires_python: '>=3.9'
+- conda: https://conda.anaconda.org/conda-forge/noarch/setuptools-82.0.1-pyh332efcf_0.conda
+  sha256: 82088a6e4daa33329a30bc26dc19a98c7c1d3f05c0f73ce9845d4eab4924e9e1
+  md5: 8e194e7b992f99a5015edbd4ebd38efd
+  depends:
+  - python >=3.10
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/setuptools?source=hash-mapping
+  size: 639697
+  timestamp: 1773074868565
 - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
   name: six
   version: 1.17.0
@@ -5999,18 +6151,33 @@ packages:
   - opt-einsum>=3.3 ; extra == 'opt-einsum'
   - optree>=0.13.0 ; extra == 'optree'
   requires_python: '>=3.9.0'
-- pypi: https://download-r2.pytorch.org/whl/cu126/torch-2.6.0%2Bcu126-cp312-cp312-linux_aarch64.whl
+- pypi: https://download-r2.pytorch.org/whl/cu128/torch-2.7.1%2Bcu128-cp312-cp312-manylinux_2_28_aarch64.whl
   name: torch
-  version: 2.6.0+cu126
-  sha256: 993e0e99c472df1d2746c3233ef8e88d992904fe75b8996a2c15439c43ff46c4
+  version: 2.7.1+cu128
+  sha256: 268e54db9f0bc2b7b9eb089852d3e592c2dea2facc3db494100c3d3b796549fa
   requires_dist:
   - filelock
   - typing-extensions>=4.10.0
   - setuptools ; python_full_version >= '3.12'
-  - sympy==1.13.1 ; python_full_version >= '3.9'
+  - sympy>=1.13.3
   - networkx
   - jinja2
   - fsspec
+  - nvidia-cuda-nvrtc-cu12==12.8.61 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-cuda-runtime-cu12==12.8.57 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-cuda-cupti-cu12==12.8.57 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-cudnn-cu12==9.7.1.26 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-cublas-cu12==12.8.3.14 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-cufft-cu12==11.3.3.41 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-curand-cu12==10.3.9.55 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-cusolver-cu12==11.7.2.55 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-cusparse-cu12==12.5.7.53 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-cusparselt-cu12==0.6.3 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-nccl-cu12==2.26.2 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-nvtx-cu12==12.8.55 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-nvjitlink-cu12==12.8.61 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - nvidia-cufile-cu12==1.13.0.11 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+  - triton==3.3.1 ; sys_platform == 'linux'
   - optree>=0.13.0 ; extra == 'optree'
   - opt-einsum>=3.3 ; extra == 'opt-einsum'
   requires_python: '>=3.9.0'
@@ -6606,6 +6773,31 @@ packages:
   - matplotlib ; extra == 'tutorials'
   - pandas ; extra == 'tutorials'
   - tabulate ; extra == 'tutorials'
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/triton-3.3.1-cuda129py312hc444ad8_2.conda
+  sha256: 5d5baad2b3ad68fb82e936253ac8d2e037dab29ae2eab8c233413cb068e73879
+  md5: 4f63dfe809da2e2a665f97e0789ad445
+  depends:
+  - python
+  - setuptools
+  - cuda-nvcc-tools
+  - cuda-cuobjdump
+  - cuda-cudart
+  - cuda-cupti
+  - libstdcxx >=14
+  - libgcc >=14
+  - cuda-version >=12.9,<13
+  - arm-variant * sbsa
+  - python 3.12.* *_cpython
+  - python_abi 3.12.* *_cp312
+  - cuda-cupti >=12.9.79,<13.0a0
+  - libzlib >=1.3.1,<2.0a0
+  - zstd >=1.5.7,<1.6.0a0
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/triton?source=hash-mapping
+  size: 175361381
+  timestamp: 1752734602096
 - pypi: https://files.pythonhosted.org/packages/ee/31/e393c3830bdedd01735bd195c85ac3034b6bcaf6c18142bab60a4047ca36/typepy-1.3.4-py3-none-any.whl
   name: typepy
   version: 1.3.4
