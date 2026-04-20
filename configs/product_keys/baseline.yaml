@@ -4,7 +4,6 @@ defaults:
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
-  - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
 
@@ -29,14 +28,26 @@ trainer:
   n_steps: 15000  # 77050
   ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
   # note that schedular is not 0.1 as is the case with pk_mlm but the default 0.01
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.05)'}
   train_dataloader:
     dataset:
+      ^seed: [42, 123, 1000]
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   eval_dataloader:
     dataset:
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+  checkpoint:
+    save:
+      interval: -1
+    load:
+      path: null
+      only_weights: false # false not tested
 
 
 infrastructure:
@@ -50,16 +61,17 @@ infrastructure:
     tags:
       - nano
       - baseline
-      - 2026.04.19
+      - 2026.04.20
       - warmup_steps=${trainer.scheduler.warmup_steps}
       - learning_rate_grid
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "dmodel=${common.dmodel}"
       - seed=${trainer.train_dataloader.dataset.seed}
+      - find_optimal_lr
   slurm:
     gres: gpu:2
-    time: "1-00:00:00"
+    time: "0-05:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
 model:
