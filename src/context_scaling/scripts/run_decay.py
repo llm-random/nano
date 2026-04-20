@@ -1,13 +1,15 @@
 import os
 import copy
+import datetime
 import warnings
 import logging
 from pathlib import Path
+from typing import Optional
 import argparse
 import json
 import yaml
 
-from setup_eval import (
+from wandb_utils import (
     get_wandb_table,
     save_yaml_config_from_row,
 )
@@ -38,29 +40,54 @@ def build_decay_config(
     ckpt_load_path: str,
     source_step: int,
     decay_steps: int,
-    save_base_path: str,
+    save_base_path: Optional[str],
+    train_data_seed: Optional[int],
+    eval_config: Optional[dict],
 ) -> dict:
-    """Modify a training config for a pure-decay run from a checkpoint."""
-    cfg = copy.deepcopy(base_config)
+    """Modify a training config for a pure-decay run from a checkpoint.
 
-    # Training runs from source_step to source_step + decay_steps
+    decay_steps == 0 produces an eval-only job: no LR schedule change, no
+    checkpoint save, training loop runs zero iterations, and the trainer's
+    post-loop final_lm_eval hook fires the evaluator once.
+    """
+    cfg = copy.deepcopy(base_config)
+    eval_only = decay_steps == 0
+
+    # Backfill for base runs submitted before the final_lm_eval field existed.
+    cfg["trainer"].setdefault("final_lm_eval", False)
+
+    # Training runs from source_step to source_step + decay_steps (== source_step for eval-only)
     cfg["trainer"]["n_steps"] = source_step + decay_steps
 
-    # Pure linear decay from peak LR to 0
-    cfg["trainer"]["scheduler"] = {
-        "_partial_": True,
-        "_target_": "torch.optim.lr_scheduler.LinearLR",
-        "start_factor": 1.0,
-        "end_factor": 0.0,
-        "total_iters": decay_steps,
-    }
+    if not eval_only:
+        cfg["trainer"]["train_dataloader"]["dataset"]["seed"] = train_data_seed
 
-    # Load full checkpoint (model + optimizer + training state for step counter),
-    # but reset the scheduler to the fresh decay schedule
+        # Pure linear decay from peak LR to 0
+        cfg["trainer"]["scheduler"] = {
+            "_partial_": True,
+            "_target_": "torch.optim.lr_scheduler.LinearLR",
+            "start_factor": 1.0,
+            "end_factor": 0.0,
+            "total_iters": decay_steps,
+        }
+
+    # Custom evaluator override + post-training eval hook
+    if eval_config is not None:
+        cfg["evaluator"] = copy.deepcopy(eval_config)
+        cfg["trainer"]["final_lm_eval"] = True
+
     # Add "decay" tag so these runs don't get picked up by the same query
     tags = cfg.get("infrastructure", {}).get("metric_logger", {}).get("tags", [])
     if "decay" not in tags:
         tags.append("decay")
+
+    save_block = {
+        "type": "nano",
+        "interval": -1,
+        "path": None if eval_only else save_base_path,
+        "model_checkpoint_filename": "__model_checkpoint_filename.pt",
+        "training_state_filename": "__training_state_filename.pt",
+    }
 
     cfg["trainer"]["checkpoint"] = {
         "load": {
@@ -69,16 +96,10 @@ def build_decay_config(
             "model_checkpoint_filename": "__model_checkpoint_filename.pt",
             "training_state_filename": "__training_state_filename.pt",
             "only_weights": False,
-            "reset_scheduler": True,
-            "rewind_data": True,
+            "reset_scheduler": not eval_only,
+            "rewind_data": False,
         },
-        "save": {
-            "type": "nano",
-            "interval": -1,
-            "path": save_base_path,
-            "model_checkpoint_filename": "__model_checkpoint_filename.pt",
-            "training_state_filename": "__training_state_filename.pt",
-        },
+        "save": save_block,
     }
 
     return cfg
@@ -105,6 +126,24 @@ def dump_decay_configs(configs, config_dir):
             yaml.dump(cfg_dict, f, Dumper=CustomDumper, sort_keys=True)
 
 
+def load_eval_config(eval_config_path: Optional[str]) -> Optional[dict]:
+    """Load an override for the `evaluator:` config block from a YAML file.
+
+    The file must contain a top-level `evaluator:` key; its value replaces the
+    base run's evaluator block in every generated decay config.
+    """
+    if eval_config_path is None:
+        return None
+    path = Path(eval_config_path)
+    with open(path, "r", encoding="utf-8") as f:
+        loaded = yaml.safe_load(f)
+    if not isinstance(loaded, dict) or "evaluator" not in loaded:
+        raise ValueError(
+            f"Eval config {path} must contain a top-level 'evaluator:' key."
+        )
+    return loaded["evaluator"]
+
+
 def generate_configs(args):
     """Fetch runs from wandb and generate decay configs. Returns (configs, infrastructure)."""
     df = get_wandb_table(tags=args.tags, negative_tags=args.negative_tags)
@@ -113,6 +152,8 @@ def generate_configs(args):
         return [], None
 
     yaml_dir = Path(args.out_dir) / "yaml_cache"
+    eval_config = load_eval_config(args.eval_config)
+    eval_only = args.decay_fraction == 0.0
 
     configs = []
     infrastructure = None
@@ -138,17 +179,33 @@ def generate_configs(args):
         if infrastructure is None:
             infrastructure = base_config.get("infrastructure", {})
 
+        if not eval_only:
+            original_train_seed = base_config["trainer"]["train_dataloader"]["dataset"][
+                "seed"
+            ]
+            assert (
+                args.train_data_seed is not None
+                and args.train_data_seed != original_train_seed
+            ), (
+                f"--train_data_seed ({args.train_data_seed}) must be set and differ from "
+                f"run {run_id} ({run_name})'s training data seed ({original_train_seed})."
+            )
+
         # Determine which checkpoint steps to decay from
         if args.steps is not None:
             steps_to_decay = sorted(args.steps)
         else:
             all_steps = find_checkpoint_steps(ckpt_path)
-            if len(all_steps) < 2:
+            min_needed = 1 if eval_only else 2
+            if len(all_steps) < min_needed:
                 warnings.warn(
-                    f"Run {run_id} ({run_name}): need at least 2 checkpoints, found {len(all_steps)}. Skipping."
+                    f"Run {run_id} ({run_name}): need at least {min_needed} checkpoint(s), "
+                    f"found {len(all_steps)}. Skipping."
                 )
                 continue
-            steps_to_decay = all_steps[:-1]
+            # Eval-only: evaluate every available checkpoint.
+            # Decay: skip the last one (base run already covers that endpoint).
+            steps_to_decay = all_steps if eval_only else all_steps[:-1]
 
         print(
             f"Run {run_id} ({run_name}): {len(steps_to_decay)} decay jobs "
@@ -156,13 +213,18 @@ def generate_configs(args):
         )
 
         for step in steps_to_decay:
-            # decay_steps = f * (source_step + decay_steps) → decay_steps = f * source_step / (1 - f)
-            decay_steps = int(args.decay_fraction * step / (1 - args.decay_fraction))
+            if eval_only:
+                decay_steps = 0
+            else:
+                # decay_steps = f * (source_step + decay_steps) → decay_steps = f * source_step / (1 - f)
+                decay_steps = int(
+                    args.decay_fraction * step / (1 - args.decay_fraction)
+                )
 
             step_ckpt_path = f"{ckpt_path}/step_{step}"
 
             save_path = None
-            if args.save_ckpt_base:
+            if args.save_ckpt_base and not eval_only:
                 save_path = f"{args.save_ckpt_base}/{run_id}/from_step_{step}"
 
             decay_cfg = build_decay_config(
@@ -171,6 +233,8 @@ def generate_configs(args):
                 source_step=step,
                 decay_steps=decay_steps,
                 save_base_path=save_path,
+                train_data_seed=args.train_data_seed,
+                eval_config=eval_config,
             )
             configs.append(decay_cfg)
 
@@ -268,7 +332,7 @@ def main():
     )
     parser.add_argument("--tags", nargs="+", required=True)
     parser.add_argument("--negative_tags", nargs="+", default=None)
-    parser.add_argument("--out_dir", type=str, default="decay_grid")
+    parser.add_argument("--out_dir", type=str, default=None)
     parser.add_argument(
         "--decay_fraction",
         type=float,
@@ -280,6 +344,23 @@ def main():
         type=str,
         default=None,
         help="Base path for saving decay run checkpoints. If not set, decay runs won't save checkpoints.",
+    )
+    parser.add_argument(
+        "--train_data_seed",
+        type=int,
+        default=None,
+        help="Seed for the training data stream in decay runs. Shared across all "
+        "generated jobs; must differ from the base run's training data seed. "
+        "Required when --decay_fraction > 0; ignored when --decay_fraction == 0.",
+    )
+    parser.add_argument(
+        "--eval_config",
+        type=str,
+        default=None,
+        help="Path to a YAML file with a top-level 'evaluator:' block. When set, "
+        "it replaces the base run's evaluator in every generated job and enables "
+        "trainer.final_lm_eval so the evaluator fires once at the end of training. "
+        "Combine with --decay_fraction 0.0 for eval-only sweeps.",
     )
     parser.add_argument(
         "--steps",
@@ -314,6 +395,19 @@ def main():
 
     args = parser.parse_args()
 
+    if args.decay_fraction > 0.0 and args.train_data_seed is None:
+        parser.error("--train_data_seed is required when --decay_fraction > 0.")
+    if args.decay_fraction == 0.0 and args.eval_config is None:
+        parser.error(
+            "--decay_fraction 0.0 only makes sense with --eval_config "
+            "(otherwise the job has nothing to do)."
+        )
+
+    if args.out_dir is None:
+        now = datetime.datetime.now()
+        args.out_dir = str(
+            Path("outputs") / now.strftime("%Y-%m-%d") / now.strftime("%H-%M-%S")
+        )
     out_dir = Path(args.out_dir)
     config_dir = out_dir / "generated_configs"
 
