@@ -1,6 +1,7 @@
+# @package _global_
 defaults:
-  - ../_cluster@_here_: entropy
-  - ../_model/context_scaling@_here_: k4
+  - ../_cluster@_here_: lem
+  - ../_model/context_scaling@_here_: k16
   - ../_trainer@_here_: context_scaling
   - ../_dataset@_here_: ctx_scl_dataset
   - ../_checkpoints@_here_: none
@@ -13,24 +14,22 @@ common:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 40001
+  n_steps: 5_001
   ^learning_rate: [4, 5, 6, 7, 8, 9, 10, 11]
   eval_interval: 500
 
 simpleP:
-  base_model:
-    dmodel: 256
-    dff: 640
+  base_dmodel: 256
 
 infrastructure:
   metric_logger:
-    name: simpleP_long_k4
+    name: simpleP_dense_k16
     tags:
       - nano
-      - simpleP_long
-      - k4
+      - simpleP_dense
+      - k16
 
   slurm:
-    time: "0-04:00:00"
-    gres: gpu:1
+    time: "0-03:00:00"
+    gres: gpu:hopper:4
     job-name: ${infrastructure.metric_logger.name}

@@ -1,3 +1,7 @@
+defaults:
+  - /ff_layer@model.encoder.block_fn.ff_layer_fn: swiglu
+  - _self_
+
 common:
   tokenizer: gpt2
   model_seed: 123
@@ -33,7 +37,6 @@ model:
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
-        base_dmodel: ${oc.select:simpleP.base_model.dmodel,null}
         q_proj_fn:
           _target_: src.core.model.Linear
           _partial_: true
@@ -84,35 +87,8 @@ model:
         rope_base: 500000
         rope_scale_freqs: true
 
-      ff_layer_fn:
-        _target_: src.core.model.SwiGLU
-        _partial_: true
-        compile: false
-        base_dmodel: ${oc.select:simpleP.base_model.dmodel,null}
-        base_dff: ${oc.select:simpleP.base_model.dff,null}
-        ff_pre_act_fn:
-          _target_: src.core.model.Linear
-          _partial_: true
-          in_features: ${common.dmodel}
-          out_features: ${common.dff}
-          partial_init_fn:
-            _target_: src.core.model.trunc_normal_init
-            _partial_: true
-            scale: ${common.init_scale}
-        ff_post_act_fn:
-          _target_: src.core.model.Linear
-          _partial_: true
-          in_features: ${common.dff}
-          out_features: ${common.dmodel}
-          partial_init_fn:
-            _target_: src.core.model.trunc_normal_init
-            _partial_: true
-            scale: ${common.init_scale}
-        gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
-
   head:
     _target_: src.core.model.TransformerHead
-    base_dmodel: ${oc.select:simpleP.base_model.dmodel,null}
     linear_fn:
       _target_: src.core.model.Linear
       _partial_: true
