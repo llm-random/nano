@@ -54,6 +54,7 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
+    final_lm_eval: bool
     evaluator: Optional[Evaluator] = None
     lm_eval_interval: int = 0
 
@@ -150,6 +151,7 @@ class Trainer:
         )
 
     def train(self):
+        fired_lm_eval_this_step = False
         for step, batch in zip(
             range(self.start_step, self.n_steps), self.train_iterator
         ):
@@ -175,7 +177,18 @@ class Trainer:
 
             if self._should_lm_eval:
                 self.evaluator.eval()
+                fired_lm_eval_this_step = True
 
+            self.metric_logger.flush()
+
+        if (
+            self.final_lm_eval
+            and self.evaluator is not None
+            and not fired_lm_eval_this_step
+        ):
+            self.metric_logger.set_step(self.step)
+            self.metric_logger.set_tokens(self.processed_tokens)
+            self.evaluator.eval()
             self.metric_logger.flush()
 
         if self._should_save_final_checkpoint:

@@ -1,0 +1,22 @@
+evaluator:
+  _partial_: true
+  _target_: src.core.eval.Evaluator
+  tokenizer: ${common.tokenizer}
+  tasks:
+    - arc_easy
+    - arc_challenge
+    - hellaswag
+    - piqa
+    - winogrande
+    - openbookqa
+    - sciq
+    - social_iqa
+    - lambada_standard
+    - coqa
+    - triviaqa
+    - race
+    - drop
+  limit: 500
+  max_length: ${common.sequence_length}
+  max_gen_toks: 64
+  batch_size: 32
