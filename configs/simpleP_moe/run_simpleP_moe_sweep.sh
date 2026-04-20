@@ -15,5 +15,5 @@ for model in "${MODELS[@]}"; do
     pixi run python run_exp.py --config-name="simpleP_moe/${model}" \
         ~simpleP \
         infrastructure.metric_logger.name="vanilla_moe_${model}" \
-        "infrastructure.metric_logger.tags=[nano, vanilla_moe, ${model}]"
+        "infrastructure.metric_logger.tags=[nano, vanilla_moe2, ${model}]"
 done

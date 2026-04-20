@@ -40,7 +40,7 @@ infrastructure:
     name: simpleP_moe_k16
     tags:
       - nano
-      - simpleP_moe
+      - simpleP_moe2
       - k16
 
   slurm:
