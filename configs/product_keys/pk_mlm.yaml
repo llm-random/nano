@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  - /_cluster/entropy@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
@@ -37,8 +37,8 @@ trainer:
     warmup_steps: ${eval:'int(${trainer.n_steps} * 0.05)'}
   train_dataloader:
     dataset:
-      # seed: 42
-      ^seed: [42, 123, 1000]
+      seed: 42
+      # ^seed: [42, 123, 1000]
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   eval_dataloader:
@@ -57,14 +57,14 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_mlm_bring_back_rope_lr_grid
+    name: pk_mlm_bring_back_rope_speedtest
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 1000
     heavy_logging_layers: [0, 10, 15]
     tags:
       - nano
       - pk_mlm
-      - 2026.04.20
+      - 2026.04.21
       - warmup_steps=${trainer.scheduler.warmup_steps}
       - RoPE
       - learning_rate_grid
@@ -73,10 +73,11 @@ infrastructure:
       - "n_layers=${common.n_blocks}"
       - "dmodel=${common.dmodel}"
       - seed=${trainer.train_dataloader.dataset.seed}
-      - find_optimal_lr
+      - gres=${infrastructure.slurm.gres}
+      - speedtest
   slurm:
     gres: gpu:2
-    time: "1-00:00:00"
+    time: "0-00:15:00"
     job-name: ${infrastructure.metric_logger.name}
 
 model:
