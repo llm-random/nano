@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - /_cluster/entropy@_here_
+  - /_cluster/helios@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
