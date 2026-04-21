@@ -9,34 +9,45 @@ infrastructure:
     nodes: 1
     partition: plgrid-gpu-gh200
     time: "2-00:00:00"
-    account: plgllmefficont3-gpu-gh200
 
   script:
     - '${export_env_variables_placeholders:}'
     - 'module load ML-bundle/25.04'
-    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi/nano'
-    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+    - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi3/nano/$USER'
     
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
     
     # export pixi variables
     - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
-    - 'export XDG_DATA_HOME="PROJECT_HOME_PATH/data"'
-    - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'
-    - 'export XDG_STATE_HOME="$PROJECT_HOME_PATH/state"'
     
+    # HF datasets requires explicit opt-in for datasets with custom code (e.g. allenai/social_i_qa)
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
+
+    # Route package caches to the active grant's storage to avoid `Quota exceeded
+    # (os error 122)` from rattler during pixi install. Remote ~/.bashrc still points
+    # these at the old plggllmeffi grant (full); tying to PROJECT_HOME_PATH overrides it.
+    - 'export RATTLER_CACHE_DIR=$PROJECT_HOME_PATH/cache/rattler'
+    - 'export UV_CACHE_DIR=$PROJECT_HOME_PATH/cache/uv'
+    - 'export XDG_CACHE_HOME=$PROJECT_HOME_PATH/cache'
+
     # activate pixi
     - 'cd "$PIXI_HOME"'
     - 'eval "$(pixi shell-hook)"'
     - 'cd -'
 
+    # Prepend env's libstdc++ so triton's libtriton.so resolves CXXABI_1.3.15 (GCC 14 ABI).
+    # Helios's system/module libstdc++ is too old and breaks torch.compile on aarch64.
+    - 'export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"'
+
 cluster_switch:
   train_path_c4: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/c4/train"
   eval_path_c4: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/c4/validation"
-  train_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb-edu/train/train"
-  eval_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb-edu/train/train"
+  train_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
+  eval_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
+
 
 trainer:
   checkpoint:
