@@ -17,36 +17,41 @@ common:
   n_blocks: 16
   q_heads: 16
   kv_heads: 16
-  vocab_size: 50304
+  # vocab_size: 50304
+  vocab_size: 128256
+
+# trainer:
+#   _target_: src.product_keys.trainer.MaskedLMTrainer
+#   masking_percentage: 0.2
+#   mask_token_id: 50257
+#   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
+#   gradient_accumulation_steps: 2
+#   n_steps: 77050
+#   # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+#   learning_rate: 1e-3
+#   train_dataloader:
+#     dataset:
+#       tokenize_fn:
+#         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+#   eval_dataloader:
+#     dataset:
+#       tokenize_fn:
+#         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
 
 trainer:
-  _target_: src.product_keys.trainer.MaskedLMTrainer
-  masking_percentage: 0.2
-  mask_token_id: 50257
-  unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
-  gradient_accumulation_steps: 2
   n_steps: 77050
-  # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
-  learning_rate: 1e-3
-  train_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
-  eval_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
-
+  ^learning_rate: [5e-4, 1e-3, 2e-3]
+  # learning_rate: 1e-3
 
 infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: baseline
+    name: baseline_causal
     project_name: tml-bgw
     tags:
       - baseline
-      - mlm
+      - clm
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "dmodel=${common.dmodel}"
@@ -85,7 +90,7 @@ model:
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
-        causal: false
+        causal: true
 
         q_proj_fn:
           _target_: src.projected_compression.model.Linear

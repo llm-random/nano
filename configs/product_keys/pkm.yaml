@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  - /_cluster/entropy@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
@@ -17,25 +17,46 @@ common:
   n_blocks: 16
   q_heads: 16
   kv_heads: 16
-  vocab_size: 50304      # GPT-2 vocab
+  # vocab_size: 50304      # GPT-2 vocab
+  vocab_size: 128256
 
   # pkm_n_sub_keys: 128    # 128^2 = 16,384 memory slots
-  # pkm_n_sub_keys: 256    # 256^2 = 65,536 memory slots
+  pkm_n_sub_keys: 256    # 256^2 = 65,536 memory slots
   # pkm_n_sub_keys: 384    # 384^2 = 147,456 memory slots
-  pkm_n_sub_keys: 512    # 512^2 = 262,144 memory slots
+  # pkm_n_sub_keys: 512    # 512^2 = 262,144 memory slots
   # pkm_n_sub_keys: 768    # 768^2 = 589,824 memory slots
   # pkm_n_sub_keys: 1024   # 1024^2 = 1,048,576 memory slots
   pkm_k: 32
-  pkm_query_dim: 512
+  # pkm_query_dim: 512
+  pkm_query_dim: 1024
   pkm_n_heads: 4
   pkm_indices: [7, 14]
 
+# trainer:
+#   _target_: src.product_keys.trainer.MaskedLMTrainer
+#   masking_percentage: 0.2
+#   mask_token_id: 50257
+#   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
+#   gradient_accumulation_steps: 2
+#   n_steps: 77050
+#   learning_rate: 1e-3
+#   ^learning_rate: [5e-4, 1e-3, 2e-3]
+#   optimizer_param_groups:
+#     - regex: ".*ff_layer.layer.values.*"
+#       lr: "${eval:'1.0 * ${trainer.learning_rate}'}"
+#       indices_filter:
+#         layer_path: "encoder.blocks"
+#         indices: ${common.pkm_indices}
+#   train_dataloader:
+#     dataset:
+#       tokenize_fn:
+#         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+#   eval_dataloader:
+#     dataset:
+#       tokenize_fn:
+#         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+
 trainer:
-  _target_: src.product_keys.trainer.MaskedLMTrainer
-  masking_percentage: 0.2
-  mask_token_id: 50257
-  unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
-  gradient_accumulation_steps: 2
   n_steps: 77050
   learning_rate: 1e-3
   ^learning_rate: [5e-4, 1e-3, 2e-3]
@@ -45,24 +66,16 @@ trainer:
       indices_filter:
         layer_path: "encoder.blocks"
         indices: ${common.pkm_indices}
-  train_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
-  eval_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
 
 infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: "pkm"
+    name: pkm_causal_256_query_dim_1024
     project_name: tml-bgw
     tags:
       - pkm
-      - mlm
+      - clm
       - "pkm_n_sub_keys=${common.pkm_n_sub_keys}"
       - "pkm_k=${common.pkm_k}"
       - "pkm_indices=${model.encoder.block_fn.pkm_indices}"
@@ -106,7 +119,7 @@ model:
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
-        causal: false
+        causal: true
 
         q_proj_fn:
           _target_: src.projected_compression.model.Linear
