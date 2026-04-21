@@ -47,6 +47,8 @@ cluster_switch:
   eval_path_c4: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/c4/validation"
   train_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
   eval_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
+  train_path_sst2: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/sst2/train"
+  eval_path_sst2: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/sst2/test"
 
 
 trainer:
@@ -54,7 +56,7 @@ trainer:
     save:
       type: nano
       interval: -1
-      path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/model_checkpoints 
+      path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/model_checkpoints/plgggwozdz02 
       model_checkpoint_filename: __model_checkpoint_filename.pt
       training_state_filename: __training_state_filename.pt
     load:

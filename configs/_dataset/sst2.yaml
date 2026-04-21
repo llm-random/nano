@@ -11,7 +11,7 @@ trainer:
       _target_: src.product_keys.datasets.GlueDataset
       sequence_length: ${common.sequence_length}
       tokenize_fn: ???
-      path: "data/ft_dataset/sst2/train"
+      path:  ${cluster_switch.train_path_sst2}
       split: train
       seed: 123
       use_new_sampling_method: true
@@ -27,7 +27,7 @@ trainer:
       _target_: src.product_keys.datasets.GlueDataset
       sequence_length: ${common.sequence_length}
       tokenize_fn: ???
-      path: "data/ft_dataset/sst2/test"
+      path: ${cluster_switch.eval_path_sst2}
       split: validation
       seed: 123
       use_new_sampling_method: true

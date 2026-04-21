@@ -1,62 +1,17 @@
 # @package _global_
-defaults:
-  - /_cluster/local@_here_
-  - /_model/tiny@_here_
-  - /_trainer/llama@_here_
-  - /_dataset/sst2@_here_
-  - /_checkpoints/none@_here_
-  - /_misc/default@_here_
-  - _self_
-
-
-dataset:
-  seed: 42
-
 common:
-  sequence_length: 16
-  batch_size: 4
-  dmodel: 16
-  dff: 64
+  sequence_length: 1024
+  batch_size: 64
+  dmodel: 1024
+  dff: 2724
   datt: ${common.dmodel}
-  n_blocks: 4
-  q_heads: 2
-  kv_heads: 2
+  n_blocks: 16
+  q_heads: 16
+  kv_heads: 16
   vocab_size: 50304
+  # ^init_scale: [0.01, 0.1, 0.5, 1, 2]
+  init_scale: 0.5
 
-
-trainer:
-  _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
-  gradient_accumulation_steps: 2
-  n_steps: 3
-  learning_rate: 1e-3
-  d_model: ${common.dmodel}
-  vocab_size: ${common.vocab_size}
-
-  train_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.product_keys.datasets.glue_tokenize_fn
-        seq_len: ${common.sequence_length}
-
-  eval_dataloader:
-    dataset:
-      tokenize_fn:
-        _target_: src.product_keys.datasets.glue_tokenize_fn
-        seq_len: ${common.sequence_length}
-
-  checkpoint:
-    load:
-      type: huggingface
-      path: data/checkpoint/2026-03-24
-      model_checkpoint_filename: model.safetensors
-    save:
-      type: nano
-      path: finetuned_checkpoint
-
-
-infrastructure:
-  metric_logger:
-    type: stdout
 
 model:
   _target_: src.product_keys.model.LLM
@@ -66,13 +21,12 @@ model:
       _target_: src.product_keys.model.TransformerBlock
       _partial_: true
       attention_fn:
-        _target_: src.product_keys.model.RoPETopKAttention
+        _target_: src.product_keys.model.RoPEProductKeysEncoderAttention
         _partial_: true
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
-        causal: false
 
         q_proj_fn:
           _target_: src.projected_compression.model.Linear
@@ -82,7 +36,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         k_proj_fn:
           _target_: src.projected_compression.model.Linear
@@ -92,9 +46,17 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
-        v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
+        v_proj_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: ${common.init_scale}
 
         o_proj_fn: 
           _target_: src.projected_compression.model.Linear
@@ -104,9 +66,9 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         rope_base: 500000
         rope_scale_freqs: true
-        top_k: 8
-        top_k_before_softmax: true
+        top_k: 16
+        init_scale: ${common.init_scale}
