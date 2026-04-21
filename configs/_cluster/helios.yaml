@@ -48,7 +48,7 @@ cluster_switch:
   train_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
   eval_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
   train_path_sst2: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/sst2/train"
-  eval_path_sst2: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/sst2/test"
+  eval_path_sst2: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/sst2/validation"
 
 
 trainer:
