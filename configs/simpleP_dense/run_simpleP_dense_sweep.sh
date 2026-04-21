@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # MODELS=(k4 k8 k12 k16 k20 k24)
-MODELS=(k4 k12 k24)
+MODELS=(k12 k4 k24)
 
 for model in "${MODELS[@]}"; do
     echo "=== launching simpleP_dense ${model} ==="

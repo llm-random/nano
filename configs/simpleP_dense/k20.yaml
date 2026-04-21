@@ -26,7 +26,7 @@ infrastructure:
     name: simpleP_dense_k20
     tags:
       - nano
-      - simpleP_dense
+      - simpleP_dense2
       - k20
 
   slurm:
