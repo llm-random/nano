@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - /_cluster/entropy@_here_
+  - /_cluster/helios@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
@@ -17,7 +17,6 @@ common:
   q_heads: 16
   kv_heads: 16
   vocab_size: 50304
-  # ^init_scale: [0.01, 0.1, 0.5, 1, 2]
   init_scale: 0.5
 
 trainer:
@@ -26,15 +25,16 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
-  # n_steps: 77050
-  n_steps: 15000
-  ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+  # n_steps: 15000
+  n_steps: 80000
+  ^learning_rate: [2e-4, 5e-4, 1e-3]
   # learning_rate: 2e-3
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
     final_lr_fraction: 0.1
-    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.05)'}
+    # warmup_steps: ${eval:'int(${trainer.n_steps} * 0.05)'}
+    warmup_steps: 750
   train_dataloader:
     dataset:
       seed: 42
@@ -47,7 +47,7 @@ trainer:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   checkpoint:
     save:
-      interval: -1
+      interval: 8000
     load:
       path: null
       only_weights: false # false not tested
@@ -57,9 +57,9 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_mlm_bring_back_rope_speedtest
+    name: pk_mlm_bring_back_rope_fullrun
     project_name: tml-bgw
-    heavy_metrics_calculation_interval: 1000
+    heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
     tags:
       - nano
@@ -68,16 +68,16 @@ infrastructure:
       - warmup_steps=${trainer.scheduler.warmup_steps}
       - RoPE
       - learning_rate_grid
+      - full_run
       - "lr=${trainer.learning_rate}"
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "dmodel=${common.dmodel}"
       - seed=${trainer.train_dataloader.dataset.seed}
       - gres=${infrastructure.slurm.gres}
-      - speedtest
   slurm:
-    gres: gpu:2
-    time: "0-00:15:00"
+    gres: gpu:4
+    time: "2-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
 model:
