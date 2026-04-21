@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  - /_cluster/entropy@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
@@ -25,16 +25,18 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
-  n_steps: 15000  # 77050
-  ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+  n_steps: 80000
+  ^learning_rate: [2e-4, 5e-4, 1e-3]
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
     final_lr_fraction: 0.1
-    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.05)'}
+    # warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
+    warmup_steps: 750
   train_dataloader:
     dataset:
-      ^seed: [42, 123, 1000]
+      # ^seed: [42, 123, 1000]
+      seed: 42
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   eval_dataloader:
@@ -43,7 +45,7 @@ trainer:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   checkpoint:
     save:
-      interval: -1
+      interval: 8000
     load:
       path: null
       only_weights: false # false not tested
@@ -53,24 +55,27 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: baseline_lr_grid
+    name: baseline_full_run
     project_name: tml-bgw
-    heavy_metrics_calculation_interval: 1000
+    heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
     tags:
       - nano
       - baseline
-      - 2026.04.20
+      - 2026.04.21
       - warmup_steps=${trainer.scheduler.warmup_steps}
       - learning_rate_grid
+      - full_run
+      - "lr=${trainer.learning_rate}"
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "dmodel=${common.dmodel}"
       - seed=${trainer.train_dataloader.dataset.seed}
-      - find_optimal_lr
+      - gres=${infrastructure.slurm.gres}
+      # - find_optimal_lr
   slurm:
-    gres: gpu:2
-    time: "0-05:00:00"
+    gres: gpu:4
+    time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
 model:
