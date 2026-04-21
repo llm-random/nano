@@ -12,18 +12,19 @@ common:
   sequence_length: 2048
   batch_size: 512
 
-  dmodel: 1056 # 10p
-  dff: 3168
+  # dmodel: 1056 # 10p
+  # dff: 3168
   # dmodel: 2160 # 30p
   # dff: 6480
-  # dmodel: 3072 # 50p
-  # dff: 9216
+  dmodel: 3072 # 50p
+  dff: 9216
 
 trainer:
   _target_: src.projected_compression.trainer.PCTrainer
 
-  # gradient_accumulation_steps: 16 # for 2 nodes
-  gradient_accumulation_steps: 32 # for 1 node 10%
+  # # # # gradient_accumulation_steps: 16 # for 2 nodes
+  gradient_accumulation_steps: 32 # for 2 nodes 50%
+  # gradient_accumulation_steps: 32 # for 1 node 10%
 
 
   # n_steps: 1024
@@ -40,16 +41,16 @@ trainer:
   # learning_rate: 15 # 30p optimal # 16
   # learning_rate: 15 # 50p optimal # 14 -> 15?
   # learning_rate: 14 # 50p optimal # 14 -> 15?
-  ^learning_rate: 
+  # ^learning_rate: 
     # - 12
-    - 13
+    # - 13
     # - 14
     # - 15
     # - 16
 
-  # learning_rate: 12 # 10p
+  learning_rate: 15 # 50p
   # learning_rate: 15 # 30p
-  # learning_rate: 15 # 50p
+  # learning_rate: 13 # 10p
 
   scheduler:
     warmup_steps: 40
@@ -166,13 +167,13 @@ infrastructure:
       - llama_8
       - projected_compression
       - mem_eff
-      - 10p
+      # - 10p
       # - 30p
-      # - 50p
+      - 50p
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     gres: "gpu:hopper:4" # lem
     # gres: gpu:4 # helios, entropy
-    # nodes: 2
-    time: "2-00:00:00"
+    nodes: 2
+    time: "3-00:00:00"

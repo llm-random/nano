@@ -40,9 +40,9 @@ trainer:
   # gradient_clipping: 1.0
   # gradient_clipping: 2.0
 
-  ^gradient_clipping: 
-   - 0.25
-   - 0.125
+  # ^gradient_clipping: 
+  #  - 0.25
+  #  - 0.125
 
   # --- Gradient clipping mode (pick one) ---
   #
