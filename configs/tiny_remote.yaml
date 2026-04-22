@@ -18,23 +18,6 @@ trainer:
   learning_rate: 1e-3
   lm_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
 
-  checkpoint:
-    save:
-      type: nano
-      interval: -1
-      # path: /storage_nvme_4/nano/models
-      model_checkpoint_filename: __model_checkpoint_filename.pt
-      training_state_filename: __training_state_filename.pt
-
-    load:
-      type: nano
-      # ^path: [/storage_nvme_4/nano/models/148147/0/step_250, /storage_nvme_4/nano/models/148147/0/step_500, /storage_nvme_4/nano/models/148147/0/step_750]
-      # path: /storage_nvme_4/nano/models/148147/0/step_250
-      model_checkpoint_filename: __model_checkpoint_filename.pt
-      training_state_filename: __training_state_filename.pt # not tested
-      only_weights: false # false not tested
-      rewind_data: true
-
   train_dataloader:
     dataset:
       tokenize_fn:

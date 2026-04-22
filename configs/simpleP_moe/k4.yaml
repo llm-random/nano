@@ -15,8 +15,8 @@ common:
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 5_001
-  ^learning_rate: [4, 5, 6, 7, 8, 9, 10, 11]
+  n_steps: 16_000
+  ^learning_rate: [5, 6, 7, 8, 9, 10, 11]
   eval_interval: 500
 
 simpleP:
@@ -40,7 +40,7 @@ infrastructure:
     name: simpleP_moe_k4
     tags:
       - nano
-      - simpleP_moe2
+      - simpleP_moe3
       - k4
 
   slurm:

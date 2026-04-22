@@ -10,13 +10,13 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 1024
-  batch_size: 64
+  sequence_length: 256
+  batch_size: 256
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 5_001
-  ^learning_rate: [4, 5, 6, 7, 8, 9, 10, 11]
+  n_steps: 5_000
+  ^learning_rate: [5, 6, 7, 8, 9, 10, 11]
   eval_interval: 500
 
 simpleP:
@@ -40,8 +40,9 @@ infrastructure:
     name: simpleP_moe_k24
     tags:
       - nano
-      - simpleP_moe2
+      - simpleP_moe
       - k24
+      - short_seq
 
   slurm:
     time: "0-04:00:00"

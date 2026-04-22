@@ -3,7 +3,7 @@ trainer:
     save:
       type: nano
       interval: -1
-      path: /storage_nvme_4/nano/models
+      path: /storage_nvme_2/nano/$USER/models
       model_checkpoint_filename: __model_checkpoint_filename.pt
       training_state_filename: __training_state_filename.pt
 
