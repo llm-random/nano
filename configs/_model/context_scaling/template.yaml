@@ -1,10 +1,23 @@
+# Abstract model — does not work alone. Compose with a _feedforward and _attention group.
 defaults:
-  - /ff_layer@model.encoder.block_fn.ff_layer_fn: swiglu
   - _self_
 
 common:
+  _target_: src.definitions.Common
   tokenizer: gpt2
   model_seed: 123
+  # n_blocks is the single scaling knob; everything below is constant or linear in it.
+  n_blocks: 4
+  dmodel:   ${eval:'64  * ${common.n_blocks}'}
+  datt:     ${eval:'64  * ${common.n_blocks}'}
+  dff:      ${eval:'160 * ${common.n_blocks}'}
+  q_heads:  ${common.n_blocks}
+  vocab_size: 50304
+  sequence_length: 256
+  head_norm: true
+  init_scale: 0.1
+  init_type: truncated_normal_fixed
+  model_type: gpt
 
 model:
   _target_: src.core.model.LLM

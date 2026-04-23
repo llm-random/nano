@@ -1,0 +1,42 @@
+# @package _global_
+defaults:
+  - /_cluster@_here_:                lem
+  - /_model/context_scaling@_here_:  template
+  - /_trainer@_here_:                context_scaling
+  - /_dataset@_here_:                ctx_scl_dataset
+  - /_checkpoints@_here_:            none
+  - /_misc@_here_:                   default
+  - /_feedforward:                   moe
+  - /_attention:                     mqa
+  - /_parameterization:              simpleP
+  - _self_
+
+common:
+  n_blocks: 12
+  ^batch_size: [8, 16, 32, 64]
+  sequence_length: 1024
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 16_000
+  ^learning_rate: [4, 6, 8, 10, 11, 12]
+  eval_interval: 500
+
+infrastructure:
+  metric_logger:
+    name: moe_mqa_simpleP_k12_bs${common.batch_size}_lr${trainer.learning_rate}
+    tags:
+      - nano
+      - main_grid_1
+      - moe
+      - mqa
+      - simpleP
+      - k12
+      - bs${common.batch_size}
+      - lr${trainer.learning_rate}
+      - ${now:%Y-%m-%d}
+
+  slurm:
+    time: "0-04:00:00"
+    gres: gpu:hopper:4
+    job-name: ${infrastructure.metric_logger.name}

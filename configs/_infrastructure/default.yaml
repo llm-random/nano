@@ -17,5 +17,3 @@ infrastructure:
   generated_configs_path: generated_configs
 
   cemetery_experiments_dir: "~/llmrandom_cemetery"
-
-evaluator: null
