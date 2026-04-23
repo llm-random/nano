@@ -65,14 +65,14 @@ infrastructure:
       - nano
       - pk_mlm
       - 2026.04.23
-      - warmup_steps=${trainer.scheduler.warmup_steps}
       - RoPE
       - learning_rate_grid
       - full_run
-      - "lr=${trainer.learning_rate}"
-      - "seq_len=${common.sequence_length}"
-      - "n_layers=${common.n_blocks}"
-      - "dmodel=${common.dmodel}"
+      - warmup_steps=${trainer.scheduler.warmup_steps}
+      - lr=${trainer.learning_rate}
+      - seq_len=${common.sequence_length}
+      - n_layers=${common.n_blocks}
+      - dmodel=${common.dmodel}
       - seed=${trainer.train_dataloader.dataset.seed}
       - gres=${infrastructure.slurm.gres}
   slurm:
@@ -84,7 +84,7 @@ model:
   encoder:
     block_fn:
       attention_fn:
-        _target_: src.product_keys.model.RoPEProductKeysEncoderAttention
+        _target_: src.product_keys.model.RoPEProductKeysEncoderAttentionOptimized
         _partial_: true
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
