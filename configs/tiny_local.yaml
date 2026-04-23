@@ -22,7 +22,6 @@ trainer:
   fixed_eval: true
   scheduler:
     warmup_steps: 10
-    decay_steps: 10
 
   checkpoint:
     save:

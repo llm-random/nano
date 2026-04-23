@@ -19,7 +19,6 @@ trainer:
   downstream_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
   scheduler:
     warmup_steps: 10
-    decay_steps: 10
 
   train_dataloader:
     dataset:
