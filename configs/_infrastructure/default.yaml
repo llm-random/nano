@@ -1,7 +1,7 @@
 
 infrastructure:
   metric_logger:
-    heavy_metrics_calculation_interval: 100
+    heavy_metrics_calculation_interval: ???
     new_wandb_job: true
     name: default
     type: wandb

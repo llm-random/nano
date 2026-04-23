@@ -6,7 +6,7 @@ defaults:
   - /_dataset@_here_:                fineweb
   - /_checkpoints/context_scaling@_here_: lem_1
   - /_infrastructure@_here_:         default
-  - /_eval@_here_:                   joint
+  - /_downstream_eval@_here_:        joint
 
   - /_feedforward:                   moe
   - /_attention:                     mha
@@ -23,6 +23,7 @@ trainer:
   n_steps: 16_000
   ^learning_rate: [4, 6, 8, 10, 11, 12]
   eval_interval: 500
+  fixed_eval: true
 
 infrastructure:
   metric_logger:

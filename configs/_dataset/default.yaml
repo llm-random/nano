@@ -43,4 +43,4 @@ trainer:
         _partial_: true
         path: ???
         load_dataset_fn: null
-        shuffle: true
+        shuffle: false

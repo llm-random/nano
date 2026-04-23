@@ -2,25 +2,29 @@ defaults:
   - _cluster@_here_: local
   - _model@_here_: tiny
   - _trainer@_here_: context_scaling
-  - _dataset@_here_: ctx_scl_dataset
+  - _dataset@_here_: c4
   - _checkpoints@_here_: none
-  - _misc@_here_: default
+  - _infrastructure@_here_: default
   # - _eval@_here_: basic
 
 common:
   sequence_length: 16
   batch_size: 2
+  data_seed: 123
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 201
+  n_steps: 101
   learning_rate: 1e-3
-  lm_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
+  eval_interval: 5
+  n_eval_steps: 2
+  lm_eval_interval: 0
+  fixed_eval: true
 
   checkpoint:
     save:
       type: nano
-      path: checkpoint
+      path: null
 
 infrastructure:
   metric_logger:
@@ -30,6 +34,4 @@ infrastructure:
       - local
       - tiny
 
-# evaluator:
-#   limit: 1
-#   device: cpu
+evaluator: null

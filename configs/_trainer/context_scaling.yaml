@@ -1,21 +1,22 @@
 trainer:
   _partial_: true
   _target_: src.core.trainer.Trainer
-  eval_interval: 100
-  n_eval_steps: 10
+  eval_interval: ???
+  n_eval_steps: ???
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
-  n_steps: null
-  learning_rate: null
+  n_steps: ???
+  learning_rate: ???
   weight_decay: 0.1
   final_lm_eval: false
+  fixed_eval: false
 
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.WSDScheduler
     n_steps: ${trainer.n_steps}
-    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
-    decay_steps: ${eval:'int(${trainer.n_steps} * 0.1)'}
+    warmup_steps: ???
+    decay_steps: 0
 
   distributed:
     fsdp2:

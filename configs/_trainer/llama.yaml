@@ -11,6 +11,7 @@ trainer:
   learning_rate: null
   weight_decay: 0.1
   final_lm_eval: false
+  fixed_eval: false
 
   scheduler:
     _partial_: true

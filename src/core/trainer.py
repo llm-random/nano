@@ -55,6 +55,7 @@ class Trainer:
     weight_decay: float
     distributed: Optional[dict]
     final_lm_eval: bool
+    fixed_eval: bool
     evaluator: Optional[Evaluator] = None
     lm_eval_interval: int = 0
 
@@ -72,7 +73,14 @@ class Trainer:
             self.eval_iterator = iter(self.eval_dataloader)
         self.step = self.start_step - 1
 
-        if self.start_step > 0 and self.eval_interval > 0:
+        if self.fixed_eval:
+            logger.info(
+                f"fixed_eval=True: caching {self.n_eval_steps} eval batches"
+            )
+            self._fixed_eval_batches = [
+                next(self.eval_iterator) for _ in range(self.n_eval_steps)
+            ]
+        elif self.start_step > 0 and self.eval_interval > 0:
             n_skip_eval_batches = (
                 (self.start_step - 1) // self.eval_interval * self.n_eval_steps
             )
@@ -338,8 +346,12 @@ class Trainer:
         losses = []
         eval_fingerprint = []
         with torch.no_grad():
-            for _ in range(self.n_eval_steps):
-                batch = next(self.eval_iterator)
+            for i in range(self.n_eval_steps):
+                batch = (
+                    self._fixed_eval_batches[i]
+                    if self.fixed_eval
+                    else next(self.eval_iterator)
+                )
                 batch_fingerprint = create_batch_fingerprint(batch)
                 eval_fingerprint.extend(batch_fingerprint)
                 batch = batch.to(self.device)
