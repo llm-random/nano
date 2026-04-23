@@ -38,7 +38,7 @@ class HybridTransformerBlock(nn.Module):
             layer=attention_fn(),
             log_name=f"{self.log_name}/residual_attention",
         )
-        
+
         if block_id in pkm_indices:
             selected_layer = pkm_layer_fn()
             layer_type_name = "pkm"
@@ -89,7 +89,7 @@ class RoPETopKAttention(nn.Module):
 
         self.top_k = top_k
         self.top_k_before_softmax = top_k_before_softmax
-        
+
         self.causal = causal
 
         self.rope = RoPE(
@@ -133,7 +133,7 @@ class RoPETopKAttention(nn.Module):
             )
 
         attention_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.dhead)
-        
+
         if self.causal:
             causal_mask = torch.triu(
                 torch.ones(seq_len, seq_len, device=attention_scores.device), diagonal=1
@@ -155,7 +155,7 @@ class RoPETopKAttention(nn.Module):
         return self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
 
 
-# - log the magnitudes of updates to the residual stream [done] 
+# - log the magnitudes of updates to the residual stream [done]
 # - log grad norm [done]
 # - log the distribution of selected keys (how often each key is selected, how it evolves during training) [done]
 # - normalize queries and keys before dot product (this can stabilize training and improve convergence) [done]
@@ -203,7 +203,6 @@ class RoPEProductKeysEncoderAttention(nn.Module):
             apply_freq_scaling=rope_scale_freqs,
         )
 
-
         # Normalize the halves independently to balance Product Key retrieval
         self.q_norm1 = nn.RMSNorm(self.dhead_half)
         self.q_norm2 = nn.RMSNorm(self.dhead_half)
@@ -212,7 +211,9 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         # QKNorm learnable scaling parameter (one per head)
         initial_temp = 1.0 / math.sqrt(self.dhead)
-        self.attn_temp = nn.Parameter(torch.full((1, self.q_heads, 1, 1, 1), initial_temp))
+        self.attn_temp = nn.Parameter(
+            torch.full((1, self.q_heads, 1, 1, 1), initial_temp)
+        )
 
         self.metric_logger = None
         self.log_name = ""
@@ -335,15 +336,9 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         # q1: (B, H, S, D/2) -> (B, H, S, 1, D/2)
         # k1_vecs: (B, H, S, K, D/2) -> (B, H, S, D/2, K)
         # scores_1: (B, H, S, 1, K) -> (B, H, S, K)
-        scores_1 = torch.matmul(
-            q1.unsqueeze(-2), 
-            k1_vecs.transpose(-1, -2)
-        ).squeeze(-2)
-        
-        scores_2 = torch.matmul(
-            q2.unsqueeze(-2), 
-            k2_vecs.transpose(-1, -2)
-        ).squeeze(-2)
+        scores_1 = torch.matmul(q1.unsqueeze(-2), k1_vecs.transpose(-1, -2)).squeeze(-2)
+
+        scores_2 = torch.matmul(q2.unsqueeze(-2), k2_vecs.transpose(-1, -2)).squeeze(-2)
 
         # Sum the scores to implicitly get the full grid scores (Broadcasting)
         # scores_1 (..., K, 1) + scores_2 (..., 1, K) = (..., K, K)
@@ -368,8 +363,11 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         final_col_idxs = torch.gather(k2_idxs, 3, idx_in_k2)
 
         v_indices = (final_row_idxs * self.m) + final_col_idxs
-        
-        if self.metric_logger is not None and self.metric_logger._should_log_heavy_metrics:
+
+        if (
+            self.metric_logger is not None
+            and self.metric_logger._should_log_heavy_metrics
+        ):
             self.metric_logger.accumulate_metrics(
                 layer_name=self.log_name,
                 calculate_fn=RoPEProductKeysEncoderAttention.calculate_metrics,
@@ -392,10 +390,8 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         # --- Attention: Softmax(Q @ K.T) @ V ---
         # q needs unsqueeze to broadcast: (B, H, S, 1, D) @ (B, H, S, K, D).T
-        attn_scores = torch.matmul(
-            q_normed.unsqueeze(-2), final_k.transpose(-2, -1)
-        ) 
-        
+        attn_scores = torch.matmul(q_normed.unsqueeze(-2), final_k.transpose(-2, -1))
+
         # Multiply by the learnable QKNorm temperature
         attn_scores = attn_scores * self.attn_temp
 
@@ -413,13 +409,262 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         return self.o_proj(attn_output.transpose(1, 2).contiguous().flatten(-2))
 
 
+class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
+    def __init__(
+        self,
+        q_proj_fn,
+        k_proj_fn,
+        v_proj_fn,
+        o_proj_fn,
+        dmodel,
+        q_heads,
+        kv_heads,
+        seq_len,
+        rope_base,
+        rope_scale_freqs: bool,
+        top_k: int,
+        init_scale: float = 0.02,
+    ):
+        super().__init__()
+
+        # will work only with constant seq_len, in encoder-only setting
+        assert math.sqrt(seq_len).is_integer(), "seq_len must be a perfect square"
+        self.m = int(math.sqrt(seq_len))
+
+        self.q_proj = q_proj_fn()
+        self.k_proj = k_proj_fn()
+        self.v_proj = v_proj_fn()
+        self.o_proj = o_proj_fn()
+
+        self.q_heads = q_heads
+        self.kv_heads = kv_heads
+        self.dhead = self.q_proj.weight.shape[0] // self.q_heads
+        self.dhead_half = self.dhead // 2
+        self.dmodel = dmodel
+        self.seq_len = seq_len
+
+        self.top_k = top_k
+
+        # Assuming RoPE is imported/defined elsewhere in your codebase
+        self.rope = RoPE(
+            dhead=self.dhead,
+            length=seq_len,
+            base=rope_base,
+            apply_freq_scaling=rope_scale_freqs,
+        )
+
+        # Normalize the halves independently to balance Product Key retrieval
+        self.q_norm1 = nn.RMSNorm(self.dhead_half)
+        self.q_norm2 = nn.RMSNorm(self.dhead_half)
+        self.k_norm1 = nn.RMSNorm(self.dhead_half)
+        self.k_norm2 = nn.RMSNorm(self.dhead_half)
+
+        # QKNorm learnable scaling parameter (one per head)
+        initial_temp = 1.0 / math.sqrt(self.dhead)
+        self.attn_temp = nn.Parameter(
+            torch.full((1, self.q_heads, 1, 1, 1), initial_temp)
+        )
+
+        self.metric_logger = None
+        self.log_name = ""
+
+    def set_metric_logger(self, metric_logger, log_name=""):
+        self.metric_logger = metric_logger
+        self.log_name = log_name
+
+    @staticmethod
+    def __gather_flat(source_tensor, idx_tensor):
+        """
+        [OPTIMIZATION 1] Replaces expand() + gather() with high-speed flat 1D indexing.
+        """
+        B, H, M, D = source_tensor.shape
+        _, _, S, K = idx_tensor.shape
+
+        # Flatten source down to 2D: (B * H * M, D)
+        source_flat = source_tensor.reshape(-1, D)
+
+        # Create base offsets for Batches and Heads
+        batch_offsets = torch.arange(B, device=source_tensor.device).view(
+            B, 1, 1, 1
+        ) * (H * M)
+        head_offsets = torch.arange(H, device=source_tensor.device).view(1, H, 1, 1) * M
+
+        # Add offsets to turn local indices into global flat indices
+        flat_indices = idx_tensor + batch_offsets + head_offsets
+
+        # Direct advanced indexing
+        return source_flat[flat_indices]
+
+    def __get_topk_candidates(self, query, key):
+        scores = torch.matmul(query, key.transpose(-2, -1))
+
+        # [OPTIMIZATION 2] Capture topk_scores to avoid recalculating dot products later
+        topk_scores, indices = torch.topk(scores, k=self.top_k, dim=-1)
+
+        # Use the fast flat gather
+        selected_vecs = self.__gather_flat(key, indices)
+
+        return selected_vecs, indices, topk_scores
+
+    @staticmethod
+    def calculate_metrics(
+        final_row_idxs,
+        final_col_idxs,
+        v_indices,
+        k1_unnorm,
+        k2_unnorm,
+        k1,
+        k2,
+        q_weight,
+        k_weight,
+        v_weight,
+    ):
+        res = RoPEProductKeysEncoderAttentionOptimized.calculate_key_distribution(
+            final_row_idxs, final_col_idxs, v_indices
+        )
+
+        for name, tensors in [
+            ("k1_unnorm", k1_unnorm),
+            ("k2_unnorm", k2_unnorm),
+            ("k1", k1),
+            ("k2", k2),
+            ("q_proj_weight", q_weight),
+            ("k_proj_weight", k_weight),
+            ("v_proj_weight", v_weight),
+        ]:
+            t = torch.stack(tensors).float()
+            res[f"{name}/norm"] = torch.norm(t) / math.sqrt(len(tensors))
+            res[f"{name}/std"] = t.std()
+
+        return res
+
+    @staticmethod
+    def calculate_key_distribution(final_row_idxs, final_col_idxs, v_indices):
+        # final_row_idxs is a list of tensors of shape (B, H, S, K)
+        stacked_rows = torch.stack(final_row_idxs)  # (Steps, B, H, S, K)
+        stacked_cols = torch.stack(final_col_idxs)
+        stacked_v = torch.stack(v_indices)
+
+        num_heads = stacked_rows.shape[2]
+        res = {}
+        for h in range(num_heads):
+            res[f"head_{h}/row_idxs"] = stacked_rows[:, :, h].flatten()
+            res[f"head_{h}/col_idxs"] = stacked_cols[:, :, h].flatten()
+            res[f"head_{h}/v_indices"] = stacked_v[:, :, h].flatten()
+        return res
+
+    def forward(self, x):
+        query_states = self.q_proj(x)
+        key_states = self.k_proj(x)
+        value_states = self.v_proj(x)
+
+        batch, seq_len = x.shape[:-1]
+        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        q = self.rope(q)
+        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        k = self.rope(k)
+
+        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+
+        from src.core.llama import repeat_kv
+
+        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        v = repeat_kv(v, self.q_heads // self.kv_heads)
+
+        # Split and aggregate keys (unnormalized)
+        k = k.view(batch, self.q_heads, self.m, self.m, self.dhead)
+        k1_unnorm = k[..., : self.dhead_half].sum(-2)  # (B, H, m, d/2)
+        k2_unnorm = k[..., self.dhead_half :].sum(-3)  # (B, H, m, d/2)
+
+        # Split queries (unnormalized)
+        q1_unnorm = q[..., : self.dhead_half]  # (B, H, S, d/2)
+        q2_unnorm = q[..., self.dhead_half :]  # (B, H, S, d/2)
+
+        k1 = self.k_norm1(k1_unnorm)
+        k2 = self.k_norm2(k2_unnorm)
+        q1 = self.q_norm1(q1_unnorm)
+        q2 = self.q_norm2(q2_unnorm)
+
+        # Recombine normalized queries for the final attention step
+        q_normed = torch.cat([q1, q2], dim=-1)
+
+        # --- First Retrieval (get top-k AND scores) ---
+        # [OPTIMIZATION 2] We retrieve the pre-computed scores to save FLOPs
+        k1_vecs, k1_idxs, scores_1 = self.__get_topk_candidates(q1, k1)
+        k2_vecs, k2_idxs, scores_2 = self.__get_topk_candidates(q2, k2)
+
+        # --- Second Retrieval (Full K*K Grid, optimized math) ---
+
+        # [OPTIMIZATION 2] Sum the pre-calculated scores directly.
+        # scores_1 (..., K, 1) + scores_2 (..., 1, K) = (..., K, K)
+        scores_final_grid = scores_1.unsqueeze(-1) + scores_2.unsqueeze(-2)
+
+        # Select top K closest combinations
+        scores_flat = scores_final_grid.flatten(-2, -1)  # (B, H, S, K*K)
+        _, selection_indices = torch.topk(scores_flat, k=self.top_k, dim=-1)
+
+        # Reconstruct indices for the halves
+        idx_in_k1 = selection_indices // self.top_k
+        idx_in_k2 = selection_indices % self.top_k
+
+        # --- Gather Intra-Sequence Vectors ---
+        # [OPTIMIZATION 1] PyTorch's take_along_dim is completely equivalent to expand+gather but faster
+        k1_selected = torch.take_along_dim(k1_vecs, idx_in_k1.unsqueeze(-1), dim=3)
+        k2_selected = torch.take_along_dim(k2_vecs, idx_in_k2.unsqueeze(-1), dim=3)
+        final_k = torch.cat([k1_selected, k2_selected], dim=-1)
+
+        # Gather final spatial indices
+        final_row_idxs = torch.take_along_dim(k1_idxs, idx_in_k1, dim=3)
+        final_col_idxs = torch.take_along_dim(k2_idxs, idx_in_k2, dim=3)
+
+        v_indices = (final_row_idxs * self.m) + final_col_idxs
+
+        if (
+            self.metric_logger is not None
+            and self.metric_logger._should_log_heavy_metrics
+        ):
+            self.metric_logger.accumulate_metrics(
+                layer_name=self.log_name,
+                calculate_fn=RoPEProductKeysEncoderAttentionOptimized.calculate_metrics,
+                metrics={
+                    "final_row_idxs": final_row_idxs.detach().clone(),
+                    "final_col_idxs": final_col_idxs.detach().clone(),
+                    "v_indices": v_indices.detach().clone(),
+                    "k1_unnorm": k1_unnorm.detach().clone(),
+                    "k2_unnorm": k2_unnorm.detach().clone(),
+                    "k1": k1.detach().clone(),
+                    "k2": k2.detach().clone(),
+                    "q_weight": self.q_proj.weight.detach().clone(),
+                    "k_weight": self.k_proj.weight.detach().clone(),
+                    "v_weight": self.v_proj.weight.detach().clone(),
+                },
+            )
+
+        # --- Gather Final Values using the fast flat indexer ---
+        # [OPTIMIZATION 1] Eliminates massive v.unsqueeze().expand() block
+        final_v = self.__gather_flat(v, v_indices)  # (B, H, S, K, D)
+
+        # --- Attention: Softmax(Q @ K.T) @ V ---
+        attn_scores = torch.matmul(q_normed.unsqueeze(-2), final_k.transpose(-2, -1))
+
+        # Multiply by the learnable QKNorm temperature
+        attn_scores = attn_scores * self.attn_temp
+
+        attn_weights = F.softmax(attn_scores, dim=-1)
+
+        attn_output = torch.matmul(attn_weights, final_v)
+        attn_output = attn_output.squeeze(-2)
+
+        return self.o_proj(attn_output.transpose(1, 2).contiguous().flatten(-2))
+
+
 class ProductKeysMemory(nn.Module):
     def __init__(
-        self, 
-        d_model: int, 
-        query_dim: int, 
-        n_sub_keys: int, 
-        k_neighbors: int, 
+        self,
+        d_model: int,
+        query_dim: int,
+        n_sub_keys: int,
+        k_neighbors: int,
         n_heads: int = 4,
         **kwargs,  # To ignore unused args
     ):
@@ -450,10 +695,10 @@ class ProductKeysMemory(nn.Module):
         """
         # queries: (batch, head, sub_dim)
         # codebooks: (head, n_sub_keys, sub_dim)
-        
+
         # Calculate similarity (dot product)
         scores = torch.einsum("bhd,hnd->bhn", queries, codebooks)
-        
+
         # Select top-k
         top_scores, top_indices = torch.topk(scores, k=self.k, dim=-1, largest=True)
         return top_scores, top_indices
@@ -481,7 +726,7 @@ class ProductKeysMemory(nn.Module):
 
         # Flatten the KxK grid to K^2 to find the global top-k
         all_scores_flat = all_scores.view(bs * seq_len, self.n_heads, -1)
-        
+
         # Select the best combinations (global top-k)
         global_scores, global_top_indices = torch.topk(all_scores_flat, self.k, dim=-1)
 
@@ -498,17 +743,19 @@ class ProductKeysMemory(nn.Module):
         memory_indices = real_idx1 * self.n_sub_keys + real_idx2
 
         # 5. Read from Memory
-        attn_weights = F.softmax(global_scores, dim=-1) # (BS, H, K)
+        attn_weights = F.softmax(global_scores, dim=-1)  # (BS, H, K)
 
         flat_indices = memory_indices.view(-1)
-        values_selected = self.values(flat_indices) 
-        values_selected = values_selected.view(bs * seq_len, self.n_heads, self.k, d_model)
+        values_selected = self.values(flat_indices)
+        values_selected = values_selected.view(
+            bs * seq_len, self.n_heads, self.k, d_model
+        )
 
         # Weighted sum of retrieved values
         out_heads = (values_selected * attn_weights.unsqueeze(-1)).sum(dim=2)
 
         # 6. Aggregation
         # Sum outputs across all heads
-        output = out_heads.sum(dim=1) # (BS, d_model)
-        
+        output = out_heads.sum(dim=1)  # (BS, d_model)
+
         return output.view(bs, seq_len, d_model)
