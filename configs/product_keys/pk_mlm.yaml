@@ -25,10 +25,10 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
-  # n_steps: 80001
-  n_steps: 8001
-  ^learning_rate: [2e-4, 5e-4, 1e-3, 2e-3]
-  # learning_rate: 5e-4
+  n_steps: 80001
+  # n_steps: 8001
+  # ^learning_rate: [2e-4, 5e-4, 1e-3, 2e-3]
+  learning_rate: 5e-4
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
@@ -37,8 +37,8 @@ trainer:
     warmup_steps: 800
   train_dataloader:
     dataset:
-      seed: 42
       # ^seed: [42, 123, 1000]
+      seed: 42
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   eval_dataloader:
@@ -57,7 +57,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_attn_lr_grid
+    name: pk_attn_full_run
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
@@ -68,7 +68,7 @@ infrastructure:
       - 2026.04.23
       - RoPE
       - optimized_attention
-      - learning_rate_grid
+      - full_run
       - fineweb
       - lr=${trainer.learning_rate}
       - seq_len=${common.sequence_length}
