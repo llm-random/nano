@@ -87,7 +87,6 @@ model:
     init_fn:
       _target_: src.projected_compression.model.trunc_normal_
       _partial_: true
-      scale: ${common.init_scale}
 
   encoder:
     _target_: src.projected_compression.model.TransformerEncoder

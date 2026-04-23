@@ -69,11 +69,11 @@ infrastructure:
       - optimized_attention
       - learning_rate_grid
       - full_run
-      - warmup_steps=${trainer.scheduler.warmup_steps}
       - lr=${trainer.learning_rate}
       - seq_len=${common.sequence_length}
       - n_layers=${common.n_blocks}
       - dmodel=${common.dmodel}
+      - warmup_steps=${trainer.scheduler.warmup_steps}
       - seed=${trainer.train_dataloader.dataset.seed}
       - gres=${infrastructure.slurm.gres}
   slurm:
@@ -91,7 +91,6 @@ model:
     init_fn:
       _target_: src.projected_compression.model.trunc_normal_
       _partial_: true
-      scale: ${common.init_scale}
 
   encoder:
     block_fn:
