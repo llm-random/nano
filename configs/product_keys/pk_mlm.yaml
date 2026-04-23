@@ -66,6 +66,7 @@ infrastructure:
       - pk_mlm
       - 2026.04.23
       - RoPE
+      - optimized_attention
       - learning_rate_grid
       - full_run
       - warmup_steps=${trainer.scheduler.warmup_steps}
