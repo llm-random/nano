@@ -6,6 +6,7 @@ common:
   _target_: src.definitions.Common
   tokenizer: gpt2
   model_seed: 123
+  data_seed: 123
   # n_blocks is the single scaling knob; everything below is constant or linear in it.
   n_blocks: 4
   dmodel:   ${eval:'64  * ${common.n_blocks}'}

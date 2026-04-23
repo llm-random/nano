@@ -3,12 +3,14 @@ defaults:
   - /_cluster@_here_:                lem
   - /_model/context_scaling@_here_:  template
   - /_trainer@_here_:                context_scaling
-  - /_dataset@_here_:                ctx_scl_dataset
-  - /_checkpoints@_here_:            none
-  - /_misc@_here_:                   default
+  - /_dataset@_here_:                fineweb
+  - /_checkpoints/context_scaling@_here_: lem_1
+  - /_infrastructure@_here_:         default
+  - /_eval@_here_:                   joint
+
   - /_feedforward:                   dense
   - /_attention:                     mqa
-  - /_parameterization:              simpleP
+  - /_parameterization:              simpleP_k12
   - _self_
 
 common:
@@ -24,13 +26,13 @@ trainer:
 
 infrastructure:
   metric_logger:
-    name: dense_mqa_simpleP_k12_bs${common.batch_size}_lr${trainer.learning_rate}
+    name: main_grid_1
     tags:
       - nano
       - main_grid_1
       - dense
       - mqa
-      - simpleP
+      - simpleP_k12
       - k12
       - bs${common.batch_size}
       - lr${trainer.learning_rate}
