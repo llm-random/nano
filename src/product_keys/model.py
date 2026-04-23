@@ -57,6 +57,73 @@ class HybridTransformerBlock(nn.Module):
         x = self.ff_layer(x)
         return x
 
+class RoPEAttentionQKNorm(nn.Module):
+    def __init__(
+        self,
+        q_proj_fn,
+        k_proj_fn,
+        v_proj_fn,
+        o_proj_fn,
+        dmodel,
+        q_heads,
+        kv_heads,
+        seq_len,
+        rope_base,
+        rope_scale_freqs: bool,
+        factor=32,
+        low_freq_factor=1,
+        high_freq_factor=4,
+        original_max_position_embeddings=8192,
+        causal=True,
+    ):
+        super().__init__()
+        self.q_proj = q_proj_fn()
+        self.k_proj = k_proj_fn()
+        self.v_proj = v_proj_fn()
+        self.o_proj = o_proj_fn()
+        self.attention_mechanism = AttentionMechanism()
+
+        self.q_heads = q_heads
+        self.kv_heads = kv_heads
+        self.dhead = self.q_proj.weight.shape[0] // self.q_heads
+        self.dmodel = dmodel
+        self.causal = causal
+
+        self.rope = RoPE(
+            dhead=self.dhead,
+            length=seq_len,
+            base=rope_base,
+            apply_freq_scaling=rope_scale_freqs,
+            factor=factor,
+            low_freq_factor=low_freq_factor,
+            high_freq_factor=high_freq_factor,
+            original_max_position_embeddings=original_max_position_embeddings,
+        )
+
+    def forward(self, x):
+        query_states = self.q_proj(x)
+        key_states = self.k_proj(x)
+        value_states = self.v_proj(x)
+
+        batch, seq_len = x.shape[:-1]
+        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        q = self.rope(q)
+        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        k = self.rope(k)
+
+        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+
+        from src.core.llama import repeat_kv
+
+        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        v = repeat_kv(v, self.q_heads // self.kv_heads)
+        attention_output = self.attention_mechanism(
+            query=q, key=k, value=v, causal=self.causal
+        )
+
+        output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
+
+        return output
 
 class RoPETopKAttention(nn.Module):
     def __init__(
