@@ -17,7 +17,7 @@ common:
   q_heads: 16
   kv_heads: 16
   vocab_size: 50304
-  init_scale: 0.5
+  init_scale: 0.1
 
 trainer:
   _target_: src.product_keys.trainer.MaskedLMTrainer
@@ -26,7 +26,7 @@ trainer:
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
   # n_steps: 15000
-  n_steps: 80000
+  n_steps: 80001
   ^learning_rate: [2e-4, 5e-4, 1e-3]
   # learning_rate: 2e-3
   scheduler:
@@ -82,6 +82,17 @@ infrastructure:
     job-name: ${infrastructure.metric_logger.name}
 
 model:
+  _target_: src.projected_compression.model.LLM
+  
+  embedding:
+    _target_: src.projected_compression.model.TransformerEmbedding
+    vocab_size: ${common.vocab_size}
+    dmodel: ${common.dmodel}
+    init_fn:
+      _target_: src.projected_compression.model.trunc_normal_
+      _partial_: true
+      scale: ${common.init_scale}
+
   encoder:
     block_fn:
       attention_fn:
@@ -136,3 +147,43 @@ model:
         rope_scale_freqs: true
         top_k: 16
         init_scale: ${common.init_scale}
+
+      ff_layer_fn:
+        _target_: src.projected_compression.model.ProjectedLlamaFeedForward
+        _partial_: true
+        ff_pre_act_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${common.dff}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: ${common.init_scale}
+        ff_post_act_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.dff}
+          out_features: ${common.dmodel}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: ${common.init_scale}
+        gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
+
+  head:
+    _target_: src.projected_compression.model.TransformerHead
+    linear_fn:
+      _target_: src.projected_compression.model.Linear
+      _partial_: true
+      in_features: ${common.dmodel}
+      out_features: ${common.vocab_size}
+      partial_init_fn:
+        _target_: src.projected_compression.model.llm_random_weight_init
+        _partial_: true
+        scale: ${common.init_scale}
+    norm_fn:
+      _target_: src.core.model.RMSNorm
+      _partial_: true
+      eps: 1e-5
+      normalized_shape: ${common.dmodel}

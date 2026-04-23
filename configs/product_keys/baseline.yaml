@@ -17,7 +17,7 @@ common:
   q_heads: 16
   kv_heads: 16
   vocab_size: 50304
-  init_scale: 0.5
+  init_scale: 0.1
 
 trainer:
   _target_: src.product_keys.trainer.MaskedLMTrainer
@@ -25,7 +25,7 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
-  n_steps: 80000
+  n_steps: 80001
   ^learning_rate: [2e-4, 5e-4, 1e-3]
   scheduler:
     _partial_: true
@@ -87,6 +87,7 @@ model:
     init_fn:
       _target_: src.projected_compression.model.trunc_normal_
       _partial_: true
+      scale: ${common.init_scale}
 
   encoder:
     _target_: src.projected_compression.model.TransformerEncoder
@@ -117,7 +118,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         k_proj_fn:
           _target_: src.projected_compression.model.Linear
@@ -127,7 +128,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
@@ -140,7 +141,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         rope_base: 500000
         rope_scale_freqs: true
@@ -156,7 +157,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         ff_post_act_fn:
           _target_: src.projected_compression.model.Linear
           _partial_: true
@@ -165,7 +166,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
 
   head:
@@ -178,7 +179,7 @@ model:
       partial_init_fn:
         _target_: src.projected_compression.model.llm_random_weight_init
         _partial_: true
-        scale: 1
+        scale: ${common.init_scale}
     norm_fn:
       _target_: src.core.model.RMSNorm
       _partial_: true
