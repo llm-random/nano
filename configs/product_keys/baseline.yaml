@@ -3,7 +3,7 @@ defaults:
   - /_cluster/lem@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/c4@_here_
+  - /_dataset/fineweb@_here_
   - /_misc/default@_here_
   - _self_
 
@@ -25,14 +25,16 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
-  n_steps: 80001
-  ^learning_rate: [2e-4, 5e-4, 1e-3]
+  # n_steps: 80001
+  n_steps: 8001
+  ^learning_rate: [2e-4, 5e-4, 1e-3, 2e-3]
+  # learning_rate: 5e-4
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
     final_lr_fraction: 0.1
     # warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
-    warmup_steps: 750
+    warmup_steps: 800
   train_dataloader:
     dataset:
       # ^seed: [42, 123, 1000]
@@ -55,7 +57,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: baseline_full_run
+    name: baseline_lr_grid
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
@@ -63,13 +65,14 @@ infrastructure:
       - nano
       - baseline
       - 2026.04.23
-      - warmup_steps=${trainer.scheduler.warmup_steps}
       - learning_rate_grid
-      - full_run
-      - "lr=${trainer.learning_rate}"
-      - "seq_len=${common.sequence_length}"
-      - "n_layers=${common.n_blocks}"
-      - "dmodel=${common.dmodel}"
+      # - full_run
+      - fineweb
+      - lr=${trainer.learning_rate}
+      - seq_len=${common.sequence_length}
+      - n_layers=${common.n_blocks}
+      - dmodel=${common.dmodel}
+      - warmup_steps=${trainer.scheduler.warmup_steps}
       - seed=${trainer.train_dataloader.dataset.seed}
       - gres=${infrastructure.slurm.gres}
   slurm:
@@ -101,7 +104,7 @@ model:
         normalized_shape: ${common.dmodel}
 
       attention_fn:
-        _target_: src.projected_compression.model.RoPEAttention
+        _target_: src.product_keys.model.RoPEAttentionQKNorm
         _partial_: true
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}

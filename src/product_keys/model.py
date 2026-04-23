@@ -153,10 +153,6 @@ class RoPEAttentionQKNorm(nn.Module):
             length=seq_len,
             base=rope_base,
             apply_freq_scaling=rope_scale_freqs,
-            factor=factor,
-            low_freq_factor=low_freq_factor,
-            high_freq_factor=high_freq_factor,
-            original_max_position_embeddings=original_max_position_embeddings,
         )
 
         self.qk_norm = QKNorm(self.dhead, self.q_heads)

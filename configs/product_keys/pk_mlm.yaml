@@ -3,7 +3,7 @@ defaults:
   - /_cluster/lem@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/c4@_here_
+  - /_dataset/fineweb@_here_
   - /_misc/default@_here_
   - _self_
 
@@ -25,16 +25,16 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
-  # n_steps: 15000
-  n_steps: 80001
-  ^learning_rate: [2e-4, 5e-4, 1e-3]
-  # learning_rate: 2e-3
+  # n_steps: 80001
+  n_steps: 8001
+  ^learning_rate: [2e-4, 5e-4, 1e-3, 2e-3]
+  # learning_rate: 5e-4
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
     final_lr_fraction: 0.1
     # warmup_steps: ${eval:'int(${trainer.n_steps} * 0.05)'}
-    warmup_steps: 750
+    warmup_steps: 800
   train_dataloader:
     dataset:
       seed: 42
@@ -57,18 +57,19 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_mlm_bring_back_rope_fullrun
+    name: pk_attn_lr_grid
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
     tags:
       - nano
       - pk_mlm
+      - pk_attn
       - 2026.04.23
       - RoPE
       - optimized_attention
       - learning_rate_grid
-      - full_run
+      - fineweb
       - lr=${trainer.learning_rate}
       - seq_len=${common.sequence_length}
       - n_layers=${common.n_blocks}
