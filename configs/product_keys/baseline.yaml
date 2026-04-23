@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  - /_cluster/lem@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
@@ -62,7 +62,7 @@ infrastructure:
     tags:
       - nano
       - baseline
-      - 2026.04.21
+      - 2026.04.23
       - warmup_steps=${trainer.scheduler.warmup_steps}
       - learning_rate_grid
       - full_run
@@ -72,9 +72,8 @@ infrastructure:
       - "dmodel=${common.dmodel}"
       - seed=${trainer.train_dataloader.dataset.seed}
       - gres=${infrastructure.slurm.gres}
-      # - find_optimal_lr
   slurm:
-    gres: gpu:4
+    gres: gpu:hopper:4
     time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
