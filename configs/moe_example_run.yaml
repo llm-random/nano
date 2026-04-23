@@ -50,4 +50,4 @@ infrastructure:
     gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}
 
-evaluator: null
+downstream_evaluator: null

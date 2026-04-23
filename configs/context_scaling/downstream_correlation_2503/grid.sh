@@ -46,7 +46,7 @@ python run_exp.py --config-path configs --config-name $DIR/k20 \
 # --- Compute-optimal runs: k12 & k16 ---
 
 python run_exp.py --config-path configs --config-name $DIR/k12 \
-  trainer.n_steps=$N_STEPS_OPT_K12 trainer.lm_eval_interval=10000
+  trainer.n_steps=$N_STEPS_OPT_K12 trainer.downstream_eval_interval=10000
 
 python run_exp.py --config-path configs --config-name $DIR/k16 \
-  trainer.n_steps=$N_STEPS_OPT_K16 trainer.lm_eval_interval=19000
+  trainer.n_steps=$N_STEPS_OPT_K16 trainer.downstream_eval_interval=19000

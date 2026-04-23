@@ -428,7 +428,7 @@ def run(cfg: OmegaConf, metric_logger=None):
 
     logger.info(f"Model initialized")
 
-    evaluator_partial = instantiate(cfg.evaluator)
+    evaluator_partial = instantiate(cfg.downstream_evaluator)
     lm_evaluator = (
         evaluator_partial(metric_logger=metric_logger, model=model)
         if evaluator_partial is not None
@@ -456,7 +456,7 @@ def run(cfg: OmegaConf, metric_logger=None):
             scheduler=scheduler,
             training_state=training_state,
             metric_logger=metric_logger,
-            evaluator=lm_evaluator,
+            downstream_evaluator=lm_evaluator,
         ).train()
     else:
         trainer(
@@ -465,7 +465,7 @@ def run(cfg: OmegaConf, metric_logger=None):
             scheduler=scheduler,
             training_state=training_state,
             metric_logger=metric_logger,
-            evaluator=lm_evaluator,
+            downstream_evaluator=lm_evaluator,
         ).train()
 
     cleanup()

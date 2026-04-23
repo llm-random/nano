@@ -35,7 +35,7 @@ trainer:
   gradient_accumulation_steps: 1
   n_steps: 1001
   learning_rate: 9
-  lm_eval_interval: 0
+  downstream_eval_interval: 0
 
   checkpoint:
     save:

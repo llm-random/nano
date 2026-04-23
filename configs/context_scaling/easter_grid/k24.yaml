@@ -26,9 +26,9 @@ trainer:
   # n_steps: 100_001
   learning_rate: 12
   eval_interval: 100
-  lm_eval_interval: 32_000
-  # lm_eval_interval: 19_000
-  # lm_eval_interval: 10_000
+  downstream_eval_interval: 32_000
+  # downstream_eval_interval: 19_000
+  # downstream_eval_interval: 10_000
 
   train_dataloader:
     num_workers: 2

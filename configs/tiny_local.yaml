@@ -5,7 +5,7 @@ defaults:
   - _dataset@_here_: c4
   - _checkpoints@_here_: none
   - _infrastructure@_here_: default
-  # - _eval@_here_: basic
+  # - _downstream_eval@_here_: basic
 
 common:
   sequence_length: 16
@@ -18,8 +18,11 @@ trainer:
   learning_rate: 1e-3
   eval_interval: 5
   n_eval_steps: 2
-  lm_eval_interval: 0
+  downstream_eval_interval: 0
   fixed_eval: true
+  scheduler:
+    warmup_steps: 10
+    decay_steps: 10
 
   checkpoint:
     save:
@@ -28,10 +31,11 @@ trainer:
 
 infrastructure:
   metric_logger:
+    heavy_metrics_calculation_interval: 100 # change on longer runs
     name: tiny_Local
     tags:
       - nano
       - local
       - tiny
 
-evaluator: null
+downstream_evaluator: null

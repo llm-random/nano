@@ -24,7 +24,7 @@ trainer:
   n_steps: 201
   learning_rate: 1e-3
   eval_interval: 100
-  lm_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
+  downstream_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
 
   checkpoint:
     save:
@@ -40,5 +40,5 @@ infrastructure:
       - tiny
       - context_scaling
 
-evaluator:
+downstream_evaluator:
   limit: 1

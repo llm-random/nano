@@ -48,13 +48,13 @@ def build_decay_config(
 
     decay_steps == 0 produces an eval-only job: no LR schedule change, no
     checkpoint save, training loop runs zero iterations, and the trainer's
-    post-loop final_lm_eval hook fires the evaluator once.
+    post-loop final_downstream_eval hook fires the evaluator once.
     """
     cfg = copy.deepcopy(base_config)
     eval_only = decay_steps == 0
 
-    # Backfill for base runs submitted before the final_lm_eval field existed.
-    cfg["trainer"].setdefault("final_lm_eval", False)
+    # Backfill for base runs submitted before the final_downstream_eval field existed.
+    cfg["trainer"].setdefault("final_downstream_eval", False)
 
     # Training runs from source_step to source_step + decay_steps (== source_step for eval-only)
     cfg["trainer"]["n_steps"] = source_step + decay_steps
@@ -73,8 +73,8 @@ def build_decay_config(
 
     # Custom evaluator override + post-training eval hook
     if eval_config is not None:
-        cfg["evaluator"] = copy.deepcopy(eval_config)
-        cfg["trainer"]["final_lm_eval"] = True
+        cfg["downstream_evaluator"] = copy.deepcopy(eval_config)
+        cfg["trainer"]["final_downstream_eval"] = True
 
     # Add "decay" tag so these runs don't get picked up by the same query
     tags = cfg.get("infrastructure", {}).get("metric_logger", {}).get("tags", [])
@@ -127,21 +127,21 @@ def dump_decay_configs(configs, config_dir):
 
 
 def load_eval_config(eval_config_path: Optional[str]) -> Optional[dict]:
-    """Load an override for the `evaluator:` config block from a YAML file.
+    """Load an override for the `downstream_evaluator:` config block from a YAML file.
 
-    The file must contain a top-level `evaluator:` key; its value replaces the
-    base run's evaluator block in every generated decay config.
+    The file must contain a top-level `downstream_evaluator:` key; its value replaces
+    the base run's downstream_evaluator block in every generated decay config.
     """
     if eval_config_path is None:
         return None
     path = Path(eval_config_path)
     with open(path, "r", encoding="utf-8") as f:
         loaded = yaml.safe_load(f)
-    if not isinstance(loaded, dict) or "evaluator" not in loaded:
+    if not isinstance(loaded, dict) or "downstream_evaluator" not in loaded:
         raise ValueError(
-            f"Eval config {path} must contain a top-level 'evaluator:' key."
+            f"Eval config {path} must contain a top-level 'downstream_evaluator:' key."
         )
-    return loaded["evaluator"]
+    return loaded["downstream_evaluator"]
 
 
 def generate_configs(args):
@@ -357,9 +357,9 @@ def main():
         "--eval_config",
         type=str,
         default=None,
-        help="Path to a YAML file with a top-level 'evaluator:' block. When set, "
-        "it replaces the base run's evaluator in every generated job and enables "
-        "trainer.final_lm_eval so the evaluator fires once at the end of training. "
+        help="Path to a YAML file with a top-level 'downstream_evaluator:' block. When set, "
+        "it replaces the base run's downstream_evaluator in every generated job and enables "
+        "trainer.final_downstream_eval so the evaluator fires once at the end of training. "
         "Combine with --decay_fraction 0.0 for eval-only sweeps.",
     )
     parser.add_argument(

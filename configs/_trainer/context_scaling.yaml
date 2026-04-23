@@ -8,7 +8,7 @@ trainer:
   n_steps: ???
   learning_rate: ???
   weight_decay: 0.1
-  final_lm_eval: false
+  final_downstream_eval: false
   fixed_eval: false
 
   scheduler:

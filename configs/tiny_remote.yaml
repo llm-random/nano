@@ -4,8 +4,8 @@ defaults:
   - _trainer@_here_: context_scaling
   - _dataset@_here_: c4
   - _checkpoints@_here_: none
-  - _misc@_here_: default
-  - _eval@_here_: incontext
+  - _infrastructure@_here_: default
+  - _downstream_eval@_here_: incontext
 
 common:
   tokenizer: gpt2
@@ -16,7 +16,10 @@ trainer:
   gradient_accumulation_steps: 1
   n_steps: 101
   learning_rate: 1e-3
-  lm_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
+  downstream_eval_interval: 100  # 0 = disabled; set to N to run lm_eval every N steps during training
+  scheduler:
+    warmup_steps: 10
+    decay_steps: 10
 
   train_dataloader:
     dataset:
@@ -33,7 +36,7 @@ infrastructure:
   max_concurrent_jobs: 1
 
   metric_logger:
-    # type: stdout
+    heavy_metrics_calculation_interval: 100 # change on longer runs
     name: tiny_remote
     tags:
       - nano
@@ -45,5 +48,5 @@ infrastructure:
     gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}
 
-evaluator:
+downstream_evaluator:
   limit: 16

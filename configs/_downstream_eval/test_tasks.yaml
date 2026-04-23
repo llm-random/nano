@@ -1,6 +1,6 @@
 # Minimal evaluator config for smoke-testing run_decay.py --eval_config.
 # Uses limit=1 so it runs in seconds on a tiny model.
-evaluator:
+downstream_evaluator:
   _partial_: true
   _target_: src.core.eval.Evaluator
   tokenizer: ${common.tokenizer}

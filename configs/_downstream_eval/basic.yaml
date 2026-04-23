@@ -1,5 +1,5 @@
 # Basic evaluation configuration
-evaluator:
+downstream_evaluator:
   _partial_: true
   _target_: src.core.eval.Evaluator
   tokenizer: ${common.tokenizer}
