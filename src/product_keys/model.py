@@ -1,14 +1,58 @@
 from functools import partial
 import math
+from typing import Optional
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+from torch.nn.attention import SDPBackend
 from torch.nn.init import trunc_normal_
 import logging
 
-from src.core.model import AttentionMechanism, Residual, RoPE
+from src.core.model import Residual, RoPE
 
 logger = logging.getLogger(__name__)
+
+
+def attention_mechanism(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    causal: bool,
+    scale: Optional[float] = None,
+):
+    # https://github.com/pytorch/pytorch/blob/ce503c1b40207dab770c28cbd4568cd9e105277b/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp#L556
+    with torch.nn.attention.sdpa_kernel(
+        [SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]
+    ):
+        return F.scaled_dot_product_attention(
+            query=query,
+            key=key,
+            value=value,
+            attn_mask=None,
+            is_causal=causal,
+            scale=scale,
+        )
+
+
+class AttentionMechanism(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        causal: bool,
+        score_scale: Optional[float] = None,
+    ):
+        return attention_mechanism(
+            query=query,
+            key=key,
+            value=value,
+            causal=causal,
+            scale=score_scale,
+        )
 
 
 # useful for deterministic tests
@@ -57,6 +101,21 @@ class HybridTransformerBlock(nn.Module):
         x = self.ff_layer(x)
         return x
 
+class QKNorm(nn.Module):
+    def __init__(self, dhead: int, q_heads: int):
+        super().__init__()
+        self.q_norm = nn.RMSNorm(dhead)
+        self.k_norm = nn.RMSNorm(dhead)
+
+        initial_temp = 1.0 / math.sqrt(dhead)
+        self.attn_temp = nn.Parameter(torch.full((1, q_heads, 1, 1), initial_temp))
+
+    def forward(self, q, k):
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+        return q, k, self.attn_temp
+
+
 class RoPEAttentionQKNorm(nn.Module):
     def __init__(
         self,
@@ -100,6 +159,8 @@ class RoPEAttentionQKNorm(nn.Module):
             original_max_position_embeddings=original_max_position_embeddings,
         )
 
+        self.qk_norm = QKNorm(self.dhead, self.q_heads)
+
     def forward(self, x):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
@@ -117,8 +178,12 @@ class RoPEAttentionQKNorm(nn.Module):
 
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
+
+        q, k, attn_temp = self.qk_norm(q, k)
+        q = q * attn_temp
+
         attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=self.causal
+            query=q, key=k, value=v, causal=self.causal, score_scale=1.0
         )
 
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
