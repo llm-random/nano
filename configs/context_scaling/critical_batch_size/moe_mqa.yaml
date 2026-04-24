@@ -39,8 +39,6 @@ infrastructure:
       - mqa
       - simpleP_k12
       - k12
-      - bs${common.batch_size}
-      - lr${trainer.learning_rate}
       - ${now:%Y-%m-%d}
 
   slurm:
