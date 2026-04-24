@@ -10,12 +10,12 @@ defaults:
 common:
   sequence_length: 1024
   batch_size: 64
-  dmodel: 1024
-  dff: 2724
+  dmodel: 768
+  dff: 2042
   datt: ${common.dmodel}
-  n_blocks: 16
-  q_heads: 16
-  kv_heads: 16
+  n_blocks: 12
+  q_heads: 12
+  kv_heads: 12
   vocab_size: 50304
   init_scale: 0.1
 
@@ -25,16 +25,16 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
-  n_steps: 80001
+  n_steps: 4001
   # n_steps: 8001
-  # ^learning_rate: [2e-4, 5e-4, 1e-3, 2e-3]
-  learning_rate: 5e-4
+  ^learning_rate: [5e-4, 1e-3, 2e-3, 5e-3]
+  # learning_rate: 5e-4
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
     final_lr_fraction: 0.1
     # warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
-    warmup_steps: 800
+    warmup_steps: 400
   train_dataloader:
     dataset:
       # ^seed: [42, 123, 1000]
@@ -47,7 +47,7 @@ trainer:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   checkpoint:
     save:
-      interval: 8000
+      interval: 4000
     load:
       path: null
       only_weights: false # false not tested
@@ -57,15 +57,15 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: baseline_full_run
+    name: baseline_lr_grid_k12
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
     tags:
       - nano
       - baseline
-      - 2026.04.23
-      - full_run
+      - 2026.04.24
+      - lr_grid
       - fineweb
       - lr=${trainer.learning_rate}
       - seq_len=${common.sequence_length}
