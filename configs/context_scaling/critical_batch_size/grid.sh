@@ -4,7 +4,7 @@
 # array on lem hopper:4. simpleP and n_blocks=12 are fixed.
 set -euo pipefail
 
-DIR="context_scaling/main_grid_1"
+DIR="context_scaling/critical_batch_size"
 
 for COMBO in dense_mha dense_mqa moe_mha moe_mqa; do
     echo "=== launching ${COMBO} ==="

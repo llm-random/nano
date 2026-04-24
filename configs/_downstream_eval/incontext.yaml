@@ -10,3 +10,5 @@ downstream_evaluator:
   max_length: ${common.sequence_length}
   max_gen_toks: 64
   batch_size: 16
+  eval_interval: ???
+  final_eval: false

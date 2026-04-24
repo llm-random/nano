@@ -6,7 +6,7 @@ defaults:
   - /_dataset@_here_:                fineweb
   - /_checkpoints/context_scaling@_here_: lem_1
   - /_infrastructure@_here_:         default
-  - /_downstream_eval@_here_:        joint
+  # - /_downstream_eval@_here_:        joint
 
   - /_feedforward:                   dense
   - /_attention:                     mha
@@ -17,20 +17,24 @@ common:
   n_blocks: 12
   ^batch_size: [8, 16, 32, 64]
   sequence_length: 1024
+  data_seed: 301  # eval seed is 22, so never use it as train seed
 
 trainer:
-  n_steps: 16_000
-  ^learning_rate: [4, 6, 8, 10, 11, 12]
-  eval_interval: 500
-  fixed_eval: true
+  n_steps: 16_001
+  ^learning_rate: [7, 8, 9, 10, 11, 12]
+  eval_interval: 100  # remove for longer runs
+
+# downstream_evaluator:
+#   eval_interval: 0
+#   final_eval: false
 
 infrastructure:
   metric_logger:
-    heavy_metrics_calculation_interval: 250 # change on longer runs
-    name: main_grid_1
+    heavy_metrics_calculation_interval: 500 # change on longer runs
+    name: critical_batch_size
     tags:
       - nano
-      - main_grid_1
+      - critical_batch_size
       - dense
       - mha
       - simpleP_k12

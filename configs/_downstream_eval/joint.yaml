@@ -16,3 +16,5 @@ downstream_evaluator:
   max_length: ${common.sequence_length}
   max_gen_toks: 8
   batch_size: 32
+  eval_interval: 0  # only at the end of the training
+  final_eval: true

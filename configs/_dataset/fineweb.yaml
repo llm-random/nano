@@ -9,6 +9,6 @@ trainer:
         path: ${cluster_switch.train_path_fineweb}
   eval_dataloader:
     dataset:
-      seed: ${eval:'${common.data_seed} + 1000000'}
+      seed: 22
       data_generator:
         path: ${cluster_switch.eval_path_fineweb}
