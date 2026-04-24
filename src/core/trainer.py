@@ -56,8 +56,8 @@ class Trainer:
     distributed: Optional[dict]
     final_downstream_eval: bool
     fixed_eval: bool
+    downstream_eval_interval: int
     downstream_evaluator: Optional[Evaluator] = None
-    downstream_eval_interval: int = 0
 
     def __attrs_post_init__(self):
         self.processed_tokens = self.training_state["processed_tokens"]

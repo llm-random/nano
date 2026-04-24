@@ -428,12 +428,16 @@ def run(cfg: OmegaConf, metric_logger=None):
 
     logger.info(f"Model initialized")
 
-    evaluator_partial = instantiate(cfg.downstream_evaluator)
-    lm_evaluator = (
-        evaluator_partial(metric_logger=metric_logger, model=model)
-        if evaluator_partial is not None
-        else None
-    )
+    if "downstream_evaluator" in cfg:
+        evaluator_partial = instantiate(cfg.downstream_evaluator)
+        lm_evaluator = (
+            evaluator_partial(metric_logger=metric_logger, model=model)
+            if evaluator_partial is not None
+            else None
+        )
+    else:
+        logger.info("No downstream_evaluator in config; skipping.")
+        lm_evaluator = None
 
     trainer = instantiate(cfg.trainer)
 
