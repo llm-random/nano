@@ -54,12 +54,18 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
-    final_downstream_eval: bool
     fixed_eval: bool
-    downstream_eval_interval: int
     downstream_evaluator: Optional[Evaluator] = None
 
     def __attrs_post_init__(self):
+        # Pull downstream-eval scheduling from the evaluator so it owns its own cadence.
+        if self.downstream_evaluator is not None:
+            self.downstream_eval_interval = self.downstream_evaluator.eval_interval
+            self.final_downstream_eval = self.downstream_evaluator.final_eval
+        else:
+            self.downstream_eval_interval = 0
+            self.final_downstream_eval = False
+
         self.processed_tokens = self.training_state["processed_tokens"]
         self.start_step = self.training_state["next_step"]
         self.device = next(self.model.parameters()).device

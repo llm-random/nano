@@ -48,13 +48,10 @@ def build_decay_config(
 
     decay_steps == 0 produces an eval-only job: no LR schedule change, no
     checkpoint save, training loop runs zero iterations, and the trainer's
-    post-loop final_downstream_eval hook fires the evaluator once.
+    post-loop final_eval hook fires the evaluator once.
     """
     cfg = copy.deepcopy(base_config)
     eval_only = decay_steps == 0
-
-    # Backfill for base runs submitted before the final_downstream_eval field existed.
-    cfg["trainer"].setdefault("final_downstream_eval", False)
 
     # Training runs from source_step to source_step + decay_steps (== source_step for eval-only)
     cfg["trainer"]["n_steps"] = source_step + decay_steps
@@ -74,7 +71,7 @@ def build_decay_config(
     # Custom evaluator override + post-training eval hook
     if eval_config is not None:
         cfg["downstream_evaluator"] = copy.deepcopy(eval_config)
-        cfg["trainer"]["final_downstream_eval"] = True
+        cfg["downstream_evaluator"]["final_eval"] = True
 
     # Add "decay" tag so these runs don't get picked up by the same query
     tags = cfg.get("infrastructure", {}).get("metric_logger", {}).get("tags", [])
@@ -359,7 +356,7 @@ def main():
         default=None,
         help="Path to a YAML file with a top-level 'downstream_evaluator:' block. When set, "
         "it replaces the base run's downstream_evaluator in every generated job and enables "
-        "trainer.final_downstream_eval so the evaluator fires once at the end of training. "
+        "downstream_evaluator.final_eval so the evaluator fires once at the end of training. "
         "Combine with --decay_fraction 0.0 for eval-only sweeps.",
     )
     parser.add_argument(
