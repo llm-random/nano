@@ -170,11 +170,12 @@ def wait_for_job_id(connection, tmux_pane, tries: int = 3):
 def submit_experiment(
     cfg: OmegaConf,
 ):
-    missing_keys: set[str] = OmegaConf.missing_keys(cfg)
-    if missing_keys:
-        raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
-
     configs_grid = create_grid_config(cfg)
+    for config, _overrides in configs_grid:
+        missing_keys: set[str] = OmegaConf.missing_keys(OmegaConf.create(config))
+        if missing_keys:
+            raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
+
     dump_grid_configs(configs_grid, cfg.infrastructure.generated_configs_path)
 
     script = cfg.infrastructure.get("script", None)
