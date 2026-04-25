@@ -147,7 +147,7 @@ model:
 
         rope_base: 500000
         rope_scale_freqs: true
-        top_k: [16, 32, 64]
+        ^top_k: [16, 32, 64]
         # top_k: 16
         init_scale: ${common.init_scale}
 
