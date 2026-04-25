@@ -8,7 +8,7 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 1024
+  sequence_length: 4096
   batch_size: 64
   dmodel: 768
   dff: 2042
@@ -25,7 +25,7 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
-  n_steps: 45885
+  n_steps: 15994
   # n_steps: 8001
   # ^learning_rate: [5e-4, 1e-3, 2e-3, 5e-3]
   learning_rate: 5e-4
@@ -147,8 +147,7 @@ model:
 
         rope_base: 500000
         rope_scale_freqs: true
-        ^top_k: [16, 32, 64]
-        # top_k: 16
+        top_k: 16
         init_scale: ${common.init_scale}
 
       ff_layer_fn:

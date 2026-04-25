@@ -8,7 +8,7 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 1024
+  sequence_length: 4096
   batch_size: 64
   dmodel: 768
   dff: 2042
@@ -25,7 +25,7 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
-  n_steps: 40001
+  n_steps: 10001
   # n_steps: 8001
   # ^learning_rate: [5e-4, 1e-3, 2e-3, 5e-3]
   learning_rate: 2e-3
