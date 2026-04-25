@@ -28,7 +28,7 @@ trainer:
   n_steps: 40001
   # n_steps: 8001
   # ^learning_rate: [5e-4, 1e-3, 2e-3, 5e-3]
-  learning_rate: 5e-4
+  learning_rate: 2e-3
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
@@ -57,7 +57,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: baseline_k12
+    name: baseline_flops_matched_k12
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
