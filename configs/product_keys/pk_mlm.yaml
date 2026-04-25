@@ -65,7 +65,7 @@ infrastructure:
       - nano
       - pk_mlm
       - pk_attn
-      - 2026.04.24
+      - 2026.04.25
       - flops_matched
       - RoPE
       - optimized_attention

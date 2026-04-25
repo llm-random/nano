@@ -64,7 +64,7 @@ infrastructure:
     tags:
       - nano
       - baseline
-      - 2026.04.24
+      - 2026.04.25
       - flops_matched
       - full_run
       - fineweb
