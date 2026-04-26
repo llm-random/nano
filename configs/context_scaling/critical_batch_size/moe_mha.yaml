@@ -15,14 +15,19 @@ defaults:
 
 common:
   n_blocks: 12
-  ^batch_size: [8, 16, 32, 64]
-  sequence_length: 1024
+  # ^batch_size: [8, 16, 32]
+  batch_size: 64
+  sequence_length: 2048
   data_seed: 301  # eval seed is 22, so never use it as train seed
 
 trainer:
-  n_steps: 16_001
-  ^learning_rate: [7, 8, 9, 10, 11, 12]
+  # token-matched: 8001 steps @ bs=128 -> (8000 * 128 / bs) + 1
+  n_steps: ${eval:'8000 * 128 // ${common.batch_size} + 1'}
+  # ^learning_rate: [9, 10, 11, 12, 13]
+  ^learning_rate: [8, 9, 10, 11]
   eval_interval: 100  # remove for longer runs
+  scheduler:
+    warmup_steps: ${eval:'(8000 * 128 // ${common.batch_size}) // 10'}
 
 # downstream_evaluator:
 #   eval_interval: 0
@@ -45,5 +50,6 @@ infrastructure:
 
   slurm:
     time: "0-04:00:00"
-    gres: gpu:hopper:4
+    # gres: gpu:hopper:1
+    gres: gpu:hopper:2
     job-name: ${infrastructure.metric_logger.name}

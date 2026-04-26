@@ -1,6 +1,4 @@
 # @package _global_
-# Mini smoke test for the critical_batch_size grid on entropy.
-# 2 x 2 = 4 jobs, ~200 steps each, tiny model.
 defaults:
   - /_cluster@_here_:                entropy
   - /_model/context_scaling@_here_:  template
@@ -8,38 +6,47 @@ defaults:
   - /_dataset@_here_:                fineweb
   - /_checkpoints/context_scaling@_here_: shared_entropy
   - /_infrastructure@_here_:         default
+  # - /_downstream_eval@_here_:        joint
 
   - /_feedforward:                   dense
   - /_attention:                     mha
-  - /_parameterization:              standard
+  - /_parameterization:              simpleP_k12
   - _self_
 
 common:
-  n_blocks: 4
-  ^batch_size: [8, 16]
-  sequence_length: 512
-  data_seed: 301
+  n_blocks: 12
+  ^batch_size: [8, 16, 32]
+  sequence_length: 2048
+  data_seed: 301  # eval seed is 22, so never use it as train seed
 
 trainer:
-  n_steps: 201
-  ^learning_rate: [8, 10]
-  eval_interval: 100
+  # token-matched: 8001 steps @ bs=128 -> (8000 * 128 / bs) + 1
+  n_steps: ${eval:'500 * 128 // ${common.batch_size} + 1'}
+  learning_rate: 11
+  eval_interval: 100  # remove for longer runs
   scheduler:
-    warmup_steps: 50
+    warmup_steps: ${eval:'(500 * 128 // ${common.batch_size}) // 10'}
+
+# downstream_evaluator:
+#   eval_interval: 0
+#   final_eval: false
 
 infrastructure:
   metric_logger:
-    heavy_metrics_calculation_interval: 100
-    name: critical_batch_size_mini
+    heavy_metrics_calculation_interval: 500 # change on longer runs
+    name: critical_batch_size
     tags:
       - nano
-      - critical_batch_size
-      - mini_smoke
+      - critical_batch_size_test
+      - moe
+      - mha
+      - simpleP_k12
+      - k12
       - bs${common.batch_size}
       - lr${trainer.learning_rate}
       - ${now:%Y-%m-%d}
 
   slurm:
-    time: "00:30:00"
+    time: "0-04:00:00"
     gres: gpu:1
     job-name: ${infrastructure.metric_logger.name}
