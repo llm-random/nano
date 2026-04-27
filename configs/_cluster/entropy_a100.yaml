@@ -12,18 +12,15 @@ infrastructure:
 
   script:
     - '${export_env_variables_placeholders:}'
-    - 'export PROJECT_HOME_PATH=/storage_ssd_1/nano'
-    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+    - 'export PROJECT_HOME_PATH=/storage_ssd_1/nano/$USER'
 
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
-
+    
     # export pixi variables
-    - 'export PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi'
-    - 'export PATH="$PIXI_HOME/bin:$PATH"'
-    - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
-    - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
-    - 'export XDG_STATE_HOME="$PIXI_HOME/state"'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+    - 'export PATH="$HOME/.pixi/bin:$PATH"'
 
     # activate pixi
     - 'cd "$PIXI_HOME"'
