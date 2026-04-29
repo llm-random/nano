@@ -3,6 +3,7 @@ trainer:
     save:
       type: nano
       interval: -1
+      steps: null
       path: /lustre/pd03/plgrid/plgllmefficont3/context_scaling/models
       model_checkpoint_filename: __model_checkpoint_filename.pt
       training_state_filename: __training_state_filename.pt
