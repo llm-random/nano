@@ -163,7 +163,11 @@ def summarize_config(config: dict) -> dict:
     n_steps = trainer.get("n_steps")
     bs = common.get("batch_size")
     seq = common.get("sequence_length")
-    n_tokens = n_steps * bs * seq if all(isinstance(x, (int, float)) for x in (n_steps, bs, seq)) else None
+    n_tokens = (
+        n_steps * bs * seq
+        if all(isinstance(x, (int, float)) for x in (n_steps, bs, seq))
+        else None
+    )
 
     # Approx params (notebook formula): attn = 2*(1 + kv/q) * d^2, ff = 3*d*dff*n_experts, ff_active = ff*top_k/n_experts.
     n_params_total, n_params_active = None, None
@@ -174,8 +178,14 @@ def summarize_config(config: dict) -> dict:
         q_heads = common["q_heads"]
         kv_heads = common["kv_heads"]
         vocab = common["vocab_size"]
-        ff_layer = (((oc.get("model") or {}).get("encoder") or {}).get("block_fn") or {}).get("ff_layer_fn") or {}
-        ff_layer = OmegaConf.to_container(ff_layer, resolve=True) if not isinstance(ff_layer, dict) else ff_layer
+        ff_layer = (
+            ((oc.get("model") or {}).get("encoder") or {}).get("block_fn") or {}
+        ).get("ff_layer_fn") or {}
+        ff_layer = (
+            OmegaConf.to_container(ff_layer, resolve=True)
+            if not isinstance(ff_layer, dict)
+            else ff_layer
+        )
         n_experts = ff_layer.get("num_experts", 1) or 1
         top_k = ff_layer.get("topk", 1) or 1
         attn = 2 * (1 + kv_heads / q_heads) * d * d
@@ -191,7 +201,11 @@ def summarize_config(config: dict) -> dict:
     ckpt_path = ckpt_save.get("path")
     ckpt_steps_cfg = ckpt_save.get("steps") or []
     ckpt_interval = ckpt_save.get("interval")
-    tokens_per_step = bs * seq if isinstance(bs, (int, float)) and isinstance(seq, (int, float)) else None
+    tokens_per_step = (
+        bs * seq
+        if isinstance(bs, (int, float)) and isinstance(seq, (int, float))
+        else None
+    )
     if ckpt_path is None:
         ckpt_step_list = None
     else:
@@ -209,7 +223,9 @@ def summarize_config(config: dict) -> dict:
 
     n_gpu = _parse_n_gpu(infra.get("slurm") or {})
 
-    token_param_ratio = n_tokens / n_params_active if n_tokens and n_params_active else None
+    token_param_ratio = (
+        n_tokens / n_params_active if n_tokens and n_params_active else None
+    )
     return {
         "n_params_total": n_params_total,
         "n_params_active": n_params_active,
@@ -237,21 +253,29 @@ def _format_ckpt_steps(steps, tokens_per_step, n_steps) -> str:
 
 
 def format_summary(s: dict) -> str:
-    is_moe = s["n_params_total"] is not None and s["n_params_active"] is not None and s["n_params_total"] != s["n_params_active"]
+    is_moe = (
+        s["n_params_total"] is not None
+        and s["n_params_active"] is not None
+        and s["n_params_total"] != s["n_params_active"]
+    )
     if is_moe:
         size_line = f"  model size:       active={_fmt_n(s['n_params_active'])}, total={_fmt_n(s['n_params_total'])}"
     else:
         size_line = f"  model size:       {_fmt_n(s['n_params_total'])}"
     ratio = s["token_param_ratio"]
     ratio_str = f"{ratio:.2f}" if ratio is not None else "?"
-    ckpt_str = _format_ckpt_steps(s["checkpoint_steps"], s["tokens_per_step"], s["n_steps"])
-    return "\n".join([
-        size_line,
-        f"  tokens:           {_fmt_n(s['total_tokens'])}",
-        f"  tok/active_param: {ratio_str}",
-        f"  checkpoint steps:{ckpt_str}",
-        f"  n_gpu:            {s['n_gpu']}",
-    ])
+    ckpt_str = _format_ckpt_steps(
+        s["checkpoint_steps"], s["tokens_per_step"], s["n_steps"]
+    )
+    return "\n".join(
+        [
+            size_line,
+            f"  tokens:           {_fmt_n(s['total_tokens'])}",
+            f"  tok/active_param: {ratio_str}",
+            f"  checkpoint steps:{ckpt_str}",
+            f"  n_gpu:            {s['n_gpu']}",
+        ]
+    )
 
 
 def print_grid_summary(configs_grid, output_folder: str):
