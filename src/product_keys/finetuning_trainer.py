@@ -143,13 +143,41 @@ class FinetuningTrainer(TrainerWithVocabSize):
     @override
     def calculate_loss(self, batch):
         texts, labels, attention_masks = batch
-        texts = texts.to(self.device)
-        labels = labels.to(self.device)
-        attention_masks = attention_masks.to(self.device)
-        logits = self.model(texts, attention_mask=attention_masks)
-        loss = self.loss_fct(logits, labels)
         
-        if self.model.training:
-            loss.backward()
+        def _hack_for_python_garbage_collection(texts_chunk, labels_chunk, attention_masks_chunk):
+            logger.info(f"Texts chunk: {texts_chunk}")
+            logger.info(f"Labels chunk: {labels_chunk}")
+            logger.info(f"Attention masks chunk: {attention_masks_chunk}")
+            logits = self.model(texts_chunk, attention_mask=attention_masks_chunk)
+            logger.info(f"Logits: {logits}")
+            logger.info(f"Labels: {labels_chunk}")
+           
+            loss = self.loss_fct(logits, labels_chunk)
+            logger.info(f"Loss: {loss}")
+            x = 1 / 0
+            loss = loss / self.gradient_accumulation_steps
+            return loss
 
-        return loss
+        losses = []
+        texts_chunks = texts.chunk(self.gradient_accumulation_steps)
+        labels_chunks = labels.chunk(self.gradient_accumulation_steps)
+        attention_masks_chunks = attention_masks.chunk(self.gradient_accumulation_steps)
+
+        for texts_chunk, labels_chunk, attention_masks_chunk in zip(texts_chunks, labels_chunks, attention_masks_chunks):
+            texts_chunk = texts_chunk.to(self.device)
+            labels_chunk = labels_chunk.to(self.device)
+            attention_masks_chunk = attention_masks_chunk.to(self.device)
+            
+            loss = _hack_for_python_garbage_collection(texts_chunk, labels_chunk, attention_masks_chunk)
+            
+            if self.model.training:
+                loss.backward()
+
+            losses.append(loss.item())
+
+        avg_loss = torch.tensor(losses, device=self.device).sum()
+        if torch.distributed.is_initialized():
+            torch.distributed.all_reduce(avg_loss, op=torch.distributed.ReduceOp.SUM)
+
+        world_size = float(os.environ.get("WORLD_SIZE", 1))
+        return avg_loss / world_size

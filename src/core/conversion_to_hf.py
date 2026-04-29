@@ -83,6 +83,7 @@ def save_to_llama_3_hf(
     nlayers: int,
     vocab_size: Optional[int] = None
 ):
+
     config = AutoConfig.from_pretrained("meta-llama/Llama-3.1-8B")
 
     config.hidden_size = int(dmodel)
@@ -93,7 +94,8 @@ def save_to_llama_3_hf(
     config.num_hidden_layers = int(nlayers)
     if vocab_size is not None:
         config.vocab_size = int(vocab_size)
-
+    else:
+        config.vocab_size = nano_model_state_dict["head.linear.weight"].shape[0]
     hf_model = AutoModelForCausalLM.from_config(config)
     hf_state_dict = remap_nano_to_llama31_hf(nano_model_state_dict)
     hf_model.load_state_dict(hf_state_dict, strict=True)

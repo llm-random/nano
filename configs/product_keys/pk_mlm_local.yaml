@@ -3,14 +3,11 @@ defaults:
   - /_cluster/local@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/sst2@_here_
+  - /_dataset/local_dummy@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
 
-
-dataset:
-  seed: 42
 
 common:
   sequence_length: 16
@@ -23,34 +20,34 @@ common:
   kv_heads: 2
   vocab_size: 50304
 
-
 trainer:
-  _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
+  _target_: src.product_keys.trainer.MaskedLMTrainer
+  masking_percentage: 0.2
+  mask_token_id: 50257
+  unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
-  n_steps: 3
+  n_steps: 100
   learning_rate: 1e-3
-  d_model: ${common.dmodel}
-  vocab_size: ${common.vocab_size}
-
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
+  
   train_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.product_keys.datasets.glue_tokenize_fn
-        seq_len: ${common.sequence_length}
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn  
 
   eval_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.product_keys.datasets.glue_tokenize_fn
-        seq_len: ${common.sequence_length}
+        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn  
 
   checkpoint:
-    load:
-      type: nano
-      path: data/checkpoint/2026-04-29/step_99
     save:
       type: nano
-      path: finetuned_checkpoint
+      path: data/checkpoint/${now:%Y-%m-%d}
 
 
 infrastructure:

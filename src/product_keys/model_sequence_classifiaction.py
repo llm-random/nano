@@ -15,9 +15,15 @@ class TransformerHead(nn.Module):
         self.linear = nn.Linear(d_model, num_labels, bias=False, dtype=torch.float32)
 
     def forward(self, x):
+        logger.info(f"Before norm shape: {x.shape}")
+        logger.info(f"x before norm = {x[:, :4, :4]}")
         x = self.norm(x)
-        # logger.info(f"{x[:, :4, :4]=}")
-        return self.linear(x)
+        logger.info(f"After norm shape: {x.shape}")
+        logger.info(f"x normalized = {x[:, :4, :4]}")
+        x =  self.linear(x)
+        logger.info(f"After linear shape: {x.shape}")
+        logger.info(f"x linear = {x[:, :4, :4]}")
+        return x
 
 
 class ModelSequenceClassification(nn.Module):
@@ -37,7 +43,6 @@ class ModelSequenceClassification(nn.Module):
             self.backbone.head = setup_distributed_training(
                 self.backbone.head, distributed_config=distributed_config)
 
-    count = 0
 
     def forward(self, input_ids, attention_mask=None):
 
@@ -55,10 +60,10 @@ class ModelSequenceClassification(nn.Module):
 
         # logits = self.score(cls_token_hidden_states)
 
-        if self.count % 5 == 0:
-            logger.info(f"Logits shape: {logits.shape}")
-            logger.info(f"{logits=}")
+        # if self.count % 5 == 0:
+        #     logger.info(f"Logits shape: {logits.shape}")
+        #     logger.info(f"{logits=}")
 
-        self.count += 1
+        # self.count += 1
 
         return logits

@@ -417,8 +417,23 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         # attn_scores = attn_scores.masked_fill(causal_mask, float("-inf"))
         
         if attention_mask is not None:
-            pad_mask = attention_mask.unsqueeze(1).unsqueeze(2) == 0
-            attn_scores = attn_scores.masked_fill(pad_mask, float("-inf"))
+            # Extract the mask values corresponding to the retrieved top-k keys
+            mask_expanded = attention_mask.view(batch, 1, 1, seq_len).expand(-1, self.q_heads, seq_len, -1)
+            gathered_k_mask = torch.gather(mask_expanded, 3, v_indices)
+            
+            # k_pad_mask is True where the retrieved key is a padding token
+            k_pad_mask = gathered_k_mask.unsqueeze(-2) == 0  # (B, H, S, 1, top_k)
+            
+            # q_pad_mask is True where the query itself is a padding token
+            q_pad_mask = attention_mask.view(batch, 1, seq_len, 1, 1) == 0  # (B, 1, S, 1, 1)
+            
+            # Mask out the key ONLY if the key is padding AND the query is valid.
+            # This prevents padding queries from having all -inf scores (which causes NaNs).
+            pad_mask = k_pad_mask & (~q_pad_mask)
+            # Use a large negative number instead of -inf to be absolutely safe against NaNs
+            # if a valid query somehow retrieves only padding keys.
+            min_val = torch.finfo(attn_scores.dtype).min
+            attn_scores = attn_scores.masked_fill(pad_mask, min_val)
 
         attn_weights = F.softmax(attn_scores, dim=-1)
 
@@ -554,8 +569,12 @@ class LLM(LLM_projected_compression):
 
     def forward(self, *args, **kwargs):
         attention_mask = kwargs.pop("attention_mask", None)
+        logger.info(f"Input shape: {args[0].shape}")
+        logger.info(f"input: {args[0][:, :4]}")
         x = self.embedding(*args, **kwargs)
+        logger.info(f"After embedding: {x[:, :4]}")
         x = self.encoder(x, attention_mask=attention_mask)
+        logger.info(f"After encoder: {x[:, :4]}")
         x = self.head(x)
         return x
 
