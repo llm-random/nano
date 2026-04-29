@@ -147,12 +147,13 @@ class Trainer:
 
     @property
     def _should_save_checkpoint(self) -> bool:
-        return (
-            self.checkpoint.save.interval > 0
-            and (self.step) % self.checkpoint.save.interval == 0
-            and self.step != 0
-            and self.checkpoint.save.path is not None
-        )
+        if self.checkpoint.save.path is None or self.step == 0:
+            return False
+        interval = self.checkpoint.save.interval
+        interval_match = interval > 0 and self.step % interval == 0
+        explicit_steps = self.checkpoint.save.steps or []
+        step_match = self.step in explicit_steps
+        return interval_match or step_match
 
     @property
     def _should_save_final_checkpoint(self) -> bool:
