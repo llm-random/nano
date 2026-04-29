@@ -9,23 +9,31 @@ defaults:
   # - /_downstream_eval@_here_:        joint
 
   - /_feedforward:                   dense
+  # - /_feedforward:                   moe
   - /_attention:                     mha
   - /_parameterization:              simpleP_k12
   - _self_
 
 common:
   n_blocks: 12
-  ^batch_size: [8, 16, 32]
+  batch_size: 256
   sequence_length: 2048
   data_seed: 301  # eval seed is 22, so never use it as train seed
 
 trainer:
-  # token-matched: 8001 steps @ bs=128 -> (8000 * 128 / bs) + 1
-  n_steps: ${eval:'500 * 128 // ${common.batch_size} + 1'}
-  learning_rate: 11
-  eval_interval: 100  # remove for longer runs
+  # short memory-test run
+  n_steps: 100
+  learning_rate: 8
+  ^gradient_accumulation_steps: [1, 2]
+  eval_interval: 50
   scheduler:
-    warmup_steps: ${eval:'(500 * 128 // ${common.batch_size}) // 10'}
+    warmup_steps: 10
+
+model:
+  encoder:
+    block_fn:
+      attention_fn:
+        compile: true
 
 # downstream_evaluator:
 #   eval_interval: 0
@@ -38,7 +46,7 @@ infrastructure:
     tags:
       - nano
       - critical_batch_size_test
-      - moe
+      - dense
       - mha
       - simpleP_k12
       - k12
@@ -48,5 +56,5 @@ infrastructure:
 
   slurm:
     time: "0-04:00:00"
-    gres: gpu:1
+    gres: gpu:4
     job-name: ${infrastructure.metric_logger.name}
