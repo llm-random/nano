@@ -83,13 +83,13 @@ models:
   #   name: llama8b_pcd_10p_6BT_ns0
 
   # # PC 10p
-  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5111007/3
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097120/0/step_1023/hf
   #   name: llama8b_pc_10p_1BT_ns0
-  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5111011/2
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5098368/1/step_2047/hf
   #   name: llama8b_pc_10p_2BT_ns0
-  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5111010/1
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5098389/2/step_4095/hf
   #   name: llama8b_pc_10p_4BT_ns0
-  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5111009/0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5098070/3/step_6143/hf
   #   name: llama8b_pc_10p_6BT_ns0
 
   # # PC 50p
