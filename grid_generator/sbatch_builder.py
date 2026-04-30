@@ -46,6 +46,29 @@ def create_program_call(config_folder):
     ]
 
 
+def create_eval_program_call(config_path, config_name):
+    return [
+        f"python evaluate_hf_models.py \\",
+        f"  --config-path={config_path} \\",
+        f"  --config-name={config_name}",
+    ]
+
+
+def generate_eval_sbatch_script(slurm_config, script, config_path, config_name):
+    lines = ["#!/bin/bash -l", ""]
+    lines.extend(create_slurm_parameters(slurm_config))
+
+    if script:
+        lines.extend(["", "#---------- SCRIPT ----------"])
+        lines.extend(script)
+        lines.extend(["#-------- SCRIPT END --------", ""])
+
+    lines.extend(create_eval_program_call(config_path, config_name))
+
+    with open("exp.job", "w") as f:
+        f.write("\n".join(lines))
+
+
 def generate_sbatch_script(
     slurm_config, config_folder, n_experiments, max_concurrent_jobs, script
 ) -> list[str]:

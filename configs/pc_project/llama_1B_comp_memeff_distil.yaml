@@ -1,6 +1,7 @@
 defaults:
   # - ../_cluster@_here_: entropy
-  - ../_cluster@_here_: helios
+  # - ../_cluster@_here_: helios
+  - ../_cluster@_here_: lem
   - ../_model/llama@_here_: projected_mem_eff_1B
   - ../_trainer@_here_: llama3_1B_distillation
   - ../_dataset@_here_: fineweb
@@ -11,12 +12,12 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  # dmodel: 448 # 10
-  # dff: 1728
+  dmodel: 448 # 10
+  dff: 1728
   # dmodel: 960 # 30
   # dff: 3840
-  dmodel: 1344 # 50
-  dff: 5376
+  # dmodel: 1344 # 50
+  # dff: 5376
 
 
 trainer:
@@ -53,10 +54,10 @@ trainer:
   checkpoint:
     save: #switch
       interval: 0  # 0 = only save at the end of training
-      model_checkpoint_filename: __model_checkpoint_filename.pt
-      # path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results # lem new
+      # model_checkpoint_filename: __model_checkpoint_filename.pt
+      path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results # lem new
       # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test # helios   
-      path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy   
+      # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy   
       training_state_filename: __training_state_filename.pt
       type: hf_only  # "nano" | "hf_only" | "nano_and_hf"
 
@@ -70,8 +71,11 @@ projected_compression:
   # source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt # entropy
   # path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt
 
-  source_model_path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama31b.pt # helios
-  path_to_importances: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/llama_1_fw_importances/minitron_dimensions_importances.pt
+  # source_model_path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama31b.pt # helios
+  # path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama_1_fw_importances/minitron_dimensions_importances.pt
+
+  source_model_path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/hf_to_nano_converted/llama1b_in_nano.pt # lem
+  path_to_importances: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/1b/minitron_dimensions_importances.pt
 
   init_norms_with_ones: false
 
@@ -107,5 +111,6 @@ infrastructure:
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
-    gres: gpu:4
+    # gres: gpu:4
+    gres: "gpu:hopper:4" # lem
     time: "0-24:00:00"

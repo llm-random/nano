@@ -1,5 +1,6 @@
 defaults:
-  - ../_cluster@_here_: entropy
+  # - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: lem
   - ../_model@_here_: llama_3_1
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: fineweb
@@ -11,10 +12,10 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  # target_dmodel: 448 # 10
-  # target_dff: 1728
-  target_dmodel: 960 # 30
-  target_dff: 3840
+  target_dmodel: 448 # 10
+  target_dff: 1728
+  # target_dmodel: 960 # 30
+  # target_dff: 3840
   # target_dmodel: 1344 #50
   # target_dff: 5376
   # target_dmodel: 1728 # 75
@@ -26,14 +27,13 @@ trainer:
   # gradient_accumulation_steps: 4
   ^n_steps: 
     - 2048 # 1B tokens
-    # - 4096
-    # - 6144
-    # - 8192
-    # - 12288
+    - 4096
+    - 8192
+    - 12288
     # - 16384
 
-  # learning_rate: 11 #optimal fo 10%
-  learning_rate: 12 #optimal fo 30%
+  learning_rate: 11 #optimal fo 10%
+  # learning_rate: 12 #optimal fo 30%
   # learning_rate: 12 #optimal fo 50%
   # learning_rate: 13 #optimal fo 75%
   # learning_rate: 12 #optimal fo randomi 50%
@@ -46,8 +46,8 @@ trainer:
     type: huggingface
     path: "meta-llama/Llama-3.2-1B" 
    save:  
-    type: nano
-    path: ??? # CHANGE
+    type: huggingface
+    path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results # lem new
 
 
 infrastructure:
@@ -59,21 +59,23 @@ infrastructure:
       - llama_1
       - hard_pruning
       # - ta10b
-      # - 10p
-      - 30p
+      - 10p
+      # - 30p
       # - 50p
       # - randomi
       # - magnitude
   
   slurm:
     job-name: ${infrastructure.metric_logger.name}
-    gres: gpu:4 #dev
+    # gres: gpu:4 #helios entropy
+    gres: "gpu:hopper:4" #lem
     time: "0-12:00:00"
  
 
 apply_functions:
   - _target_: src.projected_compression.pruning.prune
     _partial_: true
-    dimensions_importances_path: ??? # CHANGE
+    # dimensions_importances_path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama_1_fw_importances/minitron_dimensions_importances.pt # helios
+    dimensions_importances_path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/1b/minitron_dimensions_importances.pt #lem
     target_dmodel: ${common.target_dmodel}
     target_dff: ${common.target_dff}

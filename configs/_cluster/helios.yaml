@@ -15,6 +15,8 @@ infrastructure:
     - 'module load ML-bundle/25.04'
     - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi3/pc'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+    - 'export HF_DATASETS_CACHE="$PROJECT_HOME_PATH/hf_datasets"'
+    - 'export HF_MODULES_CACHE="$PROJECT_HOME_PATH/hf_modules"'
     
     # - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi3/context_scaling'
     # - 'export HF_HOME=$PLG_GROUPS_STORAGE/plggllmeffi3/pc/hf_cache'
