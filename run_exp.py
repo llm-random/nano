@@ -313,35 +313,30 @@ def get_experiment_components(
     return config_path, config_name
 
 
-def wait_for_job_id(connection, tmux_pane, tries: int = 3):
+def wait_for_job_id(connection, tmux_pane, seen=None, tries: int = 10):
     """
     Wait for a SLURM job ID to appear in the output of a tmux pane.
 
-    Repeatedly checks the pane for a successful `sbatch` message and returns
-    the job ID. Raises RuntimeError if an error is found or if no job ID
-    appears after the given number of tries.
+    Returns the first ID not already in `seen`, so this works for chained
+    submissions where multiple `sbatch` calls share one pane.
     """
+    seen = set(seen or [])
     while tries > 0:
         output = connection.run(
             f"tmux capture-pane -pt {tmux_pane}.0", hide=True
         ).stdout
 
-        match = re.search(r"Submitted batch job (\d+)", output)
-        if not match:
-            match_error = re.search(r"sbatch: error: (.*)\n", output)
-            if not match_error:
-                time.sleep(0.5)
-                tries -= 1
-                if tries == 0:
-                    raise RuntimeError("Failed to get job ID from sbatch output.")
-                continue
-            else:
-                err_msg = match_error.group(1)
-                raise RuntimeError(f"Error submitting job: {err_msg}")
-        else:
-            job_id = match.group(1)
-            break
-    return job_id
+        for match in re.finditer(r"Submitted batch job (\d+)", output):
+            if match.group(1) not in seen:
+                return match.group(1)
+
+        match_error = re.search(r"sbatch: error: (.*)\n", output)
+        if match_error:
+            raise RuntimeError(f"Error submitting job: {match_error.group(1)}")
+
+        time.sleep(0.5)
+        tries -= 1
+    raise RuntimeError("Failed to get job ID from sbatch output.")
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
@@ -421,13 +416,34 @@ def submit_experiment(
                 connection.run(
                     f'tmux send -t {experiment_branch_name}.0 "cd {experiment_dir}" ENTER'
                 )
+                # EXPERIMENT_ID is forwarded so all chain steps share one
+                # checkpoint dir; defaults to SLURM_JOB_ID for non-chained runs.
+                experiment_id = experiment_branch_name
+                chain_n_jobs = int(cfg.get("chain", {}).get("n_jobs", 1) or 1)
+                job_ids = []
+                for step in range(chain_n_jobs):
+                    # afterany so chain continues even when a SLURM time-limit
+                    # kill produces a non-zero exit (the production case).
+                    dep = (
+                        f" --dependency=afterany:{job_ids[-1]}" if job_ids else ""
+                    )
+                    sbatch_cmd = (
+                        f"sbatch --export=ALL,EXPERIMENT_ID={experiment_id}"
+                        f"{dep} exp.job"
+                    )
+                    connection.run(
+                        f'tmux send -t {experiment_branch_name}.0 "{sbatch_cmd}" ENTER'
+                    )
+                    job_id = wait_for_job_id(
+                        connection, experiment_branch_name, seen=job_ids
+                    )
+                    print(
+                        f"Chain step {step + 1}/{chain_n_jobs}: job_id={job_id}"
+                        f"{f' depends-on={job_ids[-1]}' if job_ids else ''}"
+                    )
+                    job_ids.append(job_id)
                 connection.run(
-                    f'tmux send -t {experiment_branch_name}.0 "sbatch exp.job" ENTER'
-                )
-                job_id = wait_for_job_id(connection, experiment_branch_name)
-                print(f"Job ID: {job_id}")
-                connection.run(
-                    f'tmux send -t {experiment_branch_name}.0 "tail -f --retry slurm-{job_id}_0.out" ENTER'
+                    f'tmux send -t {experiment_branch_name}.0 "tail -f --retry slurm-{job_ids[0]}_0.out" ENTER'
                 )
                 LOGLEVEL = os.environ.get("LOGLEVEL", "WARNING").upper()
                 if LOGLEVEL == "DEBUG":

@@ -413,6 +413,16 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 def run(cfg: OmegaConf, metric_logger=None):
     setup_enviroment()
 
+    # Early-exit when a prior chain step already reached n_steps.
+    prior_state = load_training_state(cfg.trainer.checkpoint.load)
+    if prior_state["next_step"] >= cfg.trainer.n_steps:
+        logger.info(
+            f"Training already complete "
+            f"(next_step={prior_state['next_step']} >= n_steps={cfg.trainer.n_steps}). "
+            f"Exiting."
+        )
+        return
+
     if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
         distributed_setup()
 
