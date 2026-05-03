@@ -12,14 +12,17 @@ infrastructure:
     
   script:
     - '${export_env_variables_placeholders:}'
-    - 'export PROJECT_HOME_PATH=/storage_nvme_4/nano'
+    - 'export PROJECT_HOME_PATH=/storage_nvme_3/mstefaniak/pc'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+    - 'export HF_DATASETS_CACHE="$PROJECT_HOME_PATH/hf_datasets"'
+    - 'export HF_MODULES_CACHE="$PROJECT_HOME_PATH/hf_modules"'
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
 
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
 
     # export pixi variables
-    - 'export PIXI_HOME=/storage_nvme_4/nano/pixi_md'
+    - 'export PIXI_HOME=/storage_nvme_4/nano/pixi_new'
     - 'export PATH="$PIXI_HOME/bin:$PATH"'
     - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
     - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
@@ -35,3 +38,7 @@ cluster_switch:
   eval_path_c4: "/storage_nvme_1/llm-random/datasets/c4/validation"
   train_path_fineweb: "/storage_nvme_4/llm-random/datasets/fineweb/train"
   eval_path_fineweb: "/storage_nvme_4/llm-random/datasets/fineweb/train"
+  train_path_smollm_fineweb_edu: "/storage_nvme_3/mstefaniak/pc/datasets/fineweb-edu-dedup/train"
+  train_path_smollm_cosmopedia: "/storage_nvme_3/mstefaniak/pc/datasets/cosmopedia-v2/train"
+  train_path_smollm_python_edu: "/storage_nvme_3/mstefaniak/pc/datasets/python-edu/train"
+  train_path_smollm_open_web_math: "/storage_nvme_3/mstefaniak/pc/datasets/open-web-math/train"

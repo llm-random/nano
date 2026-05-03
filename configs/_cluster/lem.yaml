@@ -83,3 +83,7 @@ cluster_switch:
   eval_path_c4: "/lustre/pd01/plgrid/plgllmefficont2/datasets/c4/validation"
   train_path_fineweb: "/lustre/pd01/plgrid/plgllmefficont2/crewtool/proba2/fineweb-edu/train/train"
   eval_path_fineweb: "/lustre/pd01/plgrid/plgllmefficont2/crewtool/proba2/fineweb-edu/train/train"
+  train_path_smollm_fineweb_edu: ???
+  train_path_smollm_cosmopedia: ???
+  train_path_smollm_python_edu: ???
+  train_path_smollm_open_web_math: ???

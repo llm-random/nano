@@ -22,10 +22,12 @@ trainer:
     # - 12288 # 6B tokens
 
   ^learning_rate:
-    - 11
-    - 12
-    - 13
-    - 14
+    - 10
+    - 9
+    # - 11
+    # - 12
+    # - 13
+    # - 14
 
   scheduler:
     warmup_steps: 40
@@ -34,12 +36,12 @@ trainer:
     load:
       type: huggingface
       path: "HuggingFaceTB/SmolLM-1.7B"
-    save:
-      type: nano
-      path: /storage_nvme_1/md/checkpoints
-      interval: ${eval:'${trainer.n_steps} - 1'}
-      model_checkpoint_filename: __model_checkpoint_filename.pt
-      training_state_filename: __training_state_filename.pt
+    # save:
+    #   type: nano
+    #   path: /storage_nvme_1/md/checkpoints
+    #   interval: ${eval:'${trainer.n_steps} - 1'}
+    #   model_checkpoint_filename: __model_checkpoint_filename.pt
+    #   training_state_filename: __training_state_filename.pt
 
   eval_interval: 1000000
   eval_dataloader: None

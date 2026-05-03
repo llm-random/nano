@@ -50,3 +50,7 @@ cluster_switch:
   eval_path_c4: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/c4/validation"
   train_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
   eval_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
+  train_path_smollm_fineweb_edu: ???
+  train_path_smollm_cosmopedia: ???
+  train_path_smollm_python_edu: ???
+  train_path_smollm_open_web_math: ???
