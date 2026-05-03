@@ -1,6 +1,6 @@
 defaults:
-  # - ../_cluster@_here_: lem
-  - ../_cluster@_here_: helios
+  - ../_cluster@_here_: lem
+  # - ../_cluster@_here_: helios
   # - ../_cluster@_here_: entropy
   - ../_misc@_here_: default
 
@@ -13,11 +13,11 @@ wandb:
     - hf_model
     - llama_8
     # - llama_1
-    # - pc
+    - pc
     # - pcd
     # - hp
     # - hpd
-    # - 10p
+    - 10p
     # - 30p
     # - 50p
     - 0_numshot
@@ -46,8 +46,8 @@ device: cuda
 
 infrastructure:
   slurm:
-    # gres: "gpu:hopper:1"  # lem — 1 GPU is enough for lm_eval inference
-    gres: gpu:1          # helios / entropy
+    gres: "gpu:hopper:1"  # lem — 1 GPU is enough for lm_eval inference
+    # gres: gpu:1          # helios / entropy
     time: "1-00:00:00"
     # time: "0-02:00:00" # test
 
@@ -82,15 +82,15 @@ models:
   # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097546/3/step_6143/hf
   #   name: llama8b_pcd_10p_6BT_ns0
 
-  # # PC 10p
-  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097120/0/step_1023/hf
-  #   name: llama8b_pc_10p_1BT_ns0
-  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5098368/1/step_2047/hf
-  #   name: llama8b_pc_10p_2BT_ns0
-  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5098389/2/step_4095/hf
-  #   name: llama8b_pc_10p_4BT_ns0
-  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5098070/3/step_6143/hf
-  #   name: llama8b_pc_10p_6BT_ns0
+  # PC 10p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097120/0/step_1023/hf
+    name: llama8b_pc_10p_1BT_ns0
+  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097121/1/step_2047/hf
+    name: llama8b_pc_10p_2BT_ns0
+  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097122/2/step_4095/hf
+    name: llama8b_pc_10p_4BT_ns0
+  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097114/3/step_6143/hf
+    name: llama8b_pc_10p_6BT_ns0
 
   # # PC 50p
   # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5098367/0/step_1023/hf
@@ -147,33 +147,33 @@ models:
   # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16171080/0
   #   name: llama8b_hp_30p_6BT_ns0 
 
-  # HPD 50p
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212093/2
-    name: llama8b_hpd_50p_2BT_ns0
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212092/1
-    name: llama8b_hpd_50p_4BT_ns0
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212091/0
-    name: llama8b_hpd_50p_6BT_ns0
+  # # HPD 50p
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212093/2
+  #   name: llama8b_hpd_50p_2BT_ns0
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212092/1
+  #   name: llama8b_hpd_50p_4BT_ns0
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212091/0
+  #   name: llama8b_hpd_50p_6BT_ns0
 
-  # HPD 30p
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16168009/3
-    name: llama8b_hpd_30p_1BT_ns0
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212090/2
-    name: llama8b_hpd_30p_2BT_ns0
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212089/1
-    name: llama8b_hpd_30p_4BT_ns0
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212088/0
-    name: llama8b_hpd_30p_6BT_ns0
+  # # HPD 30p
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16168009/3
+  #   name: llama8b_hpd_30p_1BT_ns0
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212090/2
+  #   name: llama8b_hpd_30p_2BT_ns0
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212089/1
+  #   name: llama8b_hpd_30p_4BT_ns0
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16212088/0
+  #   name: llama8b_hpd_30p_6BT_ns0
 
-  # HPD 10p
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16168005/3
-    name: llama8b_hpd_10p_1BT_ns0
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16199823/2
-    name: llama8b_hpd_10p_2BT_ns0
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16197296/1
-    name: llama8b_hpd_10p_4BT_ns0
-  - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16197267/0
-    name: llama8b_hpd_10p_6BT_ns0
+  # # HPD 10p
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16168005/3
+  #   name: llama8b_hpd_10p_1BT_ns0
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16199823/2
+  #   name: llama8b_hpd_10p_2BT_ns0
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16197296/1
+  #   name: llama8b_hpd_10p_4BT_ns0
+  # - path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test/16197267/0
+  #   name: llama8b_hpd_10p_6BT_ns0
 
 # ## Llama 1B # models:
   # # PCD 50p
