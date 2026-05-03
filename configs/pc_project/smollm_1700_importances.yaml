@@ -2,9 +2,10 @@ defaults:
   - ../_cluster@_here_: entropy
   - ../_model/smollm@_here_: def_1700
   - ../_trainer@_here_: llama
-  - ../_dataset@_here_: fineweb
+  - ../_dataset@_here_: smollm_corpus
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
+  - _self_
 
 
 common:
@@ -13,7 +14,7 @@ common:
 
 
 trainer:
-  gradient_accumulation_steps: 1 # not used
+  gradient_accumulation_steps: 8 # not used
   n_steps: 0 # not used
   learning_rate: 1 # not used
 
@@ -23,31 +24,34 @@ trainer:
     path: "HuggingFaceTB/SmolLM-1.7B"
    save:
     type: nano
-    path: ??? # CHANGE
+    path: /storage_nvme_1/md/checkpoints
+    interval: ${eval:'${trainer.n_steps} - 1'}
+    model_checkpoint_filename: __model_checkpoint_filename.pt
+    training_state_filename: __training_state_filename.pt
 
   train_dataloader:
-    dataset:
-      tokenize_fn: 
-        _target_: src.core.datasets.smollm_1700_tokenize_fn
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B
 
   eval_dataloader:
-    dataset:
-      tokenize_fn: 
-        _target_: src.core.datasets.smollm_1700_tokenize_fn
+    tokenize_fn: 
+      _target_: src.core.datasets.get_tokenize_fn
+      model_name: HuggingFaceTB/SmolLM-1.7B
 
 
 infrastructure:
   metric_logger:
-    name: SMOLLM_training
+    name: SmolLM_1700_importances
     tags:
       - nano
       - pc
       - smollm_1700
       - IMPORTANCES
-      - fineweb
+      - smollm_corpus
 
   slurm:
-    job-name: importances
+    job-name: importances_smollm_1700
     gres: gpu:1
     nodes: 1
     time: "0-2:00:00"
@@ -76,5 +80,3 @@ apply_functions:
     dff: ${common.dff}
     n_blocks: ${model.encoder.n_blocks}
     checkpoint_save_path: ${trainer.checkpoint.save.path}
-  - _target_: src.core.utils.finish_exp
-    _partial_: true

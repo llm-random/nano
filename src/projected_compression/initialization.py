@@ -51,7 +51,7 @@ def init_pc_attributes(cfg, metric_logger):
                 }
             )
 
-    torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
+    torch.manual_seed(cfg.trainer.train_dataloader.seed)
 
     model = create_model(
         cfg.model,

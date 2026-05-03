@@ -28,7 +28,7 @@ trainer:
   learning_rate: 15
 
   train_dataloader:
-    dataset:
+    datasets:
       seed: 1000
   
   checkpoint:

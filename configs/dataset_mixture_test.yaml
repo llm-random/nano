@@ -2,10 +2,10 @@ defaults:
   - _cluster@_here_: local
   - _model@_here_: tiny
   - _trainer@_here_: llama
-  - _dataset@_here_: local_dummy
+  - _dataset@_here_: smollm_corpus
   - _checkpoints@_here_: none
   - _misc@_here_: default
-  - _eval@_here_: basic
+  - _eval@_here_: default
 
 common:
   sequence_length: 16
