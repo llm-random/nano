@@ -6,6 +6,7 @@ platforms = ["linux-64", "linux-aarch64", "osx-arm64"]   # drop osx-64 (Intel Ma
 version = "0.1.0"
 
 [tasks]
+install_hooks = "git config --local core.hooksPath .githooks"
 
 [dependencies]
 python = "==3.12.3"
@@ -13,7 +14,6 @@ python = "==3.12.3"
 [pypi-dependencies]
 transformers = "==4.55.0"
 datasets = "==3.1.0"
-neptune = "==1.13.0"
 submitit = "==1.5.2"
 hydra-core = "==1.3.2"
 hydra-submitit-launcher = "==1.2.0"
@@ -23,16 +23,24 @@ torchdata = "==0.11.0"
 black = "==25.1.0"
 torchao = "==0.11.0"
 torchtune = "==0.6.1"
-lm-eval = ">=0.4.0"
+lm-eval = {version = ">=0.4.0", extras = ["hf"]}
 jupyter = "*"
 ipykernel = "*"
 matplotlib = "*"
+plotly = "*"
+kaleido = "*"
+seaborn = "*"
+wandb = ">=0.23.1, <0.24"
 
 [target.linux-64.pypi-dependencies]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+triton = "==3.3.1"
 
 [target.linux-aarch64.pypi-dependencies]
-torch = { version = "==2.6", index = "https://download.pytorch.org/whl/cu126"}
+torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+
+[target.linux-aarch64.dependencies]
+triton = "==3.3.1"
 
 # macOS (Apple Silicon): CPU wheels (PyPI has arm64 wheels)
 [target.osx-arm64.pypi-dependencies]
