@@ -1,10 +1,10 @@
 # @package _global_
 defaults:
-  - /_cluster@_here_:                lem
+  - /_cluster@_here_:                helios
   - /_model/context_scaling@_here_:  template
   - /_trainer@_here_:                context_scaling
   - /_dataset@_here_:                fineweb
-  - /_checkpoints/context_scaling@_here_: lem_icml_workshop
+  - /_checkpoints/context_scaling@_here_: helios_icml_workshop
   - /_infrastructure@_here_:         default
   # - /_downstream_eval@_here_:        joint
 
@@ -22,7 +22,7 @@ common:
 trainer:
   n_steps: 160_001
   learning_rate: 11
-  gradient_accumulation_steps: 1
+  gradient_accumulation_steps: 2
   eval_interval: 1000
   scheduler:
     warmup_steps: 2000
@@ -40,6 +40,6 @@ infrastructure:
       - ${now:%Y-%m-%d}
 
   slurm:
-    time: "3-00:00:00"
-    gres: gpu:hopper:4
+    time: "2-00:00:00"
+    gres: gpu:4
     job-name: ${infrastructure.metric_logger.name}
