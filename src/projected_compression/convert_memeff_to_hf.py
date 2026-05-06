@@ -25,6 +25,11 @@ def load_pc_state_dict_to_llama(state_dict, original_llama):
         "encoder.blocks.0.ff_layer.layer.gate.weight"
     ].shape[0]
     conf.torch_dtype = None  # prevent saved config.json from causing dtype mismatch on load
+    # LLaMA 3.2-1B has tie_word_embeddings=True, but the compressed model always has
+    # independent embedding and lm_head (different projections). With tied weights,
+    # load_state_dict silently overwrites embed_tokens with lm_head values (lm_head is
+    # processed last in named_parameters). This corrupts the embedding matrix entirely.
+    conf.tie_word_embeddings = False
 
     llama = LlamaForCausalLM(conf)
 
