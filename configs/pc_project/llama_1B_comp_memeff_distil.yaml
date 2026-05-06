@@ -12,17 +12,19 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  dmodel: 448 # 10
-  dff: 1728
+  # dmodel: 448 # 10
+  # dff: 1728
   # dmodel: 960 # 30
   # dff: 3840
-  # dmodel: 1344 # 50
-  # dff: 5376
+  dmodel: 1344 # 50
+  dff: 5376
 
 
 trainer:
   _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
   gradient_accumulation_steps: 8
+
+  # distillation_alpha: 1.0 ##########################
 
   # n_steps: 2048
   # n_steps: 4096
@@ -35,6 +37,8 @@ trainer:
    - 12288
 
   learning_rate: 13
+  # learning_rate: 14 # test
+  # learning_rate: 12 # test
 
   scheduler:
     warmup_steps: 40
@@ -104,13 +108,16 @@ infrastructure:
       - llama_1
       - projected_compression
       - distillation
+      # - only_distillation
       - mem_eff
-      - 10p
+      # - 10p
       # - 30p
-      # - 50p
+      - 50p
+      - hf_save_fix
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
     # gres: gpu:4
     gres: "gpu:hopper:4" # lem
     time: "0-24:00:00"
+    # time: "0-12:00:00"
