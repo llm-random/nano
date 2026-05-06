@@ -14,7 +14,7 @@ wandb:
     # - llama_8
     - llama_1
     # - pc
-    - pcd
+    # - pcd
     # - pcdd
     # - hp
     # - hpd
@@ -181,62 +181,62 @@ models:
 # ## Llama 1B # models:
   
   # PCD 50p
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151963/0/step_2047/hf
-    name: llama1b_pcd_50p_1BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151964/1/step_4095/hf
-    name: llama1b_pcd_50p_2BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151965/2/step_8191/hf
-    name: llama1b_pcd_50p_4BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151963/0/step_2047/hf
+  #   name: llama1b_pcd_50p_1BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151964/1/step_4095/hf
+  #   name: llama1b_pcd_50p_2BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151965/2/step_8191/hf
+  #   name: llama1b_pcd_50p_4BT_ns0
   - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151962/3/step_12287/hf
     name: llama1b_pcd_50p_6BT_ns0
 
   # PCD 30p
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151958/0/step_2047/hf
-    name: llama1b_pcd_30p_1BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151959/1/step_4095/hf
-    name: llama1b_pcd_30p_2BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151960/2/step_8191/hf
-    name: llama1b_pcd_30p_4BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151958/0/step_2047/hf
+  #   name: llama1b_pcd_30p_1BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151959/1/step_4095/hf
+  #   name: llama1b_pcd_30p_2BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151960/2/step_8191/hf
+  #   name: llama1b_pcd_30p_4BT_ns0
   - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151955/3/step_12287/hf
     name: llama1b_pcd_30p_6BT_ns0
 
   # PCD 10p
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151952/0/step_2047/hf
-    name: llama1b_pcd_10p_1BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151953/1/step_4095/hf
-    name: llama1b_pcd_10p_2BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151954/2/step_8191/hf
-    name: llama1b_pcd_10p_4BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151952/0/step_2047/hf
+  #   name: llama1b_pcd_10p_1BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151953/1/step_4095/hf
+  #   name: llama1b_pcd_10p_2BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151954/2/step_8191/hf
+  #   name: llama1b_pcd_10p_4BT_ns0
   - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151948/3/step_12287/hf
     name: llama1b_pcd_10p_6BT_ns0
 
   # PC 50p
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152713/0/step_2047/hf
-    name: llama1b_pc_50p_1BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152748/1/step_4095/hf
-    name: llama1b_pc_50p_2BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152857/2/step_8191/hf
-    name: llama1b_pc_50p_4BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152713/0/step_2047/hf
+  #   name: llama1b_pc_50p_1BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152748/1/step_4095/hf
+  #   name: llama1b_pc_50p_2BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152857/2/step_8191/hf
+  #   name: llama1b_pc_50p_4BT_ns0
   - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151977/3/step_12287/hf
     name: llama1b_pc_50p_6BT_ns0
 
   # PC 30p
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152620/0/step_2047/hf
-    name: llama1b_pc_30p_1BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152641/1/step_4095/hf
-    name: llama1b_pc_30p_2BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152642/2/step_8191/hf
-    name: llama1b_pc_30p_4BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152620/0/step_2047/hf
+  #   name: llama1b_pc_30p_1BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152641/1/step_4095/hf
+  #   name: llama1b_pc_30p_2BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152642/2/step_8191/hf
+  #   name: llama1b_pc_30p_4BT_ns0
   - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151969/3/step_12287/hf
     name: llama1b_pc_30p_6BT_ns0
 
   # PC 10p
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152882/0/step_2047/hf
-    name: llama1b_pc_10p_1BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5153298/1/step_4095/hf
-    name: llama1b_pc_10p_2BT_ns0
-  - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5153310/2/step_8191/hf
-    name: llama1b_pc_10p_4BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5152882/0/step_2047/hf
+  #   name: llama1b_pc_10p_1BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5153298/1/step_4095/hf
+  #   name: llama1b_pc_10p_2BT_ns0
+  # - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5153310/2/step_8191/hf
+  #   name: llama1b_pc_10p_4BT_ns0
   - path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5151980/3/step_12287/hf
     name: llama1b_pc_10p_6BT_ns0
 
