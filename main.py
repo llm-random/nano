@@ -383,7 +383,9 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             simpleP_cfg = cfg.get("simpleP", None)
             if simpleP_cfg:
                 scale = simpleP_cfg.base_dmodel / cfg.common.dmodel
-                param_groups = build_simpleP_param_groups(model, learning_rate, scale)
+                param_groups = build_simpleP_param_groups(
+                    model, learning_rate, scale
+                )
                 optimizer = torch.optim.AdamW(
                     param_groups,
                     weight_decay=cfg.trainer.weight_decay,

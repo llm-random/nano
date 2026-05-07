@@ -1,5 +1,5 @@
-# Abstract model — does not work alone. Compose with a _feedforward and _attention group.
 defaults:
+  - /ff_layer@model.encoder.block_fn.ff_layer_fn: swiglu
   - _self_
 
 common:
