@@ -1,0 +1,61 @@
+# @package _global_
+defaults:
+  - /_cluster@_here_:                helios
+  - /_model/context_scaling@_here_:  template
+  - /_trainer@_here_:                context_scaling
+  - /_dataset@_here_:                fineweb
+  - /_checkpoints/context_scaling@_here_: shared_helios
+  - /_infrastructure@_here_:         default
+  # - /_downstream_eval@_here_:        joint
+
+  - /_feedforward:                   dense
+  - /_attention:                     mha
+  - /_parameterization:              simpleP_k12
+  - _self_
+
+common:
+  n_blocks: 12
+  # ^batch_size: [8, 16]
+  # batch_size: 128
+  # batch_size: 256
+  batch_size: 512
+  sequence_length: 2048
+  data_seed: 301  # eval seed is 22, so never use it as train seed
+
+trainer:
+  # token-matched: 8001 steps @ bs=128 -> (8000 * 128 / bs) + 1
+  n_steps: ${eval:'8000 * 128 // ${common.batch_size} + 1'}
+  ^learning_rate: [6, 7, 8, 9]
+  # learning_rate: 14
+  # gradient_accumulation_steps: 1  # bs<=128
+  gradient_accumulation_steps: 2  # bs=256, 512
+  eval_interval: 100  # remove for longer runs
+  scheduler:
+    warmup_steps: ${eval:'(8000 * 128 // ${common.batch_size}) // 10'}
+
+# downstream_evaluator:
+#   eval_interval: 0
+#   final_eval: false
+
+infrastructure:
+  metric_logger:
+    heavy_metrics_calculation_interval: 2500 # change on longer runs
+    name: critical_batch_size
+    tags:
+      - nano
+      - critical_batch_size
+      - dense
+      - mha
+      - simpleP_k12
+      - k12
+      - bs${common.batch_size}
+      - lr${trainer.learning_rate}
+      - ${now:%Y-%m-%d}
+
+  slurm:
+    # time: "0-04:00:00"
+    time: "0-10:00:00"
+    # gres: gpu:hopper:1
+    # gres: gpu:hopper:2
+    gres: gpu:4
+    job-name: ${infrastructure.metric_logger.name}

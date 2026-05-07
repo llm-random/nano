@@ -54,11 +54,18 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
-    final_lm_eval: bool
-    evaluator: Optional[Evaluator] = None
-    lm_eval_interval: int = 0
+    fixed_eval: bool
+    downstream_evaluator: Optional[Evaluator] = None
 
     def __attrs_post_init__(self):
+        # Pull downstream-eval scheduling from the evaluator so it owns its own cadence.
+        if self.downstream_evaluator is not None:
+            self.downstream_eval_interval = self.downstream_evaluator.eval_interval
+            self.final_downstream_eval = self.downstream_evaluator.final_eval
+        else:
+            self.downstream_eval_interval = 0
+            self.final_downstream_eval = False
+
         self.processed_tokens = self.training_state["processed_tokens"]
         self.start_step = self.training_state["next_step"]
         self.device = next(self.model.parameters()).device
@@ -72,7 +79,12 @@ class Trainer:
             self.eval_iterator = iter(self.eval_dataloader)
         self.step = self.start_step - 1
 
-        if self.start_step > 0 and self.eval_interval > 0:
+        if self.fixed_eval:
+            logger.info(f"fixed_eval=True: caching {self.n_eval_steps} eval batches")
+            self._fixed_eval_batches = [
+                next(self.eval_iterator) for _ in range(self.n_eval_steps)
+            ]
+        elif self.start_step > 0 and self.eval_interval > 0:
             n_skip_eval_batches = (
                 (self.start_step - 1) // self.eval_interval * self.n_eval_steps
             )
@@ -125,22 +137,23 @@ class Trainer:
         return self.step % (self.eval_interval * 100) == 0
 
     @property
-    def _should_lm_eval(self) -> bool:
+    def _should_run_downstream_eval(self) -> bool:
         return (
-            self.lm_eval_interval > 0
-            and self.evaluator is not None
-            and self.step % self.lm_eval_interval == 0
+            self.downstream_eval_interval > 0
+            and self.downstream_evaluator is not None
+            and self.step % self.downstream_eval_interval == 0
             and self.step != 0
         )
 
     @property
     def _should_save_checkpoint(self) -> bool:
-        return (
-            self.checkpoint.save.interval > 0
-            and (self.step) % self.checkpoint.save.interval == 0
-            and self.step != 0
-            and self.checkpoint.save.path is not None
-        )
+        if self.checkpoint.save.path is None or self.step == 0:
+            return False
+        interval = self.checkpoint.save.interval
+        interval_match = interval > 0 and self.step % interval == 0
+        explicit_steps = self.checkpoint.save.steps or []
+        step_match = self.step in explicit_steps
+        return interval_match or step_match
 
     @property
     def _should_save_final_checkpoint(self) -> bool:
@@ -151,7 +164,7 @@ class Trainer:
         )
 
     def train(self):
-        fired_lm_eval_this_step = False
+        fired_downstream_eval_this_step = False
         for step, batch in zip(
             range(self.start_step, self.n_steps), self.train_iterator
         ):
@@ -175,20 +188,20 @@ class Trainer:
             if self._should_evaluate:
                 self.eval()
 
-            if self._should_lm_eval:
-                self.evaluator.eval()
-                fired_lm_eval_this_step = True
+            if self._should_run_downstream_eval:
+                self.downstream_evaluator.eval()
+                fired_downstream_eval_this_step = True
 
             self.metric_logger.flush()
 
         if (
-            self.final_lm_eval
-            and self.evaluator is not None
-            and not fired_lm_eval_this_step
+            self.final_downstream_eval
+            and self.downstream_evaluator is not None
+            and not fired_downstream_eval_this_step
         ):
             self.metric_logger.set_step(self.step)
             self.metric_logger.set_tokens(self.processed_tokens)
-            self.evaluator.eval()
+            self.downstream_evaluator.eval()
             self.metric_logger.flush()
 
         if self._should_save_final_checkpoint:
@@ -338,8 +351,12 @@ class Trainer:
         losses = []
         eval_fingerprint = []
         with torch.no_grad():
-            for _ in range(self.n_eval_steps):
-                batch = next(self.eval_iterator)
+            for i in range(self.n_eval_steps):
+                batch = (
+                    self._fixed_eval_batches[i]
+                    if self.fixed_eval
+                    else next(self.eval_iterator)
+                )
                 batch_fingerprint = create_batch_fingerprint(batch)
                 eval_fingerprint.extend(batch_fingerprint)
                 batch = batch.to(self.device)

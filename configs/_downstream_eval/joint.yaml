@@ -1,4 +1,4 @@
-evaluator:
+downstream_evaluator:
   _partial_: true
   _target_: src.core.eval.Evaluator
   tokenizer: ${common.tokenizer}
@@ -12,11 +12,9 @@ evaluator:
     - sciq
     - social_iqa
     - lambada_standard
-    - coqa
-    - triviaqa
-    - race
-    - drop
-  limit: 500
+  limit: null  # No limit, evaluate on full datasets
   max_length: ${common.sequence_length}
-  max_gen_toks: 64
+  max_gen_toks: 8
   batch_size: 32
+  eval_interval: 0  # only at the end of the training
+  final_eval: true

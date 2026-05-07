@@ -1,0 +1,16 @@
+trainer:
+  checkpoint:
+    save:
+      type: nano
+      interval: ${eval:'((${trainer.n_steps} - 1) / 10)'}
+      steps: null
+      path: /lustre/pd03/plgrid/plgllmefficont3/context_scaling/models
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: __training_state_filename.pt
+
+    load:
+      type: nano
+      path: null
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: __training_state_filename.pt # not tested
+      only_weights: true # false not tested

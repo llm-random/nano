@@ -43,7 +43,7 @@ infrastructure:
     time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
-evaluator:
+downstream_evaluator:
   limit: 1
   device: cpu
 

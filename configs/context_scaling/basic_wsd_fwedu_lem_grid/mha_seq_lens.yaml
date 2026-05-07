@@ -5,7 +5,7 @@ defaults:
   - ../../_dataset@_here_: ctx_scl_dataset
   - ../../_checkpoints/context_scaling@_here_: shared_lem
   - ../../_misc@_here_: default
-  - ../../_eval@_here_: none
+  - ../../_downstream_eval@_here_: none
   - _self_
 
 common:

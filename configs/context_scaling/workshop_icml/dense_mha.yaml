@@ -1,0 +1,45 @@
+# @package _global_
+defaults:
+  - /_cluster@_here_:                helios
+  - /_model/context_scaling@_here_:  template
+  - /_trainer@_here_:                context_scaling
+  - /_dataset@_here_:                fineweb
+  - /_checkpoints/context_scaling@_here_: helios_icml_workshop
+  - /_infrastructure@_here_:         default
+  # - /_downstream_eval@_here_:        joint
+
+  - /_feedforward:                   dense  # moe
+  - /_attention:                     mha  # mqa
+  - /_parameterization:              simpleP_k12
+  - _self_
+
+common:
+  n_blocks: 16
+  batch_size: 128
+  sequence_length: 2048
+  data_seed: 301
+
+trainer:
+  n_steps: 160_001
+  learning_rate: 11
+  gradient_accumulation_steps: 1
+  eval_interval: 1000
+  scheduler:
+    warmup_steps: 2000
+
+infrastructure:
+  metric_logger:
+    heavy_metrics_calculation_interval: 1000
+    name: small
+    tags:
+      - nano
+      - workshop
+      - dense
+      - mha
+      - k${common.n_blocks}
+      - ${now:%Y-%m-%d}
+
+  slurm:
+    time: "2-00:00:00"
+    gres: gpu:4
+    job-name: ${infrastructure.metric_logger.name}

@@ -1,0 +1,3 @@
+# @package _global_
+common:
+  kv_heads: 1

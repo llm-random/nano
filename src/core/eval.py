@@ -208,6 +208,8 @@ class Evaluator:
     max_length: int
     max_gen_toks: int
     batch_size: int
+    eval_interval: int
+    final_eval: bool
     metric_logger: MetricLogger
     model: nn.Module
 

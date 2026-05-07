@@ -1,0 +1,3 @@
+# @package _global_
+common:
+  kv_heads: ${common.n_blocks}

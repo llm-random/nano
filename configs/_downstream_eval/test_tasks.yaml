@@ -1,6 +1,6 @@
 # Minimal evaluator config for smoke-testing run_decay.py --eval_config.
 # Uses limit=1 so it runs in seconds on a tiny model.
-evaluator:
+downstream_evaluator:
   _partial_: true
   _target_: src.core.eval.Evaluator
   tokenizer: ${common.tokenizer}
@@ -10,3 +10,5 @@ evaluator:
   max_length: ${common.sequence_length}
   max_gen_toks: 32
   batch_size: 1
+  eval_interval: ???
+  final_eval: false

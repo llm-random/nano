@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - /ff_layer@model.encoder.block_fn.ff_layer_fn: moe
+
+model:
+  encoder:
+    block_fn:
+      ff_layer_fn:
+        num_experts: 8
+        topk: 1
+        capacity_factor: 1.25
+        moe_load_balancing_loss_factor: 0.01
+        moe_router_z_loss_factor: 0.001
+        normalize_router_logits: false
+        activation_function: swiglu
+        init_scale: ${common.init_scale}

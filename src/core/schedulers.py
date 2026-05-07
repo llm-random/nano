@@ -28,15 +28,19 @@ class WSDScheduler(SequentialLR):
             total_iters=self.constant_steps,
         )
 
-        linear_decay_scheduler = LinearLR(
-            optimizer,
-            start_factor=1.0,
-            end_factor=0.0,
-            total_iters=decay_steps,
-        )
+        schedulers = [warmup_scheduler, constant_scheduler]
+        milestones = [warmup_steps]
 
-        schedulers = [warmup_scheduler, constant_scheduler, linear_decay_scheduler]
-        milestones = [warmup_steps, warmup_steps + self.constant_steps]
+        # Skip the decay branch when decay_steps=0: LinearLR(total_iters=0) divides by zero.
+        if decay_steps > 0:
+            linear_decay_scheduler = LinearLR(
+                optimizer,
+                start_factor=1.0,
+                end_factor=0.0,
+                total_iters=decay_steps,
+            )
+            schedulers.append(linear_decay_scheduler)
+            milestones.append(warmup_steps + self.constant_steps)
 
         super(WSDScheduler, self).__init__(
             optimizer, schedulers=schedulers, milestones=milestones

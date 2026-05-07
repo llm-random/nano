@@ -1,0 +1,73 @@
+Manual continuation plan (resume a long run with a follow-up SLURM job)
+========================================================================
+
+Context
+-------
+Helios SLURM time limit is 2 days. The 3 jobs running with
+configs/context_scaling/workshop_icml/{dense_mha,moe_mha,dense_mqa}.yaml
+won't finish in that window. We want a follow-up job that:
+  - waits for the original to finish (SLURM dependency)
+  - loads the latest checkpoint of the original
+  - continues training (with rewind_data so the data order matches)
+
+What already exists in the repo
+-------------------------------
+1. SLURM dependency: grid_generator/sbatch_builder.py:5-19 passes any key
+   from `infrastructure.slurm` through to sbatch. Adding
+       dependency: afterany:<JOBID>
+   produces `#SBATCH --dependency=afterany:<JOBID>`. No code change needed.
+
+2. Resume from checkpoint:
+   - src/core/checkpointing.py:81 `load_training_state` restores
+     `next_step` + `processed_tokens` from the training-state file.
+   - src/core/checkpointing.py:123 `load_checkpoint_from_file` does the
+     sharded model/optim/scheduler restore via `dcp.load`.
+
+3. Dataset rewind: src/core/trainer.py:96-97 already calls
+   `_rewind_train_iterator(start_step)` whenever `start_step > 0` and
+   `checkpoint.load.rewind_data` is true. Progress-logged skip in
+   trainer.py:103-125.
+
+4. wandb run continuation: `run_id` saved in the training-state file
+   (checkpointing.py:55) and re-used via `tracker_run_id` in main.py:317.
+
+What you have to flip / fill in (config only)
+---------------------------------------------
+In configs/_checkpoints/context_scaling/helios_icml_workshop.yaml (or a
+sibling):
+  - load.path: <absolute path to the last step_X dir of the prior job>
+  - load.only_weights: false   # currently true; comment: "false not tested"
+  - load.training_state_filename: __training_state_filename.pt
+  - load.rewind_data: true
+  - infrastructure.slurm.dependency: afterany:<JOBID>
+
+The one annoying bit
+--------------------
+`get_full_checkpoint_path` (checkpointing.py:73) nests *saves* under
+    {path}/{SLURM_JOB_ID}/{SLURM_ARRAY_TASK_ID}/step_{step}
+but `load.path` is read raw — no nesting applied. So `load.path` must
+point at the *resolved* directory, e.g.
+    /net/.../models/<old_job_id>/0/step_140001
+For 3 follow-ups this is fine to do by hand. If it'll be chained
+repeatedly, a tiny resolver that globs the newest step_* under
+`<save_root>/<prev_job_id>/0/` is ~15 lines in checkpointing.py.
+
+Effort estimate
+---------------
+- Manual per-job (recommended for these 3): 5 min per follow-up — copy
+  dense_mha.yaml → dense_mha_resume.yaml, fill in `load.path` +
+  `dependency`, submit. No Python changes.
+- Auto-resolver for `load.path` from a `from_job_id` field: ~20 lines.
+- Full `run_exp.py --continue-from JOBID` flag: ~60 lines; not worth it
+  for 3 jobs.
+
+Watch out for
+-------------
+- `only_weights: false` path is untested per the config comment — verify
+  on a tiny run first (tiny_local.yaml, checkpoint at step 50, restart
+  to step 100).
+- Rewinding 80k+ batches at bs=128, seq=2048 is non-trivial CPU time;
+  budget for it inside the 2-day window.
+- After the resume job runs, its own checkpoints land under its *new*
+  SLURM_JOB_ID, so a third leg would point at the second job's id, not
+  the first.

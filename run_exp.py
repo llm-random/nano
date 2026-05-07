@@ -121,6 +121,184 @@ def ConnectWithPassphrase(*args, **kwargs) -> Generator[Connection, None, None]:
         connection.close()
 
 
+def _fmt_n(n):
+    if n is None:
+        return "?"
+    if not isinstance(n, (int, float)):
+        return str(n)
+    if abs(n) >= 1e9:
+        return f"{n / 1e9:.2f}B"
+    if abs(n) >= 1e6:
+        return f"{n / 1e6:.2f}M"
+    if abs(n) >= 1e3:
+        return f"{n / 1e3:.2f}K"
+    return str(n)
+
+
+def _parse_n_gpu(slurm: dict) -> Optional[int]:
+    if not slurm:
+        return None
+    nodes = slurm.get("nodes", 1) or 1
+    gres = slurm.get("gres")
+    gpus_per_node = None
+    if isinstance(gres, str):
+        m = re.search(r"gpu:(\d+)", gres)
+        if m:
+            gpus_per_node = int(m.group(1))
+    if gpus_per_node is None:
+        return None
+    return nodes * gpus_per_node
+
+
+def summarize_config(config: dict) -> dict:
+    oc = OmegaConf.create(copy.deepcopy(config))
+    try:
+        OmegaConf.resolve(oc)
+    except Exception:
+        pass
+    common = OmegaConf.to_container(oc.get("common", {}), resolve=True) or {}
+    trainer = OmegaConf.to_container(oc.get("trainer", {}), resolve=True) or {}
+    infra = OmegaConf.to_container(oc.get("infrastructure", {}), resolve=True) or {}
+
+    n_steps = trainer.get("n_steps")
+    bs = common.get("batch_size")
+    seq = common.get("sequence_length")
+    n_tokens = (
+        n_steps * bs * seq
+        if all(isinstance(x, (int, float)) for x in (n_steps, bs, seq))
+        else None
+    )
+
+    # Approx params (notebook formula): attn = 2*(1 + kv/q) * d^2, ff = 3*d*dff*n_experts, ff_active = ff*top_k/n_experts.
+    n_params_total, n_params_active = None, None
+    try:
+        n_blocks = common["n_blocks"]
+        d = common["dmodel"]
+        dff = common["dff"]
+        q_heads = common["q_heads"]
+        kv_heads = common["kv_heads"]
+        vocab = common["vocab_size"]
+        ff_layer = (
+            ((oc.get("model") or {}).get("encoder") or {}).get("block_fn") or {}
+        ).get("ff_layer_fn") or {}
+        ff_layer = (
+            OmegaConf.to_container(ff_layer, resolve=True)
+            if not isinstance(ff_layer, dict)
+            else ff_layer
+        )
+        n_experts = ff_layer.get("num_experts", 1) or 1
+        top_k = ff_layer.get("topk", 1) or 1
+        attn = 2 * (1 + kv_heads / q_heads) * d * d
+        ff_total = 3 * d * dff * n_experts
+        ff_active = ff_total * top_k / n_experts
+        embed = vocab * d
+        n_params_total = int(n_blocks * (attn + ff_total) + 2 * embed)
+        n_params_active = int(n_blocks * (attn + ff_active) + embed)
+    except Exception:
+        pass
+
+    ckpt_save = (trainer.get("checkpoint") or {}).get("save") or {}
+    ckpt_path = ckpt_save.get("path")
+    ckpt_steps_cfg = ckpt_save.get("steps") or []
+    ckpt_interval = ckpt_save.get("interval")
+    tokens_per_step = (
+        bs * seq
+        if isinstance(bs, (int, float)) and isinstance(seq, (int, float))
+        else None
+    )
+    if ckpt_path is None:
+        ckpt_step_list = None
+    else:
+        # Display in "training step count" convention: subtract 1 from explicit-list values
+        # to align with periodic (interval) save points. Final stays at n_steps - 1.
+        steps_set = set()
+        for s in ckpt_steps_cfg:
+            if n_steps is None or s < n_steps:
+                steps_set.add(int(s) - 1)
+        if ckpt_interval and ckpt_interval > 0 and n_steps:
+            steps_set.update(range(int(ckpt_interval), n_steps, int(ckpt_interval)))
+        if n_steps:
+            steps_set.add(n_steps - 1)
+        ckpt_step_list = sorted(steps_set)
+
+    n_gpu = _parse_n_gpu(infra.get("slurm") or {})
+
+    token_param_ratio = (
+        n_tokens / n_params_active if n_tokens and n_params_active else None
+    )
+    return {
+        "n_params_total": n_params_total,
+        "n_params_active": n_params_active,
+        "total_tokens": n_tokens,
+        "token_param_ratio": token_param_ratio,
+        "checkpoint_steps": ckpt_step_list,
+        "tokens_per_step": tokens_per_step,
+        "n_steps": n_steps,
+        "n_gpu": n_gpu,
+    }
+
+
+def _format_ckpt_steps(steps, tokens_per_step, n_steps) -> str:
+    if steps is None:
+        return "disabled (path=null)"
+    if not steps:
+        return "none"
+    final_step = n_steps - 1 if n_steps else None
+    lines = []
+    for s in steps:
+        tag = " (final)" if s == final_step else ""
+        tok = f"{_fmt_n(s * tokens_per_step)} tokens" if tokens_per_step else "?"
+        lines.append(f"      step {s:<8} → {tok}{tag}")
+    return "\n" + "\n".join(lines)
+
+
+def format_summary(s: dict) -> str:
+    is_moe = (
+        s["n_params_total"] is not None
+        and s["n_params_active"] is not None
+        and s["n_params_total"] != s["n_params_active"]
+    )
+    if is_moe:
+        size_line = f"  model size:       active={_fmt_n(s['n_params_active'])}, total={_fmt_n(s['n_params_total'])}"
+    else:
+        size_line = f"  model size:       {_fmt_n(s['n_params_total'])}"
+    ratio = s["token_param_ratio"]
+    ratio_str = f"{ratio:.2f}" if ratio is not None else "?"
+    ckpt_str = _format_ckpt_steps(
+        s["checkpoint_steps"], s["tokens_per_step"], s["n_steps"]
+    )
+    return "\n".join(
+        [
+            size_line,
+            f"  tokens:           {_fmt_n(s['total_tokens'])}",
+            f"  tok/active_param: {ratio_str}",
+            f"  checkpoint steps:{ckpt_str}",
+            f"  n_gpu:            {s['n_gpu']}",
+        ]
+    )
+
+
+def print_grid_summary(configs_grid, output_folder: str):
+    n = len(configs_grid)
+    first_summary = summarize_config(configs_grid[0][0])
+    print(f"\n=== Experiment summary ({n} config{'s' if n != 1 else ''}) ===")
+    print("First config:")
+    print(format_summary(first_summary))
+
+    if n > 1:
+        os.makedirs(output_folder, exist_ok=True)
+        summary_path = os.path.join(output_folder, "summary.txt")
+        with open(summary_path, "w", encoding="utf-8") as f:
+            for i, (cfg_dict, overrides) in enumerate(configs_grid):
+                s = summarize_config(cfg_dict)
+                f.write(f"=== Config {i + 1}/{n} ===\n")
+                if overrides:
+                    f.write(f"overrides: {overrides}\n")
+                f.write(format_summary(s) + "\n\n")
+        print(f"\n{n} configs total — full summary written to: {summary_path}")
+    print()
+
+
 def get_experiment_components(
     hydra_config: OmegaConf,
 ) -> str:
@@ -170,12 +348,18 @@ def wait_for_job_id(connection, tmux_pane, tries: int = 3):
 def submit_experiment(
     cfg: OmegaConf,
 ):
-    missing_keys: set[str] = OmegaConf.missing_keys(cfg)
-    if missing_keys:
-        raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
-
     configs_grid = create_grid_config(cfg)
+    for config, _overrides in configs_grid:
+        missing_keys: set[str] = OmegaConf.missing_keys(OmegaConf.create(config))
+        if missing_keys:
+            raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
+
     dump_grid_configs(configs_grid, cfg.infrastructure.generated_configs_path)
+    print_grid_summary(configs_grid, cfg.infrastructure.generated_configs_path)
+
+    if cfg.get("dry_run", False):
+        print("dry_run=true — exiting after summary.")
+        return
 
     script = cfg.infrastructure.get("script", None)
     max_concurrent_jobs = cfg.infrastructure.get("max_concurrent_jobs", None)

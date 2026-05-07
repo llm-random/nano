@@ -1,0 +1,3 @@
+# @package _global_
+simpleP:
+  base_dmodel: 768

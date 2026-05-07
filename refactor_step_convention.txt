@@ -1,0 +1,82 @@
+# Refactor: switch trainer step convention from 0-indexed to 1-indexed
+
+## Context
+
+The codebase currently uses a 0-indexed step convention that creates persistent off-by-one confusion:
+
+- `self.step` runs from `0` to `n_steps - 1` (loop is `range(0, n_steps)`).
+- Configs have to set `n_steps = N + 1` (e.g. `320_001`) to make scheduler/interval math work out cleanly — see comment in `configs/context_scaling/workshop_icml/dense_mha.yaml`: `# token-matched: 8001 steps @ bs=128 -> (8000 * 128 / bs) + 1`.
+- Explicit checkpoint `steps:` lists carry the same `+1` shift (`[1, 10_001, 20_001, ...]`) to align with periodic saves at `(n_steps - 1) / k`.
+- Step `0` is special-cased and skipped for evals/saves (`self.step == 0` guards in `_should_evaluate`, `_should_save_checkpoint`, `_should_run_downstream_eval`).
+- The first iteration runs `optimizer.step()` *before* any save can fire, so a save at `self.step = 1` reflects 2 gradient updates, not 1 — which produces nonsensical UX in run summaries (e.g. `step 0 → 0 tokens` when the state actually has 262K tokens of training).
+
+## Goal
+
+After this refactor:
+
+- `self.step` runs from `1` to `n_steps` inclusive. Loop becomes `range(1, n_steps + 1)`.
+- `n_steps` equals the **literal number of optimizer steps** the run will perform. The `+1` quirk in configs disappears.
+- `step k` (where `k ∈ [1, n_steps]`) means "after `k` optimizer.step() calls" — same convention as wandb's logged step.
+- Periodic saves fire at `step % interval == 0`, which now naturally aligns with `[interval, 2*interval, ...]` (no off-by-one).
+- The `step == 0` skip guards become unnecessary (loop never enters `step = 0`).
+
+## Files to touch
+
+### Code
+
+- **`src/core/trainer.py`**
+  - Loop: `for step, batch in zip(range(self.start_step, self.n_steps), self.train_iterator)` → `range(self.start_step, self.n_steps + 1)` (with `start_step` defaulting to `1`, see checkpointing below).
+  - Drop all `self.step == 0` / `self.step != 0` guards in `_should_evaluate` (line 132), `_should_save_checkpoint` (line 150), `_should_run_downstream_eval` (line 145).
+  - `_should_save_final_checkpoint`: replace `self.step >= self.n_steps - 1` with `self.step >= self.n_steps`.
+  - `self.step = self.start_step - 1` initialization at line 80 — re-derive (probably `self.start_step` directly, or remove).
+  - Eval-state-restore counter at line 89: `(self.start_step - 1) // self.eval_interval` may need adjustment.
+  - Audit every other `self.step` use in this file (see grep below) — `_rewind_train_iterator`, `eval()`, `save_checkpoint()` filename composition, downstream eval calls.
+
+- **`src/core/checkpointing.py`**
+  - Line 62: `{"next_step": step + 1, ...}` — under the new convention this stays correct (resume from step+1) but verify semantics match.
+  - Line 82: initial `{"next_step": 0, ...}` → `{"next_step": 1, ...}`.
+
+- **`src/core/schedulers.py`**
+  - `WSDScheduler.__init__` (line 9): `self.constant_steps = n_steps - warmup_steps - decay_steps` — unchanged in formula but verify behavior at the new boundary (final step now equals `n_steps`, not `n_steps - 1`).
+  - Line 80 `after_warmup_steps = n_steps - warmup_steps - 1` — the `- 1` may become unneeded.
+  - `scheduler.step()` is called once per training step inside the trainer loop; counter inside scheduler now goes up to `n_steps` rather than `n_steps - 1`.
+
+### Configs (every config that sets `n_steps` or explicit checkpoint `steps:`)
+
+Search with `grep -rn "n_steps\|steps:" configs/` and update:
+
+- `n_steps: 320_001` → `n_steps: 320_000`. Apply this to **all** configs — `tiny_local.yaml`, `tiny_remote.yaml`, the entire `configs/context_scaling/**`, `configs/_trainer/**`, `configs/exp.yaml`, `moe_example_run.yaml`, etc.
+- Explicit checkpoint `steps:` lists: `[1, 10_001, 20_001, 40_001, 80_001, 120_001, 160_001]` → `[1, 10_000, 20_000, 40_000, 80_000, 120_000, 160_000]`. Files: `configs/_checkpoints/context_scaling/{helios_icml_workshop,shared_helios,shared_entropy,lem_1,lem_10}.yaml`, `configs/_checkpoints/mas/*.yaml`.
+- Interval expressions: `${eval:'((${trainer.n_steps} - 1) / 4)'}` → `${eval:'(${trainer.n_steps} / 4)'}`.
+- Comment in `dense_mha.yaml` (`# token-matched: 8001 steps @ bs=128 -> (8000 * 128 / bs) + 1`) — drop the `+ 1`.
+
+### Run-summary script
+
+- **`run_exp.py`** — `summarize_config` / `_format_ckpt_steps`: drop the `int(s) - 1` transform and the `n_steps - 1` final-step computation. With the new convention, save fires at `self.step = config_step` and final fires at `self.step = n_steps`. Tokens at step `k` = `k * bs * seq`.
+
+## Backwards compatibility / gotchas
+
+- **Existing checkpoints**: any saved `training_state` with `next_step` from the old convention will be off by 1 if loaded with the new code. Decide: (a) document that resumed runs from old checkpoints will be one step short / one step ahead, or (b) add a migration that rewrites `next_step` on load if a sentinel is present. The scope of past runs that anyone wants to resume is likely small — start with (a) plus a clear note in the PR.
+- **wandb history**: existing runs in wandb will have step `0..n-1`; new runs will have `1..n`. Mixing them on the same plot creates a visible 1-step shift. Acceptable; flag in the PR.
+- **MAS cluster paths in the saved-checkpoint filenames**: confirm `step_checkpoint_path(path, step)` doesn't assume a particular range.
+- **`_rewind_train_iterator`** uses `self.start_step` to skip batches — verify it still consumes the right number under the new convention.
+- **Schedulers**: WSD has warmup/constant/decay phases keyed off `n_steps`. After the refactor the final `scheduler.step()` is called when `self.step == n_steps`. If the scheduler internally counts from 0, ensure the warmup/decay boundaries still land where intended (test by printing LR at boundaries).
+
+## Test plan
+
+1. **Unit-ish smoke test** with `pixi run python main.py --config-name tiny_local +trainer.n_steps=10 ...` (use CLI overrides minimally; bake repeated overrides into the config). Verify:
+   - Loop runs exactly 10 iterations.
+   - `self.step` values are `1..10`.
+   - `metric_logger` step in wandb logs starts at `1`, ends at `10`.
+   - With `interval: 5`, saves fire at step 5 and step 10 (final, dedup'd to a single save).
+2. **Scheduler boundaries**: print LR at every step for a tiny run with `warmup_steps=2, decay_steps=2, n_steps=10`. Confirm warmup ends at step 2, decay starts at step 9 (or whatever the intended boundary is).
+3. **Resume**: run for 5 steps with checkpoint save, resume to 10. Verify training continues from step 6 and ends at step 10.
+4. **`run_exp.py --dry_run`** on `context_scaling/workshop_icml/dense_mha`: the printout should now read `step 10000 → 1.31B tokens, …, step 320000 → 41.94B tokens (final)` with no off-by-one weirdness.
+
+## Out of scope
+
+- Changing `gradient_accumulation_steps` semantics.
+- Changing how wandb is configured.
+- Renaming any other counters (`processed_tokens`, etc.).
+
+Keep the diff focused on the step-numbering convention — touch eval/scheduler/checkpoint code only as needed to preserve current behavior under the new numbering.

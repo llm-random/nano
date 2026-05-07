@@ -16,7 +16,7 @@ pixi run python src/context_scaling/scripts/run_decay.py \
     --steps 200 500 \
     --decay_fraction 0.1 \
     --train_data_seed 999 \
-    --eval_config configs/_eval/test_tasks.yaml \
+    --eval_config configs/_downstream_eval/test_tasks.yaml \
     --job_name test_decay_eval \
     --max_concurrent_jobs 2 \
     --slurm_time "00:10:00" \

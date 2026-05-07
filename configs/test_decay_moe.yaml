@@ -1,0 +1,78 @@
+defaults:
+  - _cluster@_here_: entropy
+  - _model/context_scaling@_here_: k12
+  - _trainer@_here_: context_scaling
+  - _dataset@_here_: c4
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+  - override /ff_layer@model.encoder.block_fn.ff_layer_fn: moe
+  - _self_
+
+common:
+  tokenizer: gpt2
+  sequence_length: 512
+  batch_size: 128
+
+simpleP:
+  base_dmodel: 256  
+
+model:
+  encoder:
+    block_fn:
+      ff_layer_fn:
+        num_experts: 4
+        topk: 1
+        capacity_factor: 1.25
+        moe_load_balancing_loss_factor: 0.01
+        moe_router_z_loss_factor: 0.001
+        normalize_router_logits: false
+        activation_function: swiglu
+        init_scale: ${common.init_scale}
+      attention_fn:
+        compile: false
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 1001
+  learning_rate: 9
+  downstream_eval_interval: 0
+
+  checkpoint:
+    save:
+      type: nano
+      interval: 100
+      path: /storage_nvme_2/nano/$USER/models
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: __training_state_filename.pt
+
+    load:
+      type: nano
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      training_state_filename: null
+      only_weights: true
+      rewind_data: false
+
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+
+infrastructure:
+  max_concurrent_jobs: 1
+
+  metric_logger:
+    name: test_decay_moe
+    tags:
+      - nano
+      - test_decay_moe
+      - moe
+
+  slurm:
+    time: "00:30:00"
+    gres: gpu:4
+    job-name: ${infrastructure.metric_logger.name}

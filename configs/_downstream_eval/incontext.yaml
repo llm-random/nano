@@ -1,0 +1,14 @@
+downstream_evaluator:
+  _partial_: true
+  _target_: src.core.eval.Evaluator
+  tokenizer: ${common.tokenizer}
+  tasks:
+    - race
+    - coqa
+    - triviaqa
+    - drop
+  max_length: ${common.sequence_length}
+  max_gen_toks: 64
+  batch_size: 16
+  eval_interval: ???
+  final_eval: false
