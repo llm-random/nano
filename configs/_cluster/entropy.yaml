@@ -12,7 +12,7 @@ infrastructure:
     
   script:
     - '${export_env_variables_placeholders:}'
-    - 'export PROJECT_HOME_PATH=/storage_nvme_4/nano/$USER'
+    - 'export PROJECT_HOME_PATH=/storage_nvme_2/nano/$USER'
 
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
