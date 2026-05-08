@@ -50,7 +50,8 @@ cluster_switch:
   eval_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
   train_path_sst2: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/sst2/train"
   eval_path_sst2: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/sst2/validation"
-
+  train_path_mnli: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/mnli/train"
+  eval_path_mnli: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/mnli/validation"
 
 trainer:
   checkpoint:

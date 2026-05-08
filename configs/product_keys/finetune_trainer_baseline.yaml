@@ -1,64 +1,84 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  # - /_cluster/helios@_here_
+  - /_cluster/lem@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/c4@_here_
+  - /_dataset/mnli@_here_
+  # - /_dataset/sst2@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
 
 common:
-  sequence_length: 1024
   batch_size: 64
-  dmodel: 1024
+  datt: 1024
   dff: 2724
-  datt: ${common.dmodel}
+  dmodel: 1024
+  kv_heads: 16
   n_blocks: 16
   q_heads: 16
-  kv_heads: 16
+  sequence_length: 1024
   vocab_size: 50304
-  init_scale: 0.5
+
 
 trainer:
-  _target_: src.product_keys.trainer.MaskedLMTrainer
-  masking_percentage: 0.2
-  mask_token_id: 50257
-  unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
-  gradient_accumulation_steps: 2
-  n_steps: 15000  # 77050
-  ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
-  # note that schedular is not 0.1 as is the case with pk_mlm but the default 0.01
+  _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
+  gradient_accumulation_steps: 4
+  # n_steps: 20000
+  n_steps: 20000
+  full_eval_rows: 2000
+  learning_rate: 2e-4
+  # ^learning_rate: [2e-4, 5e-4, 1e-3, 2e-3]
+  d_model: ${common.dmodel}
+  vocab_size: ${common.vocab_size}
+
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
+
   train_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+        seq_len: ${common.sequence_length}
+
   eval_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+        seq_len: ${common.sequence_length}
 
+  checkpoint:
+    load:
+      type: nano
+      path: /lustre/pd03/plgrid/plgllmefficont3/pk_attention/model_checkpoints/5110804/0/step_80000
+      # path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/finetune_checkpoints/baseline_full_run
+      model_checkpoint_filename: model_checkpoint.pt
+      training_state_filename: training_state.pt
+      only_weights: true 
+
+    save:
+      type: nano
+      interval: 4000
+      # path: /lustre/pd03/plgrid/plgllmefficont3/pk_attention/model_checkpoints/
 
 infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: baseline_lr_grid
     project_name: tml-bgw
-    heavy_metrics_calculation_interval: 1000
-    heavy_logging_layers: [0, 10, 15]
+    name: baseline-finetunetrainer-mnli-${now:%Y-%m-%d_%H-%M-%S}
     tags:
       - nano
-      - baseline
-      - 2026.04.19
-      - warmup_steps=${trainer.scheduler.warmup_steps}
-      - learning_rate_grid
+      - pk_mlm
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
-      - "dmodel=${common.dmodel}"
-      - seed=${trainer.train_dataloader.dataset.seed}
+      - "lr=${trainer.learning_rate}"
+
   slurm:
-    gres: gpu:2
+    # gres: gpu:4
+    gres: gpu:hopper:4
     time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
@@ -169,3 +189,4 @@ model:
       _partial_: true
       eps: 1e-5
       normalized_shape: ${common.dmodel}
+

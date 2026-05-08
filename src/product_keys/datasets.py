@@ -74,6 +74,11 @@ class GlueDataset(AbstractDataset):
         if self.task_name == "sst2":
             hf_dataset = hf_dataset.map(lambda x: {"text": x["sentence"]})
 
+        elif self.task_name == "mnli":
+            hf_dataset = hf_dataset.map(lambda x: {"text_1": x["premise"], 
+                                                   "text_2": x["hypothesis"]})
+        
+
         self.data_generator = hf_dataset.map(tokenize_fn, batched=True)
 
     def sample_packer(self):
@@ -92,6 +97,27 @@ class GlueDataset(AbstractDataset):
             for next_sample in self.data_generator:
                 yield next_sample
             epoch += 1
+
+    def full_sample_packer(self):
+        sampler = iter(self.get_full_sampler())
+        for full_sample in sampler:
+            tokens = full_sample['input_ids']
+            label = full_sample['label']
+            attention_mask = full_sample['attention_mask']
+            yield (tokens, label, attention_mask)
+
+    def get_full_sampler(self):
+        for next_sample in self.data_generator:
+            yield next_sample
+
+
+    def full_iter(self):
+        if self.world_size_independent:
+            return itertools.islice(
+                self.full_sample_packer(), self.rank, None, self.world_size
+            )
+        else:
+            return self.full_sample_packer()
 
 
 def gpt2_mask_tokenize_fn():
@@ -150,6 +176,37 @@ def glue_tokenize_fn(seq_len: int):
 
     return tokenize_function
 
+def glue_2_sentences_tokenize_fn(seq_len: int):
+    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    
+    current_size = tokenizer.vocab_size
+    diff_multiple_64 = (((current_size // 64) + 1) * 64 - current_size) % 64
+    tokens_to_add = diff_multiple_64 - 3  # mask token, cls token, sep token
+    additional_special_tokens = [f"<|extra_token_{i}|>" for i in range(tokens_to_add)]
+    tokenizer.add_special_tokens(
+        {
+            "mask_token": "<|mask|>",
+            "cls_token": "<|cls|>",
+            "sep_token": "<|sep|>",
+            "additional_special_tokens": additional_special_tokens,
+        }
+    )
+    tokenizer.pad_token = tokenizer.eos_token
+
+    def tokenize_function(examples):        
+        examples['text'] = [f"{tokenizer.cls_token} {text1} {tokenizer.sep_token} {text2}"
+                            for text1, text2 in zip(examples['text_1'], examples['text_2'])]
+        batch_encodings = tokenizer(
+            examples["text"],
+            padding="max_length",
+            truncation=True,
+            max_length=seq_len,
+        ) 
+        return batch_encodings
+
+    return tokenize_function
+
+
 def glue_collate_wrapper(examples):
     inputs = [item[0] for item in examples]
     labels = [item[1] for item in examples]
@@ -157,10 +214,7 @@ def glue_collate_wrapper(examples):
 
     collated_inputs = collate_wrapper(inputs)
     collated_labels = torch.tensor(labels, dtype=torch.int64)
-    collated_attention_masks = collate_wrapper(attention_masks)
-
-    # logger.info(f"{collated_inputs.shape=}")
-    # logger.info(f"{collated_labels.shape=}")
-    # logger.info(f"{collated_attention_masks.shape=}")
+    collated_attention_masks = collate_wrapper(attention_masks).bool()
 
     return collated_inputs, collated_labels, collated_attention_masks
+

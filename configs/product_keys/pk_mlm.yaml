@@ -16,7 +16,7 @@ trainer:
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
   # n_steps: 77050
-  n_steps: 15001
+  n_steps: 10
   # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
   learning_rate: 2e-3
   scheduler:
@@ -36,9 +36,9 @@ trainer:
   checkpoint:
     save:
       interval: -1
-    load:
-      path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/model_checkpoints/plgggwozdz02/16187802/0/step_104
-      only_weights: false # false not tested
+    # load:
+    #   path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/model_checkpoints/plgggwozdz02/16187802/0/step_104
+    #   only_weights: false # false not tested
 
 
 infrastructure:

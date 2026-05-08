@@ -3,7 +3,8 @@ defaults:
   - _self_
 
 trainer:
-  num_labels: 2
+  num_labels: 3
+  n_eval_steps: 30
 
   train_dataloader:
     collate_fn: 
@@ -11,10 +12,11 @@ trainer:
       _partial_: true
     dataset:
       _target_: src.product_keys.datasets.GlueDataset
-      sequence_length: ${common.sequence_length}
       tokenize_fn:
-        _target_: src.product_keys.datasets.glue_tokenize_fn
-      path:  ${cluster_switch.train_path_sst2}
+        _target_: src.product_keys.datasets.glue_2_sentences_tokenize_fn
+      task_name: mnli
+      sequence_length: ${common.sequence_length}
+      path:  ${cluster_switch.train_path_mnli}
       split: train
       seed: 123
       use_new_sampling_method: true
@@ -28,10 +30,11 @@ trainer:
       _partial_: true
     dataset:
       _target_: src.product_keys.datasets.GlueDataset
-      sequence_length: ${common.sequence_length}
       tokenize_fn:
-        _target_: src.product_keys.datasets.glue_tokenize_fn
-      path: ${cluster_switch.eval_path_sst2}
+        _target_: src.product_keys.datasets.glue_2_sentences_tokenize_fn
+      task_name: mnli
+      sequence_length: ${common.sequence_length}
+      path: ${cluster_switch.eval_path_mnli}
       split: validation
       seed: 123
       use_new_sampling_method: true

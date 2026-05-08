@@ -15,14 +15,8 @@ class TransformerHead(nn.Module):
         self.linear = nn.Linear(d_model, num_labels, bias=False, dtype=torch.float32)
 
     def forward(self, x):
-        logger.info(f"Before norm shape: {x.shape}")
-        logger.info(f"x before norm = {x[:, :4, :4]}")
         x = self.norm(x)
-        logger.info(f"After norm shape: {x.shape}")
-        logger.info(f"x normalized = {x[:, :4, :4]}")
         x =  self.linear(x)
-        logger.info(f"After linear shape: {x.shape}")
-        logger.info(f"x linear = {x[:, :4, :4]}")
         return x
 
 
@@ -47,23 +41,10 @@ class ModelSequenceClassification(nn.Module):
     def forward(self, input_ids, attention_mask=None):
 
         model_dtypes = set([param.dtype for param in self.backbone.parameters()])
-        logger.debug(f"Backbone model dtypes: {list(model_dtypes)}")
-
+        
         hidden_states = self.backbone(input_ids, attention_mask=attention_mask)
-
-        logger.debug(f"Hidden states shape: {hidden_states.shape}")
-        logger.debug(f"Hidden states type: {hidden_states.dtype}")
 
         # take hidden states from [CLS] token
         logits = hidden_states[:, 0, :]
-        logger.debug(f"CLS token hidden states shape: {logits.shape}")
-
-        # logits = self.score(cls_token_hidden_states)
-
-        # if self.count % 5 == 0:
-        #     logger.info(f"Logits shape: {logits.shape}")
-        #     logger.info(f"{logits=}")
-
-        # self.count += 1
 
         return logits

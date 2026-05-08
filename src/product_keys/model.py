@@ -569,12 +569,8 @@ class LLM(LLM_projected_compression):
 
     def forward(self, *args, **kwargs):
         attention_mask = kwargs.pop("attention_mask", None)
-        logger.info(f"Input shape: {args[0].shape}")
-        logger.info(f"input: {args[0][:, :4]}")
         x = self.embedding(*args, **kwargs)
-        logger.info(f"After embedding: {x[:, :4]}")
         x = self.encoder(x, attention_mask=attention_mask)
-        logger.info(f"After encoder: {x[:, :4]}")
         x = self.head(x)
         return x
 

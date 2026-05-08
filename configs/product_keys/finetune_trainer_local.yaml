@@ -3,7 +3,8 @@ defaults:
   - /_cluster/local@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/sst2@_here_
+#  - /_dataset/sst2@_here_
+  - /_dataset/mnli@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
@@ -31,17 +32,16 @@ trainer:
   learning_rate: 1e-3
   d_model: ${common.dmodel}
   vocab_size: ${common.vocab_size}
+  
 
   train_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.product_keys.datasets.glue_tokenize_fn
         seq_len: ${common.sequence_length}
 
   eval_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.product_keys.datasets.glue_tokenize_fn
         seq_len: ${common.sequence_length}
 
   checkpoint:

@@ -438,6 +438,9 @@ def attention_mechanism(
     with torch.nn.attention.sdpa_kernel(
         [SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]
     ):
+        if attention_mask is not None:
+            attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+
         return F.scaled_dot_product_attention(
             query=query,
             key=key,
