@@ -1,0 +1,49 @@
+# @package _global_
+defaults:
+  - ../_cluster@_here_: lem
+  - ../_model/context_scaling@_here_: k20
+  - ../_trainer@_here_: context_scaling
+  - ../_dataset@_here_: ctx_scl_dataset
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - override /ff_layer@model.encoder.block_fn.ff_layer_fn: moe
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 64
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 5_001
+  ^learning_rate: [4, 5, 6, 7, 8, 9, 10, 11]
+  eval_interval: 500
+
+simpleP:
+  base_dmodel: 256
+
+model:
+  encoder:
+    block_fn:
+      ff_layer_fn:
+        num_experts: 8
+        topk: 1
+        capacity_factor: 1.25
+        moe_load_balancing_loss_factor: 0.01
+        moe_router_z_loss_factor: 0.001
+        normalize_router_logits: false
+        activation_function: swiglu
+        init_scale: ${common.init_scale}
+
+infrastructure:
+  metric_logger:
+    name: simpleP_moe_k20
+    tags:
+      - nano
+      - simpleP_moe
+      - k20
+
+  slurm:
+    time: "0-04:00:00"
+    gres: gpu:hopper:4
+    job-name: ${infrastructure.metric_logger.name}
