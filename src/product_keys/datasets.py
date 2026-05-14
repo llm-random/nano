@@ -28,7 +28,7 @@ class GlueDataset(AbstractDataset):
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
         world_size_independent: bool = False,
-        task_name: str = "sst2",
+        task_name: Optional[str] = None,
     ):
         super().__init__(
             sequence_length,

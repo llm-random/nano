@@ -3,8 +3,9 @@ defaults:
   - /_cluster/local@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-#  - /_dataset/sst2@_here_
-  - /_dataset/mnli@_here_
+  # - /_dataset/sst2@_here_
+  # - /_dataset/mnli@_here_
+  - /_dataset/imdb@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
@@ -28,7 +29,11 @@ common:
 trainer:
   _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
   gradient_accumulation_steps: 2
-  n_steps: 3
+  n_steps: 151
+  freeze_backbone: true
+  trainable_modules: ["head"]
+  eval_interval: 10
+  full_eval_rows: 2000
   learning_rate: 1e-3
   d_model: ${common.dmodel}
   vocab_size: ${common.vocab_size}

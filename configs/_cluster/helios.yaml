@@ -52,6 +52,8 @@ cluster_switch:
   eval_path_sst2: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/sst2/validation"
   train_path_mnli: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/mnli/train"
   eval_path_mnli: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/mnli/validation"
+  train_path_imdb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/imdb/train"
+  eval_path_imdb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/imdb/test"
 
 trainer:
   checkpoint:

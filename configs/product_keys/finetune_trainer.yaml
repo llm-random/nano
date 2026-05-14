@@ -1,12 +1,13 @@
 # @package _global_
 defaults:
-  - /_cluster/lem@_here_
-  # - /_cluster/helios@_here_
+  # - /_cluster/lem@_here_
+  - /_cluster/helios@_here_
   - /_model/tiny@_here_
   - /product_keys/pk_model@_here_
   - /_trainer/llama@_here_
   # - /_dataset/sst2@_here_
-  - /_dataset/mnli@_here_
+  # - /_dataset/mnli@_here_
+  - /_dataset/imdb@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
@@ -27,10 +28,14 @@ trainer:
   _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
   
   gradient_accumulation_steps: 4
-  n_steps: 20000
+  eval_interval: 50
+  n_steps: 5000
   # n_steps: 4000
   full_eval_rows: 2000
-  ^learning_rate: [2e-4, 5e-4, 1e-3, 2e-3]
+  # ^learning_rate: [2e-4, 5e-4, 1e-4, 2e-3]
+  ^learning_rate: [5e-4, 2e-3, 2e-4, 1e-4]
+  freeze_backbone: true
+  trainable_modules: ["head"]
   d_model: ${common.dmodel}
   vocab_size: ${common.vocab_size}
 
@@ -48,14 +53,15 @@ trainer:
 
   eval_dataloader:
     dataset:
+      shuffle: false
       tokenize_fn:
         seq_len: ${common.sequence_length}
 
   checkpoint:
     load:
       type: nano
-      path: /lustre/pd03/plgrid/plgllmefficont3/pk_attention/model_checkpoints/5110806/0/step_80000
-      # path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/finetune_checkpoints/pk_attn_full_run
+      # path: /lustre/pd03/plgrid/plgllmefficont3/pk_attention/model_checkpoints/5110806/0/step_80000
+      path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/finetune_checkpoints/pk_attn_full_run
       model_checkpoint_filename: model_checkpoint.pt
       training_state_filename: training_state.pt
       only_weights: true 
@@ -72,7 +78,8 @@ infrastructure:
     type: wandb
     wandb_entity: ideas_cv
     project_name: tml-bgw
-    name: pk_mlm-finetunetrainer-mnli-${now:%Y-%m-%d_%H-%M-%S}
+    # name: pk_mlm-finetunetrainer-${oc.select:model.freeze_backbone, false}-${trainer.train_dataloader.dataset.task_name}
+    name: pk_mlm-finetunetrainer-freeze-${trainer.train_dataloader.dataset.task_name}
     tags:
       - nano
       - pk_mlm
@@ -81,8 +88,8 @@ infrastructure:
       - "lr=${trainer.learning_rate}"
 
   slurm:
-    # gres: gpu:4
-    gres: gpu:hopper:4
+    gres: gpu:4
+    # gres: gpu:hopper:4
     time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 

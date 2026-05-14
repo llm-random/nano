@@ -74,9 +74,6 @@ class FinetuningTrainer(TrainerWithVocabSize):
 
         logger.info(f"{self.distributed=}")
 
-        if self.freeze_backbone:
-            self._freeze_model_layers()
-
         self.model = create_classifier_model(
             model=self.model,
             device=self.device,
@@ -84,14 +81,13 @@ class FinetuningTrainer(TrainerWithVocabSize):
             num_labels=self.num_labels,
             distributed=self.distributed)
 
+        if self.freeze_backbone:
+            self._freeze_model_layers()
+            
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        self.optimizer.param_groups[0]['params'] = trainable_params
+
         self.eval_dataset = self.eval_dataloader.dataset
-        self.full_eval_dataloader = DataLoader(
-            FullIterDataset(self.eval_dataset),
-            batch_size=self.eval_dataloader.batch_size,
-            collate_fn=self.eval_dataloader.collate_fn,
-            pin_memory=self.eval_dataloader.pin_memory,
-            num_workers=self.eval_dataloader.num_workers,
-        )
 
         self.full_eval_batches = int(math.ceil(self.full_eval_rows / self.eval_dataloader.batch_size))
             
@@ -100,13 +96,17 @@ class FinetuningTrainer(TrainerWithVocabSize):
         logger.info("Freezing backbone layers...")
         for name, param in self.model.named_parameters():
             should_train = any(mod in name for mod in self.trainable_modules)
-            
             if not should_train:
                 param.requires_grad = False
             else:
                 param.requires_grad = True
 
-    
+    def _print_trainable_parameters(self):
+        print("Trainable parameters:")
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                print(name)
+
     def train(self):
         for step, batch in zip(
             range(self.start_step, self.n_steps), self.train_dataloader
@@ -210,7 +210,15 @@ class FinetuningTrainer(TrainerWithVocabSize):
         self.metric_logger.set_step(None)  # disables heavy logging
         losses = []
         eval_fingerprint = []
-        eval_iter = iter(self.full_eval_dataloader)
+        full_eval_dataloader = DataLoader(
+            FullIterDataset(self.eval_dataset),
+            batch_size=self.eval_dataloader.batch_size,
+            collate_fn=self.eval_dataloader.collate_fn,
+            pin_memory=self.eval_dataloader.pin_memory,
+            num_workers=self.eval_dataloader.num_workers,
+        )
+        eval_iter = iter(full_eval_dataloader)
+
 
         with torch.no_grad():
             for _ in range(self.full_eval_batches):

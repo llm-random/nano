@@ -15,3 +15,6 @@ cluster_switch:
   eval_path_sst2: "data/ft_dataset/sst2/test"
   train_path_mnli: "data/ft_dataset/mnli/train"
   eval_path_mnli: "data/ft_dataset/mnli/validation"
+  train_path_imdb: "data/ft_dataset/imdb/train"
+  eval_path_imdb: "data/ft_dataset/imdb/test"
+  

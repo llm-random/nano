@@ -40,3 +40,6 @@ cluster_switch:
   eval_path_sst2: "/lustre/pd03/plgrid/plgllmefficont3/datasets/sst2/validation"
   train_path_mnli: "/lustre/pd03/plgrid/plgllmefficont3/datasets/mnli/train"
   eval_path_mnli: "/lustre/pd03/plgrid/plgllmefficont3/datasets/mnli/validation"
+  train_path_imdb: "/lustre/pd03/plgrid/plgllmefficont3/datasets/imdb/train"
+  eval_path_imdb: "/lustre/pd03/plgrid/plgllmefficont3/datasets/imdb/test"
+

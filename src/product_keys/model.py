@@ -95,10 +95,6 @@ class RoPETopKAttention(nn.Module):
 
         self.causal = causal
 
-        self.causal = causal
-
-        self.causal = causal
-
         self.rope = RoPE(
             dhead=self.dhead,
             length=seq_len,
