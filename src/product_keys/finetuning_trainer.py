@@ -10,21 +10,9 @@ from src.product_keys.trainer import TrainerWithVocabSize
 from src.core.utils import create_batch_fingerprint
 from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger, WandbLogger
 from src.product_keys.model_sequence_classifiaction import ModelSequenceClassification
-from src.product_keys.datasets import GlueDataset
+from src.product_keys.datasets import GlueDataset, FullIterDataset, GlueLengthSplitDataset
 import math
 
-
-
-class FullIterDataset(IterableDataset):
-    def __init__(self, dataset: GlueDataset):
-        self.dataset = dataset
-
-    def __iter__(self):
-        return self.dataset.full_iter()
-
-
-# for now focus solely on sst2
-# SST2_LABELS: int = 2
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +52,7 @@ def create_classifier_model(model: torch.nn.Module,
 class FinetuningTrainer(TrainerWithVocabSize):
     d_model: int
     num_labels: int
-    full_eval_rows: int
+    full_eval_rows: Optional[int] = None
     freeze_backbone: bool = field(default=False)
     trainable_modules: list = field(factory=list)
     loss_fct = torch.nn.CrossEntropyLoss()
@@ -87,10 +75,23 @@ class FinetuningTrainer(TrainerWithVocabSize):
         trainable_params = [p for p in self.model.parameters() if p.requires_grad]
         self.optimizer.param_groups[0]['params'] = trainable_params
 
-        self.eval_dataset = self.eval_dataloader.dataset
+        self.eval_function = self.eval
+        eval_dataset = self.eval_dataloader.dataset
 
-        self.full_eval_batches = int(math.ceil(self.full_eval_rows / self.eval_dataloader.batch_size))
-            
+        is_length_split = isinstance(eval_dataset, GlueLengthSplitDataset)
+        assert not (is_length_split and self.full_eval_rows is None), "full_eval_rows is required for length split dataset in eval"
+
+        if self.full_eval_rows is not None:
+            self.eval_dataset = eval_dataset
+            self.eval_function = self.full_eval_length_split if is_length_split else self.eval
+        
+        if is_length_split:
+            self.split_values = eval_dataset.split_values + [float("inf")]
+
+        self.full_eval_batches = (
+            int(math.ceil(self.full_eval_rows / self.eval_dataloader.batch_size)) 
+            if self.full_eval_rows is not None else None
+        )
         
     def _freeze_model_layers(self):
         logger.info("Freezing backbone layers...")
@@ -129,14 +130,12 @@ class FinetuningTrainer(TrainerWithVocabSize):
                 self.save_checkpoint()
 
             if self._should_evaluate:
-                # self.eval()
-                self.full_eval()
+                self.eval_function()
 
         if self._should_save_final_checkpoint:
             self.save_checkpoint()
         
-        # self.eval()
-        self.full_eval()
+        self.eval_function()
 
     @override
     def eval(self):
@@ -169,7 +168,7 @@ class FinetuningTrainer(TrainerWithVocabSize):
         self.step = saved_step 
 
     @override
-    def calculate_loss(self, batch):
+    def calculate_loss(self, batch, is_dummy=False):
         texts, labels, attention_masks = batch
         
         def _hack_for_python_garbage_collection(texts_chunk, labels_chunk, attention_masks_chunk):
@@ -196,6 +195,9 @@ class FinetuningTrainer(TrainerWithVocabSize):
 
             losses.append(loss.item())
 
+        if is_dummy:
+            losses = [0.0] * len(losses)
+
         avg_loss = torch.tensor(losses, device=self.device).sum()
         if torch.distributed.is_initialized():
             torch.distributed.all_reduce(avg_loss, op=torch.distributed.ReduceOp.SUM)
@@ -203,13 +205,9 @@ class FinetuningTrainer(TrainerWithVocabSize):
         world_size = float(os.environ.get("WORLD_SIZE", 1))
         return avg_loss / world_size
 
-
-    def full_eval(self):
-        self.model.eval()
+    def _get_full_eval_iterator(self):
         saved_step = self.step
-        self.metric_logger.set_step(None)  # disables heavy logging
-        losses = []
-        eval_fingerprint = []
+        self.metric_logger.set_step(None)
         full_eval_dataloader = DataLoader(
             FullIterDataset(self.eval_dataset),
             batch_size=self.eval_dataloader.batch_size,
@@ -218,7 +216,16 @@ class FinetuningTrainer(TrainerWithVocabSize):
             num_workers=self.eval_dataloader.num_workers,
         )
         eval_iter = iter(full_eval_dataloader)
+        return eval_iter
 
+
+    def full_eval(self):
+        self.model.eval()
+        saved_step = self.step
+        self.metric_logger.set_step(None)  # disables heavy logging
+        losses = []
+        eval_fingerprint = []
+        eval_iter = self._get_full_eval_iterator()
 
         with torch.no_grad():
             for _ in range(self.full_eval_batches):
@@ -241,5 +248,88 @@ class FinetuningTrainer(TrainerWithVocabSize):
                 f"steps/eval/batch", self.step, str(eval_fingerprint)
             )
 
-        self.step = saved_step 
+        self.step = saved_step
 
+    def full_eval_length_split(self):
+        self.model.eval()
+        saved_step = self.step
+        self.metric_logger.set_step(None)  # disables heavy logging
+        eval_fingerprint = []
+        eval_iter = self._get_full_eval_iterator()
+
+        losses = {split_value: [] for split_value in self.split_values}
+        n_splits = len(self.split_values)
+
+        def make_dummy_batch():
+            seq_len = self.eval_dataset.sequence_length
+            bsz = max(1, self.gradient_accumulation_steps)
+            dummy_text = torch.zeros((bsz, seq_len), dtype=torch.long)
+            dummy_labels = torch.zeros((bsz,), dtype=torch.long)
+            dummy_mask = torch.zeros((bsz, seq_len), dtype=torch.bool)
+            return (dummy_text, dummy_labels, dummy_mask)
+
+        def handle_split_batch(batch, is_dummy=False):
+            if not is_dummy:
+                text, _, _ = batch
+                text_fingerprint = create_batch_fingerprint(text)
+                eval_fingerprint.extend(text_fingerprint)
+            loss = self.calculate_loss(batch, is_dummy=is_dummy)
+            return loss
+
+        with torch.no_grad():
+            while True:
+                exhausted = torch.tensor([0.0], device=self.device)  # 0=ok, 1=done
+                try:
+                    batch_list = next(eval_iter)
+                except StopIteration:
+                    exhausted[0] = 1.0
+                    batch_list = [None] * n_splits
+
+                if torch.distributed.is_initialized():
+                    torch.distributed.all_reduce(exhausted, op=torch.distributed.ReduceOp.MAX)
+
+                if exhausted[0] > 0.0:
+                    break
+
+                has_data = torch.zeros(n_splits, device=self.device)
+                for i, b in enumerate(batch_list):
+                    if b is not None:
+                        has_data[i] = 1.0
+
+                if torch.distributed.is_initialized():
+                    torch.distributed.all_reduce(has_data, op=torch.distributed.ReduceOp.MAX)
+
+                for i in range(n_splits):
+                    if has_data[i] == 0.0:
+                        continue
+
+                    batch = batch_list[i] if i < len(batch_list) else None
+                    is_dummy = (batch is None)
+                    if is_dummy:
+                        batch = make_dummy_batch()
+
+                    split_value = self.split_values[i]
+                    loss = handle_split_batch(batch, is_dummy=is_dummy)
+
+                    if not is_dummy:
+                        losses[split_value].append(loss.item())
+
+                self.metric_logger.flush_accumulated_metrics(self.step)
+
+            min_value = 0
+            for split_value, loss_list in losses.items():
+                if len(loss_list) > 0:
+                    avg_loss = torch.tensor(loss_list).mean()
+                    self.metric_logger.log(f"steps/eval/loss_({min_value}-{split_value})", self.step, avg_loss.item())
+                    if not isinstance(self.metric_logger, (WandbLogger)):
+                        self.metric_logger.log(
+                            f"tokens/eval/loss_({min_value}-{split_value})", self.processed_tokens, avg_loss.item()
+                        )
+                min_value = split_value
+
+        if self._should_log_eval_input:
+            self.metric_logger.log(
+                f"steps/eval/batch", self.step, str(eval_fingerprint)
+            )
+
+        self.step = saved_step

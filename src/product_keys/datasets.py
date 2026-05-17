@@ -1,6 +1,6 @@
 import logging
 import os 
-from typing import Callable, Optional
+from typing import Callable, Optional, override, List
 
 import torch
 from torch.utils.data import IterableDataset, DataLoader
@@ -9,7 +9,7 @@ from datasets.distributed import split_dataset_by_node
 from transformers import GPT2TokenizerFast, AutoTokenizer
 
 from src.core.datasets import AbstractDataset, collate_wrapper
-
+from itertools import zip_longest
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class GlueDataset(AbstractDataset):
         self.task_name = task_name
         self._load_dataset(path, split, seed, tokenize_fn, shuffle)
 
-    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
+    def _get_hf_dataset(self, path, split, seed, shuffle):
         if path is None:
             logger.debug(
                 f"Loading 'nyu-mll/glue' dataset task '{self.task_name}' from HuggingFace with split={split}"
@@ -70,6 +70,11 @@ class GlueDataset(AbstractDataset):
         if shuffle:
             hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
 
+        return hf_dataset
+
+    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
+        hf_dataset = self._get_hf_dataset(path, split, seed, shuffle)
+
         # Map task specific columns to 'text' for generic tokenize_fn
         if self.task_name == "sst2":
             hf_dataset = hf_dataset.map(lambda x: {"text": x["sentence"]})
@@ -77,7 +82,6 @@ class GlueDataset(AbstractDataset):
         elif self.task_name == "mnli":
             hf_dataset = hf_dataset.map(lambda x: {"text_1": x["premise"], 
                                                    "text_2": x["hypothesis"]})
-        
 
         self.data_generator = hf_dataset.map(tokenize_fn, batched=True)
 
@@ -109,6 +113,82 @@ class GlueDataset(AbstractDataset):
     def get_full_sampler(self):
         for next_sample in self.data_generator:
             yield next_sample
+
+
+    def full_iter(self):
+        if self.world_size_independent:
+            return itertools.islice(
+                self.full_sample_packer(), self.rank, None, self.world_size
+            )
+        else:
+            return self.full_sample_packer()
+
+
+class GlueLengthSplitDataset(GlueDataset):
+    def __init__(
+        self,
+        sequence_length,
+        tokenize_fn: Callable,
+        path: Optional[str] = None,
+        split: Optional[str] = None,
+        seed: Optional[int] = None,
+        use_new_sampling_method: bool = True,
+        shuffle: bool = True,
+        world_size_independent: bool = False,
+        task_name: Optional[str] = None,
+        split_values: Optional[List[int]] = None
+    ):
+        self.split_values = split_values
+        super().__init__(
+            sequence_length,
+            tokenize_fn,
+            path,
+            split,
+            seed,
+            use_new_sampling_method,
+            shuffle,
+            world_size_independent,
+            task_name,
+        )
+
+    def add_sequence_length_column(self, dataset):
+        return dataset.map(lambda x: {"sequence_length": sum(x["attention_mask"])})
+    
+    def filter_by_length(self, dataset, min_value: int, max_value: int):
+        return dataset.filter(lambda x: x["sequence_length"] >= min_value and x["sequence_length"] < max_value)
+
+    @override
+    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
+        hf_dataset = self._get_hf_dataset(path, split, seed, shuffle)
+        tokenized_dataset = hf_dataset.map(tokenize_fn, batched=True)
+        tokenized_dataset = self.add_sequence_length_column(tokenized_dataset)
+        
+        min_value = 0
+        split_datasets = []
+
+        full_split_values = self.split_values + [float("inf")]
+        
+        for max_value in full_split_values:
+            filtered_dataset = self.filter_by_length(tokenized_dataset, min_value, max_value)
+            split_datasets.append(filtered_dataset)
+            min_value = max_value
+        
+        self.data_generator = split_datasets
+
+    def full_sample_packer(self):
+        sampler = iter(self.get_full_sampler())
+        for full_samples in sampler:
+
+            full_sample_list = [(sample['input_ids'], sample['label'], sample['attention_mask']) if sample is not None else None for sample in full_samples]
+            
+            # tokens_list = [sample['input_ids'] if sample is not None else None for sample in full_samples]
+            # labels_list = [sample['label'] if sample is not None else None for sample in full_samples]
+            # attention_mask_list = [sample['attention_mask'] if sample is not None else None for sample in full_samples]
+            yield full_sample_list
+
+    def get_full_sampler(self):
+        for next_samples in zip_longest(*self.data_generator, fillvalue=None):
+            yield next_samples
 
 
     def full_iter(self):
@@ -218,3 +298,25 @@ def glue_collate_wrapper(examples):
 
     return collated_inputs, collated_labels, collated_attention_masks
 
+
+def glue_split_collate_wrapper(examples):
+    collated = []
+    for example in zip(*examples):
+        valid_items = [item for item in example if item is not None]
+        if valid_items:
+            try:
+                collated.append(glue_collate_wrapper(valid_items))
+            except Exception as e:
+                # logger.error(f"Error collating example: {e}")
+                collated.append(None)
+        else:
+            collated.append(None)
+    return collated
+
+
+class FullIterDataset(IterableDataset):
+    def __init__(self, dataset: GlueDataset):
+        self.dataset = dataset
+
+    def __iter__(self):
+        return self.dataset.full_iter()
