@@ -13,7 +13,6 @@
 set -euo pipefail
 
 #---------- SCRIPT ----------
-ml CUDA/12.4.0
 export PROJECT_HOME_PATH=/storage_nvme_2/nano/$USER
 export HYDRA_FULL_ERROR=1
 export PIXI_HOME=$PROJECT_HOME_PATH/pixi
