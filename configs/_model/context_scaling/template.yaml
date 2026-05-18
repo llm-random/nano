@@ -8,17 +8,27 @@ common:
   model_seed: 123
   data_seed: 123
   # n_blocks is the single scaling knob; everything below is constant or linear in it.
-  n_blocks: 4
+  n_blocks: ???
   dmodel:   ${eval:'64  * ${common.n_blocks}'}
   datt:     ${eval:'64  * ${common.n_blocks}'}
   dff:      ${eval:'160 * ${common.n_blocks}'}
   q_heads:  ${common.n_blocks}
   vocab_size: 50304
-  sequence_length: 256
   head_norm: true
   init_scale: 0.1
   init_type: truncated_normal_fixed
   model_type: gpt
+
+# when changing tokenizer to llama, remember to change common.vocab_size: 50304 -> 128256
+trainer:
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
 
 model:
   _target_: src.core.model.LLM
@@ -46,7 +56,7 @@ model:
       attention_fn:
         _target_: src.core.model.RoPEAttention
         _partial_: true
-        compile: true
+        compile: false
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}

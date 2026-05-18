@@ -4,15 +4,13 @@ trainer:
   train_dataloader:
     _target_: src.context_scaling.dataset.get_dataloader
     total_batch_size: ${common.batch_size}
-    num_workers: 0
+    num_workers: ???
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}
       seed: ${common.data_seed}
       use_new_sampling_method: true
       world_size_independent: false
-      tokenize_fn:
-        _target_: src.core.datasets.gpt2_tokenize_fn
       sample_packer_fn:
         _target_: src.context_scaling.dataset.new_packer
         _partial_: true
@@ -26,15 +24,13 @@ trainer:
   eval_dataloader:
     _target_: src.context_scaling.dataset.get_dataloader
     total_batch_size: ${common.batch_size}
-    num_workers: 0
+    num_workers: ???
     dataset:
       _target_: src.context_scaling.dataset.AbstractDataset
       sequence_length: ${common.sequence_length}
-      seed: ${common.data_seed}
+      seed: 22
       use_new_sampling_method: true
       world_size_independent: false
-      tokenize_fn:
-        _target_: src.core.datasets.gpt2_tokenize_fn
       sample_packer_fn:
         _target_: src.context_scaling.dataset.new_packer
         _partial_: true

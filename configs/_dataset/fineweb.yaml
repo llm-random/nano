@@ -4,10 +4,12 @@ defaults:
 
 trainer:
   train_dataloader:
+    num_workers: 2
     dataset:
       data_generator:
         path: ${cluster_switch.train_path_fineweb}
   eval_dataloader:
+    num_workers: 2
     dataset:
       seed: 22
       data_generator:

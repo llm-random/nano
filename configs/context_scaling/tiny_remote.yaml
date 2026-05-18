@@ -1,0 +1,54 @@
+# @package _global_
+defaults:
+  - /_cluster@_here_: entropy
+  - /_model/context_scaling@_here_: template
+  - /_trainer@_here_: context_scaling
+  - /_dataset@_here_: c4
+  - /_checkpoints@_here_: none
+  - /_infrastructure@_here_: default
+  - /_downstream_eval@_here_: basic
+
+  - /_feedforward:                   swiglu
+  - /_attention:                     mha
+  - /_parameterization:              simpleP_k12
+  - _self_
+
+common:
+  n_blocks: 16
+  batch_size: 128
+  sequence_length: 2048
+  data_seed: 301
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 10_001
+  learning_rate: 2e-3
+  eval_interval: 100
+
+  checkpoint:
+    save:
+      type: nano
+      path: checkpoint
+
+  train_dataloader:
+    dataset:
+      data_generator:
+        path: ${cluster_switch.train_path_fineweb}
+
+  eval_dataloader:
+    dataset:
+      data_generator:
+        path: ${cluster_switch.eval_path_fineweb}
+
+infrastructure:
+  metric_logger:
+    heavy_metrics_calculation_interval: 100
+    name: tiny_remote
+    tags:
+      - tiny_remote
+      - ${now:%Y-%m-%d}
+
+  slurm:
+    time: "01:00:00"
+    gres: gpu:4
+    job-name: ${infrastructure.metric_logger.name}

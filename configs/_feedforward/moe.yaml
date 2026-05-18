@@ -1,11 +1,12 @@
 # @package _global_
-defaults:
-  - /ff_layer@model.encoder.block_fn.ff_layer_fn: moe
-
 model:
   encoder:
     block_fn:
       ff_layer_fn:
+        _target_: src.core.moe.MoE
+        _partial_: true
+        dmodel: ${common.dmodel}
+        dff: ${common.dff}
         num_experts: 8
         topk: 1
         capacity_factor: 1.25

@@ -1,3 +1,0 @@
-# @package _global_
-defaults:
-  - /ff_layer@model.encoder.block_fn.ff_layer_fn: swiglu

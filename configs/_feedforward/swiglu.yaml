@@ -1,0 +1,27 @@
+# @package _global_
+model:
+  encoder:
+    block_fn:
+      ff_layer_fn:
+        _target_: src.core.model.SwiGLU
+        _partial_: true
+        compile: false
+        ff_pre_act_fn:
+          _target_: src.core.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${common.dff}
+          partial_init_fn:
+            _target_: src.core.model.trunc_normal_init
+            _partial_: true
+            scale: ${common.init_scale}
+        ff_post_act_fn:
+          _target_: src.core.model.Linear
+          _partial_: true
+          in_features: ${common.dff}
+          out_features: ${common.dmodel}
+          partial_init_fn:
+            _target_: src.core.model.trunc_normal_init
+            _partial_: true
+            scale: ${common.init_scale}
+        gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
