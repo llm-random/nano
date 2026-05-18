@@ -4,7 +4,7 @@
 #SBATCH --requeue
 #SBATCH --cpus-per-gpu=14
 #SBATCH --gres=gpu:4
-#SBATCH --job-name=tiny_remote
+#SBATCH --job-name=paralel_eval
 #SBATCH --mem-per-gpu=90G
 #SBATCH --nodes=1
 #SBATCH --partition=h100
@@ -14,14 +14,12 @@ set -euo pipefail
 
 #---------- SCRIPT ----------
 ml CUDA/12.4.0
-export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/context_scaling
-export HF_HOME=$PROJECT_HOME_PATH/hf_cache
+export PROJECT_HOME_PATH=/storage_nvme_2/nano/$USER
 export HYDRA_FULL_ERROR=1
 export PIXI_HOME=$PROJECT_HOME_PATH/pixi
+export HF_HOME=$PROJECT_HOME_PATH/hf_cache
 export PATH="$HOME/.pixi/bin:$PATH"
-export XDG_DATA_HOME="$PROJECT_HOME_PATH/data"
-export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"
-export XDG_STATE_HOME="$PROJECT_HOME_PATH/state"
+
 cd "$PIXI_HOME"
 eval "$(pixi shell-hook)"
 cd -
