@@ -39,7 +39,7 @@ export LOCAL_RANK=0
 #-------- SCRIPT END --------
 
 srun --export=ALL --ntasks=1 --nodes=1 --gpus=1 python src/context_scaling/scripts/eval_models.py \
-    --dataset_dir /lustre/pd01/plgrid/plgllmefficont2/datasets/c4/long_context_2048n8192 \
+    --dataset_dir /storage_nvme_1/llm-random/datasets/c4/long_context_2048n8192 \
     --jobs_json 2503_restart \
     --out_dir 2503_restart \
     --seq_len 2048 \
