@@ -1,7 +1,7 @@
 #!/bin/bash -l
 set -euo pipefail
 
-export PROJECT_HOME_PATH=/lustre/pd01/plgrid/plgllmefficont2/nano/context_scaling
+export PROJECT_HOME_PATH=/storage_nvme_2/nano/$USER
 export HF_HOME=$PROJECT_HOME_PATH/hf_cache
 export HYDRA_FULL_ERROR=1
 
