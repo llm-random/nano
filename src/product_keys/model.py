@@ -581,6 +581,10 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
             apply_freq_scaling=rope_scale_freqs,
         )
 
+        # Learnable vectors for attention-like pooling of keys
+        self.l1 = nn.Parameter(torch.randn(self.dhead_half) / math.sqrt(self.dhead_half))
+        self.l2 = nn.Parameter(torch.randn(self.dhead_half) / math.sqrt(self.dhead_half))
+
         # Normalize the halves independently to balance Product Key retrieval
         self.q_norm1 = nn.RMSNorm(self.dhead_half)
         self.q_norm2 = nn.RMSNorm(self.dhead_half)
@@ -701,8 +705,28 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
 
         # Split and aggregate keys (unnormalized)
         k = k.view(batch, self.q_heads, self.m, self.m, self.dhead)
-        k1_unnorm = k[..., : self.dhead_half].sum(-2)  # (B, H, m, d/2)
-        k2_unnorm = k[..., self.dhead_half :].sum(-3)  # (B, H, m, d/2)
+        if False:
+            k1_unnorm = k[..., : self.dhead_half].sum(-2)  # (B, H, m, d/2)
+            k2_unnorm = k[..., self.dhead_half :].sum(-3)  # (B, H, m, d/2)
+        else:
+            # attention-like aggegation using learnable parameters instead of simple sum
+
+            # Extract the two halves
+            k1_part = k[..., : self.dhead_half]  # (B, H, m, m, d/2)
+            k2_part = k[..., self.dhead_half :]  # (B, H, m, m, d/2)
+
+            # Calculate attention scores using the learnable parameters
+            # matmul: (B, H, m, m, d/2) @ (d/2,) -> (B, H, m, m)
+            scores1 = torch.matmul(k1_part, self.l1)
+            scores2 = torch.matmul(k2_part, self.l2)
+
+            # Apply softmax over the specific dimension being reduced
+            weights1 = F.softmax(scores1, dim=-2)
+            weights2 = F.softmax(scores2, dim=-3)
+
+            # Weight the keys and sum over the target dimension
+            k1_unnorm = (weights1.unsqueeze(-1) * k1_part).sum(dim=-2)  # -> (B, H, m, d/2)
+            k2_unnorm = (weights2.unsqueeze(-1) * k2_part).sum(dim=-3)  # -> (B, H, m, d/2)
 
         # Split queries (unnormalized)
         q1_unnorm = q[..., : self.dhead_half]  # (B, H, S, d/2)
@@ -739,6 +763,8 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
         # [OPTIMIZATION 1] PyTorch's take_along_dim is completely equivalent to expand+gather but faster
         k1_selected = torch.take_along_dim(k1_vecs, idx_in_k1.unsqueeze(-1), dim=3)
         k2_selected = torch.take_along_dim(k2_vecs, idx_in_k2.unsqueeze(-1), dim=3)
+
+        # todo use true k as final k, select them in the same way we select values (by indicies)
         final_k = torch.cat([k1_selected, k2_selected], dim=-1)
 
         # Gather final spatial indices

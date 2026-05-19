@@ -8,14 +8,14 @@ defaults:
   - _self_
 
 common:
-  sequence_length: 4096
+  sequence_length: 1024
   batch_size: 64
-  dmodel: 768
-  dff: 2042
+  dmodel: 1024
+  dff: 2724
   datt: ${common.dmodel}
-  n_blocks: 12
-  q_heads: 12
-  kv_heads: 12
+  n_blocks: 16
+  q_heads: 16
+  kv_heads: 16
   vocab_size: 50304
   init_scale: 0.1
 
@@ -25,16 +25,16 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
-  n_steps: 15994
-  # n_steps: 8001
-  # ^learning_rate: [5e-4, 1e-3, 2e-3, 5e-3]
-  learning_rate: 5e-4
+  # n_steps: 15994
+  n_steps: 8001
+  ^learning_rate: [5e-4, 1e-3, 2e-3, 5e-3]
+  # learning_rate: 5e-4
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
     final_lr_fraction: 0.1
     # warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
-    warmup_steps: 400
+    warmup_steps: 800
   train_dataloader:
     dataset:
       # ^seed: [42, 123, 1000]
@@ -57,7 +57,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_attn_flops_matched_top_k_grid_k12
+    name: pk_attn_attn_like_keys_aggregation
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
@@ -65,11 +65,10 @@ infrastructure:
       - nano
       - pk_mlm
       - pk_attn
-      - 2026.04.25
-      - flops_matched
+      - 2026.05.19
+      - attn_like_keys_aggregation
       - RoPE
       - optimized_attention
-      - top_k_grid
       - fineweb
       - top_k=${model.encoder.block_fn.attention_fn.top_k}
       - lr=${trainer.learning_rate}
