@@ -12,6 +12,8 @@ from hydra.utils import instantiate
 from datasets import load_from_disk
 from transformers import AutoTokenizer
 
+import wandb
+
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
@@ -122,6 +124,27 @@ def tensors_rows_to_csv(tensors, path: str):
     print(f"saving CSV to {path}")
     pd.DataFrame(stacked.numpy()).to_csv(path, index=False)
     print(f"✅ CSV saved")
+    return stacked
+
+
+def upload_mean_loss_to_wandb(
+    run_id: str,
+    project: str,
+    mean_losses: torch.Tensor,
+    model_step: int,
+    eval_seq_len: int,
+):
+    parts = project.split("/", 1)
+    entity, proj = (parts[0], parts[1]) if len(parts) == 2 else (None, project)
+
+    run = wandb.init(entity=entity, project=proj, id=run_id, resume="must")
+    try:
+        suffix = f"step{model_step}_seq{eval_seq_len}"
+        key = f"eval/per_position_loss/{suffix}"
+        run.summary[key] = [float(v) for v in mean_losses.tolist()]
+        print(f"✅ wandb run {run_id} summary updated: {key}")
+    finally:
+        run.finish()
 
 
 def get_latest_step(ckpt_dir: str) -> int:
@@ -146,6 +169,8 @@ def eval_model(
     seq_len: int,
     batch_size: int,
     device: torch.device,
+    run_id: str,
+    wandb_project: str,
 ):
     model = instantiate(cfg.model, _convert_="all").to(device)
     model.eval()
@@ -176,7 +201,15 @@ def eval_model(
             losses, _ = batch_per_token_losses(fsdp_model, batch["input_ids"], device)
         all_losses.append(losses)
 
-    tensors_rows_to_csv(all_losses, path=out_csv)
+    stacked = tensors_rows_to_csv(all_losses, path=out_csv)
+    mean_losses = stacked.mean(dim=0)
+    upload_mean_loss_to_wandb(
+        run_id=run_id,
+        project=wandb_project,
+        mean_losses=mean_losses,
+        model_step=model_step,
+        eval_seq_len=seq_len,
+    )
 
 
 def main():
@@ -240,6 +273,7 @@ def main():
     run_id = job["jobID"]
     ckpt_dir = job["ckpt_path"]
     yaml_path = Path(job["yaml_config_path"])
+    wandb_project = job["wandb_project"]
 
     print(f"Selected job: idx={task_id} run_id={run_id}")
     print(f"ckpt_dir: {ckpt_dir}")
@@ -267,6 +301,8 @@ def main():
             seq_len=seq_len,
             batch_size=args.batch_size,
             device=device,
+            run_id=run_id,
+            wandb_project=wandb_project,
         )
         csv_filename = os.path.basename(out_csv)
         append_to_index(str(out_dir), csv_filename, run_id, model_step, cfg, seq_len)

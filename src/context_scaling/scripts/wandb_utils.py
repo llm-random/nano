@@ -4,9 +4,12 @@ import wandb
 import yaml
 
 
+WANDB_PROJECT = "ideas_cv/llm-random-test"
+
+
 def get_wandb_table(
     tags,
-    project="ideas_cv/llm-random-test",
+    project=WANDB_PROJECT,
     negative_tags=None,
     columns=None,
     print_columns=False,
