@@ -582,8 +582,8 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
         )
 
         # Learnable vectors for attention-like pooling of keys
-        self.l1 = nn.Parameter(torch.randn(self.dhead_half) / math.sqrt(self.dhead_half))
-        self.l2 = nn.Parameter(torch.randn(self.dhead_half) / math.sqrt(self.dhead_half))
+        self.l1 = nn.Parameter(torch.randn(self.q_heads, self.dhead_half) / math.sqrt(self.dhead_half))
+        self.l2 = nn.Parameter(torch.randn(self.q_heads, self.dhead_half) / math.sqrt(self.dhead_half))
 
         # Normalize the halves independently to balance Product Key retrieval
         self.q_norm1 = nn.RMSNorm(self.dhead_half)
@@ -717,8 +717,8 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
 
             # Calculate attention scores using the learnable parameters
             # matmul: (B, H, m, m, d/2) @ (d/2,) -> (B, H, m, m)
-            scores1 = torch.matmul(k1_part, self.l1)
-            scores2 = torch.matmul(k2_part, self.l2)
+            scores1 = torch.einsum('bhmnd,hd->bhmn', k1_part, self.l1)
+            scores2 = torch.einsum('bhmnd,hd->bhmn', k2_part, self.l2)
 
             # Apply softmax over the specific dimension being reduced
             weights1 = F.softmax(scores1, dim=-2)
