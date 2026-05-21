@@ -57,7 +57,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_attn_attn_like_keys_aggregation
+    name: pk_attn_attn_like_keys_agg_per_head
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
@@ -67,6 +67,7 @@ infrastructure:
       - pk_attn
       - 2026.05.19
       - attn_like_keys_aggregation
+      - per_head_learnable_agg_weights
       - RoPE
       - optimized_attention
       - fineweb
