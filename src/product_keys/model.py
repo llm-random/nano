@@ -717,8 +717,8 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
 
             # Calculate attention scores using the learnable parameters
             # matmul: (B, H, m, m, d/2) @ (d/2,) -> (B, H, m, m)
-            scores1 = torch.einsum('bhmnd,hd->bhmn', k1_part, self.l1)
-            scores2 = torch.einsum('bhmnd,hd->bhmn', k2_part, self.l2)
+            scores1 = torch.einsum('bhmnd,hd->bhmn', k1_part, self.l1) / math.sqrt(self.dhead_half)
+            scores2 = torch.einsum('bhmnd,hd->bhmn', k2_part, self.l2) / math.sqrt(self.dhead_half)
 
             # Apply softmax over the specific dimension being reduced
             weights1 = F.softmax(scores1, dim=-2)
