@@ -691,54 +691,53 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
         value_states = self.v_proj(x)
 
         batch, seq_len = x.shape[:-1]
-        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
-        q = self.rope(q)
-        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
-        k = self.rope(k)
+    
+        # 1. Base unrotated states for pooling and retrieval (prevents destructive interference)
+        q_unrotated = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        k_unrotated = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        
+        # 2. Rotated states for the final position-aware attention
+        q_rotated = self.rope(q_unrotated)
+        k_rotated = self.rope(k_unrotated)
 
         v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
 
         from src.core.llama import repeat_kv
 
-        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        # Repeat KV for both unrotated (retrieval) and rotated (final attention)
+        k_unrotated = repeat_kv(k_unrotated, self.q_heads // self.kv_heads)
+        k_rotated = repeat_kv(k_rotated, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
 
-        # Split and aggregate keys (unnormalized)
-        k = k.view(batch, self.q_heads, self.m, self.m, self.dhead)
-        if False:
-            k1_unnorm = k[..., : self.dhead_half].sum(-2)  # (B, H, m, d/2)
-            k2_unnorm = k[..., self.dhead_half :].sum(-3)  # (B, H, m, d/2)
-        else:
-            # attention-like aggegation using learnable parameters instead of simple sum
+        # Split and aggregate unrotated keys for building the retrieval grid
+        k_grid = k_unrotated.view(batch, self.q_heads, self.m, self.m, self.dhead)
+        # attention-like aggegation using learnable parameters instead of simple sum
 
-            # Extract the two halves
-            k1_part = k[..., : self.dhead_half]  # (B, H, m, m, d/2)
-            k2_part = k[..., self.dhead_half :]  # (B, H, m, m, d/2)
+        # Extract the two halves
+        k1_part = k_grid[..., : self.dhead_half]  # (B, H, m, m, d/2)
+        k2_part = k_grid[..., self.dhead_half :]  # (B, H, m, m, d/2)
 
-            # Calculate attention scores using the learnable parameters
-            # matmul: (B, H, m, m, d/2) @ (d/2,) -> (B, H, m, m)
-            scores1 = torch.einsum('bhmnd,hd->bhmn', k1_part, self.l1) / math.sqrt(self.dhead_half)
-            scores2 = torch.einsum('bhmnd,hd->bhmn', k2_part, self.l2) / math.sqrt(self.dhead_half)
+        # Calculate attention scores using the learnable parameters
+        # matmul: (B, H, m, m, d/2) @ (d/2,) -> (B, H, m, m)
+        scores1 = torch.einsum('bhmnd,hd->bhmn', k1_part, self.l1) / math.sqrt(self.dhead_half)
+        scores2 = torch.einsum('bhmnd,hd->bhmn', k2_part, self.l2) / math.sqrt(self.dhead_half)
 
-            # Apply softmax over the specific dimension being reduced
-            weights1 = F.softmax(scores1, dim=-2)
-            weights2 = F.softmax(scores2, dim=-3)
+        # Apply softmax over the specific dimension being reduced
+        weights1 = F.softmax(scores1, dim=-2)
+        weights2 = F.softmax(scores2, dim=-3)
 
-            # Weight the keys and sum over the target dimension
-            k1_unnorm = (weights1.unsqueeze(-1) * k1_part).sum(dim=-2)  # -> (B, H, m, d/2)
-            k2_unnorm = (weights2.unsqueeze(-1) * k2_part).sum(dim=-3)  # -> (B, H, m, d/2)
+        # Weight the keys and sum over the target dimension
+        k1_unnorm = (weights1.unsqueeze(-1) * k1_part).sum(dim=-2)  # -> (B, H, m, d/2)
+        k2_unnorm = (weights2.unsqueeze(-1) * k2_part).sum(dim=-3)  # -> (B, H, m, d/2)
 
         # Split queries (unnormalized)
-        q1_unnorm = q[..., : self.dhead_half]  # (B, H, S, d/2)
-        q2_unnorm = q[..., self.dhead_half :]  # (B, H, S, d/2)
+        q1_unnorm = q_unrotated[..., : self.dhead_half]  # (B, H, S, d/2)
+        q2_unnorm = q_unrotated[..., self.dhead_half :]  # (B, H, S, d/2)
 
         k1 = self.k_norm1(k1_unnorm)
         k2 = self.k_norm2(k2_unnorm)
         q1 = self.q_norm1(q1_unnorm)
         q2 = self.q_norm2(q2_unnorm)
-
-        # Recombine normalized queries for the final attention step
-        q_normed = torch.cat([q1, q2], dim=-1)
 
         # --- First Retrieval (get top-k AND scores) ---
         # [OPTIMIZATION 2] We retrieve the pre-computed scores to save FLOPs
@@ -759,13 +758,6 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
         idx_in_k1 = selection_indices // self.top_k
         idx_in_k2 = selection_indices % self.top_k
 
-        # --- Gather Intra-Sequence Vectors ---
-        # [OPTIMIZATION 1] PyTorch's take_along_dim is completely equivalent to expand+gather but faster
-        k1_selected = torch.take_along_dim(k1_vecs, idx_in_k1.unsqueeze(-1), dim=3)
-        k2_selected = torch.take_along_dim(k2_vecs, idx_in_k2.unsqueeze(-1), dim=3)
-
-        # todo use true k as final k, select them in the same way we select values (by indicies)
-        final_k = torch.cat([k1_selected, k2_selected], dim=-1)
 
         # Gather final spatial indices
         final_row_idxs = torch.take_along_dim(k1_idxs, idx_in_k1, dim=3)
@@ -794,12 +786,14 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
                 },
             )
 
-        # --- Gather Final Values using the fast flat indexer ---
-        # [OPTIMIZATION 1] Eliminates massive v.unsqueeze().expand() block
-        final_v = self.__gather_flat(v, v_indices)  # (B, H, S, K, D)
+        # --- Gather Final Keys and Values using the fast flat indexer ---
+        # Fulfills your `# todo`: grabs the true, fully rotated keys based on retrieved indices
+        final_k = self.__gather_flat(k_rotated, v_indices)  # (B, H, S, K, D)
+        final_v = self.__gather_flat(v, v_indices)          # (B, H, S, K, D)
 
         # --- Attention: Softmax(Q @ K.T) @ V ---
-        attn_scores = torch.matmul(q_normed.unsqueeze(-2), final_k.transpose(-2, -1))
+        # Use the true rotated queries against the true rotated keys
+        attn_scores = torch.matmul(q_rotated.unsqueeze(-2), final_k.transpose(-2, -1))
 
         # Multiply by the learnable QKNorm temperature
         attn_scores = attn_scores * self.attn_temp
