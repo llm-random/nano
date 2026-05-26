@@ -57,7 +57,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_attn_routing_temp
+    name: pk_attn_differencialbe_routing
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
@@ -69,6 +69,7 @@ infrastructure:
       - attn_like_keys_aggregation
       - per_head_learnable_agg_weights
       - routing_temp
+      - differentiable_routing
       - RoPE
       - optimized_attention
       - fineweb

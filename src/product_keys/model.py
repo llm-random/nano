@@ -602,6 +602,9 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
             torch.full((1, self.q_heads, 1, 1), routing_initial_temp)
         )
 
+        # Initialize small so the network relies on standard attention first, then ramps up routing bias
+        self.routing_bias_weight = nn.Parameter(torch.tensor(0.1))
+
         self.metric_logger = None
         self.log_name = ""
 
@@ -655,6 +658,7 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
         q_weight,
         k_weight,
         v_weight,
+        routing_bias_weight,
     ):
         res = RoPEProductKeysEncoderAttentionOptimized.calculate_key_distribution(
             final_row_idxs, final_col_idxs, v_indices
@@ -668,6 +672,7 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
             ("q_proj_weight", q_weight),
             ("k_proj_weight", k_weight),
             ("v_proj_weight", v_weight),
+            ("routing_bias_weight", routing_bias_weight),
         ]:
             t = torch.stack(tensors).float()
             res[f"{name}/norm"] = torch.norm(t) / math.sqrt(len(tensors))
@@ -763,7 +768,7 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
 
         # Select top K closest combinations
         scores_flat = scores_final_grid.flatten(-2, -1)  # (B, H, S, K*K)
-        _, selection_indices = torch.topk(scores_flat, k=self.top_k, dim=-1)
+        topk_routing_scores, selection_indices = torch.topk(scores_flat, k=self.top_k, dim=-1)
 
         # Reconstruct indices for the halves
         idx_in_k1 = selection_indices // self.top_k
@@ -801,6 +806,7 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
                     "q_weight": self.q_proj.weight.detach().clone(),
                     "k_weight": self.k_proj.weight.detach().clone(),
                     "v_weight": self.v_proj.weight.detach().clone(),
+                    "routing_bias_weight": self.routing_bias_weight.detach().clone(),
                 },
             )
 
@@ -813,6 +819,12 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
 
         # Multiply by the learnable QKNorm temperature
         attn_scores = attn_scores * self.attn_temp
+
+        # --- DIFFERENTIABLE ROUTING INJECTION ---
+        # topk_routing_scores is (B, H, S, K). Unsqueeze to (B, H, S, 1, K) to broadcast.
+        # This explicitly couples the routing confidence to the final attention weight,
+        # allowing gradients to flow all the way back to the routing mechanism.
+        attn_scores = attn_scores + (topk_routing_scores.unsqueeze(-2) * self.routing_bias_weight)
 
         attn_weights = F.softmax(attn_scores, dim=-1)
 
