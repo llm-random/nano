@@ -57,7 +57,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_attn_rope_tweaking_with_new_agg
+    name: pk_attn_routing_temp
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
@@ -65,10 +65,10 @@ infrastructure:
       - nano
       - pk_mlm
       - pk_attn
-      - 2026.05.19
+      - 2026.05.26
       - attn_like_keys_aggregation
       - per_head_learnable_agg_weights
-      - RoPE_tweaking
+      - routing_temp
       - RoPE
       - optimized_attention
       - fineweb
