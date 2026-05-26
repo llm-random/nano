@@ -465,7 +465,6 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         # k1_vecs: (B, H, S, K, D/2) -> (B, H, S, D/2, K)
         # scores_1: (B, H, S, 1, K) -> (B, H, S, K)
         scores_1 = torch.matmul(q1.unsqueeze(-2), k1_vecs.transpose(-1, -2)).squeeze(-2)
-
         scores_2 = torch.matmul(q2.unsqueeze(-2), k2_vecs.transpose(-1, -2)).squeeze(-2)
 
         # Sum the scores to implicitly get the full grid scores (Broadcasting)
@@ -595,6 +594,12 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
         initial_temp = 1.0 / math.sqrt(self.dhead)
         self.attn_temp = nn.Parameter(
             torch.full((1, self.q_heads, 1, 1, 1), initial_temp)
+        )
+
+        # Learnable scaling parameter for the retrieval/routing step
+        routing_initial_temp = 1.0 / math.sqrt(self.dhead_half)
+        self.routing_temp = nn.Parameter(
+            torch.full((1, self.q_heads, 1, 1), routing_initial_temp)
         )
 
         self.metric_logger = None
@@ -744,6 +749,11 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
         # [OPTIMIZATION 2] We retrieve the pre-computed scores to save FLOPs
         k1_vecs, k1_idxs, scores_1 = self.__get_topk_candidates(q1, k1)
         k2_vecs, k2_idxs, scores_2 = self.__get_topk_candidates(q2, k2)
+
+        # Apply the learned per-head routing temperature
+        # scores_1/2 shape: (B, H, S, K) -> routing_temp shape: (1, H, 1, 1) broadcasts perfectly
+        scores_1 = scores_1 * self.routing_temp
+        scores_2 = scores_2 * self.routing_temp
 
         # --- Second Retrieval (Full K*K Grid, optimized math) ---
 
