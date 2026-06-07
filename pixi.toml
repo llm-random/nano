@@ -10,6 +10,7 @@ install_hooks = "git config --local core.hooksPath .githooks"
 
 [dependencies]
 python = "==3.12.3"
+simplejson = ">=3.16.0"
 
 [pypi-dependencies]
 transformers = "==4.56.2"
