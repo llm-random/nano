@@ -2,6 +2,7 @@
 import os
 import logging
 import hydra
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
 
 from grid_generator.sbatch_builder import generate_eval_sbatch_script
@@ -20,12 +21,13 @@ EVAL_CONFIG_NAME = "eval_hf_models"
 
 @hydra.main(version_base=None, config_path=EVAL_CONFIG_PATH, config_name=EVAL_CONFIG_NAME)
 def submit_eval(cfg: OmegaConf):
+    config_name = HydraConfig.get().job.config_name
     script = cfg.infrastructure.get("script", None)
     generate_eval_sbatch_script(
         slurm_config=cfg.infrastructure.slurm,
         script=script,
         config_path=EVAL_CONFIG_PATH,
-        config_name=EVAL_CONFIG_NAME,
+        config_name=config_name,
     )
 
     experiment_branch_name = version_code(

@@ -38,6 +38,17 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
+def _build_save_path(cfg):
+    base = get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)
+    save_type = cfg.trainer.checkpoint.save.type
+    n_steps = cfg.trainer.n_steps
+    if n_steps is not None and save_type in ("hf_only", "nano_and_hf"):
+        return f"{base}/step_{n_steps - 1}/hf"
+    elif n_steps is not None:
+        return f"{base}/step_{n_steps - 1}"
+    return base
+
+
 def dump_grid_configs(configs_grid, output_folder):
     os.makedirs(output_folder, exist_ok=True)
 
@@ -228,9 +239,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                 {
                     "learning_rate": learning_rate,
                     "exp_lr": exp_lr,
-                    "full_save_checkpoints_path": get_full_checkpoint_path(
-                        cfg.trainer.checkpoint.save.path
-                    ),
+                    "full_save_checkpoints_path": _build_save_path(cfg),
                 }
             )
 

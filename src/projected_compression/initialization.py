@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from src.core.checkpointing import get_full_checkpoint_path, load_training_state
+from src.core.checkpointing import get_full_checkpoint_path, load_training_state, step_checkpoint_path
 from src.core.metric_loggers import WandbLogger, get_metric_logger
 from src.core.utils import solve_config_lr
 from src.core.distributed_training import setup_fsdp2_model
@@ -12,6 +12,18 @@ import os
 import torch.distributed.checkpoint as dcp
 
 logger = logging.getLogger(__name__)
+
+
+def _build_checkpoint_path(cfg):
+    """Return the full expected checkpoint path including step dir and /hf suffix if applicable."""
+    base = get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)
+    save_type = cfg.trainer.checkpoint.save.type
+    n_steps = cfg.trainer.n_steps
+    if n_steps is not None and save_type in ("hf_only", "nano_and_hf"):
+        return f"{base}/step_{n_steps - 1}/hf"
+    elif n_steps is not None:
+        return f"{base}/step_{n_steps - 1}"
+    return base
 logger.propagate = False
 ch = logging.StreamHandler()
 formatter = logging.Formatter(
@@ -45,9 +57,7 @@ def init_pc_attributes(cfg, metric_logger):
                 {
                     "learning_rate": learning_rate,
                     "exp_lr": exp_lr,
-                    "full_save_checkpoints_path": get_full_checkpoint_path(
-                        cfg.trainer.checkpoint.save.path
-                    ),
+                    "full_save_checkpoints_path": _build_checkpoint_path(cfg),
                 }
             )
 
