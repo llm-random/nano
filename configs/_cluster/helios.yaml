@@ -18,9 +18,6 @@ infrastructure:
     - 'export HF_DATASETS_CACHE="$PROJECT_HOME_PATH/hf_datasets"'
     - 'export HF_MODULES_CACHE="$PROJECT_HOME_PATH/hf_modules"'
     
-    # - 'export PROJECT_HOME_PATH=$PLG_GROUPS_STORAGE/plggllmeffi3/context_scaling'
-    # - 'export HF_HOME=$PLG_GROUPS_STORAGE/plggllmeffi3/pc/hf_cache'
-    
     
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'

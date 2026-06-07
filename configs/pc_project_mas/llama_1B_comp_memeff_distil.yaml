@@ -1,0 +1,123 @@
+defaults:
+  # - ../_cluster@_here_: entropy
+  # - ../_cluster@_here_: helios
+  - ../_cluster@_here_: lem
+  - ../_model/llama@_here_: projected_mem_eff_1B
+  - ../_trainer@_here_: llama3_1B_distillation
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+  # dmodel: 448 # 10
+  # dff: 1728
+  # dmodel: 960 # 30
+  # dff: 3840
+  dmodel: 1344 # 50
+  dff: 5376
+
+
+trainer:
+  _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
+  gradient_accumulation_steps: 8
+
+  # distillation_alpha: 1.0 ##########################
+
+  # n_steps: 2048
+  # n_steps: 4096
+  # n_steps: 8192
+  # n_steps: 12288
+  ^n_steps: 
+   - 2048
+   - 4096
+   - 8192
+   - 12288
+
+  learning_rate: 13
+  # learning_rate: 14 # test
+  # learning_rate: 12 # test
+
+  scheduler:
+    warmup_steps: 40
+
+  distributed:
+    fsdp2: null
+    
+  eval_dataloader: None
+  eval_interval: 0
+
+  gradient_clipping: 0.25 #best
+  only_compress_model_gradient_clipping: false
+  only_target_model_gradient_clipping: 1.0 #best
+
+
+  original_llama_path: meta-llama/Llama-3.2-1B
+  checkpoint:
+    save: #switch
+      interval: 0  # 0 = only save at the end of training
+      # model_checkpoint_filename: __model_checkpoint_filename.pt
+      path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results # lem new
+      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test # helios   
+      # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy   
+      training_state_filename: __training_state_filename.pt
+      type: hf_only  # "nano" | "hf_only" | "nano_and_hf"
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  # source_model_path: /storage_nvme_3/mstefaniak/pc/llama31b.pt # entropy
+  # path_to_importances: /storage_nvme_3/mstefaniak/pc/fw_importances_8m/minitron_dimensions_importances.pt
+
+  # source_model_path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama31b.pt # helios
+  # path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama_1_fw_importances/minitron_dimensions_importances.pt
+
+  source_model_path: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/hf_to_nano_converted/llama1b_in_nano.pt # lem
+  path_to_importances: /lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/1b/minitron_dimensions_importances.pt
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: true
+
+  adjust_grad_norm: false
+
+  cpu_offload_projections: false
+
+  source_model_for_distillation: true
+
+distillation:
+  load:
+    type: pc_memeff_base # uses internal teacher model representation for distillation to save memory - source_model_for_distillation: true
+
+model:
+  cast_bfloat16: false  # whether to cast bfloat16 when calculating compressed matrix
+
+#devchange
+infrastructure:
+  metric_logger:
+    name: llama1_pcd_memeff
+    tags:
+      - nano
+      - pc
+      - llama_1
+      - projected_compression
+      - distillation
+      # - only_distillation
+      - mem_eff
+      # - 10p
+      # - 30p
+      - 50p
+      - hf_save_fix
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    # gres: gpu:4
+    gres: "gpu:hopper:4" # lem
+    time: "0-24:00:00"
+    # time: "0-12:00:00"

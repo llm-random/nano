@@ -2,7 +2,7 @@ infrastructure:
   server: entropy
   max_concurrent_jobs: null
   slurm:
-    cpus_per_gpu: 20
+    cpus_per_gpu: 14
     gres: ???
     job-name: test
     mem_per_gpu: 90G
