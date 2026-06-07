@@ -26,7 +26,7 @@ infrastructure:
     - 'export HYDRA_FULL_ERROR=1'
     
     # export pixi variables
-    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
 
     # hardfixes

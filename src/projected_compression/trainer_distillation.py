@@ -57,7 +57,7 @@ class PCDistillationTrainer(TrainerDistillation):
             self.model.train()
 
             self.model.prepare_compressed_weights()
-            loss = self.calculate_loss(batch)
+            loss_metrics = self.calculate_loss(batch)
 
             if self.only_target_model_gradient_clipping:
                 # Clip target model params (Wc + norms) globally as a normal model,
@@ -100,7 +100,7 @@ class PCDistillationTrainer(TrainerDistillation):
                 grad_norm = total_grad_norm
                 self._clip_model_grads(grad_norm)
 
-            self.log_metrics(loss, grad_norm)
+            self.log_metrics(loss_metrics, grad_norm)
             self.metric_logger.log("train/total_grad_norm", total_grad_norm.item())
             self.log_projection_grad_norms(projection_grad_norms, head_norm, embedding_norm)
             self.optimizer.step()
