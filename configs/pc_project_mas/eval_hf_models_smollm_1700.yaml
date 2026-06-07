@@ -1,0 +1,82 @@
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_misc@_here_: default
+
+wandb:
+  entity: ideas_cv
+  project: llm-random-test
+  name: smollm1700_eval
+  tags:
+    - eval
+    - hf_model
+    - smollm_1700
+    # - pc
+    # - pcd
+    # - hp
+    # - hpd
+    # - 90p
+    # - 70p
+    # - 50p
+    - 0_numshot
+
+default_tokenizer: HuggingFaceTB/SmolLM-1.7B
+
+tasks:
+  - arc_easy
+  - arc_challenge
+  - hellaswag
+  - piqa
+  - winogrande
+  - openbookqa
+  - sciq
+  - social_iqa
+  - lambada_openai
+
+limit: null
+output_dir: null
+batch_size: 4
+num_fewshot: 0
+
+device: cuda
+
+infrastructure:
+  slurm:
+    gres: gpu:1
+    time: "0-12:00:00"
+
+models:
+  # Baselines
+  # - path: HuggingFaceTB/SmolLM-1.7B
+  #   name: smollm1700_baseline
+
+  # HP 90p (2BT)
+  - path: /storage_nvme_3/mstefaniak/pc/checkpoints/177304/0/step_9/hf
+    name: smollm1700_hp_90p_2BT
+
+  # # HP 70p (2BT)
+  # - path: /storage_nvme_3/mstefaniak/pc/checkpoints/{job_id}/{task_id}/step_4095/hf
+  #   name: smollm1700_hp_70p_2BT
+
+  # # HP 50p (2BT)
+  # - path: /storage_nvme_3/mstefaniak/pc/checkpoints/{job_id}/{task_id}/step_4095/hf
+  #   name: smollm1700_hp_50p_2BT
+
+  # # HPD 90p (2BT)
+  # - path: /storage_nvme_3/mstefaniak/pc/checkpoints/{job_id}/{task_id}/step_4095/hf
+  #   name: smollm1700_hpd_90p_2BT
+
+  # # HPD 70p (2BT)
+  # - path: /storage_nvme_3/mstefaniak/pc/checkpoints/{job_id}/{task_id}/step_4095/hf
+  #   name: smollm1700_hpd_70p_2BT
+
+  # # HPD 50p (2BT)
+  # - path: /storage_nvme_3/mstefaniak/pc/checkpoints/{job_id}/{task_id}/step_4095/hf
+  #   name: smollm1700_hpd_50p_2BT
+
+  # # PC 90p (2BT)
+  # - path: /storage_nvme_3/mstefaniak/pc/checkpoints/{job_id}/{task_id}/step_4095/hf
+  #   name: smollm1700_pc_90p_2BT
+
+  # # PCD 90p (2BT)
+  # - path: /storage_nvme_3/mstefaniak/pc/checkpoints/{job_id}/{task_id}/step_4095/hf
+  #   name: smollm1700_pcd_90p_2BT

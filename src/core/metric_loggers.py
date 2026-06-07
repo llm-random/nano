@@ -175,6 +175,23 @@ def get_metric_logger(
                 resume="allow",
                 config=wandb_config_dict,
             )
+            slurm_job_id = os.environ.get("SLURM_JOB_ID")
+            slurm_array_task_id = os.environ.get("SLURM_ARRAY_TASK_ID")
+            slurm_submit_dir = os.environ.get("SLURM_SUBMIT_DIR")
+            if slurm_job_id and slurm_array_task_id:
+                slurm_out = f"{slurm_submit_dir}/slurm-{slurm_job_id}_{slurm_array_task_id}.out"
+            elif slurm_job_id:
+                slurm_out = f"{slurm_submit_dir}/slurm-{slurm_job_id}.out"
+            else:
+                slurm_out = None
+            run_env = {
+                "working_dir": os.getcwd(),
+                "slurm_job_id": slurm_job_id,
+                "slurm_array_task_id": slurm_array_task_id,
+                "slurm_out": slurm_out,
+            }
+            wandb_logger.config.update({"run_env": run_env}, allow_val_change=True)
+            wandb_logger.log({f"run_env/{k}": v for k, v in run_env.items()})
             _metric_logger = WandbLogger(
                 run=wandb_logger, should_log=True, config=metric_logger_config
             )
