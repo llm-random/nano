@@ -61,7 +61,7 @@ trainer:
   # Mode A-C: same as B but also clip proj grads per-block at the same threshold.
   only_compress_model_gradient_clipping: false
   # only_target_model_gradient_clipping: 0.25
-  only_target_model_gradient_clipping: 1.0
+  only_target_model_gradient_clipping: 1.0 #best
   # ^only_target_model_gradient_clipping: 
   #   - 10
   #   - 1
@@ -76,7 +76,7 @@ trainer:
   # only_target_model_gradient_clipping: false
 
   # learning_rate: 12 # optimal 10%
-  learning_rate: 13 # optimal 30%
+  learning_rate: 13 # optimal 10% 30% 50% !ALLLLLLLLLLLLLLL
   # learning_rate: 14 # optimal 50%
   # learning_rate: 15 # optimal 75%
 
