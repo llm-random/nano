@@ -1,13 +1,10 @@
 # @package _global_
 defaults:
-  # - /_cluster/lem@_here_
   - /_cluster/helios@_here_
   - /_model/tiny@_here_
   - /product_keys/pk_model@_here_
   - /_trainer/llama@_here_
-  # - /_dataset/sst2@_here_
-  # - /_dataset/mnli@_here_
-  - /_dataset/imdb@_here_
+  - /_dataset/eurlex@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
@@ -25,16 +22,17 @@ common:
 
 
 trainer:
-  _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
+  _target_: src.product_keys.finetuning_trainer.FinetuningTrainerMultiLabel
   
   gradient_accumulation_steps: 4
-  eval_interval: 50
-  n_steps: 5000
+  eval_interval: 25
+  n_steps: 3000
   # n_steps: 4000
   full_eval_rows: 2000
-  # ^learning_rate: [2e-4, 5e-4, 1e-4, 2e-3]
-  ^learning_rate: [5e-4, 2e-3, 2e-4, 1e-4]
-  freeze_backbone: true
+  # learning_rate: 2e-4
+  # ^learning_rate: [2e-5, 1e-5]
+  ^learning_rate: [5e-4, 1e-5, 2e-4]
+  freeze_backbone: false
   trainable_modules: ["head"]
   d_model: ${common.dmodel}
   vocab_size: ${common.vocab_size}
@@ -52,7 +50,12 @@ trainer:
         seq_len: ${common.sequence_length}
 
   eval_dataloader:
+    collate_fn:
+      _target_: src.product_keys.datasets.glue_split_collate_wrapper
+      _partial_: true
     dataset:
+      _target_: src.product_keys.datasets.GlueLengthSplitDataset
+      split_values: [256, 512]
       shuffle: false
       tokenize_fn:
         seq_len: ${common.sequence_length}
@@ -78,11 +81,11 @@ infrastructure:
     type: wandb
     wandb_entity: ideas_cv
     project_name: tml-bgw
-    # name: pk_mlm-finetunetrainer-${oc.select:model.freeze_backbone, false}-${trainer.train_dataloader.dataset.task_name}
-    name: pk_mlm-finetunetrainer-freeze-${trainer.train_dataloader.dataset.task_name}
+    name: pk_mlm-finetunetrainer-split-eval-${trainer.train_dataloader.dataset.task_name}
     tags:
       - nano
       - pk_mlm
+      - finetuning
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "lr=${trainer.learning_rate}"
@@ -90,6 +93,6 @@ infrastructure:
   slurm:
     gres: gpu:4
     # gres: gpu:hopper:4
-    time: "1-00:00:00"
+    time: "1-0:00:00"
     job-name: ${infrastructure.metric_logger.name}
 

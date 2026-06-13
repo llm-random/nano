@@ -42,4 +42,6 @@ cluster_switch:
   eval_path_mnli: "/lustre/pd03/plgrid/plgllmefficont3/datasets/mnli/validation"
   train_path_imdb: "/lustre/pd03/plgrid/plgllmefficont3/datasets/imdb/train"
   eval_path_imdb: "/lustre/pd03/plgrid/plgllmefficont3/datasets/imdb/test"
+  train_path_eurlex: "/lustre/pd03/plgrid/plgllmefficont3/datasets/lex_glue/eurlex/train"
+  eval_path_eurlex: "/lustre/pd03/plgrid/plgllmefficont3/datasets/lex_glue/eurlex/test"
 

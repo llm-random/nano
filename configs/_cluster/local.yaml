@@ -17,4 +17,6 @@ cluster_switch:
   eval_path_mnli: "data/ft_dataset/mnli/validation"
   train_path_imdb: "data/ft_dataset/imdb/train"
   eval_path_imdb: "data/ft_dataset/imdb/test"
+  train_path_eurlex: "data/ft_dataset/eurlex/train"
+  eval_path_eurlex: "data/ft_dataset/eurlex/test"
   

@@ -5,7 +5,7 @@ defaults:
   - /_trainer/llama@_here_
   # - /_dataset/sst2@_here_
   # - /_dataset/mnli@_here_
-  - /_dataset/imdb@_here_
+  - /_dataset/eurlex@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
@@ -27,7 +27,7 @@ common:
 
 
 trainer:
-  _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
+  _target_: src.product_keys.finetuning_trainer.FinetuningTrainerMultiLabel
   gradient_accumulation_steps: 2
   n_steps: 2
   freeze_backbone: true

@@ -16,7 +16,7 @@ class TransformerHead(nn.Module):
 
     def forward(self, x):
         x = self.norm(x)
-        x =  self.linear(x)
+        x = self.linear(x)
         return x
 
 

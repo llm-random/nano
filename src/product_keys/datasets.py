@@ -55,10 +55,16 @@ class GlueDataset(AbstractDataset):
                 streaming=True,
                 trust_remote_code=True,
             )
+            if hasattr(hf_dataset, "shape"):
+                logger.info(f"Dataset {self.task_name}, split: {split} shape: {hf_dataset.shape}")
+
         else:
             logger.info(f"Loading dataset from path '{path}'")
             logger.info(f"Split: {split}")
             hf_dataset = load_dataset(path, split=split)
+            if hasattr(hf_dataset, "shape"):
+                logger.info(f"Dataset {self.task_name}, split: {split} shape: {hf_dataset.shape}")
+            
             if not hasattr(hf_dataset, "set_epoch"): # Check if it's already an IterableDataset
                 hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
 
@@ -70,11 +76,10 @@ class GlueDataset(AbstractDataset):
         if shuffle:
             hf_dataset = hf_dataset.shuffle(buffer_size=self.BUFFER_SIZE, seed=seed)
 
+        
         return hf_dataset
 
-    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
-        hf_dataset = self._get_hf_dataset(path, split, seed, shuffle)
-
+    def _preprocess_dataset(self, hf_dataset):
         # Map task specific columns to 'text' for generic tokenize_fn
         if self.task_name == "sst2":
             hf_dataset = hf_dataset.map(lambda x: {"text": x["sentence"]})
@@ -82,7 +87,18 @@ class GlueDataset(AbstractDataset):
         elif self.task_name == "mnli":
             hf_dataset = hf_dataset.map(lambda x: {"text_1": x["premise"], 
                                                    "text_2": x["hypothesis"]})
+        elif self.task_name == "eurlex":
+            def map_eurlex(x):
+                multi_hot = [0.0] * 100
+                for l in x["labels"]:
+                    multi_hot[l] = 1.0
+                return {"label": multi_hot}
+            hf_dataset = hf_dataset.map(map_eurlex)
+        return hf_dataset
 
+    def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
+        hf_dataset = self._get_hf_dataset(path, split, seed, shuffle)
+        hf_dataset = self._preprocess_dataset(hf_dataset)
         self.data_generator = hf_dataset.map(tokenize_fn, batched=True)
 
     def sample_packer(self):
@@ -160,6 +176,7 @@ class GlueLengthSplitDataset(GlueDataset):
     @override
     def _load_dataset(self, path, split, seed, tokenize_fn, shuffle: bool):
         hf_dataset = self._get_hf_dataset(path, split, seed, shuffle)
+        hf_dataset = self._preprocess_dataset(hf_dataset)
         tokenized_dataset = hf_dataset.map(tokenize_fn, batched=True)
         tokenized_dataset = self.add_sequence_length_column(tokenized_dataset)
         
@@ -293,24 +310,34 @@ def glue_collate_wrapper(examples):
     attention_masks = [item[2] for item in examples]
 
     collated_inputs = collate_wrapper(inputs)
-    collated_labels = torch.tensor(labels, dtype=torch.int64)
+    if isinstance(labels[0], (list, torch.Tensor)):
+        collated_labels = torch.tensor(labels, dtype=torch.float32)
+    else:
+        collated_labels = torch.tensor(labels, dtype=torch.int64)
     collated_attention_masks = collate_wrapper(attention_masks).bool()
 
     return collated_inputs, collated_labels, collated_attention_masks
 
 
 def glue_split_collate_wrapper(examples):
+    """Collate a batch of per-split sample lists into a list of per-split tensors.
+
+    examples: list[list[tuple | None]] of shape [batch_size, n_splits]
+    Returns:  list[batch_tensor | None]  of length n_splits
+
+    A split's batch is set to None if ANY item in the batch for that split is
+    None (i.e. the split ran out of data).  This avoids silently producing
+    variable-size batches that would cause shape mismatches under FSDP.
+    """
     collated = []
-    for example in zip(*examples):
-        valid_items = [item for item in example if item is not None]
-        if valid_items:
-            try:
-                collated.append(glue_collate_wrapper(valid_items))
-            except Exception as e:
-                # logger.error(f"Error collating example: {e}")
-                collated.append(None)
-        else:
+    for example in zip(*examples):          # iterate over splits
+        if any(item is None for item in example):
             collated.append(None)
+        else:
+            try:
+                collated.append(glue_collate_wrapper(list(example)))
+            except Exception as e:
+               collated.append(None)
     return collated
 
 
