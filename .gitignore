@@ -198,3 +198,7 @@ checkpoints
 *.arrow
 *.csv
 checkpoint/
+
+#context scaling
+2503_grid/
+2503_restart/
