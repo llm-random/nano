@@ -6,7 +6,7 @@ import argparse
 import json
 import yaml
 
-from wandb_utils import WANDB_PROJECT, get_wandb_table, save_yaml_config_from_row
+from wandb_utils import get_wandb_table, save_yaml_config_from_row
 
 
 def resolve_model_step(ckpt_path: str, model_step: int | None) -> int | str:
@@ -144,7 +144,6 @@ def main():
                 "yaml_config_path": str(yaml_path),
                 "seq_len": seq_len,
                 "model_step": model_step,
-                "wandb_project": WANDB_PROJECT,
             }
         )
 

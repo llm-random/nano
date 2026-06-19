@@ -25,7 +25,7 @@ torchao = "==0.11.0"
 torchtune = "==0.6.1"
 lm-eval = {version = ">=0.4.0", extras = ["hf"]}
 jupyter = "*"
-ipykernel = "*"
+ipykernel = ">=6,<7"
 matplotlib = "*"
 plotly = "==5.24.1"
 kaleido = "==0.2.1"

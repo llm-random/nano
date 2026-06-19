@@ -59,8 +59,7 @@ def reset_to_original_repo_state(
 
 def version_code(
     remote_url: str,
-    experiment_config_path: Optional[str] = None,
-    exp_job_path: Optional[str] = None,
+    force_add_paths: Optional[list[str]] = None,
     job_name: Optional[str] = None,
 ) -> str:
     repo = Repo(".", search_parent_directories=True)
@@ -72,8 +71,9 @@ def version_code(
     original_branch = repo.active_branch.name
     original_branch_commit_hash = repo.head.object.hexsha
 
-    repo.git.add(experiment_config_path, force=True)
-    repo.git.add(exp_job_path, force=True)
+    # force-add gitignored artifacts that must travel with the experiment branch
+    for path in force_add_paths or []:
+        repo.git.add(path, force=True)
     repo.git.add(all=True)
 
     # Remove pixi files from the *commit snapshot* for the experiment branch
@@ -377,8 +377,7 @@ def submit_experiment(
     else:
         experiment_branch_name = version_code(
             remote_url=cfg.infrastructure.git.remote_url,
-            experiment_config_path=cfg.infrastructure.generated_configs_path,
-            exp_job_path="exp.job",
+            force_add_paths=[cfg.infrastructure.generated_configs_path, "exp.job"],
             job_name=cfg.infrastructure.metric_logger.name,
         )
 
