@@ -26,9 +26,9 @@ trainer:
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
   # n_steps: 15994
-  n_steps: 8001
-  ^learning_rate: [5e-4, 1e-3, 2e-3, 5e-3]
-  # learning_rate: 5e-4
+  n_steps: 90232
+  # ^learning_rate: [5e-4, 1e-3, 2e-3, 5e-3]
+  learning_rate: 5e-4
   scheduler:
     _partial_: true
     _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
@@ -57,7 +57,7 @@ infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_attn_differencialbe_routing
+    name: pk_attn_k16_flops_matched
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
@@ -65,11 +65,8 @@ infrastructure:
       - nano
       - pk_mlm
       - pk_attn
-      - 2026.05.26
-      - attn_like_keys_aggregation
-      - per_head_learnable_agg_weights
-      - routing_temp
-      - differentiable_routing
+      - flops_matched
+      - 2026.06.20
       - RoPE
       - optimized_attention
       - fineweb

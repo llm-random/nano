@@ -715,28 +715,28 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
 
         # Split and aggregate keys (unnormalized)
         k = k.view(batch, self.q_heads, self.m, self.m, self.dhead)
-        if False:
-            k1_unnorm = k[..., : self.dhead_half].sum(-2)  # (B, H, m, d/2)
-            k2_unnorm = k[..., self.dhead_half :].sum(-3)  # (B, H, m, d/2)
-        else:
-            # attention-like aggegation using learnable parameters instead of simple sum
+        # if False:
+        k1_unnorm = k[..., : self.dhead_half].sum(-2)  # (B, H, m, d/2)
+        k2_unnorm = k[..., self.dhead_half :].sum(-3)  # (B, H, m, d/2)
+        # else:
+        #     # attention-like aggegation using learnable parameters instead of simple sum
 
-            # Extract the two halves
-            k1_part = k[..., : self.dhead_half]  # (B, H, m, m, d/2)
-            k2_part = k[..., self.dhead_half :]  # (B, H, m, m, d/2)
+        #     # Extract the two halves
+        #     k1_part = k[..., : self.dhead_half]  # (B, H, m, m, d/2)
+        #     k2_part = k[..., self.dhead_half :]  # (B, H, m, m, d/2)
 
-            # Calculate attention scores using the learnable parameters
-            # matmul: (B, H, m, m, d/2) @ (d/2,) -> (B, H, m, m)
-            scores1 = torch.einsum('bhmnd,hd->bhmn', k1_part, self.l1) / math.sqrt(self.dhead_half)
-            scores2 = torch.einsum('bhmnd,hd->bhmn', k2_part, self.l2) / math.sqrt(self.dhead_half)
+        #     # Calculate attention scores using the learnable parameters
+        #     # matmul: (B, H, m, m, d/2) @ (d/2,) -> (B, H, m, m)
+        #     scores1 = torch.einsum('bhmnd,hd->bhmn', k1_part, self.l1) / math.sqrt(self.dhead_half)
+        #     scores2 = torch.einsum('bhmnd,hd->bhmn', k2_part, self.l2) / math.sqrt(self.dhead_half)
 
-            # Apply softmax over the specific dimension being reduced
-            weights1 = F.softmax(scores1, dim=-2)
-            weights2 = F.softmax(scores2, dim=-3)
+        #     # Apply softmax over the specific dimension being reduced
+        #     weights1 = F.softmax(scores1, dim=-2)
+        #     weights2 = F.softmax(scores2, dim=-3)
 
-            # Weight the keys and sum over the target dimension
-            k1_unnorm = (weights1.unsqueeze(-1) * k1_part).sum(dim=-2)  # -> (B, H, m, d/2)
-            k2_unnorm = (weights2.unsqueeze(-1) * k2_part).sum(dim=-3)  # -> (B, H, m, d/2)
+        #     # Weight the keys and sum over the target dimension
+        #     k1_unnorm = (weights1.unsqueeze(-1) * k1_part).sum(dim=-2)  # -> (B, H, m, d/2)
+        #     k2_unnorm = (weights2.unsqueeze(-1) * k2_part).sum(dim=-3)  # -> (B, H, m, d/2)
 
         # Split queries (unnormalized)
         q1_unnorm = q[..., : self.dhead_half]  # (B, H, S, d/2)
@@ -820,11 +820,11 @@ class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
         # Multiply by the learnable QKNorm temperature
         attn_scores = attn_scores * self.attn_temp
 
-        # --- DIFFERENTIABLE ROUTING INJECTION ---
-        # topk_routing_scores is (B, H, S, K). Unsqueeze to (B, H, S, 1, K) to broadcast.
-        # This explicitly couples the routing confidence to the final attention weight,
-        # allowing gradients to flow all the way back to the routing mechanism.
-        attn_scores = attn_scores + (topk_routing_scores.unsqueeze(-2) * self.routing_bias_weight)
+        # # --- DIFFERENTIABLE ROUTING INJECTION ---
+        # # topk_routing_scores is (B, H, S, K). Unsqueeze to (B, H, S, 1, K) to broadcast.
+        # # This explicitly couples the routing confidence to the final attention weight,
+        # # allowing gradients to flow all the way back to the routing mechanism.
+        # attn_scores = attn_scores + (topk_routing_scores.unsqueeze(-2) * self.routing_bias_weight)
 
         attn_weights = F.softmax(attn_scores, dim=-1)
 
