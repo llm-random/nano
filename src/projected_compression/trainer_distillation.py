@@ -7,7 +7,10 @@ from typing import Optional, Union
 from src.core.checkpointing import step_checkpoint_path
 from src.core.trainer_distillation import TrainerDistillation
 from src.projected_compression.mem_eff import get_global_grad_norm
-from torch.distributed.checkpoint.state_dict import get_model_state_dict, StateDictOptions
+from torch.distributed.checkpoint.state_dict import (
+    get_model_state_dict,
+    StateDictOptions,
+)
 from torch.distributed.tensor import DTensor
 
 logger = logging.getLogger(__name__)
@@ -18,8 +21,12 @@ class PCDistillationTrainer(TrainerDistillation):
     """Works only for mem_eff_pc model with distillation"""
 
     only_compress_model_gradient_clipping: bool
-    only_target_model_gradient_clipping: Optional[Union[float, str]] = None  # float = per-block projection clip threshold; "no_projection_clip" = clip target model only
-    original_llama_path: Optional[str] = None  # if set, also saves HF-format checkpoint for lm_eval
+    only_target_model_gradient_clipping: Optional[Union[float, str]] = (
+        None  # float = per-block projection clip threshold; "no_projection_clip" = clip target model only
+    )
+    original_llama_path: Optional[str] = (
+        None  # if set, also saves HF-format checkpoint for lm_eval
+    )
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -40,12 +47,18 @@ class PCDistillationTrainer(TrainerDistillation):
         if not self.gradient_clipping:
             return
         params_with_grads = [p for p in self.model.parameters() if p.grad is not None]
-        dtensor_grads = [p for p in params_with_grads if hasattr(p.grad, 'device_mesh')]
-        plain_grads   = [p for p in params_with_grads if not hasattr(p.grad, 'device_mesh')]
+        dtensor_grads = [p for p in params_with_grads if hasattr(p.grad, "device_mesh")]
+        plain_grads = [
+            p for p in params_with_grads if not hasattr(p.grad, "device_mesh")
+        ]
         if dtensor_grads:
-            torch.nn.utils.clip_grads_with_norm_(dtensor_grads, self.gradient_clipping, grad_norm)
+            torch.nn.utils.clip_grads_with_norm_(
+                dtensor_grads, self.gradient_clipping, grad_norm
+            )
         if plain_grads:
-            torch.nn.utils.clip_grads_with_norm_(plain_grads, self.gradient_clipping, grad_norm)
+            torch.nn.utils.clip_grads_with_norm_(
+                plain_grads, self.gradient_clipping, grad_norm
+            )
 
     def train(self):
         for step, batch in zip(
@@ -64,45 +77,63 @@ class PCDistillationTrainer(TrainerDistillation):
                 # then propagate those clipped Wc grads to projection params unclipped.
                 # Note: in distillation, source_model is also the teacher — its params
                 # have no grads (frozen), so iterating target_model.parameters() is correct.
-                target_params_with_grad = [p for p in self.model.target_model.parameters() if p.grad is not None]
+                target_params_with_grad = [
+                    p
+                    for p in self.model.target_model.parameters()
+                    if p.grad is not None
+                ]
                 target_norm = get_global_grad_norm(target_params_with_grad)
                 if self.gradient_clipping:
                     torch.nn.utils.clip_grads_with_norm_(
                         target_params_with_grad, self.gradient_clipping, target_norm
                     )
-                projection_clip = None if self.only_target_model_gradient_clipping == "no_projection_clip" else self.only_target_model_gradient_clipping
-                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = self.model.pass_gradient_to_projections(
-                    self.block_optimizers,
-                    self.block_schedulers,
-                    gradient_clipping=projection_clip,
-                    shared_gradient_norms=False,
+                projection_clip = (
+                    None
+                    if self.only_target_model_gradient_clipping == "no_projection_clip"
+                    else self.only_target_model_gradient_clipping
+                )
+                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = (
+                    self.model.pass_gradient_to_projections(
+                        self.block_optimizers,
+                        self.block_schedulers,
+                        gradient_clipping=projection_clip,
+                        shared_gradient_norms=False,
+                    )
                 )
                 grad_norm = target_norm
             elif self.only_compress_model_gradient_clipping:
                 # Clip ALL params first (DTensor-aware), then pass gradients to projections.
                 # Distillation-specific: clip before projection pass (preserves original order).
-                all_params_with_grad = [p for p in self.model.parameters() if p.grad is not None]
+                all_params_with_grad = [
+                    p for p in self.model.parameters() if p.grad is not None
+                ]
                 grad_norm = get_global_grad_norm(all_params_with_grad)
                 self._clip_model_grads(grad_norm)
-                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = self.model.pass_gradient_to_projections(
-                    self.block_optimizers,
-                    self.block_schedulers,
-                    self.gradient_clipping,
-                    shared_gradient_norms=False,
+                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = (
+                    self.model.pass_gradient_to_projections(
+                        self.block_optimizers,
+                        self.block_schedulers,
+                        self.gradient_clipping,
+                        shared_gradient_norms=False,
+                    )
                 )
             else:
-                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = self.model.pass_gradient_to_projections(
-                    self.block_optimizers,
-                    self.block_schedulers,
-                    self.gradient_clipping,
-                    shared_gradient_norms=True,
+                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = (
+                    self.model.pass_gradient_to_projections(
+                        self.block_optimizers,
+                        self.block_schedulers,
+                        self.gradient_clipping,
+                        shared_gradient_norms=True,
+                    )
                 )
                 grad_norm = total_grad_norm
                 self._clip_model_grads(grad_norm)
 
             self.log_metrics(loss_metrics, grad_norm)
             self.metric_logger.log("train/total_grad_norm", total_grad_norm.item())
-            self.log_projection_grad_norms(projection_grad_norms, head_norm, embedding_norm)
+            self.log_projection_grad_norms(
+                projection_grad_norms, head_norm, embedding_norm
+            )
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.scheduler.step()
@@ -118,7 +149,9 @@ class PCDistillationTrainer(TrainerDistillation):
 
             self.metric_logger.flush()
 
-    def log_projection_grad_norms(self, projection_grad_norms, head_norm=None, embedding_norm=None):
+    def log_projection_grad_norms(
+        self, projection_grad_norms, head_norm=None, embedding_norm=None
+    ):
         if not projection_grad_norms:
             return
         total_proj_norm = torch.tensor([n.item() for n in projection_grad_norms]).norm()
@@ -128,16 +161,21 @@ class PCDistillationTrainer(TrainerDistillation):
         if head_norm is not None:
             self.metric_logger.log("train/projection_grad_norm_head", head_norm.item())
         if embedding_norm is not None:
-            self.metric_logger.log("train/projection_grad_norm_embedding", embedding_norm.item())
+            self.metric_logger.log(
+                "train/projection_grad_norm_embedding", embedding_norm.item()
+            )
 
     def save_checkpoint(self):
         checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
         save_type = self.checkpoint.save.type  # "nano" | "nano_and_hf" | "hf_only"
 
         if save_type in ("nano", "nano_and_hf"):
-            dcp.save(self.model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model")
             dcp.save(
-                self.optimizer.state_dict(), checkpoint_id=f"{checkpoint_folder}/optimizer"
+                self.model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model"
+            )
+            dcp.save(
+                self.optimizer.state_dict(),
+                checkpoint_id=f"{checkpoint_folder}/optimizer",
             )
 
             if self.block_optimizers is not None:
@@ -184,7 +222,9 @@ class PCDistillationTrainer(TrainerDistillation):
         All collective ops (get_model_state_dict, DTensor.full_tensor) must be called
         on every rank; only rank 0 writes files.
         """
-        from src.projected_compression.convert_memeff_to_hf import load_pc_state_dict_to_llama
+        from src.projected_compression.convert_memeff_to_hf import (
+            load_pc_state_dict_to_llama,
+        )
         from transformers import AutoTokenizer
 
         # Gather full Wc state dict from FSDP2-sharded target_model (collective)
@@ -200,15 +240,21 @@ class PCDistillationTrainer(TrainerDistillation):
             proj_emb = self.model.projections.embedding
             aux_emb = self.model.projections.auxiliary_embedding_weights.weight
 
-            src_emb  = src_emb.full_tensor()  if isinstance(src_emb,  DTensor) else src_emb
-            proj_emb = proj_emb.full_tensor() if isinstance(proj_emb, DTensor) else proj_emb
-            aux_emb  = aux_emb.full_tensor()  if isinstance(aux_emb,  DTensor) else aux_emb
+            src_emb = src_emb.full_tensor() if isinstance(src_emb, DTensor) else src_emb
+            proj_emb = (
+                proj_emb.full_tensor() if isinstance(proj_emb, DTensor) else proj_emb
+            )
+            aux_emb = aux_emb.full_tensor() if isinstance(aux_emb, DTensor) else aux_emb
 
-            embedding = src_emb.float().cpu() @ proj_emb.float().cpu().T + aux_emb.float().cpu()
+            embedding = (
+                src_emb.float().cpu() @ proj_emb.float().cpu().T + aux_emb.float().cpu()
+            )
 
         if int(os.environ.get("RANK", "0")) == 0:
             target_sd["embedding"] = embedding
-            llama_model = load_pc_state_dict_to_llama(target_sd, self.original_llama_path)
+            llama_model = load_pc_state_dict_to_llama(
+                target_sd, self.original_llama_path
+            )
             llama_model.save_pretrained(save_path)
             tokenizer = AutoTokenizer.from_pretrained(self.original_llama_path)
             tokenizer.save_pretrained(save_path)

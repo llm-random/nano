@@ -7,7 +7,10 @@ from typing import Optional
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.checkpoint.state_dict import get_model_state_dict, StateDictOptions
+from torch.distributed.checkpoint.state_dict import (
+    get_model_state_dict,
+    StateDictOptions,
+)
 
 from src.projected_compression.compression import finalize_projection_weights
 from src.core.conversion_to_hf import save_to_llama_3_hf
@@ -392,7 +395,9 @@ class Trainer:
             )
 
     def save_hf_checkpoint(self, save_path):
-        from src.projected_compression.convert_memeff_to_hf import load_pc_state_dict_to_llama
+        from src.projected_compression.convert_memeff_to_hf import (
+            load_pc_state_dict_to_llama,
+        )
         from transformers import AutoTokenizer
 
         # Old PC models (comp configs) have projection matrices that must be merged
@@ -415,7 +420,9 @@ class Trainer:
             model_sd["embedding"] = model_sd.pop("embedding.weight")
 
         if int(os.environ.get("RANK", "0")) == 0:
-            llama_model = load_pc_state_dict_to_llama(model_sd, self.original_llama_path)
+            llama_model = load_pc_state_dict_to_llama(
+                model_sd, self.original_llama_path
+            )
             llama_model.save_pretrained(save_path)
             tokenizer = AutoTokenizer.from_pretrained(self.original_llama_path)
             tokenizer.save_pretrained(save_path)

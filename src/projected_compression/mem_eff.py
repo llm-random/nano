@@ -20,12 +20,12 @@ def get_global_grad_norm(params_or_grads, device=None):
             g = g.grad
         if g is None:
             continue
-        local_g = g.to_local() if hasattr(g, 'to_local') else g
+        local_g = g.to_local() if hasattr(g, "to_local") else g
         if device is None:
             device = local_g.device
             local_norm_sq = local_norm_sq.to(device)
         local_norm_sq += local_g.float().to(local_norm_sq.device).norm(2.0) ** 2
-    if dist.is_initialized() and local_norm_sq.device.type != 'cpu':
+    if dist.is_initialized() and local_norm_sq.device.type != "cpu":
         dist.all_reduce(local_norm_sq, op=dist.ReduceOp.SUM)
     return local_norm_sq.sqrt()
 
@@ -87,23 +87,37 @@ class MemoryEfficientProjectedCompression(nn.Module):
         Otherwise (head/embedding — always GPU, or normal non-offload path):
           Plain-tensor result from non-FSDP2 proj is distribute_tensor'd into the
           DTensor target.  FSDP2-wrapped proj produces a DTensor result directly."""
-        if self.cpu_offload_projections and source_weight.device.type == 'cpu':
+        if self.cpu_offload_projections and source_weight.device.type == "cpu":
             # CPU path: rank 0 computes, broadcasts to all ranks.
             rank = dist.get_rank() if dist.is_initialized() else 0
-            result_gpu = torch.empty(target_weight.shape, device='cuda', dtype=torch.float32)
+            result_gpu = torch.empty(
+                target_weight.shape, device="cuda", dtype=torch.float32
+            )
             if rank == 0:
-                result_gpu.copy_(proj_comp.get_projected_weight(self._get_source_weight(source_weight)))
+                result_gpu.copy_(
+                    proj_comp.get_projected_weight(
+                        self._get_source_weight(source_weight)
+                    )
+                )
             if dist.is_initialized():
                 dist.broadcast(result_gpu, src=0)
             target_weight.data.copy_(
-                distribute_tensor(result_gpu, target_weight.device_mesh, target_weight.placements)
+                distribute_tensor(
+                    result_gpu, target_weight.device_mesh, target_weight.placements
+                )
             )
         else:
-            result = proj_comp.get_projected_weight(self._get_source_weight(source_weight))
-            if hasattr(target_weight, 'device_mesh') and not hasattr(result, 'device_mesh'):
+            result = proj_comp.get_projected_weight(
+                self._get_source_weight(source_weight)
+            )
+            if hasattr(target_weight, "device_mesh") and not hasattr(
+                result, "device_mesh"
+            ):
                 # Plain-tensor result (non-FSDP2 proj) into a DTensor target — distribute first.
                 target_weight.data.copy_(
-                    distribute_tensor(result, target_weight.device_mesh, target_weight.placements)
+                    distribute_tensor(
+                        result, target_weight.device_mesh, target_weight.placements
+                    )
                 )
             else:
                 target_weight.copy_(result)
@@ -114,7 +128,7 @@ class MemoryEfficientProjectedCompression(nn.Module):
         torch.set_num_threads() only affects PyTorch's own small ops — large matmuls
         dispatch to BLAS (MKL/OpenBLAS) with a separate thread pool.
         We call BLAS's own runtime API via ctypes to override the cap."""
-        if hasattr(self, '_cpu_threads_configured'):
+        if hasattr(self, "_cpu_threads_configured"):
             return
         self._cpu_threads_configured = True
         if not dist.is_initialized() or dist.get_rank() == 0:
@@ -125,6 +139,7 @@ class MemoryEfficientProjectedCompression(nn.Module):
             n_cpus = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count() or 80))
             torch.set_num_threads(n_cpus)
             import ctypes
+
             for lib, fn in [
                 ("libmkl_rt.so", "MKL_Set_Num_Threads"),
                 ("libopenblas.so", "openblas_set_num_threads"),
@@ -139,12 +154,12 @@ class MemoryEfficientProjectedCompression(nn.Module):
     def _block_to_gpu(self, block_source, block_proj):
         """Move source block to GPU for compute.
         Proj block stays on GPU permanently — no move needed."""
-        block_source.to('cuda')
+        block_source.to("cuda")
 
     def _block_to_cpu(self, block_source, block_proj):
         """Move source block back to CPU after compute.
         Proj block (params + optimizer state) stays on GPU."""
-        block_source.to('cpu')
+        block_source.to("cpu")
 
     @staticmethod
     def _move_block_optimizer_state(optimizer, device):
@@ -155,7 +170,7 @@ class MemoryEfficientProjectedCompression(nn.Module):
         so moving to GPU before the first step gives GPU-resident initial state
         which is then moved back to CPU immediately after."""
         for group in optimizer.param_groups:
-            for p in group['params']:
+            for p in group["params"]:
                 if p in optimizer.state:
                     state = optimizer.state[p]
                     for k in list(state.keys()):
@@ -185,20 +200,52 @@ class MemoryEfficientProjectedCompression(nn.Module):
                 if self.cpu_offload_projections and self.block_gpu_compute:
                     self._block_to_gpu(block_source, block_proj)
 
-                self._copy_projected_weight(block_proj.compressible_q,       block_source.attention_layer.layer.q_proj.weight,   block_target.attention_layer.layer.q_proj.weight)
-                self._copy_projected_weight(block_proj.compressible_k,       block_source.attention_layer.layer.k_proj.weight,   block_target.attention_layer.layer.k_proj.weight)
-                self._copy_projected_weight(block_proj.compressible_v,       block_source.attention_layer.layer.v_proj.weight,   block_target.attention_layer.layer.v_proj.weight)
-                self._copy_projected_weight(block_proj.compressible_o,       block_source.attention_layer.layer.o_proj.weight,   block_target.attention_layer.layer.o_proj.weight)
-                self._copy_projected_weight(block_proj.compressible_ff_pre,  block_source.ff_layer.layer.ff_pre_act.weight,      block_target.ff_layer.layer.ff_pre_act.weight)
-                self._copy_projected_weight(block_proj.compressible_ff_gate, block_source.ff_layer.layer.gate.weight,            block_target.ff_layer.layer.gate.weight)
-                self._copy_projected_weight(block_proj.compressible_ff_post, block_source.ff_layer.layer.ff_post_act.weight,     block_target.ff_layer.layer.ff_post_act.weight)
+                self._copy_projected_weight(
+                    block_proj.compressible_q,
+                    block_source.attention_layer.layer.q_proj.weight,
+                    block_target.attention_layer.layer.q_proj.weight,
+                )
+                self._copy_projected_weight(
+                    block_proj.compressible_k,
+                    block_source.attention_layer.layer.k_proj.weight,
+                    block_target.attention_layer.layer.k_proj.weight,
+                )
+                self._copy_projected_weight(
+                    block_proj.compressible_v,
+                    block_source.attention_layer.layer.v_proj.weight,
+                    block_target.attention_layer.layer.v_proj.weight,
+                )
+                self._copy_projected_weight(
+                    block_proj.compressible_o,
+                    block_source.attention_layer.layer.o_proj.weight,
+                    block_target.attention_layer.layer.o_proj.weight,
+                )
+                self._copy_projected_weight(
+                    block_proj.compressible_ff_pre,
+                    block_source.ff_layer.layer.ff_pre_act.weight,
+                    block_target.ff_layer.layer.ff_pre_act.weight,
+                )
+                self._copy_projected_weight(
+                    block_proj.compressible_ff_gate,
+                    block_source.ff_layer.layer.gate.weight,
+                    block_target.ff_layer.layer.gate.weight,
+                )
+                self._copy_projected_weight(
+                    block_proj.compressible_ff_post,
+                    block_source.ff_layer.layer.ff_post_act.weight,
+                    block_target.ff_layer.layer.ff_post_act.weight,
+                )
 
                 if self.cpu_offload_projections and self.block_gpu_compute:
                     # No grads yet (no_grad context), so _block_to_cpu's grad handling is a no-op.
-                    block_source.to('cpu')
-                    block_proj.to('cpu')
+                    block_source.to("cpu")
+                    block_proj.to("cpu")
 
-            self._copy_projected_weight(self.projections.head, self.source_model.head.linear.weight, self.target_model.head.linear.weight)
+            self._copy_projected_weight(
+                self.projections.head,
+                self.source_model.head.linear.weight,
+                self.target_model.head.linear.weight,
+            )
 
     def _gather_block_grads(self, block_target):
         """Gather the 7 Wc gradient shards for one encoder block via a single all_gather.
@@ -219,13 +266,17 @@ class MemoryEfficientProjectedCompression(nn.Module):
             block_target.ff_layer.layer.gate.weight,
             block_target.ff_layer.layer.ff_post_act.weight,
         ]
-        shards = [w.grad.to_local() for w in weights]  # each: [shape[0]//world_size, ...]
+        shards = [
+            w.grad.to_local() for w in weights
+        ]  # each: [shape[0]//world_size, ...]
         shard_numel = [s.numel() for s in shards]
         local_cat = torch.cat([s.flatten() for s in shards])
         local_numel = local_cat.numel()
 
         world_size = dist.get_world_size()
-        full = torch.empty(world_size * local_numel, device=local_cat.device, dtype=local_cat.dtype)
+        full = torch.empty(
+            world_size * local_numel, device=local_cat.device, dtype=local_cat.dtype
+        )
         dist.all_gather_into_tensor(full, local_cat)
         # full layout: [rank0_local_cat | rank1_local_cat | ... | rank(N-1)_local_cat]
 
@@ -238,7 +289,9 @@ class MemoryEfficientProjectedCompression(nn.Module):
             for rank in range(world_size):
                 start = rank * local_numel + offset_in_rank
                 parts.append(
-                    full[start : start + shard_size].reshape([shard_rows] + list(full_shape[1:]))
+                    full[start : start + shard_size].reshape(
+                        [shard_rows] + list(full_shape[1:])
+                    )
                 )
             full_grads.append(torch.cat(parts, dim=0))
             w.grad = None  # consumed
@@ -250,20 +303,54 @@ class MemoryEfficientProjectedCompression(nn.Module):
     ):
 
         def get_module_grad_norm(module: nn.Module):
-            return get_global_grad_norm(p.grad for p in module.parameters() if p.grad is not None)
+            return get_global_grad_norm(
+                p.grad for p in module.parameters() if p.grad is not None
+            )
 
-        def backward_block(block_proj, block_source, block_target, precomputed_grads=None):
+        def backward_block(
+            block_proj, block_source, block_target, precomputed_grads=None
+        ):
             triplets = [
-                (block_proj.compressible_q,       block_source.attention_layer.layer.q_proj.weight,   block_target.attention_layer.layer.q_proj.weight),
-                (block_proj.compressible_k,       block_source.attention_layer.layer.k_proj.weight,   block_target.attention_layer.layer.k_proj.weight),
-                (block_proj.compressible_v,       block_source.attention_layer.layer.v_proj.weight,   block_target.attention_layer.layer.v_proj.weight),
-                (block_proj.compressible_o,       block_source.attention_layer.layer.o_proj.weight,   block_target.attention_layer.layer.o_proj.weight),
-                (block_proj.compressible_ff_pre,  block_source.ff_layer.layer.ff_pre_act.weight,      block_target.ff_layer.layer.ff_pre_act.weight),
-                (block_proj.compressible_ff_gate, block_source.ff_layer.layer.gate.weight,            block_target.ff_layer.layer.gate.weight),
-                (block_proj.compressible_ff_post, block_source.ff_layer.layer.ff_post_act.weight,     block_target.ff_layer.layer.ff_post_act.weight),
+                (
+                    block_proj.compressible_q,
+                    block_source.attention_layer.layer.q_proj.weight,
+                    block_target.attention_layer.layer.q_proj.weight,
+                ),
+                (
+                    block_proj.compressible_k,
+                    block_source.attention_layer.layer.k_proj.weight,
+                    block_target.attention_layer.layer.k_proj.weight,
+                ),
+                (
+                    block_proj.compressible_v,
+                    block_source.attention_layer.layer.v_proj.weight,
+                    block_target.attention_layer.layer.v_proj.weight,
+                ),
+                (
+                    block_proj.compressible_o,
+                    block_source.attention_layer.layer.o_proj.weight,
+                    block_target.attention_layer.layer.o_proj.weight,
+                ),
+                (
+                    block_proj.compressible_ff_pre,
+                    block_source.ff_layer.layer.ff_pre_act.weight,
+                    block_target.ff_layer.layer.ff_pre_act.weight,
+                ),
+                (
+                    block_proj.compressible_ff_gate,
+                    block_source.ff_layer.layer.gate.weight,
+                    block_target.ff_layer.layer.gate.weight,
+                ),
+                (
+                    block_proj.compressible_ff_post,
+                    block_source.ff_layer.layer.ff_post_act.weight,
+                    block_target.ff_layer.layer.ff_post_act.weight,
+                ),
             ]
             for j, (bproj, bsrc, btgt) in enumerate(triplets):
-                wc_grad = precomputed_grads[j] if precomputed_grads is not None else None
+                wc_grad = (
+                    precomputed_grads[j] if precomputed_grads is not None else None
+                )
                 self.backward_compressed_weights(bproj, bsrc, btgt, wc_grad)
 
         self.backward_compressed_weights(
@@ -277,7 +364,11 @@ class MemoryEfficientProjectedCompression(nn.Module):
         use_block_gpu = self.cpu_offload_projections and self.block_gpu_compute
         # Whether to use per-block all_gather batching (replaces 7 serial redistributes
         # per block with 1 all_gather; 16 total calls vs 112, minimal extra VRAM).
-        use_batched_gather = self.cpu_offload_projections and dist.is_initialized() and not shared_gradient_norms
+        use_batched_gather = (
+            self.cpu_offload_projections
+            and dist.is_initialized()
+            and not shared_gradient_norms
+        )
 
         if optimizers is None:
             for block_target, block_source, block_proj in zip(
@@ -285,18 +376,26 @@ class MemoryEfficientProjectedCompression(nn.Module):
                 self.source_model.encoder.blocks,
                 self.projections.blocks,
             ):
-                block_grads = self._gather_block_grads(block_target) if use_batched_gather else None
+                block_grads = (
+                    self._gather_block_grads(block_target)
+                    if use_batched_gather
+                    else None
+                )
                 if use_block_gpu:
                     self._block_to_gpu(block_source, block_proj)
                 backward_block(block_proj, block_source, block_target, block_grads)
                 if use_block_gpu:
                     self._block_to_cpu(block_source, block_proj)
 
-            final_grad_norm = get_global_grad_norm(v.grad for v in self.parameters() if v.grad is not None)
+            final_grad_norm = get_global_grad_norm(
+                v.grad for v in self.parameters() if v.grad is not None
+            )
             return final_grad_norm, [], None, None
         else:
             projection_blocks_grad_norms = []
-            start_grad_norm = get_global_grad_norm(v.grad for v in self.projections.parameters() if v.grad is not None)
+            start_grad_norm = get_global_grad_norm(
+                v.grad for v in self.projections.parameters() if v.grad is not None
+            )
 
             if shared_gradient_norms:
                 # Two-pass global clipping: equivalent to old single-optimizer PC.
@@ -313,7 +412,9 @@ class MemoryEfficientProjectedCompression(nn.Module):
                     backward_block(block_proj, block_source, block_target)
                     if use_block_gpu:
                         self._block_to_cpu(block_source, block_proj)
-                    projection_blocks_grad_norms.append(get_module_grad_norm(block_proj))
+                    projection_blocks_grad_norms.append(
+                        get_module_grad_norm(block_proj)
+                    )
                     for p in block_proj.parameters():
                         p.grad = None
                     # Restore Wc grads for pass 2.
@@ -324,24 +425,36 @@ class MemoryEfficientProjectedCompression(nn.Module):
                 # old PC's clip_gradient() which covers all trainable params.
                 norm_layer_grads = []
                 for block in self.target_model.encoder.blocks:
-                    if getattr(block.attention_layer, 'norm', None) is not None:
+                    if getattr(block.attention_layer, "norm", None) is not None:
                         norm_layer_grads.extend(
-                            [p.grad for p in block.attention_layer.norm.parameters() if p.grad is not None]
+                            [
+                                p.grad
+                                for p in block.attention_layer.norm.parameters()
+                                if p.grad is not None
+                            ]
                         )
-                    if getattr(block.ff_layer, 'norm', None) is not None:
+                    if getattr(block.ff_layer, "norm", None) is not None:
                         norm_layer_grads.extend(
-                            [p.grad for p in block.ff_layer.norm.parameters() if p.grad is not None]
+                            [
+                                p.grad
+                                for p in block.ff_layer.norm.parameters()
+                                if p.grad is not None
+                            ]
                         )
-                if getattr(self.target_model.head, 'norm', None) is not None:
+                if getattr(self.target_model.head, "norm", None) is not None:
                     norm_layer_grads.extend(
-                        [p.grad for p in self.target_model.head.norm.parameters() if p.grad is not None]
+                        [
+                            p.grad
+                            for p in self.target_model.head.norm.parameters()
+                            if p.grad is not None
+                        ]
                     )
                 target_norm_layer_norm = get_global_grad_norm(norm_layer_grads)
 
                 # True global pre-clip norm across all trainable params.
                 global_norm = torch.tensor(
-                    [start_grad_norm.item(), target_norm_layer_norm.item()] +
-                    [n.item() for n in projection_blocks_grad_norms]
+                    [start_grad_norm.item(), target_norm_layer_norm.item()]
+                    + [n.item() for n in projection_blocks_grad_norms]
                 ).norm()
 
                 # Pass 2: re-backward, clip with global norm, update per block.
@@ -369,7 +482,10 @@ class MemoryEfficientProjectedCompression(nn.Module):
             else:
                 # Per-block independent clipping.
                 import time
-                t_nccl_total = t_h2d_total = t_bwd_total = t_d2h_total = t_opt_total = 0.0
+
+                t_nccl_total = t_h2d_total = t_bwd_total = t_d2h_total = t_opt_total = (
+                    0.0
+                )
                 for block_target, block_source, block_proj, optimizer, scheduler in zip(
                     self.target_model.encoder.blocks,
                     self.source_model.encoder.blocks,
@@ -378,7 +494,11 @@ class MemoryEfficientProjectedCompression(nn.Module):
                     schedulers,
                 ):
                     t0 = time.perf_counter()
-                    block_grads = self._gather_block_grads(block_target) if use_batched_gather else None
+                    block_grads = (
+                        self._gather_block_grads(block_target)
+                        if use_batched_gather
+                        else None
+                    )
                     torch.cuda.synchronize()
                     t1 = time.perf_counter()
                     if use_block_gpu:
@@ -405,12 +525,15 @@ class MemoryEfficientProjectedCompression(nn.Module):
                     t5 = time.perf_counter()
 
                     t_nccl_total += t1 - t0
-                    t_h2d_total  += t2 - t1
-                    t_bwd_total  += t3 - t2
-                    t_opt_total  += t4 - t3  # step + optimizer state move + param move back to CPU
+                    t_h2d_total += t2 - t1
+                    t_bwd_total += t3 - t2
+                    t_opt_total += (
+                        t4 - t3
+                    )  # step + optimizer state move + param move back to CPU
 
                 if not dist.is_initialized() or dist.get_rank() == 0:
                     import logging
+
                     _logger = logging.getLogger(__name__)
                     _logger.warning(
                         f"[block timing] nccl={t_nccl_total:.3f}s  h2d={t_h2d_total:.3f}s  "
@@ -419,23 +542,41 @@ class MemoryEfficientProjectedCompression(nn.Module):
                     )
 
                 # Clip head and embedding projections independently.
-                head_params = [p for p in self.projections.head.parameters() if p.grad is not None]
+                head_params = [
+                    p for p in self.projections.head.parameters() if p.grad is not None
+                ]
                 head_norm = get_global_grad_norm(p.grad for p in head_params)
                 if gradient_clipping:
-                    torch.nn.utils.clip_grads_with_norm_(head_params, gradient_clipping, head_norm)
+                    torch.nn.utils.clip_grads_with_norm_(
+                        head_params, gradient_clipping, head_norm
+                    )
 
                 embedding_params = (
-                    [self.projections.embedding] if self.projections.embedding.grad is not None else []
-                ) + [p for p in self.projections.auxiliary_embedding_weights.parameters() if p.grad is not None]
+                    [self.projections.embedding]
+                    if self.projections.embedding.grad is not None
+                    else []
+                ) + [
+                    p
+                    for p in self.projections.auxiliary_embedding_weights.parameters()
+                    if p.grad is not None
+                ]
                 embedding_norm = get_global_grad_norm(p.grad for p in embedding_params)
                 if gradient_clipping:
-                    torch.nn.utils.clip_grads_with_norm_(embedding_params, gradient_clipping, embedding_norm)
+                    torch.nn.utils.clip_grads_with_norm_(
+                        embedding_params, gradient_clipping, embedding_norm
+                    )
 
                 final_grad_norm = torch.tensor(
-                    [start_grad_norm.item()] + [n.item() for n in projection_blocks_grad_norms]
+                    [start_grad_norm.item()]
+                    + [n.item() for n in projection_blocks_grad_norms]
                 ).norm()
 
-                return final_grad_norm, projection_blocks_grad_norms, head_norm, embedding_norm
+                return (
+                    final_grad_norm,
+                    projection_blocks_grad_norms,
+                    head_norm,
+                    embedding_norm,
+                )
 
         return final_grad_norm, projection_blocks_grad_norms, None, None
 
@@ -451,7 +592,7 @@ class MemoryEfficientProjectedCompression(nn.Module):
         result (proj_emb_grad, ~7.5 MB).  The large aux_emb_grad (0.5 GB) is moved
         CPU-locally on each rank — no broadcast needed since it's the same everywhere
         after all_reduce."""
-        if not hasattr(self, '_combined_embedding') or self._combined_embedding is None:
+        if not hasattr(self, "_combined_embedding") or self._combined_embedding is None:
             return
         if self._combined_embedding.grad is None:
             return
@@ -466,9 +607,13 @@ class MemoryEfficientProjectedCompression(nn.Module):
         aux_emb_grad_cpu = self._combined_embedding.grad.cpu()  # [vocab, target_dmodel]
 
         # proj_emb_grad: rank 0 computes (big matmul), result broadcast to all (~7.5 MB).
-        proj_emb_grad_gpu = torch.empty(self.projections.embedding.shape, device='cuda', dtype=torch.float32)
+        proj_emb_grad_gpu = torch.empty(
+            self.projections.embedding.shape, device="cuda", dtype=torch.float32
+        )
         if rank == 0:
-            source_emb = self.source_model.embedding.weight.detach()  # [vocab, base_dmodel] CPU
+            source_emb = (
+                self.source_model.embedding.weight.detach()
+            )  # [vocab, base_dmodel] CPU
             # d(loss)/d(P_emb) = emb_grad.T @ source_emb    shape [target_dmodel, base_dmodel]
             proj_emb_grad_gpu.copy_(aux_emb_grad_cpu.T @ source_emb)
         if dist.is_initialized():
@@ -478,19 +623,26 @@ class MemoryEfficientProjectedCompression(nn.Module):
         self.projections.auxiliary_embedding_weights.weight.grad = aux_emb_grad_cpu
         self._combined_embedding.grad = None
 
-    def backward_compressed_weights(self, proj, source_weight, target_weight, wc_grad=None):
+    def backward_compressed_weights(
+        self, proj, source_weight, target_weight, wc_grad=None
+    ):
         """Compute gradients for projection parameters.
 
         wc_grad: optional pre-gathered full plain GPU gradient tensor (from
             _batch_gather_block_grads).  When provided, skips per-weight
             redistribute(Replicate) NCCL all_gather entirely.  When None,
             gathers from target_weight.grad as before."""
-        if (self.cpu_offload_projections
-                and source_weight.device.type == 'cpu'
-                and hasattr(target_weight.grad, 'to_local')):
+        if (
+            self.cpu_offload_projections
+            and source_weight.device.type == "cpu"
+            and hasattr(target_weight.grad, "to_local")
+        ):
             # CPU fallback path (block_gpu_compute=False): rank 0 computes, broadcasts grads.
             from torch.distributed.tensor import Replicate
-            wc_grad_gpu = target_weight.grad.redistribute(placements=[Replicate()]).to_local()
+
+            wc_grad_gpu = target_weight.grad.redistribute(
+                placements=[Replicate()]
+            ).to_local()
             target_weight.grad = None
 
             rank = dist.get_rank() if dist.is_initialized() else 0
@@ -501,7 +653,7 @@ class MemoryEfficientProjectedCompression(nn.Module):
                 weights = proj.get_projected_weight(src_w)
                 weights.backward(wc_grad_gpu.cpu())
             for p in proj.parameters():
-                grad_buf = torch.empty(p.shape, device='cuda', dtype=p.dtype)
+                grad_buf = torch.empty(p.shape, device="cuda", dtype=p.dtype)
                 if rank == 0 and p.grad is not None:
                     grad_buf.copy_(p.grad)
                     p.grad = None
@@ -519,9 +671,10 @@ class MemoryEfficientProjectedCompression(nn.Module):
             if wc_grad is None:
                 # No pre-gathered grad: gather from target_weight.grad.
                 wc_grad = target_weight.grad
-                if hasattr(wc_grad, 'to_local') and not hasattr(weights, 'device_mesh'):
+                if hasattr(wc_grad, "to_local") and not hasattr(weights, "device_mesh"):
                     # DTensor grad but plain-tensor result (non-FSDP2 proj on GPU, e.g. head).
                     from torch.distributed.tensor import Replicate
+
                     wc_grad = wc_grad.redistribute(placements=[Replicate()]).to_local()
 
             target_weight.grad = None
@@ -529,7 +682,7 @@ class MemoryEfficientProjectedCompression(nn.Module):
             # DTensor autograd outside FSDP2's context leaves gradients as Partial(sum).
             # Redistribute to Shard(0) to match FSDP2's reduce-scatter behavior.
             for p in proj.parameters():
-                if p.grad is not None and hasattr(p.grad, 'redistribute'):
+                if p.grad is not None and hasattr(p.grad, "redistribute"):
                     p.grad = p.grad.redistribute(placements=p.placements)
 
 

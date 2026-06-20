@@ -8,7 +8,10 @@ from src.core.trainer import Trainer
 from src.projected_compression.mem_eff import get_global_grad_norm
 from attr import define
 import torch.distributed.checkpoint as dcp
-from torch.distributed.checkpoint.state_dict import get_model_state_dict, StateDictOptions
+from torch.distributed.checkpoint.state_dict import (
+    get_model_state_dict,
+    StateDictOptions,
+)
 from torch.distributed.tensor import DTensor
 
 logger = logging.getLogger(__name__)
@@ -17,8 +20,12 @@ logger = logging.getLogger(__name__)
 @define(slots=False)
 class PCTrainer(Trainer):
     only_compress_model_gradient_clipping: bool
-    only_target_model_gradient_clipping: Optional[Union[float, str]] = None  # float = per-block projection clip threshold; "no_projection_clip" = clip target model only
-    original_llama_path: Optional[str] = None  # if set, also saves HF-format checkpoint for lm_eval
+    only_target_model_gradient_clipping: Optional[Union[float, str]] = (
+        None  # float = per-block projection clip threshold; "no_projection_clip" = clip target model only
+    )
+    original_llama_path: Optional[str] = (
+        None  # if set, also saves HF-format checkpoint for lm_eval
+    )
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -39,18 +46,24 @@ class PCTrainer(Trainer):
         if not self.gradient_clipping:
             return
         params_with_grads = [p for p in self.model.parameters() if p.grad is not None]
-        dtensor_grads = [p for p in params_with_grads if hasattr(p.grad, 'device_mesh')]
-        plain_grads   = [p for p in params_with_grads if not hasattr(p.grad, 'device_mesh')]
+        dtensor_grads = [p for p in params_with_grads if hasattr(p.grad, "device_mesh")]
+        plain_grads = [
+            p for p in params_with_grads if not hasattr(p.grad, "device_mesh")
+        ]
         if dtensor_grads:
-            torch.nn.utils.clip_grads_with_norm_(dtensor_grads, self.gradient_clipping, grad_norm)
+            torch.nn.utils.clip_grads_with_norm_(
+                dtensor_grads, self.gradient_clipping, grad_norm
+            )
         if plain_grads:
-            torch.nn.utils.clip_grads_with_norm_(plain_grads, self.gradient_clipping, grad_norm)
+            torch.nn.utils.clip_grads_with_norm_(
+                plain_grads, self.gradient_clipping, grad_norm
+            )
 
     def train(self):
         for step, batch in zip(
             range(self.start_step, self.n_steps), self.train_dataloader
         ):
-            
+
             self.step = step
             self.metric_logger.set_step(step)
             self.metric_logger.set_tokens(self.processed_tokens)
@@ -62,42 +75,58 @@ class PCTrainer(Trainer):
             if self.only_target_model_gradient_clipping:
                 # Clip target model params (Wc + norms) globally as a normal model,
                 # then propagate those clipped Wc grads to projection params unclipped.
-                target_params_with_grad = [p for p in self.model.target_model.parameters() if p.grad is not None]
+                target_params_with_grad = [
+                    p
+                    for p in self.model.target_model.parameters()
+                    if p.grad is not None
+                ]
                 target_norm = get_global_grad_norm(target_params_with_grad)
                 if self.gradient_clipping:
                     torch.nn.utils.clip_grads_with_norm_(
                         target_params_with_grad, self.gradient_clipping, target_norm
                     )
-                projection_clip = None if self.only_target_model_gradient_clipping == "no_projection_clip" else self.only_target_model_gradient_clipping
-                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = self.model.pass_gradient_to_projections(
-                    self.block_optimizers,
-                    self.block_schedulers,
-                    gradient_clipping=projection_clip,
-                    shared_gradient_norms=False,
+                projection_clip = (
+                    None
+                    if self.only_target_model_gradient_clipping == "no_projection_clip"
+                    else self.only_target_model_gradient_clipping
+                )
+                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = (
+                    self.model.pass_gradient_to_projections(
+                        self.block_optimizers,
+                        self.block_schedulers,
+                        gradient_clipping=projection_clip,
+                        shared_gradient_norms=False,
+                    )
                 )
                 grad_norm = target_norm
             elif self.only_compress_model_gradient_clipping:
-                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = self.model.pass_gradient_to_projections(
-                    self.block_optimizers,
-                    self.block_schedulers,
-                    self.gradient_clipping,
-                    shared_gradient_norms=False,
+                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = (
+                    self.model.pass_gradient_to_projections(
+                        self.block_optimizers,
+                        self.block_schedulers,
+                        self.gradient_clipping,
+                        shared_gradient_norms=False,
+                    )
                 )
                 grad_norm = total_grad_norm
                 self._clip_model_grads(grad_norm)
             else:
-                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = self.model.pass_gradient_to_projections(
-                    self.block_optimizers,
-                    self.block_schedulers,
-                    self.gradient_clipping,
-                    shared_gradient_norms=True,
+                total_grad_norm, projection_grad_norms, head_norm, embedding_norm = (
+                    self.model.pass_gradient_to_projections(
+                        self.block_optimizers,
+                        self.block_schedulers,
+                        self.gradient_clipping,
+                        shared_gradient_norms=True,
+                    )
                 )
                 grad_norm = total_grad_norm
                 self._clip_model_grads(grad_norm)
 
             self.log_metrics(loss_metrics, grad_norm)
             self.metric_logger.log("train/total_grad_norm", total_grad_norm.item())
-            self.log_projection_grad_norms(projection_grad_norms, head_norm, embedding_norm)
+            self.log_projection_grad_norms(
+                projection_grad_norms, head_norm, embedding_norm
+            )
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.scheduler.step()
@@ -107,13 +136,15 @@ class PCTrainer(Trainer):
 
             if self._should_save_final_checkpoint:
                 self.save_checkpoint()
-            
+
             if self._should_evaluate:
                 self.eval()
 
-            self.metric_logger.flush() # <--- THIS SENDS TO WANDB
+            self.metric_logger.flush()  # <--- THIS SENDS TO WANDB
 
-    def log_projection_grad_norms(self, projection_grad_norms, head_norm=None, embedding_norm=None):
+    def log_projection_grad_norms(
+        self, projection_grad_norms, head_norm=None, embedding_norm=None
+    ):
         if not projection_grad_norms:
             return
         total_proj_norm = torch.tensor([n.item() for n in projection_grad_norms]).norm()
@@ -123,16 +154,21 @@ class PCTrainer(Trainer):
         if head_norm is not None:
             self.metric_logger.log("train/projection_grad_norm_head", head_norm.item())
         if embedding_norm is not None:
-            self.metric_logger.log("train/projection_grad_norm_embedding", embedding_norm.item())
+            self.metric_logger.log(
+                "train/projection_grad_norm_embedding", embedding_norm.item()
+            )
 
     def save_checkpoint(self):
         checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
         save_type = self.checkpoint.save.type  # "nano" | "nano_and_hf" | "hf_only"
 
         if save_type in ("nano", "nano_and_hf"):
-            dcp.save(self.model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model")
             dcp.save(
-                self.optimizer.state_dict(), checkpoint_id=f"{checkpoint_folder}/optimizer"
+                self.model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model"
+            )
+            dcp.save(
+                self.optimizer.state_dict(),
+                checkpoint_id=f"{checkpoint_folder}/optimizer",
             )
             if self.block_optimizers is not None:
                 for idx, block_optimizer in enumerate(self.block_optimizers):
@@ -157,7 +193,9 @@ class PCTrainer(Trainer):
         All collective ops (get_model_state_dict, DTensor.full_tensor) must be called
         on every rank; only rank 0 writes files.
         """
-        from src.projected_compression.convert_memeff_to_hf import load_pc_state_dict_to_llama
+        from src.projected_compression.convert_memeff_to_hf import (
+            load_pc_state_dict_to_llama,
+        )
         from transformers import AutoTokenizer
 
         # Gather full Wc state dict from FSDP2-sharded target_model (collective)
@@ -173,15 +211,21 @@ class PCTrainer(Trainer):
             proj_emb = self.model.projections.embedding
             aux_emb = self.model.projections.auxiliary_embedding_weights.weight
 
-            src_emb  = src_emb.full_tensor()  if isinstance(src_emb,  DTensor) else src_emb
-            proj_emb = proj_emb.full_tensor() if isinstance(proj_emb, DTensor) else proj_emb
-            aux_emb  = aux_emb.full_tensor()  if isinstance(aux_emb,  DTensor) else aux_emb
+            src_emb = src_emb.full_tensor() if isinstance(src_emb, DTensor) else src_emb
+            proj_emb = (
+                proj_emb.full_tensor() if isinstance(proj_emb, DTensor) else proj_emb
+            )
+            aux_emb = aux_emb.full_tensor() if isinstance(aux_emb, DTensor) else aux_emb
 
-            embedding = src_emb.float().cpu() @ proj_emb.float().cpu().T + aux_emb.float().cpu()
+            embedding = (
+                src_emb.float().cpu() @ proj_emb.float().cpu().T + aux_emb.float().cpu()
+            )
 
         if int(os.environ.get("RANK", "0")) == 0:
             target_sd["embedding"] = embedding
-            llama_model = load_pc_state_dict_to_llama(target_sd, self.original_llama_path)
+            llama_model = load_pc_state_dict_to_llama(
+                target_sd, self.original_llama_path
+            )
             llama_model.save_pretrained(save_path)
             tokenizer = AutoTokenizer.from_pretrained(self.original_llama_path)
             tokenizer.save_pretrained(save_path)

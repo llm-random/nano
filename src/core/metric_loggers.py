@@ -179,7 +179,9 @@ def get_metric_logger(
             slurm_array_task_id = os.environ.get("SLURM_ARRAY_TASK_ID")
             slurm_submit_dir = os.environ.get("SLURM_SUBMIT_DIR")
             if slurm_job_id and slurm_array_task_id:
-                slurm_out = f"{slurm_submit_dir}/slurm-{slurm_job_id}_{slurm_array_task_id}.out"
+                slurm_out = (
+                    f"{slurm_submit_dir}/slurm-{slurm_job_id}_{slurm_array_task_id}.out"
+                )
             elif slurm_job_id:
                 slurm_out = f"{slurm_submit_dir}/slurm-{slurm_job_id}.out"
             else:

@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
-from src.core.checkpointing import get_full_checkpoint_path, load_training_state, step_checkpoint_path
+from src.core.checkpointing import (
+    get_full_checkpoint_path,
+    load_training_state,
+    step_checkpoint_path,
+)
 from src.core.metric_loggers import WandbLogger, get_metric_logger
 from src.core.utils import solve_config_lr
 from src.core.distributed_training import setup_fsdp2_model
@@ -24,6 +28,8 @@ def _build_checkpoint_path(cfg):
     elif n_steps is not None:
         return f"{base}/step_{n_steps - 1}"
     return base
+
+
 logger.propagate = False
 ch = logging.StreamHandler()
 formatter = logging.Formatter(
@@ -114,6 +120,7 @@ def init_pc_attributes(cfg, metric_logger):
 
     return model, optimizer, scheduler, training_state, metric_logger
 
+
 def load_checkpoint(model, optimizer, scheduler, checkpoint_folder):
     dcp.load(model.state_dict(), checkpoint_id=f"{checkpoint_folder}/model")
 
@@ -148,7 +155,9 @@ def get_target_model_optimize_params(model):
 
 
 def create_model(cfg_model, cfg_projected_compression, source_model_for_distillation):
-    cpu_offload_projections = cfg_projected_compression.get("cpu_offload_projections", False)
+    cpu_offload_projections = cfg_projected_compression.get(
+        "cpu_offload_projections", False
+    )
 
     with torch.device("meta"):
         model = instantiate(
@@ -215,8 +224,8 @@ def create_model(cfg_model, cfg_projected_compression, source_model_for_distilla
     if cpu_offload_projections:
         # Embedding and head projections run on GPU — only encoder blocks are CPU-offloaded.
         # Move the corresponding source weights to GPU so the GPU path has everything it needs.
-        model.source_model.embedding = model.source_model.embedding.to('cuda')
-        model.source_model.head = model.source_model.head.to('cuda')
+        model.source_model.embedding = model.source_model.embedding.to("cuda")
+        model.source_model.head = model.source_model.head.to("cuda")
 
     # Initializing model.target_model
     model.target_model.to_empty(device="cuda")
@@ -298,7 +307,9 @@ def create_model(cfg_model, cfg_projected_compression, source_model_for_distilla
         )
         dmodel_topk_indices = dmodel_topk_indices.detach().cpu()
         dff_topk_indices = [idx.detach().cpu() for idx in dff_topk_indices]
-        _init_projections_sharded_one_by_one(model.projections, meta_sd, dmodel_topk_indices, dff_topk_indices)
+        _init_projections_sharded_one_by_one(
+            model.projections, meta_sd, dmodel_topk_indices, dff_topk_indices
+        )
         logger.info("Initialized projections as FSDP2-sharded CUDA DTensors.")
     else:
         model.projections.to_empty(device="cuda")
@@ -309,7 +320,9 @@ def create_model(cfg_model, cfg_projected_compression, source_model_for_distilla
     return model
 
 
-def _init_projections_sharded_one_by_one(projections_module, meta_sd, dmodel_topk_indices, dff_topk_indices):
+def _init_projections_sharded_one_by_one(
+    projections_module, meta_sd, dmodel_topk_indices, dff_topk_indices
+):
     """Initialize projections one param at a time to avoid CPU RAM OOM.
 
     Building the full CPU state dict for all projections at once allocates ~77GB CPU RAM
