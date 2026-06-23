@@ -1,4 +1,4 @@
- infrastructure:
+infrastructure:
   server: lem
   max_concurrent_jobs: null
   slurm:
@@ -12,23 +12,22 @@
     account: "plgllmefficont3"
 
   script:
+    - 'ml CUDA/12.4.0'
     - '${export_env_variables_placeholders:}'
-    - 'export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/nano'
+    - 'export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/nano/$USER'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
 
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
 
     # export pixi variables
-    - 'export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/mstefaniak'
     - 'export HF_DATASETS_CACHE="$PROJECT_HOME_PATH/hf_datasets"'
     - 'export HF_MODULES_CACHE="$PROJECT_HOME_PATH/hf_modules"'
-    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
     - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
-    - 'export XDG_DATA_HOME="$PROJECT_HOME_PATH/data"'
-    - 'export XDG_CACHE_HOME="$PROJECT_HOME_PATH/cache"'
-    - 'export XDG_STATE_HOME="$PROJECT_HOME_PATH/state"'
+
+    # HF datasets requires explicit opt-in for datasets with custom code (e.g. allenai/social_i_qa)
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
 
     # activate pixi
     - 'cd "$PIXI_HOME"'
