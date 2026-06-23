@@ -1,0 +1,42 @@
+# notebook for producing a PC checkpoint used for PC_memeff training
+
+defaults:
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/qwen@_here_: 1.7B
+  - _self_
+
+
+trainer:
+  checkpoint:
+    load:
+      type: huggingface
+      path: "Qwen/Qwen3-1.7B-Base"
+
+    save:
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/qwen3_1_7b_in_nano.pt
+
+infrastructure:
+  metric_logger:
+    name: PC_save_pretrained_hf_to_nano
+    tags:
+      - nano
+      - pc
+      - save_pretrained
+      - qwen
+  
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:hopper:1
+    time: "0-01:00:00"
+
+init_model_opt_sched_fn:
+  _target_: src.core.qwen.save_pretrained_qwen_as_nano
+  _partial_: true
+
+# verify converted nano model matches HF logits; comment out to switch off
+apply_functions:
+  - _target_: src.core.qwen.verify_qwen_against_hf
+    _partial_: true
+    hf_path: ${trainer.checkpoint.load.path}
+    vocab_size: ${model.embedding.vocab_size}

@@ -287,6 +287,38 @@ class RoPEAttention(nn.Module):
         return output
 
 
+class QwenAttention(RoPEAttention):
+    """RoPEAttention plus Qwen3 per-head QK-RMSNorm applied before RoPE."""
+
+    def __init__(self, *args, q_norm_fn, k_norm_fn, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.q_norm = q_norm_fn()
+        self.k_norm = k_norm_fn()
+
+    def forward(self, x):
+        query_states = self.q_proj(x)
+        key_states = self.k_proj(x)
+        value_states = self.v_proj(x)
+
+        batch, seq_len = x.shape[:-1]
+        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        q = self.rope(self.q_norm(q))
+        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        k = self.rope(self.k_norm(k))
+
+        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+
+        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        v = repeat_kv(v, self.q_heads // self.kv_heads)
+        attention_output = self.attention_mechanism(
+            query=q, key=k, value=v, causal=True
+        )
+
+        output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
+
+        return output
+
+
 class FeedForward(nn.Module):
     def __init__(self, ff_pre_act_fn, ff_post_act_fn):
         super().__init__()

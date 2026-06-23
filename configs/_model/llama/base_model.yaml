@@ -1,5 +1,5 @@
 defaults:
-  - /ff_layer@model.encoder.block_fn.ff_layer_fn: dense
+  - ../../ff_layer@model.encoder.block_fn.ff_layer_fn: dense
   - _self_
 
 common:
