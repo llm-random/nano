@@ -38,6 +38,9 @@ def save_pretrained_qwen_as_nano(cfg: OmegaConf, metric_logger=None):
 
     hf_model = AutoModelForCausalLM.from_pretrained(cfg.trainer.checkpoint.load.path)
     nano_sd = remap_qwen3hf_state_dict_to_nano(hf_model.state_dict())
+    # PC mem-eff projections run in fp32 (cast_bfloat16=false); transformers>=5 loads
+    # Qwen as bf16 by default, so cast here to match the Llama pipeline's fp32 checkpoint
+    nano_sd = OrderedDict((k, v.float()) for k, v in nano_sd.items())
 
     model = instantiate(cfg.model, _convert_="all")
     weights = {k for k in model.state_dict() if not k.endswith((".sin", ".cos"))}
