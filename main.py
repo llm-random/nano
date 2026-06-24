@@ -6,6 +6,7 @@ from src.core.conversion_from_finalized_pc import load_finalized_pc_checkpoint
 from src.core.distributed_training import setup_distributed_training
 from src.core.conversion_from_llmrandom import load_llmrandom_checkpoint
 from src.core.llama import copy_llama_model_weights_from_HF
+from src.core.qwen import copy_qwen_model_weights_from_HF
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
 import resolver as _  # I should be able to ignore this line by linter, but ~ things like # ignore did not work
@@ -257,8 +258,13 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         if isinstance(module, Residual):
             module.set_metric_logger(metric_logger)
 
-    if cfg.trainer.checkpoint.load.type == "huggingface":
+    if cfg.trainer.checkpoint.load.type in ["huggingface", "huggingface_llama"]:
         copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
+        model, optimizer, scheduler = get_model_optimizer_scheduler(
+            cfg, model, learning_rate
+        )
+    elif cfg.trainer.checkpoint.load.type == "huggingface_qwen":
+        copy_qwen_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )

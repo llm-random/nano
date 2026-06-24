@@ -28,6 +28,12 @@ def remap_qwen3hf_state_dict_to_nano(qwen_state_dict):
     return OrderedDict(renamed)
 
 
+def copy_qwen_model_weights_from_HF(model, path):
+    hf_model = AutoModelForCausalLM.from_pretrained(path)
+    remapped_state_dict = remap_qwen3hf_state_dict_to_nano(hf_model.state_dict())
+    model.load_state_dict(remapped_state_dict)
+
+
 def save_pretrained_qwen_as_nano(cfg: OmegaConf, metric_logger=None):
 
     hf_model = AutoModelForCausalLM.from_pretrained(cfg.trainer.checkpoint.load.path)
