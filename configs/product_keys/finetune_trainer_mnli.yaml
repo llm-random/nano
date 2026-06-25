@@ -1,0 +1,96 @@
+# @package _global_
+defaults:
+#  - /_cluster/helios@_here_
+  - /_cluster/lem@_here_
+  - /_model/tiny@_here_
+  - /product_keys/pk_model@_here_
+  - /_trainer/llama@_here_
+  - /_dataset/mnli@_here_
+  - /_checkpoints/none@_here_
+  - /_misc/default@_here_
+  - _self_
+
+common:
+  batch_size: 64
+  datt: 1024
+  dff: 2724
+  dmodel: 1024
+  kv_heads: 16
+  n_blocks: 16
+  q_heads: 16
+  sequence_length: 1024
+  vocab_size: 50304
+
+
+trainer:
+  _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
+
+  gradient_accumulation_steps: 4
+  eval_interval: 25
+  n_steps: 12400 # 392k rows -> bs-64, 1 epoch
+  full_eval_rows: 2000
+  # ^learning_rate: [1e-4, 5e-5, 1e-3]
+  ^learning_rate: [1e-5, 2e-5]
+  freeze_backbone: false
+  trainable_modules: ["head"]
+  d_model: ${common.dmodel}
+  vocab_size: ${common.vocab_size}
+
+  # sep_token_id: 50259
+
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
+
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        seq_len: ${common.sequence_length}
+
+  eval_dataloader:
+    collate_fn:
+      _target_: src.product_keys.datasets.glue_collate_wrapper
+      _partial_: true
+    dataset:
+      _target_: src.product_keys.datasets.GlueDataset
+      tokenize_fn:
+        seq_len: ${common.sequence_length}
+
+  checkpoint:
+    load:
+      type: nano
+      path: /lustre/pd03/plgrid/plgllmefficont3/pk_attention/model_checkpoints/5110806/0/step_80000
+      # path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/finetune_checkpoints/pk_attn_full_run
+      model_checkpoint_filename: model_checkpoint.pt
+      training_state_filename: training_state.pt
+      only_weights: true
+
+    save:
+      type: nano
+      interval: 4000
+      path: null
+
+
+infrastructure:
+  metric_logger:
+    type: wandb
+    wandb_entity: ideas_cv
+    project_name: tml-bgw
+    name: pk_mlm-finetunetrainer-mnli-lr
+    tags:
+      - nano
+      - pk_mlm
+      - finetuning
+      - mnli
+      - segment_embedding
+      - "seq_len=${common.sequence_length}"
+      - "n_layers=${common.n_blocks}"
+      - "lr=${trainer.learning_rate}"
+
+  slurm:
+    gres: gpu:hopper:4
+    # gres: gpu:4
+    time: "0-16:00:00"
+    job-name: ${infrastructure.metric_logger.name}

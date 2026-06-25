@@ -1,24 +1,13 @@
 # @package _global_
 defaults:
-  - /_cluster/entropy@_here_
+  - /_cluster/helios@_here_
   - /_model/tiny@_here_
+  - /product_keys/pk_model@_here_
   - /_trainer/llama@_here_
   - /_dataset/c4@_here_
   - /_misc/default@_here_
   - _self_
 
-common:
-  sequence_length: 1024
-  batch_size: 64
-  dmodel: 1024
-  dff: 2724
-  datt: ${common.dmodel}
-  n_blocks: 16
-  q_heads: 16
-  kv_heads: 16
-  vocab_size: 50304
-  # ^init_scale: [0.01, 0.1, 0.5, 1, 2]
-  init_scale: 0.5
 
 trainer:
   _target_: src.product_keys.trainer.MaskedLMTrainer
@@ -27,7 +16,7 @@ trainer:
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 4
   # n_steps: 77050
-  n_steps: 15
+  n_steps: 10
   # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
   learning_rate: 2e-3
   scheduler:
@@ -47,16 +36,16 @@ trainer:
   checkpoint:
     save:
       interval: -1
-    load:
-      path: null
-      only_weights: false # false not tested
+    # load:
+    #   path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/model_checkpoints/plgggwozdz02/16187802/0/step_104
+    #   only_weights: false # false not tested
 
 
 infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: pk_mlm_bring_back_rope_test_saving
+    name: pk_mlm_${now:%Y-%m-%d_%H-%M-%S}
     project_name: tml-bgw
     heavy_metrics_calculation_interval: 1000
     heavy_logging_layers: [0, 10, 15]
@@ -74,61 +63,7 @@ infrastructure:
       - seed=${trainer.train_dataloader.dataset.seed}
   slurm:
     gres: gpu:2
-    time: "0-01:00:00"
+    time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
-model:
-  encoder:
-    block_fn:
-      attention_fn:
-        _target_: src.product_keys.model.RoPEProductKeysEncoderAttention
-        _partial_: true
-        dmodel: ${common.dmodel}
-        q_heads: ${common.q_heads}
-        kv_heads: ${common.kv_heads}
-        seq_len: ${common.sequence_length}
 
-        q_proj_fn:
-          _target_: src.projected_compression.model.Linear
-          _partial_: true
-          in_features: ${common.dmodel}
-          out_features: ${common.datt}
-          partial_init_fn:
-            _target_: src.projected_compression.model.llm_random_weight_init
-            _partial_: true
-            scale: ${common.init_scale}
-
-        k_proj_fn:
-          _target_: src.projected_compression.model.Linear
-          _partial_: true
-          in_features: ${common.dmodel}
-          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
-          partial_init_fn:
-            _target_: src.projected_compression.model.llm_random_weight_init
-            _partial_: true
-            scale: ${common.init_scale}
-
-        v_proj_fn:
-          _target_: src.projected_compression.model.Linear
-          _partial_: true
-          in_features: ${common.dmodel}
-          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
-          partial_init_fn:
-            _target_: src.projected_compression.model.llm_random_weight_init
-            _partial_: true
-            scale: ${common.init_scale}
-
-        o_proj_fn: 
-          _target_: src.projected_compression.model.Linear
-          _partial_: true
-          in_features: ${common.datt}
-          out_features: ${common.dmodel}
-          partial_init_fn:
-            _target_: src.projected_compression.model.llm_random_weight_init
-            _partial_: true
-            scale: ${common.init_scale}
-
-        rope_base: 500000
-        rope_scale_freqs: true
-        top_k: 16
-        init_scale: ${common.init_scale}

@@ -192,3 +192,9 @@ checkpoints
 
 # MAS (madragonse)
 *mastest*
+
+plots_wandb_bgw.ipynb
+plots_wandb.ipynb
+jupyter_notebooks/
+
+src/product_keys/dataset_inspector.py

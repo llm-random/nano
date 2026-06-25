@@ -1,0 +1,74 @@
+# @package _global_
+common:
+  sequence_length: 1024
+  batch_size: 64
+  dmodel: 1024
+  dff: 2724
+  datt: ${common.dmodel}
+  n_blocks: 16
+  q_heads: 16
+  kv_heads: 16
+  vocab_size: 50304
+  # ^init_scale: [0.01, 0.1, 0.5, 1, 2]
+  init_scale: 0.5
+
+
+model:
+  _target_: src.product_keys.model.LLM
+  encoder:
+    _target_: src.product_keys.model.TransformerEncoder
+    block_fn:
+      _target_: src.product_keys.model.TransformerBlock
+      _partial_: true
+      attention_fn:
+        _target_: src.product_keys.model.RoPEProductKeysEncoderAttention
+        _partial_: true
+        dmodel: ${common.dmodel}
+        q_heads: ${common.q_heads}
+        kv_heads: ${common.kv_heads}
+        seq_len: ${common.sequence_length}
+
+        q_proj_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${common.datt}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: ${common.init_scale}
+
+        k_proj_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: ${common.init_scale}
+
+        v_proj_fn:
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.dmodel}
+          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: ${common.init_scale}
+
+        o_proj_fn: 
+          _target_: src.projected_compression.model.Linear
+          _partial_: true
+          in_features: ${common.datt}
+          out_features: ${common.dmodel}
+          partial_init_fn:
+            _target_: src.projected_compression.model.llm_random_weight_init
+            _partial_: true
+            scale: ${common.init_scale}
+
+        rope_base: 500000
+        rope_scale_freqs: true
+        top_k: 16
+        init_scale: ${common.init_scale}

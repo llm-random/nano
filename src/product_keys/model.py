@@ -7,6 +7,9 @@ from torch.nn.init import trunc_normal_
 import logging
 
 from src.core.model import AttentionMechanism, Residual, RoPE
+from src.projected_compression.model import LLM as LLM_projected_compression, \
+    TransformerEncoder as TransformerEncoder_projected_compression, \
+    Residual as Residual_projected_compression
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +108,7 @@ class RoPETopKAttention(nn.Module):
         mask_topk = x < threshold
         return x.masked_fill(mask_topk, fill_value)
 
-    def forward(self, x):
+    def forward(self, x, attention_mask=None):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
         value_states = self.v_proj(x)
@@ -126,7 +129,7 @@ class RoPETopKAttention(nn.Module):
         # standard attention if seq_len is smaller or equal top_k
         if seq_len <= self.top_k:
             attention_output = self.attention_mechanism(
-                query=q, key=k, value=v, causal=self.causal
+                query=q, key=k, value=v, causal=self.causal, attention_mask=attention_mask
             )
             return self.o_proj(
                 attention_output.transpose(1, 2).contiguous().flatten(-2)
@@ -139,6 +142,10 @@ class RoPETopKAttention(nn.Module):
                 torch.ones(seq_len, seq_len, device=attention_scores.device), diagonal=1
             ).bool()
             attention_scores = attention_scores.masked_fill(causal_mask, float("-inf"))
+
+        if attention_mask is not None:
+            pad_mask = attention_mask.unsqueeze(1).unsqueeze(2) == 0
+            attention_scores = attention_scores.masked_fill(pad_mask, float("-inf"))
 
         if self.top_k_before_softmax:
             attention_scores = self.__apply_topk_mask(
@@ -288,7 +295,7 @@ class RoPEProductKeysEncoderAttention(nn.Module):
             res[f"head_{h}/v_indices"] = stacked_v[:, :, h].flatten()
         return res
 
-    def forward(self, x):
+    def forward(self, x, attention_mask=None):        
         # todo
         # - init scale init only on keys of this layer
         query_states = self.q_proj(x)
@@ -404,6 +411,25 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         #     torch.ones(seq_len, seq_len, device=attn_scores.device), diagonal=1
         # ).bool()
         # attn_scores = attn_scores.masked_fill(causal_mask, float("-inf"))
+        
+        if attention_mask is not None:
+            # Extract the mask values corresponding to the retrieved top-k keys
+            mask_expanded = attention_mask.view(batch, 1, 1, seq_len).expand(-1, self.q_heads, seq_len, -1)
+            gathered_k_mask = torch.gather(mask_expanded, 3, v_indices)
+            
+            # k_pad_mask is True where the retrieved key is a padding token
+            k_pad_mask = gathered_k_mask.unsqueeze(-2) == 0  # (B, H, S, 1, top_k)
+            
+            # q_pad_mask is True where the query itself is a padding token
+            q_pad_mask = attention_mask.view(batch, 1, seq_len, 1, 1) == 0  # (B, 1, S, 1, 1)
+            
+            # Mask out the key ONLY if the key is padding AND the query is valid.
+            # This prevents padding queries from having all -inf scores (which causes NaNs).
+            pad_mask = k_pad_mask & (~q_pad_mask)
+            # Use a large negative number instead of -inf to be absolutely safe against NaNs
+            # if a valid query somehow retrieves only padding keys.
+            min_val = torch.finfo(attn_scores.dtype).min
+            attn_scores = attn_scores.masked_fill(pad_mask, min_val)
 
         attn_weights = F.softmax(attn_scores, dim=-1)
 
@@ -531,3 +557,67 @@ class ProductKeysMemory(nn.Module):
         # Restore the correct dimensions: (BS*Seq, H, d_model) -> (BS, Seq, H, d_model)
         out_flat = out_flat.view(bs, seq_len, self.n_heads, d_model)
         return out_flat.sum(dim=2)  # Output: (BS, Seq, d_model)
+    
+
+class LLM(LLM_projected_compression):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def forward(self, *args, **kwargs):
+        attention_mask = kwargs.pop("attention_mask", None)
+        x = self.embedding(*args, **kwargs)
+        x = self.encoder(x, attention_mask=attention_mask)
+        x = self.head(x)
+        return x
+
+
+class TransformerEncoder(TransformerEncoder_projected_compression):
+    def forward(self, x, *args, **kwargs):
+        for block in self.blocks:
+            x = block(x, *args, **kwargs)
+        return x
+
+
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        block_id,
+        norm_fn,
+        attention_fn,
+        ff_layer_fn,
+    ):
+        super().__init__()
+        self.log_name = f"block[{block_id}]"
+
+        self.attention_layer = Residual(
+            norm=norm_fn(),
+            layer=attention_fn(),
+            log_name=f"{self.log_name}/residual_attention",
+        )
+        self.ff_layer = Residual(
+            norm=norm_fn(),
+            layer=ff_layer_fn(),
+            log_name=f"{self.log_name}/residual_feedforward",
+        )
+
+    def forward(self, x, attention_mask=None):
+        x = self.attention_layer(x, attention_mask=attention_mask)
+        x = self.ff_layer(x)
+        return x
+
+
+class Residual(Residual_projected_compression):
+    def forward(self, x, *args, **kwargs):
+        normalized = self.norm(x)
+        out = self.layer(normalized, *args, **kwargs)
+        if self.metric_logger is not None:
+            self.metric_logger.accumulate_metrics(
+                layer_name=f"{self.log_name}",
+                transform_fn=Residual.intermediate_norms,
+                calculate_fn=Residual.calculate_metrics,
+                metrics={
+                    "residual_stream": x,
+                    "updates": out,
+                },
+            )
+        return out + x
