@@ -308,6 +308,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
             cfg, model, learning_rate
         )
     elif cfg.trainer.checkpoint.load.type == "nano":
+        logging.info("Loading model from nano checkpoint")
         # TODO! if you want to apply function on loaded model it does NOT work now, it applies function on newly inintialized model than it loads model weights
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate

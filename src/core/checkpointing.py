@@ -4,6 +4,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.checkpoint.stateful import Stateful
 from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 import torch.distributed.checkpoint as dcp
+from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 
 from src.core.metric_loggers import NeptuneLogger, WandbLogger
 import logging
@@ -130,7 +131,12 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
         ):
             # Sharded load
             state_dict = {"app": TrainingState(model, optimizer, scheduler)}
-            dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_path)
+            # TODO: check
+            dcp.load(
+                state_dict=state_dict,
+                checkpoint_id=checkpoint_path,
+                planner=DefaultLoadPlanner(allow_partial_load=True),
+            )
             logger.debug(f"Loaded sharded checkpoint from '{checkpoint_path}'")
         else:
             # Non-sharded load

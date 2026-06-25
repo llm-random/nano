@@ -1,0 +1,72 @@
+# @package _global_
+defaults:
+  - /_cluster/local@_here_
+  - /_model/tiny@_here_
+  - /_trainer/llama@_here_
+  - /_dataset/mnli@_here_
+  - /_checkpoints/none@_here_
+  - /_misc/default@_here_
+  - _self_
+
+common:
+  sequence_length: 16
+  batch_size: 4
+  dmodel: 16
+  dff: 64
+  datt: ${common.dmodel}
+  n_blocks: 4
+  q_heads: 2
+  kv_heads: 2
+  vocab_size: 50304
+
+
+trainer:
+  _target_: src.product_keys.finetuning_trainer.FinetuningTrainerTwoSentences
+  gradient_accumulation_steps: 2
+  n_steps: 4
+  freeze_backbone: false
+  trainable_modules: ["head"]
+  eval_interval: 2
+  full_eval_rows: 20
+  learning_rate: 1e-3
+  d_model: ${common.dmodel}
+  vocab_size: ${common.vocab_size}
+  distributed: null  # disable FSDP for local CPU test
+
+  # sep_token_id for glue_2_sentences_tokenize_fn with GPT-2 base vocab (50257).
+  # Special tokens are added in order: mask (50257), cls (50258), sep (50259).
+  sep_token_id: 50259
+
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        seq_len: ${common.sequence_length}
+
+  eval_dataloader:
+    collate_fn:
+      _target_: src.product_keys.datasets.glue_collate_wrapper
+      _partial_: true
+    dataset:
+      _target_: src.product_keys.datasets.GlueDataset
+      tokenize_fn:
+        seq_len: ${common.sequence_length}
+
+  checkpoint:
+    load:
+      path: null  # DCP checkpoint requires FSDP; smoke test runs from scratch
+    save:
+      type: nano
+      path: finetuned_checkpoint
+
+
+infrastructure:
+  metric_logger:
+    type: stdout
+
+# Override causal=True from _model/tiny.yaml — MNLI is an encoder task and
+# passes a padding attention_mask, which conflicts with is_causal=True.
+model:
+  encoder:
+    block_fn:
+      attention_fn:
+        causal: false
