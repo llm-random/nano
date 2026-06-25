@@ -570,20 +570,6 @@ class LLM(LLM_projected_compression):
         x = self.head(x)
         return x
 
-    def embed(self, *args, **kwargs):
-        """Return token embeddings without running the encoder or head."""
-        return self.embedding(*args, **kwargs)
-
-    def forward_from_embeddings(self, x, attention_mask=None):
-        """Run the encoder and head on pre-computed embeddings.
-
-        Useful when the caller wants to inject additional embeddings
-        (e.g. segment / token-type embeddings) before the transformer layers.
-        """
-        x = self.encoder(x, attention_mask=attention_mask)
-        x = self.head(x)
-        return x
-
 
 class TransformerEncoder(TransformerEncoder_projected_compression):
     def forward(self, x, *args, **kwargs):
