@@ -473,6 +473,104 @@ class FinetuningTrainer(TrainerWithVocabSize):
         self.step = saved_step
 
 
+"""
+    Do not use for now.
+    Introducing learned embeddings during finetuning
+    can degrade performance if the model was pretrained without it.
+"""
+@define(slots=False)
+class FinetuningTrainerTwoSentences(FinetuningTrainer):
+    """Fine-tuning trainer for sentence-pair tasks (e.g. MNLI).
+
+    Adds a learned segment embedding (token-type embedding) that is summed with
+    the token embeddings produced by the backbone's embedding layer.  Tokens
+    belonging to sentence A receive segment id 0; tokens at or after the first
+    [SEP] token receive segment id 1.
+
+    The segment_embedding module is attached directly to ``self.model`` so that
+    its parameters are included in ``self.model.parameters()`` and are therefore
+    visible to and updated by the optimizer.
+
+    Requires the backbone to expose ``embed()`` and ``forward_from_embeddings()``
+    (as defined in ``src.product_keys.model.LLM``).
+    """
+
+    sep_token_id: int = field(kw_only=True)
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
+        # Attach the segment embedding to self.model so the optimizer sees it.
+        self.model.segment_embedding = torch.nn.Embedding(2, self.d_model).to(self.device)
+        torch.nn.init.normal_(self.model.segment_embedding.weight, mean=0.0, std=0.02)
+        logger.info(
+            f"FinetuningTrainerTwoSentences: initialised segment_embedding "
+            f"(2 x {self.d_model}) and attached it to self.model. "
+            f"sep_token_id={self.sep_token_id}"
+        )
+
+        if torch.distributed.is_initialized():
+            from torch.distributed.tensor import distribute_tensor, Replicate, DTensor
+            device_mesh = None
+            for p in self.model.parameters():
+                if isinstance(p, DTensor):
+                    device_mesh = p.device_mesh
+                    break
+            
+            if device_mesh is not None:
+                logger.info("FinetuningTrainerTwoSentences: Converting segment_embedding weight to a replicated DTensor.")
+                replicated_weight = distribute_tensor(
+                    self.model.segment_embedding.weight.data,
+                    device_mesh,
+                    [Replicate()]
+                )
+                self.model.segment_embedding.weight = torch.nn.Parameter(replicated_weight)
+
+        # Re-collect trainable params so the newly added segment_embedding is
+        # included (super().__attrs_post_init__ already ran, but it set params
+        # before we attached segment_embedding).
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        self.optimizer.param_groups[0]['params'] = trainable_params
+
+    def _get_token_type_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Return a (B, T) tensor of 0s and 1s.
+
+        Segment 0: [CLS] + sentence A tokens up to (but not including) [SEP].
+        Segment 1: [SEP] token and everything after (sentence B + padding).
+        """
+        is_sep = (input_ids == self.sep_token_id)  # (B, T) bool
+        # argmax returns the index of the first True; if no SEP is found it
+        # returns 0, which is safe because segment 0 is the default anyway.
+        sep_pos = is_sep.long().argmax(dim=1, keepdim=True)  # (B, 1)
+        positions = torch.arange(input_ids.size(1), device=input_ids.device).unsqueeze(0)
+        token_type_ids = (positions >= sep_pos).long()  # (B, T)
+        return token_type_ids
+
+    @override
+    def _forward_chunk(self, texts_chunk, labels_chunk, attention_masks_chunk, valid_in_chunk):
+        backbone = self.model.backbone
+
+        # Compute segment embeddings to inject after the token embedding lookup.
+        token_type_ids = self._get_token_type_ids(texts_chunk)
+        seg_embeds = self.model.segment_embedding(token_type_ids)  # (B, T, d_model)
+
+        def _add_seg_embeds_hook(module, input, output):
+            return output + seg_embeds
+
+        handle = backbone.embedding.register_forward_hook(_add_seg_embeds_hook)
+        try:
+            logits = self.model(texts_chunk, attention_mask=attention_masks_chunk)
+        finally:
+            handle.remove()
+
+        loss = self.loss_fct(logits, labels_chunk)
+        loss = loss / self.gradient_accumulation_steps
+        preds = logits.detach().argmax(dim=-1)
+        chunk_correct = (preds == labels_chunk).sum().item()
+        chunk_total = labels_chunk.size(0)
+        return loss, chunk_correct, chunk_total, 0, 0, 0
+
+
 class FinetuningTrainerMultiLabel(FinetuningTrainer):
     loss_fct = torch.nn.BCEWithLogitsLoss()
 

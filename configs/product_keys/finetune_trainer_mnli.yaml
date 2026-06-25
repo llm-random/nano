@@ -5,7 +5,7 @@ defaults:
   - /_model/tiny@_here_
   - /product_keys/pk_model@_here_
   - /_trainer/llama@_here_
-  - /_dataset/sst2@_here_
+  - /_dataset/mnli@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
@@ -24,20 +24,19 @@ common:
 
 trainer:
   _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
-  
+
   gradient_accumulation_steps: 4
   eval_interval: 25
-  n_steps: 2300
-  # n_steps: 4000
+  n_steps: 12400 # 392k rows -> bs-64, 1 epoch
   full_eval_rows: 2000
-  # learning_rate: 2e-4
-  # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3]
-  ^learning_rate: [1e-5, 2e-5, 5e-5, 5e-3]
+  # ^learning_rate: [1e-4, 5e-5, 1e-3]
+  ^learning_rate: [1e-5, 2e-5]
   freeze_backbone: false
   trainable_modules: ["head"]
   d_model: ${common.dmodel}
   vocab_size: ${common.vocab_size}
 
+  # sep_token_id: 50259
 
   scheduler:
     _partial_: true
@@ -52,12 +51,10 @@ trainer:
 
   eval_dataloader:
     collate_fn:
-      _target_: src.product_keys.datasets.glue_split_collate_wrapper
+      _target_: src.product_keys.datasets.glue_collate_wrapper
       _partial_: true
     dataset:
-      _target_: src.product_keys.datasets.GlueLengthSplitDataset
-      split_values: [256, 512]
-      shuffle: false
+      _target_: src.product_keys.datasets.GlueDataset
       tokenize_fn:
         seq_len: ${common.sequence_length}
 
@@ -68,13 +65,12 @@ trainer:
       # path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/finetune_checkpoints/pk_attn_full_run
       model_checkpoint_filename: model_checkpoint.pt
       training_state_filename: training_state.pt
-      only_weights: true 
+      only_weights: true
 
     save:
       type: nano
       interval: 4000
       path: null
-      # path: /lustre/pd03/plgrid/plgllmefficont3/pk_attention/model_checkpoints/
 
 
 infrastructure:
@@ -82,18 +78,19 @@ infrastructure:
     type: wandb
     wandb_entity: ideas_cv
     project_name: tml-bgw
-    name: pk_mlm-finetunetrainer-split-eval-${trainer.train_dataloader.dataset.task_name}
+    name: pk_mlm-finetunetrainer-mnli-lr
     tags:
       - nano
       - pk_mlm
       - finetuning
+      - mnli
+      - segment_embedding
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "lr=${trainer.learning_rate}"
 
   slurm:
-    # gres: gpu:4
     gres: gpu:hopper:4
-    time: "1-0:00:00"
+    # gres: gpu:4
+    time: "0-16:00:00"
     job-name: ${infrastructure.metric_logger.name}
-

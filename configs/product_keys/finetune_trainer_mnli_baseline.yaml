@@ -1,10 +1,9 @@
 # @package _global_
 defaults:
-#   - /_cluster/helios@_here_
   - /_cluster/lem@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/sst2@_here_
+  - /_dataset/mnli@_here_
   - /_checkpoints/none@_here_
   - /_misc/default@_here_
   - _self_
@@ -23,18 +22,19 @@ common:
 
 trainer:
   _target_: src.product_keys.finetuning_trainer.FinetuningTrainer
-  eval_interval: 25
+
   gradient_accumulation_steps: 4
-  # n_steps: 20000
-  n_steps: 2300 # 5 epochs
+  eval_interval: 25
+  n_steps: 12400 # 392 rows -> 1 epoch
   full_eval_rows: 2000
-  # learning_rate: 2e-4
-  # ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3]
-  ^learning_rate: [1e-5, 2e-5, 5e-5, 5e-3]
+  # ^learning_rate: [1e-4, 5e-5, 1e-3]
+  ^learning_rate: [1e-5, 2e-5]
   freeze_backbone: false
   trainable_modules: ["head"]
   d_model: ${common.dmodel}
   vocab_size: ${common.vocab_size}
+
+  # sep_token_id: 50259
 
   scheduler:
     _partial_: true
@@ -49,12 +49,11 @@ trainer:
 
   eval_dataloader:
     collate_fn:
-      _target_: src.product_keys.datasets.glue_split_collate_wrapper
+      _target_: src.product_keys.datasets.glue_collate_wrapper
       _partial_: true
     dataset:
       _target_: src.product_keys.datasets.GlueLengthSplitDataset
       split_values: [256, 512]
-      shuffle: false
       tokenize_fn:
         seq_len: ${common.sequence_length}
 
@@ -65,22 +64,26 @@ trainer:
       # path: /net/storage/pr3/plgrid/plggllmeffi3/pk_attention/finetune_checkpoints/baseline_full_run
       model_checkpoint_filename: model_checkpoint.pt
       training_state_filename: training_state.pt
-      only_weights: true 
+      only_weights: true
 
     save:
       type: nano
       interval: 4000
+      path: null
+
 
 infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
     project_name: tml-bgw
-    name: baseline-finetunetrainer-split-eval-${trainer.train_dataloader.dataset.task_name}-lr
+    name: baseline-finetunetrainer-mnli-lr
     tags:
       - nano
-      - pk_mlm
+      - baseline
       - finetuning
+      - mnli
+      - segment_embedding
       - "seq_len=${common.sequence_length}"
       - "n_layers=${common.n_blocks}"
       - "lr=${trainer.learning_rate}"
@@ -88,7 +91,7 @@ infrastructure:
   slurm:
     # gres: gpu:4
     gres: gpu:hopper:4
-    time: "0-06:00:00"
+    time: "0-05:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
 model:
@@ -145,8 +148,7 @@ model:
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
-        # o_proj_fn: ${model.encoder.block_fn.attention_fn.q_proj_fn} # TODO check have I done it right pls
-        o_proj_fn: 
+        o_proj_fn:
           _target_: src.projected_compression.model.Linear
           _partial_: true
           in_features: ${common.datt}
@@ -198,4 +200,3 @@ model:
       _partial_: true
       eps: 1e-5
       normalized_shape: ${common.dmodel}
-
