@@ -1,10 +1,9 @@
 # @package _global_
 defaults:
-  - /_cluster/helios@_here_
+  - /_cluster/lem@_here_
   - /_model/tiny@_here_
   - /_trainer/llama@_here_
-  - /_dataset/c4@_here_
-  - /_checkpoints/none@_here_
+  - /_dataset/fineweb@_here_
   - /_misc/default@_here_
   - _self_
 
@@ -13,12 +12,13 @@ common:
   batch_size: 64
   dmodel: 1024
   dff: 2724
-  datt: ${common.dmodel}
+  # datt: ${common.dmodel}
+  ^datt: [1024, 512, 256, 128, 64, 32, 16]
   n_blocks: 16
   q_heads: 16
   kv_heads: 16
   vocab_size: 50304
-  init_scale: 0.5
+  init_scale: 0.1
 
 trainer:
   _target_: src.product_keys.trainer.MaskedLMTrainer
@@ -26,39 +26,58 @@ trainer:
   mask_token_id: 50257
   unmaskable_special_tokens: [50256, 50257]  # <|endoftext|>
   gradient_accumulation_steps: 2
-  n_steps: 15000  # 77050
-  ^learning_rate: [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
-  # note that schedular is not 0.1 as is the case with pk_mlm but the default 0.01
+  # n_steps: 10001
+  n_steps: 8001
+  # ^learning_rate: [5e-4, 1e-3, 2e-3, 5e-3]
+  learning_rate: 5e-4
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    final_lr_fraction: 0.1
+    # warmup_steps: ${eval:'int(${trainer.n_steps} * 0.10)'}
+    warmup_steps: 800
   train_dataloader:
     dataset:
+      # ^seed: [42, 123, 1000]
+      seed: 42
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
   eval_dataloader:
     dataset:
       tokenize_fn:
         _target_: src.product_keys.datasets.gpt2_mask_tokenize_fn
+  checkpoint:
+    save:
+      interval: -1
+    load:
+      path: null
+      only_weights: false # false not tested
 
 
 infrastructure:
   metric_logger:
     type: wandb
     wandb_entity: ideas_cv
-    name: baseline_lr_grid
+    name: baseline_smaller_attn_dim_grid
     project_name: tml-bgw
-    heavy_metrics_calculation_interval: 1000
+    heavy_metrics_calculation_interval: 8000
     heavy_logging_layers: [0, 10, 15]
     tags:
       - nano
       - baseline
-      - 2026.04.19
+      - 2026.05.11
+      - smaller_attn_dim
+      - grid
+      - fineweb
+      - lr=${trainer.learning_rate}
+      - seq_len=${common.sequence_length}
+      - n_layers=${common.n_blocks}
+      - dmodel=${common.dmodel}
       - warmup_steps=${trainer.scheduler.warmup_steps}
-      - learning_rate_grid
-      - "seq_len=${common.sequence_length}"
-      - "n_layers=${common.n_blocks}"
-      - "dmodel=${common.dmodel}"
       - seed=${trainer.train_dataloader.dataset.seed}
+      - gres=${infrastructure.slurm.gres}
   slurm:
-    gres: gpu:2
+    gres: gpu:hopper:4
     time: "1-00:00:00"
     job-name: ${infrastructure.metric_logger.name}
 
@@ -86,7 +105,7 @@ model:
         normalized_shape: ${common.dmodel}
 
       attention_fn:
-        _target_: src.projected_compression.model.RoPEAttention
+        _target_: src.product_keys.model.RoPEAttentionQKNorm
         _partial_: true
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
@@ -102,7 +121,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         k_proj_fn:
           _target_: src.projected_compression.model.Linear
@@ -112,7 +131,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
@@ -125,7 +144,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
 
         rope_base: 500000
         rope_scale_freqs: true
@@ -141,7 +160,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         ff_post_act_fn:
           _target_: src.projected_compression.model.Linear
           _partial_: true
@@ -150,7 +169,7 @@ model:
           partial_init_fn:
             _target_: src.projected_compression.model.llm_random_weight_init
             _partial_: true
-            scale: 1
+            scale: ${common.init_scale}
         gate_fn: ${model.encoder.block_fn.ff_layer_fn.ff_pre_act_fn}
 
   head:
@@ -163,7 +182,7 @@ model:
       partial_init_fn:
         _target_: src.projected_compression.model.llm_random_weight_init
         _partial_: true
-        scale: 1
+        scale: ${common.init_scale}
     norm_fn:
       _target_: src.core.model.RMSNorm
       _partial_: true

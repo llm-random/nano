@@ -1,8 +1,10 @@
 from functools import partial
 import math
+from typing import Optional
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+from torch.nn.attention import SDPBackend
 from torch.nn.init import trunc_normal_
 import logging
 
@@ -12,6 +14,48 @@ from src.projected_compression.model import LLM as LLM_projected_compression, \
     Residual as Residual_projected_compression
 
 logger = logging.getLogger(__name__)
+
+
+def attention_mechanism(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    causal: bool,
+    scale: Optional[float] = None,
+):
+    # https://github.com/pytorch/pytorch/blob/ce503c1b40207dab770c28cbd4568cd9e105277b/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp#L556
+    with torch.nn.attention.sdpa_kernel(
+        [SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]
+    ):
+        return F.scaled_dot_product_attention(
+            query=query,
+            key=key,
+            value=value,
+            attn_mask=None,
+            is_causal=causal,
+            scale=scale,
+        )
+
+
+class AttentionMechanism(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        causal: bool,
+        score_scale: Optional[float] = None,
+    ):
+        return attention_mechanism(
+            query=query,
+            key=key,
+            value=value,
+            causal=causal,
+            scale=score_scale,
+        )
 
 
 # useful for deterministic tests
@@ -60,6 +104,90 @@ class HybridTransformerBlock(nn.Module):
         x = self.ff_layer(x)
         return x
 
+class QKNorm(nn.Module):
+    def __init__(self, dhead: int, q_heads: int):
+        super().__init__()
+        self.q_norm = nn.RMSNorm(dhead)
+        self.k_norm = nn.RMSNorm(dhead)
+
+        initial_temp = 1.0 / math.sqrt(dhead)
+        self.attn_temp = nn.Parameter(torch.full((1, q_heads, 1, 1), initial_temp))
+
+    def forward(self, q, k):
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+        return q, k, self.attn_temp
+
+
+class RoPEAttentionQKNorm(nn.Module):
+    def __init__(
+        self,
+        q_proj_fn,
+        k_proj_fn,
+        v_proj_fn,
+        o_proj_fn,
+        dmodel,
+        q_heads,
+        kv_heads,
+        seq_len,
+        rope_base,
+        rope_scale_freqs: bool,
+        factor=32,
+        low_freq_factor=1,
+        high_freq_factor=4,
+        original_max_position_embeddings=8192,
+        causal=True,
+    ):
+        super().__init__()
+        self.q_proj = q_proj_fn()
+        self.k_proj = k_proj_fn()
+        self.v_proj = v_proj_fn()
+        self.o_proj = o_proj_fn()
+        self.attention_mechanism = AttentionMechanism()
+
+        self.q_heads = q_heads
+        self.kv_heads = kv_heads
+        self.dhead = self.q_proj.weight.shape[0] // self.q_heads
+        self.dmodel = dmodel
+        self.causal = causal
+
+        self.rope = RoPE(
+            dhead=self.dhead,
+            length=seq_len,
+            base=rope_base,
+            apply_freq_scaling=rope_scale_freqs,
+        )
+
+        self.qk_norm = QKNorm(self.dhead, self.q_heads)
+
+    def forward(self, x):
+        query_states = self.q_proj(x)
+        key_states = self.k_proj(x)
+        value_states = self.v_proj(x)
+
+        batch, seq_len = x.shape[:-1]
+        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        q = self.rope(q)
+        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        k = self.rope(k)
+
+        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+
+        from src.core.llama import repeat_kv
+
+        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        v = repeat_kv(v, self.q_heads // self.kv_heads)
+
+        q, k, attn_temp = self.qk_norm(q, k)
+        q = q * attn_temp
+
+        attention_output = self.attention_mechanism(
+            query=q, key=k, value=v, causal=self.causal, score_scale=1.0
+        )
+
+        output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
+
+        return output
 
 class RoPETopKAttention(nn.Module):
     def __init__(
@@ -162,7 +290,7 @@ class RoPETopKAttention(nn.Module):
         return self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
 
 
-# - log the magnitudes of updates to the residual stream [done] 
+# - log the magnitudes of updates to the residual stream [done]
 # - log grad norm [done]
 # - log the distribution of selected keys (how often each key is selected, how it evolves during training) [done]
 # - normalize queries and keys before dot product (this can stabilize training and improve convergence) [done]
@@ -210,7 +338,6 @@ class RoPEProductKeysEncoderAttention(nn.Module):
             apply_freq_scaling=rope_scale_freqs,
         )
 
-
         # Normalize the halves independently to balance Product Key retrieval
         self.q_norm1 = nn.RMSNorm(self.dhead_half)
         self.q_norm2 = nn.RMSNorm(self.dhead_half)
@@ -219,7 +346,9 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         # QKNorm learnable scaling parameter (one per head)
         initial_temp = 1.0 / math.sqrt(self.dhead)
-        self.attn_temp = nn.Parameter(torch.full((1, self.q_heads, 1, 1, 1), initial_temp))
+        self.attn_temp = nn.Parameter(
+            torch.full((1, self.q_heads, 1, 1, 1), initial_temp)
+        )
 
         self.metric_logger = None
         self.log_name = ""
@@ -342,15 +471,8 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         # q1: (B, H, S, D/2) -> (B, H, S, 1, D/2)
         # k1_vecs: (B, H, S, K, D/2) -> (B, H, S, D/2, K)
         # scores_1: (B, H, S, 1, K) -> (B, H, S, K)
-        scores_1 = torch.matmul(
-            q1.unsqueeze(-2), 
-            k1_vecs.transpose(-1, -2)
-        ).squeeze(-2)
-        
-        scores_2 = torch.matmul(
-            q2.unsqueeze(-2), 
-            k2_vecs.transpose(-1, -2)
-        ).squeeze(-2)
+        scores_1 = torch.matmul(q1.unsqueeze(-2), k1_vecs.transpose(-1, -2)).squeeze(-2)
+        scores_2 = torch.matmul(q2.unsqueeze(-2), k2_vecs.transpose(-1, -2)).squeeze(-2)
 
         # Sum the scores to implicitly get the full grid scores (Broadcasting)
         # scores_1 (..., K, 1) + scores_2 (..., 1, K) = (..., K, K)
@@ -375,8 +497,11 @@ class RoPEProductKeysEncoderAttention(nn.Module):
         final_col_idxs = torch.gather(k2_idxs, 3, idx_in_k2)
 
         v_indices = (final_row_idxs * self.m) + final_col_idxs
-        
-        if self.metric_logger is not None and self.metric_logger._should_log_heavy_metrics:
+
+        if (
+            self.metric_logger is not None
+            and self.metric_logger._should_log_heavy_metrics
+        ):
             self.metric_logger.accumulate_metrics(
                 layer_name=self.log_name,
                 calculate_fn=RoPEProductKeysEncoderAttention.calculate_metrics,
@@ -399,10 +524,8 @@ class RoPEProductKeysEncoderAttention(nn.Module):
 
         # --- Attention: Softmax(Q @ K.T) @ V ---
         # q needs unsqueeze to broadcast: (B, H, S, 1, D) @ (B, H, S, K, D).T
-        attn_scores = torch.matmul(
-            q_normed.unsqueeze(-2), final_k.transpose(-2, -1)
-        ) 
-        
+        attn_scores = torch.matmul(q_normed.unsqueeze(-2), final_k.transpose(-2, -1))
+
         # Multiply by the learnable QKNorm temperature
         attn_scores = attn_scores * self.attn_temp
 
@@ -430,6 +553,304 @@ class RoPEProductKeysEncoderAttention(nn.Module):
             # if a valid query somehow retrieves only padding keys.
             min_val = torch.finfo(attn_scores.dtype).min
             attn_scores = attn_scores.masked_fill(pad_mask, min_val)
+
+        attn_weights = F.softmax(attn_scores, dim=-1)
+
+        attn_output = torch.matmul(attn_weights, final_v)
+        attn_output = attn_output.squeeze(-2)
+
+        return self.o_proj(attn_output.transpose(1, 2).contiguous().flatten(-2))
+
+
+class RoPEProductKeysEncoderAttentionOptimized(nn.Module):
+    def __init__(
+        self,
+        q_proj_fn,
+        k_proj_fn,
+        v_proj_fn,
+        o_proj_fn,
+        dmodel,
+        q_heads,
+        kv_heads,
+        seq_len,
+        rope_base,
+        rope_scale_freqs: bool,
+        top_k: int,
+        init_scale: float = 0.02,
+    ):
+        super().__init__()
+
+        # will work only with constant seq_len, in encoder-only setting
+        assert math.sqrt(seq_len).is_integer(), "seq_len must be a perfect square"
+        self.m = int(math.sqrt(seq_len))
+
+        self.q_proj = q_proj_fn()
+        self.k_proj = k_proj_fn()
+        self.v_proj = v_proj_fn()
+        self.o_proj = o_proj_fn()
+
+        self.q_heads = q_heads
+        self.kv_heads = kv_heads
+        self.dhead = self.q_proj.weight.shape[0] // self.q_heads
+        self.dhead_half = self.dhead // 2
+        self.dmodel = dmodel
+        self.seq_len = seq_len
+
+        self.top_k = top_k
+
+        # Assuming RoPE is imported/defined elsewhere in your codebase
+        self.rope = RoPE(
+            dhead=self.dhead,
+            length=seq_len,
+            base=rope_base,
+            apply_freq_scaling=rope_scale_freqs,
+        )
+
+        # Learnable vectors for attention-like pooling of keys
+        self.l1 = nn.Parameter(torch.randn(self.q_heads, self.dhead_half) / math.sqrt(self.dhead_half))
+        self.l2 = nn.Parameter(torch.randn(self.q_heads, self.dhead_half) / math.sqrt(self.dhead_half))
+
+        # Normalize the halves independently to balance Product Key retrieval
+        self.q_norm1 = nn.RMSNorm(self.dhead_half)
+        self.q_norm2 = nn.RMSNorm(self.dhead_half)
+        self.k_norm1 = nn.RMSNorm(self.dhead_half)
+        self.k_norm2 = nn.RMSNorm(self.dhead_half)
+
+        # QKNorm learnable scaling parameter (one per head)
+        initial_temp = 1.0 / math.sqrt(self.dhead)
+        self.attn_temp = nn.Parameter(
+            torch.full((1, self.q_heads, 1, 1, 1), initial_temp)
+        )
+
+        # Learnable scaling parameter for the retrieval/routing step
+        routing_initial_temp = 1.0 / math.sqrt(self.dhead_half)
+        self.routing_temp = nn.Parameter(
+            torch.full((1, self.q_heads, 1, 1), routing_initial_temp)
+        )
+
+        # Initialize small so the network relies on standard attention first, then ramps up routing bias
+        # self.routing_bias_weight = nn.Parameter(torch.tensor(0.1))
+
+        self.metric_logger = None
+        self.log_name = ""
+
+    def set_metric_logger(self, metric_logger, log_name=""):
+        self.metric_logger = metric_logger
+        self.log_name = log_name
+
+    @staticmethod
+    def __gather_flat(source_tensor, idx_tensor):
+        """
+        [OPTIMIZATION 1] Replaces expand() + gather() with high-speed flat 1D indexing.
+        """
+        B, H, M, D = source_tensor.shape
+        _, _, S, K = idx_tensor.shape
+
+        # Flatten source down to 2D: (B * H * M, D)
+        source_flat = source_tensor.reshape(-1, D)
+
+        # Create base offsets for Batches and Heads
+        batch_offsets = torch.arange(B, device=source_tensor.device).view(
+            B, 1, 1, 1
+        ) * (H * M)
+        head_offsets = torch.arange(H, device=source_tensor.device).view(1, H, 1, 1) * M
+
+        # Add offsets to turn local indices into global flat indices
+        flat_indices = idx_tensor + batch_offsets + head_offsets
+
+        # Direct advanced indexing
+        return source_flat[flat_indices]
+
+    def __get_topk_candidates(self, query, key):
+        scores = torch.matmul(query, key.transpose(-2, -1))
+
+        # [OPTIMIZATION 2] Capture topk_scores to avoid recalculating dot products later
+        topk_scores, indices = torch.topk(scores, k=self.top_k, dim=-1)
+
+        # Use the fast flat gather
+        selected_vecs = self.__gather_flat(key, indices)
+
+        return selected_vecs, indices, topk_scores
+
+    @staticmethod
+    def calculate_metrics(
+        final_row_idxs,
+        final_col_idxs,
+        v_indices,
+        k1_unnorm,
+        k2_unnorm,
+        k1,
+        k2,
+        q_weight,
+        k_weight,
+        v_weight,
+        # routing_bias_weight,
+    ):
+        res = RoPEProductKeysEncoderAttentionOptimized.calculate_key_distribution(
+            final_row_idxs, final_col_idxs, v_indices
+        )
+
+        for name, tensors in [
+            ("k1_unnorm", k1_unnorm),
+            ("k2_unnorm", k2_unnorm),
+            ("k1", k1),
+            ("k2", k2),
+            ("q_proj_weight", q_weight),
+            ("k_proj_weight", k_weight),
+            ("v_proj_weight", v_weight),
+            # ("routing_bias_weight", routing_bias_weight),
+        ]:
+            t = torch.stack(tensors).float()
+            res[f"{name}/norm"] = torch.norm(t) / math.sqrt(len(tensors))
+            res[f"{name}/std"] = t.std()
+
+        return res
+
+    @staticmethod
+    def calculate_key_distribution(final_row_idxs, final_col_idxs, v_indices):
+        # final_row_idxs is a list of tensors of shape (B, H, S, K)
+        stacked_rows = torch.stack(final_row_idxs)  # (Steps, B, H, S, K)
+        stacked_cols = torch.stack(final_col_idxs)
+        stacked_v = torch.stack(v_indices)
+
+        num_heads = stacked_rows.shape[2]
+        res = {}
+        for h in range(num_heads):
+            res[f"head_{h}/row_idxs"] = stacked_rows[:, :, h].flatten()
+            res[f"head_{h}/col_idxs"] = stacked_cols[:, :, h].flatten()
+            res[f"head_{h}/v_indices"] = stacked_v[:, :, h].flatten()
+        return res
+
+    def forward(self, x):
+        query_states = self.q_proj(x)
+        key_states = self.k_proj(x)
+        value_states = self.v_proj(x)
+
+        batch, seq_len = x.shape[:-1]
+        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        q = self.rope(q)
+        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        k = self.rope(k)
+
+        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+
+        from src.core.llama import repeat_kv
+
+        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        v = repeat_kv(v, self.q_heads // self.kv_heads)
+
+        # Split and aggregate keys (unnormalized)
+        k = k.view(batch, self.q_heads, self.m, self.m, self.dhead)
+        # if False:
+        k1_unnorm = k[..., : self.dhead_half].sum(-2)  # (B, H, m, d/2)
+        k2_unnorm = k[..., self.dhead_half :].sum(-3)  # (B, H, m, d/2)
+        # else:
+        #     # attention-like aggegation using learnable parameters instead of simple sum
+
+        #     # Extract the two halves
+        #     k1_part = k[..., : self.dhead_half]  # (B, H, m, m, d/2)
+        #     k2_part = k[..., self.dhead_half :]  # (B, H, m, m, d/2)
+
+        #     # Calculate attention scores using the learnable parameters
+        #     # matmul: (B, H, m, m, d/2) @ (d/2,) -> (B, H, m, m)
+        #     scores1 = torch.einsum('bhmnd,hd->bhmn', k1_part, self.l1) / math.sqrt(self.dhead_half)
+        #     scores2 = torch.einsum('bhmnd,hd->bhmn', k2_part, self.l2) / math.sqrt(self.dhead_half)
+
+        #     # Apply softmax over the specific dimension being reduced
+        #     weights1 = F.softmax(scores1, dim=-2)
+        #     weights2 = F.softmax(scores2, dim=-3)
+
+        #     # Weight the keys and sum over the target dimension
+        #     k1_unnorm = (weights1.unsqueeze(-1) * k1_part).sum(dim=-2)  # -> (B, H, m, d/2)
+        #     k2_unnorm = (weights2.unsqueeze(-1) * k2_part).sum(dim=-3)  # -> (B, H, m, d/2)
+
+        # Split queries (unnormalized)
+        q1_unnorm = q[..., : self.dhead_half]  # (B, H, S, d/2)
+        q2_unnorm = q[..., self.dhead_half :]  # (B, H, S, d/2)
+
+        k1 = self.k_norm1(k1_unnorm)
+        k2 = self.k_norm2(k2_unnorm)
+        q1 = self.q_norm1(q1_unnorm)
+        q2 = self.q_norm2(q2_unnorm)
+
+        # Recombine normalized queries for the final attention step
+        q_normed = torch.cat([q1, q2], dim=-1)
+
+        # --- First Retrieval (get top-k AND scores) ---
+        # [OPTIMIZATION 2] We retrieve the pre-computed scores to save FLOPs
+        k1_vecs, k1_idxs, scores_1 = self.__get_topk_candidates(q1, k1)
+        k2_vecs, k2_idxs, scores_2 = self.__get_topk_candidates(q2, k2)
+
+        # Apply the learned per-head routing temperature
+        # scores_1/2 shape: (B, H, S, K) -> routing_temp shape: (1, H, 1, 1) broadcasts perfectly
+        scores_1 = scores_1 * self.routing_temp
+        scores_2 = scores_2 * self.routing_temp
+
+        # --- Second Retrieval (Full K*K Grid, optimized math) ---
+
+        # [OPTIMIZATION 2] Sum the pre-calculated scores directly.
+        # scores_1 (..., K, 1) + scores_2 (..., 1, K) = (..., K, K)
+        scores_final_grid = scores_1.unsqueeze(-1) + scores_2.unsqueeze(-2)
+
+        # Select top K closest combinations
+        scores_flat = scores_final_grid.flatten(-2, -1)  # (B, H, S, K*K)
+        topk_routing_scores, selection_indices = torch.topk(scores_flat, k=self.top_k, dim=-1)
+
+        # Reconstruct indices for the halves
+        idx_in_k1 = selection_indices // self.top_k
+        idx_in_k2 = selection_indices % self.top_k
+
+        # --- Gather Intra-Sequence Vectors ---
+        # [OPTIMIZATION 1] PyTorch's take_along_dim is completely equivalent to expand+gather but faster
+        k1_selected = torch.take_along_dim(k1_vecs, idx_in_k1.unsqueeze(-1), dim=3)
+        k2_selected = torch.take_along_dim(k2_vecs, idx_in_k2.unsqueeze(-1), dim=3)
+
+        # todo use true k as final k, select them in the same way we select values (by indicies)
+        final_k = torch.cat([k1_selected, k2_selected], dim=-1)
+
+        # Gather final spatial indices
+        final_row_idxs = torch.take_along_dim(k1_idxs, idx_in_k1, dim=3)
+        final_col_idxs = torch.take_along_dim(k2_idxs, idx_in_k2, dim=3)
+
+        v_indices = (final_row_idxs * self.m) + final_col_idxs
+
+        if (
+            self.metric_logger is not None
+            and self.metric_logger._should_log_heavy_metrics
+        ):
+            self.metric_logger.accumulate_metrics(
+                layer_name=self.log_name,
+                calculate_fn=RoPEProductKeysEncoderAttentionOptimized.calculate_metrics,
+                metrics={
+                    "final_row_idxs": final_row_idxs.detach().clone(),
+                    "final_col_idxs": final_col_idxs.detach().clone(),
+                    "v_indices": v_indices.detach().clone(),
+                    "k1_unnorm": k1_unnorm.detach().clone(),
+                    "k2_unnorm": k2_unnorm.detach().clone(),
+                    "k1": k1.detach().clone(),
+                    "k2": k2.detach().clone(),
+                    "q_weight": self.q_proj.weight.detach().clone(),
+                    "k_weight": self.k_proj.weight.detach().clone(),
+                    "v_weight": self.v_proj.weight.detach().clone(),
+                    # "routing_bias_weight": self.routing_bias_weight.detach().clone(),
+                },
+            )
+
+        # --- Gather Final Values using the fast flat indexer ---
+        # [OPTIMIZATION 1] Eliminates massive v.unsqueeze().expand() block
+        final_v = self.__gather_flat(v, v_indices)  # (B, H, S, K, D)
+
+        # --- Attention: Softmax(Q @ K.T) @ V ---
+        attn_scores = torch.matmul(q_normed.unsqueeze(-2), final_k.transpose(-2, -1))
+
+        # Multiply by the learnable QKNorm temperature
+        attn_scores = attn_scores * self.attn_temp
+
+        # # --- DIFFERENTIABLE ROUTING INJECTION ---
+        # # topk_routing_scores is (B, H, S, K). Unsqueeze to (B, H, S, 1, K) to broadcast.
+        # # This explicitly couples the routing confidence to the final attention weight,
+        # # allowing gradients to flow all the way back to the routing mechanism.
+        # attn_scores = attn_scores + (topk_routing_scores.unsqueeze(-2) * self.routing_bias_weight)
 
         attn_weights = F.softmax(attn_scores, dim=-1)
 
