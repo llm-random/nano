@@ -1,0 +1,88 @@
+defaults:
+  - ../_cluster@_here_: lem
+  - ../_model/qwen@_here_: projected_mem_eff_1.7B
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+  dmodel: 1024 # ~50% parameter compression
+  dff: 3072 # ~50% parameter compression
+
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  gradient_accumulation_steps: 8
+  # n_steps: 2048
+  n_steps: 100
+
+  only_compress_model_gradient_clipping: false
+  only_target_model_gradient_clipping: 1.0 #best  
+
+  ^learning_rate: [10, 11, 12, 13, 14, 15, 16, 17]
+
+  scheduler:
+    # warmup_steps: 40
+    warmup_steps: 10
+
+  distributed:
+    fsdp2: null
+
+  eval_dataloader: None
+  eval_interval: 0
+
+  original_llama_path: Qwen/Qwen3-1.7B-Base
+  checkpoint:
+    save: #switch
+      interval: 0  # 0 = only save at the end of training
+      # model_checkpoint_filename: __model_checkpoint_filename.pt
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/results # lem new
+      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test # helios   
+      # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy   
+      training_state_filename: __training_state_filename.pt
+      type: hf_only  # "nano" | "hf_only" | "nano_and_hf"
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/qwen3_1_7b_in_nano.pt #  special PC_memeff checkpoint from qwen config experiment
+  path_to_importances: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/qwen/1_7B/5403539/0/minitron_dimensions_importances.pt
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: true
+
+  adjust_grad_norm: false
+
+  cpu_offload_projections: false
+
+
+model:
+  cast_bfloat16: false
+
+infrastructure:
+  metric_logger:
+    name: Queen_PC
+    tags:
+      - nano
+      - pc
+      - qwen
+      - 1.7B
+      - projected_compression
+      - mem_eff
+      - 10p
+      # - 30p
+      # - 50p
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:hopper:4
+    time: "0-1:00:00"

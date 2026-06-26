@@ -194,7 +194,7 @@ class PCTrainer(Trainer):
         on every rank; only rank 0 writes files.
         """
         from src.projected_compression.convert_memeff_to_hf import (
-            load_pc_state_dict_to_llama,
+            _load_pc_state_dict_to_hf,
         )
         from transformers import AutoTokenizer
 
@@ -223,10 +223,8 @@ class PCTrainer(Trainer):
 
         if int(os.environ.get("RANK", "0")) == 0:
             target_sd["embedding"] = embedding
-            llama_model = load_pc_state_dict_to_llama(
-                target_sd, self.original_llama_path
-            )
-            llama_model.save_pretrained(save_path)
+            hf_model = _load_pc_state_dict_to_hf(target_sd, self.original_llama_path)
+            hf_model.save_pretrained(save_path)
             tokenizer = AutoTokenizer.from_pretrained(self.original_llama_path)
             tokenizer.save_pretrained(save_path)
             logger.info(f"Saved HF checkpoint at step {self.step} to '{save_path}'")
