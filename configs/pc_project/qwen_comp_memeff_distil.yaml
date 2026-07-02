@@ -23,8 +23,7 @@ trainer:
   _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
   gradient_accumulation_steps: 8
   ^n_steps:
-    - 10 # 1B tokens
-    # - 2048 # 1B tokens
+    - 2048 # 1B tokens
 
   gradient_clipping: 0.25 #best
   only_compress_model_gradient_clipping: false
@@ -95,4 +94,4 @@ infrastructure:
   slurm:
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:hopper:4
-    time: "0-24:00:00"
+    time: "2-00:00:00"

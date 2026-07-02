@@ -131,6 +131,7 @@ trainer:
   _target_: src.core.trainer_distillation.TrainerDistillation
   distillation_alpha: 0.5
   distillation_temperature: 1.0
+  distillation_loss_num_chunks: 8  # split the vocab loss over N token chunks to cap peak memory
   eval_interval: 100
   n_eval_steps: 10
   gradient_accumulation_steps: 1

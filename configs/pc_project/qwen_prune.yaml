@@ -58,7 +58,7 @@ infrastructure:
   slurm:
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:hopper:4
-    time: "0-12:00:00"
+    time: "2-00:00:00"
 
 
 apply_functions:

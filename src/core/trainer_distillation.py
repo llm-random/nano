@@ -1,7 +1,9 @@
+import math
 import os
 import time
 import torch
 import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint_utils
 from attr import define
 from typing import Optional
 import torch.distributed as dist
@@ -30,6 +32,9 @@ class TrainerDistillation(Trainer):
     distillation_alpha: float
     distillation_temperature: float
     teacher_distributed: Optional[dict]
+    distillation_loss_num_chunks: (
+        int  # split the vocab loss over this many token chunks to cap peak memory
+    )
 
     def __attrs_post_init__(self):
         # Call parent initialization
@@ -83,6 +88,69 @@ class TrainerDistillation(Trainer):
         # Scale by temperature^2 to normalize
         return kl_loss * (self.distillation_temperature**2)
 
+    def _ce_distill_losses_naive(self, student_logits, teacher_logits, target_ids):
+        """Reference (non-memory-efficient) CE + distillation losses.
+
+        Kept as the ground truth that the chunked implementation is tested against."""
+        ce_loss = F.cross_entropy(
+            student_logits.flatten(0, -2),
+            target_ids.reshape(-1).long(),
+            reduction="mean",
+        )
+        distill_loss = self.compute_distillation_loss(student_logits, teacher_logits)
+        return ce_loss, distill_loss
+
+    def _chunk_ce_kl_sums(
+        self, student_logits_chunk, teacher_logits_chunk, target_chunk
+    ):
+        """Summed (not averaged) CE and KL over one chunk of flattened tokens.
+
+        Softmax is row-wise (dim=-1), so chunking along the token axis is exact:
+        each row matches the full-batch computation."""
+        T = self.distillation_temperature
+        ce_sum = F.cross_entropy(student_logits_chunk, target_chunk, reduction="sum")
+        student_log_probs = F.log_softmax(student_logits_chunk / T, dim=-1)
+        teacher_probs = F.softmax(teacher_logits_chunk / T, dim=-1)
+        kl_sum = F.kl_div(student_log_probs, teacher_probs, reduction="sum") * (T**2)
+        return ce_sum, kl_sum
+
+    def _ce_distill_losses_chunked(self, student_logits, teacher_logits, target_ids):
+        """Memory-efficient CE + distillation losses, numerically identical to
+        ``_ce_distill_losses_naive``.
+
+        The [tokens, vocab] softmax intermediates are the memory bottleneck; here the
+        loss is split over ``distillation_loss_num_chunks`` token chunks and each chunk
+        is gradient-checkpointed, so those intermediates are never all resident at once.
+        """
+        student_flat = student_logits.flatten(0, -2)
+        teacher_flat = teacher_logits.flatten(0, -2)
+        target_flat = target_ids.reshape(-1).long()
+
+        num_tokens = student_flat.shape[0]
+        chunk_size = math.ceil(num_tokens / self.distillation_loss_num_chunks)
+        use_checkpoint = torch.is_grad_enabled()
+
+        # CE is mean over tokens; KL is batchmean (row sum / num rows) => both / num_tokens
+        ce_loss = student_flat.new_zeros(())
+        distill_loss = student_flat.new_zeros(())
+        for start in range(0, num_tokens, chunk_size):
+            end = min(start + chunk_size, num_tokens)
+            args = (
+                student_flat[start:end],
+                teacher_flat[start:end],
+                target_flat[start:end],
+            )
+            if use_checkpoint:
+                ce_sum, kl_sum = checkpoint_utils.checkpoint(
+                    self._chunk_ce_kl_sums, *args, use_reentrant=False
+                )
+            else:
+                ce_sum, kl_sum = self._chunk_ce_kl_sums(*args)
+            ce_loss = ce_loss + ce_sum / num_tokens
+            distill_loss = distill_loss + kl_sum / num_tokens
+
+        return ce_loss, distill_loss
+
     def calculate_loss(self, batch) -> LossMetrics:
         """Override to compute both CE loss and distillation loss"""
 
@@ -98,16 +166,8 @@ class TrainerDistillation(Trainer):
             # Move target_ids to same device as student_logits
             target_ids = target_ids.to(student_logits.device)
 
-            # Cross-entropy loss (standard supervised loss)
-            ce_loss = F.cross_entropy(
-                student_logits.flatten(0, -2),
-                target_ids.reshape(-1).long(),
-                reduction="mean",
-            )
-
-            # Distillation loss (KL divergence between student and teacher)
-            distill_loss = self.compute_distillation_loss(
-                student_logits, teacher_logits
+            ce_loss, distill_loss = self._ce_distill_losses_chunked(
+                student_logits, teacher_logits, target_ids
             )
 
             # Combined loss
