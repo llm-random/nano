@@ -1,7 +1,7 @@
 defaults:
   - ../_cluster@_here_: lem
   - ../_model/qwen@_here_: 1.7B
-  - ../_trainer@_here_: llama
+  - ../_trainer@_here_: qwen
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default

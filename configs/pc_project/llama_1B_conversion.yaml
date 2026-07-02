@@ -2,7 +2,7 @@
 
 defaults:
   - ../_misc@_here_: default
-  - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: lem
   - ../_model/llama@_here_: 1B
   - _self_
 
@@ -14,7 +14,7 @@ trainer:
       path: "meta-llama/Llama-3.2-1B"
 
     save:
-      path: ???
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/llama1b_in_nano.pt
 
 infrastructure:
   metric_logger:
@@ -26,7 +26,7 @@ infrastructure:
   
   slurm: 
     job-name: ${infrastructure.metric_logger.name}
-    gres: gpu:1
+    gres: gpu:hopper:1
     time: "0-01:00:00"
 
 init_model_opt_sched_fn: 
