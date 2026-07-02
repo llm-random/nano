@@ -38,7 +38,7 @@ trainer:
       path: "Qwen/Qwen3-1.7B-Base"
     save:
       type: hf_only
-      path: null # CHANGE
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp_distil/qwen/1_7B # CHANGE
 
   eval_interval: 1000000
   eval_dataloader: None

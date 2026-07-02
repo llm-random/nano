@@ -45,7 +45,7 @@ trainer:
     save: #switch
       interval: 0  # 0 = only save at the end of training
       # model_checkpoint_filename: __model_checkpoint_filename.pt
-      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/results # lem new
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc/qwen/1_7B # lem new
       # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test # helios   
       # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy   
       training_state_filename: __training_state_filename.pt
