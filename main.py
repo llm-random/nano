@@ -325,13 +325,18 @@ def run(cfg: OmegaConf, metric_logger=None):
         trainer = instantiate(cfg.trainer)
 
         if "distillation" in cfg:
-            if cfg.distillation.load.type == "huggingface":
+            if cfg.distillation.load.type in ["huggingface", "huggingface_qwen"]:
                 teacher_model = instantiate(
                     cfg.distillation.teacher_model, _convert_="all"
                 ).to(get_device())
-                copy_llama_model_weights_from_HF(
-                    teacher_model, cfg.distillation.load.path
-                )
+                if cfg.distillation.load.type == "huggingface_qwen":
+                    copy_qwen_model_weights_from_HF(
+                        teacher_model, cfg.distillation.load.path
+                    )
+                else:
+                    copy_llama_model_weights_from_HF(
+                        teacher_model, cfg.distillation.load.path
+                    )
                 teacher_model = setup_distributed_training(
                     teacher_model, cfg.trainer.teacher_distributed
                 )

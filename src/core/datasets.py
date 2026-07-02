@@ -51,6 +51,25 @@ def llama_tokenize_fn():
     return tokenize_function
 
 
+def qwen_tokenize_fn():
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-1.7B-Base")
+    eos_id = tokenizer.eos_token_id
+
+    def tokenize_function(examples):
+        batch_encodings = tokenizer(
+            examples["text"],
+            truncation=False,
+            max_length=int(1e10),
+        )
+        # Qwen's fast tokenizer has no add_eos_token flag; append eos to bound documents
+        batch_encodings["input_ids"] = [
+            ids + [eos_id] for ids in batch_encodings["input_ids"]
+        ]
+        return batch_encodings
+
+    return tokenize_function
+
+
 def smollm_135_tokenize_fn():
     tokenizer = AutoTokenizer.from_pretrained(
         "HuggingFaceTB/SmolLM-135M",

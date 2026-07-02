@@ -1,0 +1,16 @@
+
+defaults:
+  - qwen_distillation
+
+common_distillation:
+  dmodel: 2048
+  dff: 6144
+  dhead: 128
+  n_blocks: 28
+  q_heads: 16
+  kv_heads: 8
+  vocab_size: 151936
+
+distillation:
+  load:
+    path: "Qwen/Qwen3-1.7B-Base"
