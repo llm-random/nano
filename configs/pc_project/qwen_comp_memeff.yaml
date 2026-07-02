@@ -10,24 +10,31 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  dmodel: 1024 # ~50% parameter compression
-  dff: 3072 # ~50% parameter compression
+  # base: dmodel 2048, dff 6144
+  dmodel: 1344 # 50
+  dff: 4032
+  # dmodel: 960 # 30
+  # dff: 2880
+  # dmodel: 448 # 10
+  # dff: 1344
 
 
 trainer:
   _target_: src.projected_compression.trainer.PCTrainer
   gradient_accumulation_steps: 8
-  # n_steps: 2048
-  n_steps: 100
+  ^n_steps:
+    - 10 # 1B tokens
+    # - 2048 # 1B tokens
 
+  gradient_clipping: 0.25 #best
   only_compress_model_gradient_clipping: false
-  only_target_model_gradient_clipping: 1.0 #best  
+  only_target_model_gradient_clipping: 1.0 #best
 
-  ^learning_rate: [10, 11, 12, 13, 14, 15, 16, 17]
+  learning_rate: 14
+  # ^learning_rate: [13, 14, 15, 16]
 
   scheduler:
-    # warmup_steps: 40
-    warmup_steps: 10
+    warmup_steps: 40
 
   distributed:
     fsdp2: null
@@ -66,7 +73,7 @@ projected_compression:
 
 
 model:
-  cast_bfloat16: false
+  cast_bfloat16: true
 
 infrastructure:
   metric_logger:
@@ -78,9 +85,9 @@ infrastructure:
       - 1.7B
       - projected_compression
       - mem_eff
-      - 10p
+      # - 10p
       # - 30p
-      # - 50p
+      - 50p
 
   slurm: 
     job-name: ${infrastructure.metric_logger.name}

@@ -20,7 +20,7 @@ projected_compression:
 model:
   _target_: src.projected_compression.mem_eff.MemoryEfficientProjectedCompression
 
-  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
+  cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
 
   source_model:
     _target_: src.projected_compression.model.LLM

@@ -12,28 +12,34 @@ common:
   batch_size: 512
 
   # base: dmodel 2048, dff 6144
-  # target_dmodel: 1024 # 50
-  # target_dff: 3072
-  target_dmodel: 1024 # 50
-  target_dff: 3072
+  target_dmodel: 1344 # 50
+  target_dff: 4032
+  # target_dmodel: 960 # 30
+  # target_dff: 2880
+  # target_dmodel: 448 # 10
+  # target_dff: 1344
 
 
 trainer:
   gradient_accumulation_steps: 8
   ^n_steps:
-    - 2048 # 1B tokens
+    - 10 # 1B tokens
+    # - 2048 # 1B tokens
 
   learning_rate: 12
+  # ^learning_rate: [11, 12, 13, 14]
 
   scheduler:
     warmup_steps: 40
+
+  original_llama_path: Qwen/Qwen3-1.7B-Base # reference HF model for the qwen exporter
 
   checkpoint:
     load:
       type: huggingface_qwen
       path: "Qwen/Qwen3-1.7B-Base"
     save:
-      type: nano
+      type: hf_only
       path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp/qwen/1_7B # CHANGE
 
 

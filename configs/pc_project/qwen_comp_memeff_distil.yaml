@@ -10,22 +10,28 @@ common:
   sequence_length: 1024
   batch_size: 512
 
-  dmodel: 1024 # ~50% parameter compression
-  dff: 3072 # ~50% parameter compression
+  # base: dmodel 2048, dff 6144
+  dmodel: 1344 # 50
+  dff: 4032
+  # dmodel: 960 # 30
+  # dff: 2880
+  # dmodel: 448 # 10
+  # dff: 1344
 
 
 trainer:
   _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
   gradient_accumulation_steps: 8
+  ^n_steps:
+    - 10 # 1B tokens
+    # - 2048 # 1B tokens
 
-  n_steps: 2048
-  # n_steps: 4096
-  # n_steps: 8192
-  # n_steps: 12288
+  gradient_clipping: 0.25 #best
+  only_compress_model_gradient_clipping: false
+  only_target_model_gradient_clipping: 1.0 #best
 
-  only_compress_model_gradient_clipping: true
-
-  learning_rate: 13
+  learning_rate: 14
+  # ^learning_rate: [13, 14, 15, 16]
 
   scheduler:
     warmup_steps: 40
@@ -33,19 +39,18 @@ trainer:
   distributed:
     fsdp2: null
 
+  original_llama_path: Qwen/Qwen3-1.7B-Base # reference HF model for the qwen exporter
+
   eval_interval: 1000000 # PC_memeff does not work in eval inference mode
   eval_dataloader: None
 
   checkpoint: # only way to save PC_memeff model
     save:
-      interval: 2047
-      # interval: 4095
-      # interval: 8191
-      # interval: 12287
+      interval: 0  # 0 = only save at the end of training
       model_checkpoint_filename: __model_checkpoint_filename.pt
       path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc_distil/qwen/1_7B # CHANGE
       training_state_filename: __training_state_filename.pt
-      type: nano
+      type: hf_only
 
 projected_compression:
   modules_to_shard:
@@ -63,6 +68,8 @@ projected_compression:
 
   adjust_grad_norm: false
 
+  cpu_offload_projections: false
+
   source_model_for_distillation: true
 
 distillation:
@@ -70,7 +77,7 @@ distillation:
     type: pc_memeff_base # uses internal teacher model representation for distillation to save memory - source_model_for_distillation: true
 
 model:
-  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
+  cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
 
 infrastructure:
   metric_logger:
