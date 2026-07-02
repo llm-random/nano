@@ -23,8 +23,7 @@ trainer:
   _target_: src.projected_compression.trainer.PCTrainer
   gradient_accumulation_steps: 8
   ^n_steps:
-    - 10 # 1B tokens
-    # - 2048 # 1B tokens
+    - 2048 # 1B tokens
 
   gradient_clipping: 0.25 #best
   only_compress_model_gradient_clipping: false
