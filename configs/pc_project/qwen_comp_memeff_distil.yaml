@@ -29,8 +29,7 @@ trainer:
   only_compress_model_gradient_clipping: false
   only_target_model_gradient_clipping: 1.0 #best
 
-  learning_rate: 14
-  # ^learning_rate: [13, 14, 15, 16]
+  ^learning_rate: [13, 14, 15, 16]
 
   scheduler:
     warmup_steps: 40
