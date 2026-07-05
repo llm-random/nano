@@ -2,10 +2,11 @@ infrastructure:
   server: lem
   max_concurrent_jobs: null
   slurm:
-    cpus_per_gpu: 16
     gres: "gpu:hopper:4"
+    # TEMPORARY (2026-07): WCSS lem filter can't parse --mem-per-gpu/--cpus-per-gpu and rejects valid jobs; emit totals derived from gres (16 CPU / 220G per GPU). Revert to cpus_per_gpu/mem_per_gpu once admins fix the filter.
+    cpus-per-task: "${eval:'16 * int(\"${infrastructure.slurm.gres}\".split(\":\")[-1])'}"
+    mem: "${eval:'str(220 * int(\"${infrastructure.slurm.gres}\".split(\":\")[-1])) + \"G\"'}"
     job-name: test
-    mem_per_gpu: 220G
     nodes: 1
     partition: plgrid-lem-gpu-h100
     time: "1-00:00:00"
