@@ -1,7 +1,7 @@
 defaults:
   - ../_cluster@_here_: lem
   - ../_model/qwen@_here_: projected_mem_eff_1.7B
-  - ../_trainer@_here_: qwen
+  - ../_trainer@_here_: qwen_1.7B_distillation
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
@@ -20,7 +20,7 @@ common:
 
 
 trainer:
-  _target_: src.projected_compression.trainer.PCTrainer
+  _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
   gradient_accumulation_steps: 8
   ^n_steps:
     - 2048 # 1B tokens
@@ -29,7 +29,7 @@ trainer:
   only_compress_model_gradient_clipping: false
   only_target_model_gradient_clipping: 1.0 #best
 
-  ^learning_rate: [13, 14, 15, 16]
+  ^learning_rate: [11, 12, 13, 14, 15, 16]
 
   scheduler:
     warmup_steps: 40
@@ -37,19 +37,18 @@ trainer:
   distributed:
     fsdp2: null
 
-  eval_dataloader: None
-  eval_interval: 0
+  original_llama_path: Qwen/Qwen3-1.7B-Base # reference HF model for the qwen exporter
 
-  original_llama_path: Qwen/Qwen3-1.7B-Base
-  checkpoint:
-    save: #switch
+  eval_interval: 1000000 # PC_memeff does not work in eval inference mode
+  eval_dataloader: None
+
+  checkpoint: # only way to save PC_memeff model
+    save:
       interval: 0  # 0 = only save at the end of training
-      # model_checkpoint_filename: __model_checkpoint_filename.pt
-      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc/qwen/1_7B # lem new
-      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test # helios   
-      # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy   
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc_distil/qwen/1_7B # CHANGE
       training_state_filename: __training_state_filename.pt
-      type: hf_only  # "nano" | "hf_only" | "nano_and_hf"
+      type: hf_only
 
 projected_compression:
   modules_to_shard:
@@ -58,8 +57,8 @@ projected_compression:
     - ${model.source_model.encoder.block_fn._target_}
     - ${model.source_model.head._target_}
 
-  source_model_path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/qwen3_1_7b_in_nano.pt #  special PC_memeff checkpoint from qwen config experiment
-  path_to_importances: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/qwen/1_7B/5403539/0/minitron_dimensions_importances.pt
+  source_model_path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/qwen3_1_7b_in_nano.pt # special PC_memeff checkpoint from newq_conversion config experiment
+  path_to_importances: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/qwen/1_7B/5403539/0/minitron_dimensions_importances.pt # CHANGE
 
   init_norms_with_ones: false
 
@@ -69,9 +68,14 @@ projected_compression:
 
   cpu_offload_projections: false
 
+  source_model_for_distillation: true
+
+distillation:
+  load:
+    type: pc_memeff_base # uses internal teacher model representation for distillation to save memory - source_model_for_distillation: true
 
 model:
-  cast_bfloat16: true
+  cast_bfloat16: true # whether to cast bfloat16 when calculating compressed matrix
 
 infrastructure:
   metric_logger:
@@ -82,12 +86,12 @@ infrastructure:
       - qwen
       - 1.7B
       - projected_compression
+      - distillation
+      - 1B_train
       - mem_eff
-      # - 10p
-      # - 30p
       - 50p
 
-  slurm: 
+  slurm:
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:hopper:4
     time: "2-00:00:00"

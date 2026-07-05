@@ -25,7 +25,7 @@ trainer:
   ^n_steps:
     - 2048 # 1B tokens
 
-  ^learning_rate: [11, 12, 13, 14]
+  ^learning_rate: [8, 9, 10, 11, 12, 13, 14]
 
   scheduler:
     warmup_steps: 40
@@ -57,6 +57,7 @@ infrastructure:
       - 1.7B
       - hard_pruning
       - distillation
+      - 1B_train
       - 50p
 
   slurm:
