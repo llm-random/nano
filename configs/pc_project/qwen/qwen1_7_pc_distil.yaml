@@ -1,22 +1,18 @@
 defaults:
-  - ../_cluster@_here_: lem
-  - ../_model/qwen@_here_: projected_mem_eff_1.7B
-  - ../_trainer@_here_: qwen_1.7B_distillation
-  - ../_dataset@_here_: fineweb
-  - ../_checkpoints@_here_: none
-  - ../_misc@_here_: default
+  - ../../_cluster@_here_: lem
+  - ../../_model/qwen@_here_: projected_mem_eff_1.7B
+  - ../../_trainer@_here_: qwen_1.7B_distillation
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
 
 common:
   sequence_length: 1024
   batch_size: 512
 
   # base: dmodel 2048, dff 6144
-  dmodel: 1344 # 50
-  dff: 4032
-  # dmodel: 960 # 30
-  # dff: 2880
-  # dmodel: 448 # 10
-  # dff: 1344
+  ^dmodel: [448, 960, 1344]
+  dff: "${eval:'common.dmodel * 3'}"
 
 
 trainer:
@@ -29,7 +25,7 @@ trainer:
   only_compress_model_gradient_clipping: false
   only_target_model_gradient_clipping: 1.0 #best
 
-  ^learning_rate: [11, 12, 13, 14, 15, 16]
+  ^learning_rate: [12, 13, 14]
 
   scheduler:
     warmup_steps: 40
@@ -89,7 +85,7 @@ infrastructure:
       - distillation
       - 1B_train
       - mem_eff
-      - 50p
+      - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[common.dmodel]'}"
 
   slurm:
     job-name: ${infrastructure.metric_logger.name}

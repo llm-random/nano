@@ -1,10 +1,10 @@
 defaults:
-  - ../_cluster@_here_: lem
-  - ../_model/qwen@_here_: 1.7B
-  - ../_trainer@_here_: qwen
-  - ../_dataset@_here_: fineweb
-  - ../_checkpoints@_here_: none
-  - ../_misc@_here_: default
+  - ../../_cluster@_here_: lem
+  - ../../_model/qwen@_here_: 1.7B
+  - ../../_trainer@_here_: qwen_1.7B_distillation
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
 
 
 common:
@@ -12,12 +12,12 @@ common:
   batch_size: 512
 
   # base: dmodel 2048, dff 6144
-  target_dmodel: 1344 # 50
-  target_dff: 4032
+  # target_dmodel: 1344 # 50
+  # target_dff: 4032
   # target_dmodel: 960 # 30
   # target_dff: 2880
-  # target_dmodel: 448 # 10
-  # target_dff: 1344
+  ^target_dmodel: [448, 960, 1344]
+  target_dff: "${eval:'common.target_dmodel * 3'}"
 
 
 trainer:
@@ -25,7 +25,7 @@ trainer:
   ^n_steps:
     - 2048 # 1B tokens
 
-  ^learning_rate: [8, 9, 10, 11, 12, 13, 14]
+  ^learning_rate: [9, 10, 11]
 
   scheduler:
     warmup_steps: 40
@@ -38,7 +38,13 @@ trainer:
       path: "Qwen/Qwen3-1.7B-Base"
     save:
       type: hf_only
-      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp/qwen/1_7B # CHANGE
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp_distil/qwen/1_7B # CHANGE
+
+  eval_interval: 1000000
+  eval_dataloader: None
+  train_dataloader:
+    dataset:
+      seed: 1000
 
 
 infrastructure:
@@ -50,9 +56,9 @@ infrastructure:
       - qwen
       - 1.7B
       - hard_pruning
-      - lm_retraining
+      - distillation
       - 1B_train
-      - 50p
+      - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[common.target_dmodel]'}"
 
   slurm:
     job-name: ${infrastructure.metric_logger.name}
