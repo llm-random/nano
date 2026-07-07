@@ -19,7 +19,10 @@ trainer:
   _target_: src.projected_compression.trainer_distillation.PCDistillationTrainer
   gradient_accumulation_steps: 8
   ^n_steps:
-    - 2048 # 1B tokens
+    # - 2048 # 1B tokens  <5h
+    - 4096 # 2B tokens    <10h
+    - 8192 # 4B tokens    <20h
+    - 16384 # 8B tokens   <40h
 
   gradient_clipping: 0.25 #best
   only_compress_model_gradient_clipping: false
@@ -35,7 +38,7 @@ trainer:
 
   original_llama_path: Qwen/Qwen3-1.7B-Base # reference HF model for the qwen exporter
 
-  eval_interval: 1000000 # PC_memeff does not work in eval inference mode
+  eval_interval: 0 # PC_memeff does not work in eval inference mode
   eval_dataloader: None
 
   checkpoint: # only way to save PC_memeff model
@@ -83,11 +86,11 @@ infrastructure:
       - 1.7B
       - projected_compression
       - distillation
-      - 1B_train
+      - "${eval:'{2048:\"1B_train\",4096:\"2B_train\",8192:\"4B_train\",16384:\"8B_train\"}[trainer.n_steps]'}"
       - mem_eff
       - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[common.dmodel]'}"
 
   slurm:
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:hopper:4
-    time: "2-00:00:00"
+    time: "2-12:00:00"

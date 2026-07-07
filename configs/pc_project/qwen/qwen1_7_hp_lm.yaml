@@ -19,7 +19,10 @@ common:
 trainer:
   gradient_accumulation_steps: 8
   ^n_steps:
-    - 2048 # 1B tokens
+    # - 2048 # 1B tokens  <3h
+    - 4096 # 2B tokens    <6h
+    - 8192 # 4B tokens    <12h
+    - 16384 # 8B tokens   <24h
 
   # ^learning_rate: [10, 11, 12]
   ^learning_rate: [9]
@@ -37,6 +40,9 @@ trainer:
       type: hf_only
       path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp/qwen/1_7B # CHANGE
 
+  eval_interval: 0
+  eval_dataloader: None
+
 
 infrastructure:
   metric_logger:
@@ -48,7 +54,7 @@ infrastructure:
       - 1.7B
       - hard_pruning
       - lm_retraining
-      - 1B_train
+      - "${eval:'{2048:\"1B_train\",4096:\"2B_train\",8192:\"4B_train\",16384:\"8B_train\"}[trainer.n_steps]'}"
       - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[common.target_dmodel]'}"
 
   slurm:
