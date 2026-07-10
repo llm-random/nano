@@ -17,7 +17,7 @@ common:
   # target_dmodel: 960 # 30
   # target_dff: 2880
   ^target_dmodel: [448, 960, 1344]
-  target_dff: "${eval:'common.target_dmodel * 3'}"
+  target_dff: "${eval:'${common.target_dmodel} * 3'}"
 
 
 trainer:
@@ -28,7 +28,7 @@ trainer:
     - 8192 # 4B tokens    <18h
     - 16384 # 8B tokens   <36h
 
-  learning_rate: 10
+  learning_rate: 11
 
   scheduler:
     warmup_steps: 40
@@ -60,8 +60,8 @@ infrastructure:
       - 1.7B
       - hard_pruning
       - distillation
-      - "${eval:'{2048:\"1B_train\",4096:\"2B_train\",8192:\"4B_train\",16384:\"8B_train\"}[trainer.n_steps]'}"
-      - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[common.target_dmodel]'}"
+      - "${eval:'{2048:\"1B_train\",4096:\"2B_train\",8192:\"4B_train\",16384:\"8B_train\"}[${trainer.n_steps}]'}"
+      - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[${common.target_dmodel}]'}"
 
   slurm:
     job-name: ${infrastructure.metric_logger.name}

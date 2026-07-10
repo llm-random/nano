@@ -12,7 +12,7 @@ common:
 
   # base: dmodel 2048, dff 6144
   ^dmodel: [448, 960, 1344]
-  dff: "${eval:'common.dmodel * 3'}"
+  dff: "${eval:'${common.dmodel} * 3'}"
 
 
 trainer:
@@ -28,7 +28,7 @@ trainer:
   only_compress_model_gradient_clipping: false
   only_target_model_gradient_clipping: 1.0 #best
 
-  ^learning_rate: [12, 13, 14]
+  learning_rate: 14
 
   scheduler:
     warmup_steps: 40
@@ -86,9 +86,9 @@ infrastructure:
       - 1.7B
       - projected_compression
       - distillation
-      - "${eval:'{2048:\"1B_train\",4096:\"2B_train\",8192:\"4B_train\",16384:\"8B_train\"}[trainer.n_steps]'}"
+      - "${eval:'{2048:\"1B_train\",4096:\"2B_train\",8192:\"4B_train\",16384:\"8B_train\"}[${trainer.n_steps}]'}"
       - mem_eff
-      - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[common.dmodel]'}"
+      - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[${common.dmodel}]'}"
 
   slurm:
     job-name: ${infrastructure.metric_logger.name}
