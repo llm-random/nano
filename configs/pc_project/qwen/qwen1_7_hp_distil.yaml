@@ -26,6 +26,7 @@ trainer:
     # - 2048 # 1B tokens  <4.5h
     - 4096 # 2B tokens    <9h
     - 8192 # 4B tokens    <18h
+    # - 12288 # 6B tokens   <27h
     - 16384 # 8B tokens   <36h
 
   learning_rate: 11
