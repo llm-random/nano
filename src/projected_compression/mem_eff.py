@@ -481,11 +481,6 @@ class MemoryEfficientProjectedCompression(nn.Module):
                 final_grad_norm = global_norm
             else:
                 # Per-block independent clipping.
-                import time
-
-                t_nccl_total = t_h2d_total = t_bwd_total = t_d2h_total = t_opt_total = (
-                    0.0
-                )
                 for block_target, block_source, block_proj, optimizer, scheduler in zip(
                     self.target_model.encoder.blocks,
                     self.source_model.encoder.blocks,
@@ -493,21 +488,14 @@ class MemoryEfficientProjectedCompression(nn.Module):
                     optimizers,
                     schedulers,
                 ):
-                    t0 = time.perf_counter()
                     block_grads = (
                         self._gather_block_grads(block_target)
                         if use_batched_gather
                         else None
                     )
-                    torch.cuda.synchronize()
-                    t1 = time.perf_counter()
                     if use_block_gpu:
                         self._block_to_gpu(block_source, block_proj)
-                    torch.cuda.synchronize()
-                    t2 = time.perf_counter()
                     backward_block(block_proj, block_source, block_target, block_grads)
-                    torch.cuda.synchronize()
-                    t3 = time.perf_counter()
                     block_norm = get_module_grad_norm(block_proj)
                     projection_blocks_grad_norms.append(block_norm)
                     if gradient_clipping:
@@ -519,27 +507,7 @@ class MemoryEfficientProjectedCompression(nn.Module):
                     optimizer.zero_grad()
                     if use_block_gpu:
                         self._block_to_cpu(block_source, block_proj)
-                    torch.cuda.synchronize()
-                    t4 = time.perf_counter()
                     scheduler.step()
-                    t5 = time.perf_counter()
-
-                    t_nccl_total += t1 - t0
-                    t_h2d_total += t2 - t1
-                    t_bwd_total += t3 - t2
-                    t_opt_total += (
-                        t4 - t3
-                    )  # step + optimizer state move + param move back to CPU
-
-                if not dist.is_initialized() or dist.get_rank() == 0:
-                    import logging
-
-                    _logger = logging.getLogger(__name__)
-                    _logger.warning(
-                        f"[block timing] nccl={t_nccl_total:.3f}s  h2d={t_h2d_total:.3f}s  "
-                        f"bwd={t_bwd_total:.3f}s  opt+d2h={t_opt_total:.3f}s  "
-                        f"total={t_nccl_total+t_h2d_total+t_bwd_total+t_opt_total:.3f}s"
-                    )
 
                 # Clip head and embedding projections independently.
                 head_params = [
