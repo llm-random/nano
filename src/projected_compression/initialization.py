@@ -53,6 +53,8 @@ def init_pc_attributes(cfg, metric_logger):
         )
 
     learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
+    pc_weights_lr_ratio = cfg.projected_compression.get("pc_weights_lr_ratio", 1.0)
+    projection_lr = learning_rate * pc_weights_lr_ratio
 
     if isinstance(metric_logger, WandbLogger) and (
         training_state["run_id"] is None
@@ -63,6 +65,8 @@ def init_pc_attributes(cfg, metric_logger):
                 {
                     "learning_rate": learning_rate,
                     "exp_lr": exp_lr,
+                    "pc_weights_lr_ratio": pc_weights_lr_ratio,
+                    "pc_weights_lr": projection_lr,
                     "full_save_checkpoints_path": _build_checkpoint_path(cfg),
                 }
             )
@@ -76,11 +80,14 @@ def init_pc_attributes(cfg, metric_logger):
     )
 
     if cfg.projected_compression.separate_block_optimizers:
-        target_model_optimize_params = get_target_model_optimize_params(model)
+        base_params, projection_params = get_target_model_optimize_params(model)
 
         cpu_offload = cfg.projected_compression.get("cpu_offload_projections", False)
         target_model_optimizer = torch.optim.AdamW(
-            target_model_optimize_params,
+            [
+                {"params": base_params},
+                {"params": projection_params, "lr": projection_lr},
+            ],
             lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
             # When cpu_offload is active, head/embedding projections are plain GPU tensors
@@ -96,8 +103,12 @@ def init_pc_attributes(cfg, metric_logger):
         optimizer = [target_model_optimizer]
         scheduler = [target_model_scheduler]
         for block in model.projections.blocks:
+            block_proj_params, block_base_params = split_projection_matrix_params(block)
             block_optimizer = torch.optim.AdamW(
-                block.parameters(),
+                [
+                    {"params": block_base_params},
+                    {"params": block_proj_params, "lr": projection_lr},
+                ],
                 lr=learning_rate,
                 weight_decay=cfg.trainer.weight_decay,
             )
@@ -106,8 +117,12 @@ def init_pc_attributes(cfg, metric_logger):
                 scheduler_fn(optimizer=block_optimizer, n_steps=cfg.trainer.n_steps)
             )
     else:
+        proj_params, base_params = split_projection_matrix_params(model)
         optimizer = torch.optim.AdamW(
-            model.parameters(),
+            [
+                {"params": base_params},
+                {"params": proj_params, "lr": projection_lr},
+            ],
             lr=learning_rate,
             weight_decay=cfg.trainer.weight_decay,
         )
@@ -141,7 +156,24 @@ def load_checkpoint(model, optimizer, scheduler, checkpoint_folder):
     )
 
 
+def split_projection_matrix_params(module):
+    """Split params into (projection matrices, everything else).
+    Aux weights are additive corrections, not projection matrices."""
+    proj_params, base_params = [], []
+    for name, p in module.named_parameters():
+        if (
+            name.endswith("projection_in_weight")
+            or name.endswith("projection_out_weight")
+            or name == "projections.embedding"
+        ):
+            proj_params.append(p)
+        else:
+            base_params.append(p)
+    return proj_params, base_params
+
+
 def get_target_model_optimize_params(model):
+    """Returns (base_params, projection_matrix_params) for the target-model optimizer."""
     params = []
     for block in model.target_model.encoder.blocks:
         params.extend(block.attention_layer.norm.parameters())
@@ -152,10 +184,14 @@ def get_target_model_optimize_params(model):
             params.extend(attn.k_norm.parameters())
 
     params.extend(model.target_model.head.norm.parameters())
-    params.extend(model.projections.head.parameters())
-    params.append(model.projections.embedding)
+    head_proj_params, head_base_params = split_projection_matrix_params(
+        model.projections.head
+    )
+    params.extend(head_base_params)
     params.extend(model.projections.auxiliary_embedding_weights.parameters())
-    return params
+
+    projection_params = head_proj_params + [model.projections.embedding]
+    return params, projection_params
 
 
 def create_model(cfg_model, cfg_projected_compression, source_model_for_distillation):

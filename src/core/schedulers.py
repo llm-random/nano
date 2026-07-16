@@ -1,3 +1,4 @@
+import math
 import torch
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, ConstantLR
 
@@ -61,12 +62,6 @@ class TrapezoidalLR(SequentialLR):
 def get_cosine_scheduler_with_warmup(
     optimizer, warmup_steps: int, n_steps: int, final_lr_fraction: float
 ):
-    assert (
-        len(optimizer.param_groups) == 1
-    ), "Cosine scheduler only supports one param group"
-    optimizer_lr = optimizer.param_groups[0][
-        "lr"
-    ]  # param_groups changes when applying scheduler
     warmup = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=0.1,
@@ -77,10 +72,14 @@ def get_cosine_scheduler_with_warmup(
     constant_scheduler = torch.optim.lr_scheduler.ConstantLR(
         optimizer, factor=1.0
     )  # TODO this is only because of a bug in llm-random
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    # Factor-based cosine (identical to CosineAnnealingLR with eta_min=fraction*base_lr)
+    # so each param group decays to final_lr_fraction of its own base lr.
+    cosine_scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
-        T_max=after_warmup_steps,
-        eta_min=final_lr_fraction * optimizer_lr,
+        lr_lambda=lambda step: final_lr_fraction
+        + (1 - final_lr_fraction)
+        * 0.5
+        * (1 + math.cos(math.pi * min(step / after_warmup_steps, 1.0))),
     )
     training_scheduler = torch.optim.lr_scheduler.SequentialLR(
         optimizer,
