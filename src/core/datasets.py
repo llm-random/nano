@@ -70,6 +70,25 @@ def qwen_tokenize_fn():
     return tokenize_function
 
 
+def smollm2_tokenize_fn():
+    tokenizer = AutoTokenizer.from_pretrained(
+        "HuggingFaceTB/SmolLM2-1.7B",
+        add_bos_token=True,
+        add_eos_token=True,
+        legacy=False,
+    )
+
+    def tokenize_function(examples):
+        batch_encodings = tokenizer(
+            examples["text"],
+            truncation=False,
+            max_length=int(1e10),
+        )
+        return batch_encodings
+
+    return tokenize_function
+
+
 def smollm_135_tokenize_fn():
     tokenizer = AutoTokenizer.from_pretrained(
         "HuggingFaceTB/SmolLM-135M",
