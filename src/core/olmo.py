@@ -96,7 +96,9 @@ def save_pretrained_olmo_as_nano(cfg: OmegaConf, metric_logger=None):
     weights = {k for k in model.state_dict() if not k.endswith((".sin", ".cos"))}
     missing = weights - set(nano_sd)
     if missing:
-        raise RuntimeError(f"OLMo2->nano remap left weights unfilled: {sorted(missing)}")
+        raise RuntimeError(
+            f"OLMo2->nano remap left weights unfilled: {sorted(missing)}"
+        )
 
     model.load_state_dict(nano_sd, strict=False, assign=True)
 

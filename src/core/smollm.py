@@ -36,7 +36,9 @@ def save_pretrained_smollm_as_nano(cfg: OmegaConf, metric_logger=None):
     weights = {k for k in model.state_dict() if not k.endswith((".sin", ".cos"))}
     missing = weights - set(nano_sd)
     if missing:
-        raise RuntimeError(f"SmolLM2->nano remap left weights unfilled: {sorted(missing)}")
+        raise RuntimeError(
+            f"SmolLM2->nano remap left weights unfilled: {sorted(missing)}"
+        )
 
     model.load_state_dict(nano_sd, strict=False, assign=True)
 
@@ -50,7 +52,9 @@ def save_pretrained_smollm_as_nano(cfg: OmegaConf, metric_logger=None):
     return None, None, None, None, None
 
 
-def verify_smollm_against_hf(model, hf_path, vocab_size, seq_len=256, min_agreement=0.99):
+def verify_smollm_against_hf(
+    model, hf_path, vocab_size, seq_len=256, min_agreement=0.99
+):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     hf_model = AutoModelForCausalLM.from_pretrained(hf_path).to(device).eval().float()
     model = model.to(device).eval().float()
