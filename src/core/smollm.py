@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import os
 
 import torch
 from omegaconf import OmegaConf
@@ -39,6 +40,7 @@ def save_pretrained_smollm_as_nano(cfg: OmegaConf, metric_logger=None):
 
     model.load_state_dict(nano_sd, strict=False, assign=True)
 
+    os.makedirs(os.path.dirname(cfg.trainer.checkpoint.save.path), exist_ok=True)
     torch.save(model.state_dict(), cfg.trainer.checkpoint.save.path)
 
     if cfg.get("apply_functions", None):
