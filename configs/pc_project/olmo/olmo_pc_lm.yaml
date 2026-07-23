@@ -1,0 +1,90 @@
+defaults:
+  - ../../_cluster@_here_: lem
+  - ../../_model/olmo@_here_: projected_mem_eff_1B
+  - ../../_trainer@_here_: olmo
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+  # base: dmodel 2048, dff 8192
+  ^dmodel: [448, 960, 1344]
+  dff: "${eval:'${common.dmodel} * 4'}"
+
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  gradient_accumulation_steps: 8
+  ^n_steps:
+    - 2048 # 1B tokens  <3h
+    # - 4096 # 2B tokens    <6h
+    # - 8192 # 4B tokens    <12h
+    # - 16384 # 8B tokens   <24h
+
+  gradient_clipping: 1.0 # match HP baseline clip
+  only_compress_model_gradient_clipping: false
+  only_target_model_gradient_clipping: 1.0 #best
+
+  learning_rate: 13
+
+  scheduler:
+    warmup_steps: 40
+
+  distributed:
+    fsdp2: null
+
+  eval_dataloader: None
+  eval_interval: 0
+
+  original_llama_path: allenai/OLMo-2-0425-1B
+  checkpoint:
+    save: #switch
+      interval: 0  # 0 = only save at the end of training
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc/olmo2/1B # CHANGE
+      training_state_filename: __training_state_filename.pt
+      type: hf_only  # "nano" | "hf_only" | "nano_and_hf"
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/olmo2_1b_in_nano.pt # CHANGE - from olmo_conversion
+  path_to_importances: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/olmo2/1B/minitron_dimensions_importances.pt # CHANGE - from olmo_importances
+
+  init_norms_with_ones: false
+
+  separate_block_optimizers: true
+
+  adjust_grad_norm: false
+
+  cpu_offload_projections: false
+
+
+model:
+  cast_bfloat16: false
+
+infrastructure:
+  metric_logger:
+    name: OLMo2_PC
+    tags:
+      - nano
+      - pc
+      - olmo2
+      - 1B
+      - projected_compression
+      - mem_eff
+      - "${eval:'{2048:\"1B_train\",4096:\"2B_train\",8192:\"4B_train\",16384:\"8B_train\"}[${trainer.n_steps}]'}"
+      - lm_retraining
+      - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[${common.dmodel}]'}"
+      - fp32
+
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:hopper:4
+    time: "1-00:00:00"

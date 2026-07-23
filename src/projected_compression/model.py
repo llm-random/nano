@@ -319,6 +319,91 @@ class QwenAttention(RoPEAttention):
         return output
 
 
+class OlmoAttention(RoPEAttention):
+    """RoPEAttention plus OLMo2 QK-RMSNorm over the full q/k projection.
+
+    Unlike Qwen (per-head dhead norm applied after the head reshape), OLMo2 norms
+    the whole q_proj/k_proj output (q_heads*dhead / kv_heads*dhead) before reshaping
+    into heads, and the projections read the raw residual stream (post-norm block).
+    """
+
+    def __init__(self, *args, q_norm_fn, k_norm_fn, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.q_norm = q_norm_fn()
+        self.k_norm = k_norm_fn()
+
+    def forward(self, x):
+        query_states = self.q_norm(self.q_proj(x))
+        key_states = self.k_norm(self.k_proj(x))
+        value_states = self.v_proj(x)
+
+        batch, seq_len = x.shape[:-1]
+        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
+        q = self.rope(q)
+        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        k = self.rope(k)
+
+        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+
+        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        v = repeat_kv(v, self.q_heads // self.kv_heads)
+        attention_output = self.attention_mechanism(
+            query=q, key=k, value=v, causal=True
+        )
+
+        output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
+
+        return output
+
+
+class PostNormResidual(Residual):
+    """OLMo2-style residual: out = norm(layer(x)) + x (norm on the sublayer output)."""
+
+    def forward(self, x):
+        out = self.norm(self.layer(x))
+        if self.metric_logger is not None:
+            self.metric_logger.accumulate_metrics(
+                layer_name=f"{self.log_name}",
+                transform_fn=Residual.intermediate_norms,
+                calculate_fn=Residual.calculate_metrics,
+                metrics={
+                    "residual_stream": x,
+                    "updates": out,
+                },
+            )
+        return out + x
+
+
+class OlmoTransformerBlock(nn.Module):
+    """TransformerBlock with post-normalization (OLMo2 reordered norm placement)."""
+
+    def __init__(
+        self,
+        block_id,
+        norm_fn,
+        attention_fn,
+        ff_layer_fn,
+    ):
+        super().__init__()
+        self.log_name = f"block[{block_id}]"
+
+        self.attention_layer = PostNormResidual(
+            norm=norm_fn(),
+            layer=attention_fn(),
+            log_name=f"{self.log_name}/residual_attention",
+        )
+        self.ff_layer = PostNormResidual(
+            norm=norm_fn(),
+            layer=ff_layer_fn(),
+            log_name=f"{self.log_name}/residual_feedforward",
+        )
+
+    def forward(self, x):
+        x = self.attention_layer(x)
+        x = self.ff_layer(x)
+        return x
+
+
 class FeedForward(nn.Module):
     def __init__(self, ff_pre_act_fn, ff_post_act_fn):
         super().__init__()
