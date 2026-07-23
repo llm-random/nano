@@ -159,6 +159,14 @@ def load_pc_state_dict_to_olmo(state_dict, original_olmo):
 
     # num_hidden_layers / num_attention_heads / num_key_value_heads / head_dim unchanged;
     # only the residual stream (hidden_size) and ff (intermediate_size) are compressed.
+    # OLMo2's config has no explicit head_dim, so Olmo2Attention derives it as
+    # hidden_size // num_attention_heads. After compressing hidden_size that derivation
+    # is wrong (attention head dims are NOT compressed), so pin head_dim from the
+    # uncompressed q_proj output before overriding hidden_size.
+    conf.head_dim = (
+        state_dict["encoder.blocks.0.attention_layer.layer.q_proj.weight"].shape[0]
+        // conf.num_attention_heads
+    )
     conf.hidden_size = state_dict["encoder.blocks.0.attention_layer.norm.weight"].shape[
         0
     ]
