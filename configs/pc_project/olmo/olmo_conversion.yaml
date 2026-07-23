@@ -1,0 +1,42 @@
+# notebook for producing a PC checkpoint used for PC_memeff training
+
+defaults:
+  - ../../_misc@_here_: default
+  - ../../_cluster@_here_: lem
+  - ../../_model/olmo@_here_: 1B
+  - _self_
+
+
+trainer:
+  checkpoint:
+    load:
+      type: huggingface
+      path: "allenai/OLMo-2-0425-1B"
+
+    save:
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/olmo2_1b_in_nano.pt # CHANGE
+
+infrastructure:
+  metric_logger:
+    name: PC_save_pretrained_hf_to_nano
+    tags:
+      - nano
+      - pc
+      - save_pretrained
+      - olmo2
+
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:hopper:1
+    time: "0-01:00:00"
+
+init_model_opt_sched_fn:
+  _target_: src.core.olmo.save_pretrained_olmo_as_nano
+  _partial_: true
+
+# verify converted nano model matches HF logits; comment out to switch off
+apply_functions:
+  - _target_: src.core.olmo.verify_olmo_against_hf
+    _partial_: true
+    hf_path: ${trainer.checkpoint.load.path}
+    vocab_size: ${model.embedding.vocab_size}

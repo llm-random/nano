@@ -1,0 +1,16 @@
+
+defaults:
+  - olmo_distillation
+
+common_distillation:
+  dmodel: 2048
+  dff: 8192
+  dhead: 128
+  n_blocks: 16
+  q_heads: 16
+  kv_heads: 16
+  vocab_size: 100352
+
+distillation:
+  load:
+    path: "allenai/OLMo-2-0425-1B"

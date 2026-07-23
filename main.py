@@ -8,6 +8,7 @@ from src.core.conversion_from_llmrandom import load_llmrandom_checkpoint
 from src.core.llama import copy_llama_model_weights_from_HF
 from src.core.qwen import copy_qwen_model_weights_from_HF
 from src.core.smollm import copy_smollm_model_weights_from_HF
+from src.core.olmo import copy_olmo_model_weights_from_HF
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
 import resolver as _  # I should be able to ignore this line by linter, but ~ things like # ignore did not work
@@ -274,6 +275,11 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
+    elif cfg.trainer.checkpoint.load.type == "huggingface_olmo":
+        copy_olmo_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
+        model, optimizer, scheduler = get_model_optimizer_scheduler(
+            cfg, model, learning_rate
+        )
     elif cfg.trainer.checkpoint.load.type == "llm-random":
         load_llmrandom_checkpoint(cfg.trainer.checkpoint.load, model)
         model, optimizer, scheduler = get_model_optimizer_scheduler(
@@ -335,6 +341,7 @@ def run(cfg: OmegaConf, metric_logger=None):
                 "huggingface",
                 "huggingface_qwen",
                 "huggingface_smollm",
+                "huggingface_olmo",
             ]:
                 teacher_model = instantiate(
                     cfg.distillation.teacher_model, _convert_="all"
@@ -345,6 +352,10 @@ def run(cfg: OmegaConf, metric_logger=None):
                     )
                 elif cfg.distillation.load.type == "huggingface_smollm":
                     copy_smollm_model_weights_from_HF(
+                        teacher_model, cfg.distillation.load.path
+                    )
+                elif cfg.distillation.load.type == "huggingface_olmo":
+                    copy_olmo_model_weights_from_HF(
                         teacher_model, cfg.distillation.load.path
                     )
                 else:

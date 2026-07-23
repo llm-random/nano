@@ -1,4 +1,10 @@
-from transformers import AutoConfig, LlamaForCausalLM, Qwen3ForCausalLM, AutoTokenizer
+from transformers import (
+    AutoConfig,
+    LlamaForCausalLM,
+    Qwen3ForCausalLM,
+    Olmo2ForCausalLM,
+    AutoTokenizer,
+)
 from src.core.metric_loggers import get_metric_logger
 from src.projected_compression.initialization import create_model
 import torch.distributed.checkpoint as dcp
@@ -148,10 +154,81 @@ def load_pc_state_dict_to_qwen(state_dict, original_qwen):
     return qwen
 
 
+def load_pc_state_dict_to_olmo(state_dict, original_olmo):
+    conf = AutoConfig.from_pretrained(original_olmo)
+
+    # num_hidden_layers / num_attention_heads / num_key_value_heads / head_dim unchanged;
+    # only the residual stream (hidden_size) and ff (intermediate_size) are compressed.
+    conf.hidden_size = state_dict["encoder.blocks.0.attention_layer.norm.weight"].shape[
+        0
+    ]
+    conf.intermediate_size = state_dict[
+        "encoder.blocks.0.ff_layer.layer.gate.weight"
+    ].shape[0]
+    conf.torch_dtype = None
+    # compressed model has independent embedding and lm_head (different projections)
+    conf.tie_word_embeddings = False
+
+    olmo = Olmo2ForCausalLM(conf)
+
+    new_state_dict = {
+        "model.embed_tokens.weight": state_dict["embedding"],
+        "model.norm.weight": state_dict["head.norm.weight"],
+        "lm_head.weight": state_dict["head.linear.weight"],
+    }
+
+    for layer in range(conf.num_hidden_layers):
+        prefix_src = f"encoder.blocks.{layer}."
+        prefix_tgt = f"model.layers.{layer}."
+
+        # attention
+        new_state_dict[f"{prefix_tgt}self_attn.q_proj.weight"] = state_dict[
+            f"{prefix_src}attention_layer.layer.q_proj.weight"
+        ]
+        new_state_dict[f"{prefix_tgt}self_attn.k_proj.weight"] = state_dict[
+            f"{prefix_src}attention_layer.layer.k_proj.weight"
+        ]
+        new_state_dict[f"{prefix_tgt}self_attn.v_proj.weight"] = state_dict[
+            f"{prefix_src}attention_layer.layer.v_proj.weight"
+        ]
+        new_state_dict[f"{prefix_tgt}self_attn.o_proj.weight"] = state_dict[
+            f"{prefix_src}attention_layer.layer.o_proj.weight"
+        ]
+        # OLMo2 full-dim QK-norm (q_heads*dhead / kv_heads*dhead, not compressed)
+        new_state_dict[f"{prefix_tgt}self_attn.q_norm.weight"] = state_dict[
+            f"{prefix_src}attention_layer.layer.q_norm.weight"
+        ]
+        new_state_dict[f"{prefix_tgt}self_attn.k_norm.weight"] = state_dict[
+            f"{prefix_src}attention_layer.layer.k_norm.weight"
+        ]
+        # mlp
+        new_state_dict[f"{prefix_tgt}mlp.gate_proj.weight"] = state_dict[
+            f"{prefix_src}ff_layer.layer.gate.weight"
+        ]
+        new_state_dict[f"{prefix_tgt}mlp.up_proj.weight"] = state_dict[
+            f"{prefix_src}ff_layer.layer.ff_pre_act.weight"
+        ]
+        new_state_dict[f"{prefix_tgt}mlp.down_proj.weight"] = state_dict[
+            f"{prefix_src}ff_layer.layer.ff_post_act.weight"
+        ]
+        # OLMo2 reordered norms: post-attention and post-feedforward
+        new_state_dict[f"{prefix_tgt}post_attention_layernorm.weight"] = state_dict[
+            f"{prefix_src}attention_layer.norm.weight"
+        ]
+        new_state_dict[f"{prefix_tgt}post_feedforward_layernorm.weight"] = state_dict[
+            f"{prefix_src}ff_layer.norm.weight"
+        ]
+
+    olmo.load_state_dict(new_state_dict, strict=True)
+    return olmo
+
+
 def _load_pc_state_dict_to_hf(state_dict, original_path):
-    """Dispatch to the Qwen or Llama exporter based on the presence of QK-norm."""
-    is_qwen = any("attention_layer.layer.q_norm.weight" in k for k in state_dict)
-    if is_qwen:
+    """Dispatch to the Qwen / OLMo2 / Llama exporter based on the source HF arch."""
+    model_type = AutoConfig.from_pretrained(original_path).model_type
+    if model_type == "olmo2":
+        return load_pc_state_dict_to_olmo(state_dict, original_path)
+    if model_type in ("qwen3", "qwen2"):
         return load_pc_state_dict_to_qwen(state_dict, original_path)
     return load_pc_state_dict_to_llama(state_dict, original_path)
 
