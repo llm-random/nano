@@ -1,0 +1,70 @@
+defaults:
+  - ../../_cluster@_here_: lem
+  - ../../_model/smollm2@_here_: 1.7B
+  - ../../_trainer@_here_: smollm2
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
+
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+
+  # base: dmodel 2048, dff 8192
+  ^target_dmodel: [448, 960, 1344]
+  target_dff: "${eval:'${common.target_dmodel} * 4'}"
+
+
+trainer:
+  gradient_accumulation_steps: 8
+  ^n_steps:
+    # - 2048 # 1B tokens  <3h
+    - 4096 # 2B tokens    <6h
+    - 8192 # 4B tokens    <12h
+    - 16384 # 8B tokens   <24h
+
+  learning_rate: 11
+
+  scheduler:
+    warmup_steps: 40
+
+  original_llama_path: HuggingFaceTB/SmolLM2-1.7B # reference HF model for the exporter
+
+  checkpoint:
+    load:
+      type: huggingface_smollm
+      path: "HuggingFaceTB/SmolLM2-1.7B"
+    save:
+      type: hf_only
+      path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp/smollm2/1_7B # CHANGE
+
+  eval_interval: 0
+  eval_dataloader: None
+
+
+infrastructure:
+  metric_logger:
+    name: SmolLM2_HP
+    tags:
+      - nano
+      - pc
+      - smollm2
+      - 1.7B
+      - hard_pruning
+      - lm_retraining
+      - "${eval:'{2048:\"1B_train\",4096:\"2B_train\",8192:\"4B_train\",16384:\"8B_train\"}[${trainer.n_steps}]'}"
+      - "${eval:'{448:\"10p\",960:\"30p\",1344:\"50p\"}[${common.target_dmodel}]'}"
+
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    gres: gpu:hopper:4
+    time: "2-00:00:00"
+
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune
+    _partial_: true
+    dimensions_importances_path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/smollm2/1_7B/minitron_dimensions_importances.pt # CHANGE - from smollm2_importances
+    target_dmodel: ${common.target_dmodel}
+    target_dff: ${common.target_dff}

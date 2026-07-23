@@ -1,0 +1,16 @@
+
+defaults:
+  - smollm2_distillation
+
+common_distillation:
+  dmodel: 2048
+  dff: 8192
+  dhead: 64
+  n_blocks: 24
+  q_heads: 32
+  kv_heads: 32
+  vocab_size: 49152
+
+distillation:
+  load:
+    path: "HuggingFaceTB/SmolLM2-1.7B"
