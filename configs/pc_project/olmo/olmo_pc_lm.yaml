@@ -28,7 +28,7 @@ trainer:
   only_compress_model_gradient_clipping: false
   only_target_model_gradient_clipping: 1.0 #best
 
-  learning_rate: 13
+  ^learning_rate: [11, 12, 13]
 
   scheduler:
     warmup_steps: 40
@@ -55,7 +55,7 @@ projected_compression:
     - ${model.source_model.head._target_}
 
   source_model_path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/olmo2_1b_in_nano.pt # CHANGE - from olmo_conversion
-  path_to_importances: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/olmo2/1B/minitron_dimensions_importances.pt # CHANGE - from olmo_importances
+  path_to_importances: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/olmo2/1B/5540590/0/minitron_dimensions_importances.pt # CHANGE - from olmo_importances
 
   init_norms_with_ones: false
 
@@ -87,4 +87,4 @@ infrastructure:
   slurm:
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:hopper:4
-    time: "1-00:00:00"
+    time: "0-12:00:00"  # CLAUDE: temporary 12h debug cap — revert to original (pc_lm 1d, pc_distil 2.5d, hp 2d) for full runs

@@ -19,12 +19,12 @@ common:
 trainer:
   gradient_accumulation_steps: 8
   ^n_steps:
-    # - 2048 # 1B tokens  <3h
-    - 4096 # 2B tokens    <6h
-    - 8192 # 4B tokens    <12h
-    - 16384 # 8B tokens   <24h
+    - 2048 # 1B tokens  <3h
+    # - 4096 # 2B tokens    <6h
+    # - 8192 # 4B tokens    <12h
+    # - 16384 # 8B tokens   <24h
 
-  learning_rate: 11
+  ^learning_rate: [8, 9]
 
   scheduler:
     warmup_steps: 40
@@ -59,12 +59,12 @@ infrastructure:
   slurm:
     job-name: ${infrastructure.metric_logger.name}
     gres: gpu:hopper:4
-    time: "2-00:00:00"
+    time: "0-12:00:00"  # CLAUDE: temporary 12h debug cap — revert to original (pc_lm 1d, pc_distil 2.5d, hp 2d) for >1B token runs
 
 
 apply_functions:
   - _target_: src.projected_compression.pruning.prune
     _partial_: true
-    dimensions_importances_path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/smollm2/1_7B/minitron_dimensions_importances.pt # CHANGE - from smollm2_importances
+    dimensions_importances_path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/smollm2/1_7B/5540583/0/minitron_dimensions_importances.pt # CHANGE - from smollm2_importances
     target_dmodel: ${common.target_dmodel}
     target_dff: ${common.target_dff}
