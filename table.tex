@@ -1,0 +1,19 @@
+\begin{table*}[t!]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccc|ccc}
+\toprule
+& \multicolumn{6}{c}{\textbf{Model}} \\
+\cmidrule(lr){2-7}
+& \multicolumn{3}{c|}{\textbf{OLMo-2 1B}} & \multicolumn{3}{c}{\textbf{SmolLM2 1.7B}} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+\textbf{Method} & 50\% & 70\% & 90\% & 50\% & 70\% & 90\% \\
+\midrule
+\textbf{PC} & 0.514 & 0.472 & 0.412 & 0.541 & 0.491 & 0.411 \\
+\textbf{PCD} & \textbf{0.534} & \textbf{0.492} & 0.421 & \textbf{0.552} & \textbf{0.507} & \textbf{0.427} \\
+\textbf{HP} & 0.512 & 0.477 & 0.421 & 0.540 & 0.496 & 0.414 \\
+\textbf{HPD} & 0.530 & 0.488 & \textbf{0.427} & 0.550 & 0.503 & 0.410 \\
+\bottomrule
+\end{tabular}
+\end{table*}

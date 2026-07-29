@@ -19,22 +19,37 @@ EVAL_CONFIG_PATH = "configs/pc_project"
 EVAL_CONFIG_NAME = "eval_hf_models"
 
 
+def resolve_config_path() -> str:
+    """Repo-relative config dir actually used, honoring a `--config-path` CLI override."""
+    hydra_cfg = HydraConfig.get()
+    main_sources = [
+        source.path
+        for source in hydra_cfg.runtime.config_sources
+        if source.provider == "main" and source.schema == "file"
+    ]
+    if not main_sources:
+        return EVAL_CONFIG_PATH
+    return os.path.relpath(main_sources[-1], hydra_cfg.runtime.cwd)
+
+
 @hydra.main(
     version_base=None, config_path=EVAL_CONFIG_PATH, config_name=EVAL_CONFIG_NAME
 )
 def submit_eval(cfg: OmegaConf):
     config_name = HydraConfig.get().job.config_name
+    config_path = resolve_config_path()
+    logger.info("Using eval config %s/%s", config_path, config_name)
     script = cfg.infrastructure.get("script", None)
     generate_eval_sbatch_script(
         slurm_config=cfg.infrastructure.slurm,
         script=script,
-        config_path=EVAL_CONFIG_PATH,
+        config_path=config_path,
         config_name=config_name,
     )
 
     experiment_branch_name = version_code(
         remote_url=cfg.infrastructure.git.remote_url,
-        experiment_config_path=EVAL_CONFIG_PATH,
+        experiment_config_path=config_path,
         exp_job_path="exp.job",
         job_name=cfg.wandb.name,
     )

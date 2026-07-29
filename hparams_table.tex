@@ -1,0 +1,59 @@
+\begin{table*}[h!]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lllc|cc|cc|cc}
+\toprule
+& & & & \multicolumn{2}{c}{\textbf{Base Config}} & \multicolumn{2}{c}{\textbf{Comp. Config}} & & \\
+\cmidrule(lr){5-6} \cmidrule(lr){7-8}
+\textbf{Model} & \textbf{Method} & \textbf{Comp.} & \textbf{LR} & $d_{model}$ & $d_{ff}$ & $d_{model}$ & $d_{ff}$ & \textbf{Batch} & \textbf{Sequence Length} \\
+\midrule
+\multirow{6}{*}{Llama 3 1B}
+& HP / HPD & 50\% & 2.44e-4 / 4.88e-4 & 2048 & 8192 & 1536 & 5376 & 512 & 1024 \\
+& PC / PCD & 50\% & 6.10e-5 / 1.22e-4 & 2048 & 8192 & 1536 & 5376 & 512 & 1024 \\
+\cmidrule(l){2-10}
+& HP / HPD & 70\% & 2.44e-4 / 4.88e-4 & 2048 & 8192 & 1080 & 3780 & 512 & 1024 \\
+& PC / PCD & 70\% & 1.22e-4 / 1.22e-4 & 2048 & 8192 & 1080 & 3780 & 512 & 1024 \\
+\cmidrule(l){2-10}
+& HP / HPD & 90\% & 4.88e-4 / 4.88e-4 & 2048 & 8192 & 528 & 1848 & 512 & 1024 \\
+& PC / PCD & 90\% & 2.44e-4 / 1.22e-4 & 2048 & 8192 & 528 & 1848 & 512 & 1024 \\
+\midrule
+\multirow{6}{*}{Llama 3 8B}
+& HP / HPD & 50\% & 1.22e-4 / 2.44e-4 & 4096 & 14336 & 3072 & 9216 & 512 & 2048 \\
+& PC / PCD & 50\% & 3.05e-5 / 6.10e-5 & 4096 & 14336 & 3072 & 9216 & 512 & 2048 \\
+\cmidrule(l){2-10}
+& HP / HPD & 70\% & 1.22e-4 / 1.22e-4 & 4096 & 14336 & 2160 & 6480 & 512 & 2048 \\
+& PC / PCD & 70\% & 3.05e-5 / 3.05e-5 & 4096 & 14336 & 2160 & 6480 & 512 & 2048 \\
+\cmidrule(l){2-10}
+& HP / HPD & 90\% & 9.77e-4 / 1.95e-3 & 4096 & 14336 & 1056 & 3168 & 512 & 2048 \\
+& PC / PCD & 90\% & 1.22e-4 / 1.22e-4 & 4096 & 14336 & 1056 & 3168 & 512 & 2048 \\
+\midrule
+\multirow{6}{*}{OLMo 2 1B}
+& HP / HPD & 50\% & 9.77e-4 / 9.77e-4 & 2048 & 8192 & 1344 & 5376 & 512 & 1024 \\
+& PC / PCD & 50\% & 1.22e-4 / 1.22e-4 & 2048 & 8192 & 1344 & 5376 & 512 & 1024 \\
+\cmidrule(l){2-10}
+& HP / HPD & 70\% & 9.77e-4 / 1.95e-3 & 2048 & 8192 & 960 & 3840 & 512 & 1024 \\
+& PC / PCD & 70\% & 1.22e-4 / 1.22e-4 & 2048 & 8192 & 960 & 3840 & 512 & 1024 \\
+\cmidrule(l){2-10}
+& HP / HPD & 90\% & 1.95e-3 / 1.95e-3 & 2048 & 8192 & 448 & 1792 & 512 & 1024 \\
+& PC / PCD & 90\% & 2.44e-4 / 2.44e-4 & 2048 & 8192 & 448 & 1792 & 512 & 1024 \\
+\midrule
+\multirow{6}{*}{SmolLM2 1.7B}
+& HP / HPD & 50\% & 1.95e-3 / 1.95e-3 & 2048 & 8192 & 1344 & 5376 & 512 & 1024 \\
+& PC / PCD & 50\% & 1.22e-4 / 1.22e-4 & 2048 & 8192 & 1344 & 5376 & 512 & 1024 \\
+\cmidrule(l){2-10}
+& HP / HPD & 70\% & 1.95e-3 / 1.95e-3 & 2048 & 8192 & 960 & 3840 & 512 & 1024 \\
+& PC / PCD & 70\% & 1.22e-4 / 1.22e-4 & 2048 & 8192 & 960 & 3840 & 512 & 1024 \\
+\cmidrule(l){2-10}
+& HP / HPD & 90\% & 1.95e-3 / 1.95e-3 & 2048 & 8192 & 448 & 1792 & 512 & 1024 \\
+& PC / PCD & 90\% & 1.22e-4 / 1.22e-4 & 2048 & 8192 & 448 & 1792 & 512 & 1024 \\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\begin{minipage}{\textwidth}
+\footnotesize
+\textbf{Shared Parameters:} Weight Decay: 0.1, Scheduler: Cosine, Optimizer: AdamW ($\beta_1=0.9, \beta_2=0.999$). \\
+OLMo 2 / SmolLM2 runs additionally use: 1\% linear warmup (40 of 2048 steps), gradient clipping 1.0 (HP/HPD, PC/PCD LM) or 0.25 (PC/PCD distil), 1B training tokens.
+\end{minipage}
+\end{table*}

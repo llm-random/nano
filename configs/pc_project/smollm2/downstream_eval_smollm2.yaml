@@ -1,0 +1,104 @@
+defaults:
+  - ../../_cluster@_here_: lem
+  - ../../_misc@_here_: default
+
+wandb:
+  entity: ideas_cv
+  project: llm-random-test
+  name: hf_eval
+  tags:
+    - eval
+    - hf_model
+    # - llama_8
+    # - llama_1
+    # - olmo2
+    - smollm2
+    # - pc
+    # - pcd
+    # - pcdd
+    # - hp
+    # - hpd
+    # - 10p
+    # - 30p
+    # - 50p
+    - 0_numshot
+    # - test
+
+# default_tokenizer: meta-llama/Llama-3.2-1B
+# default_tokenizer: allenai/OLMo-2-0425-1B
+default_tokenizer: HuggingFaceTB/SmolLM2-1.7B
+
+tasks:
+  - arc_easy
+  - arc_challenge
+  - hellaswag
+  - piqa
+  - winogrande
+  - openbookqa
+  - sciq
+  - social_iqa
+  - lambada_openai
+
+limit: null  # set to e.g. 100 for quick test
+output_dir: null  # null = save results next to each model checkpoint
+batch_size: 4
+num_fewshot: 0
+
+device: cuda
+
+infrastructure:
+  slurm:
+    gres: "gpu:hopper:1"  # lem — 1 GPU is enough for lm_eval inference
+    # gres: gpu:1          # helios / entropy
+    time: "06:00:00"
+    # time: "0-02:00:00" # test
+
+models:
+
+  # PC 10p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc/smollm2/1_7B/5549486/1/step_2047/hf
+    name: smollm2_1700_pc_10p_1BT
+
+  # PC 30p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc/smollm2/1_7B/5549491/4/step_2047/hf
+    name: smollm2_1700_pc_30p_1BT
+
+  # PC 50p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc/smollm2/1_7B/5575340/0/step_2047/hf
+    name: smollm2_1700_pc_50p_1BT
+
+  # PCD 10p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc_distil/smollm2/1_7B/5548663/0/step_2047/hf
+    name: smollm2_1700_pcd_10p_1BT
+
+  # PCD 30p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc_distil/smollm2/1_7B/5548685/3/step_2047/hf
+    name: smollm2_1700_pcd_30p_1BT
+
+  # PCD 50p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/pc_distil/smollm2/1_7B/5548704/6/step_2047/hf
+    name: smollm2_1700_pcd_50p_1BT
+
+  # HP 10p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp/smollm2/1_7B/5560028/1/step_2047/hf
+    name: smollm2_1700_hp_10p_1BT
+
+  # HP 30p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp/smollm2/1_7B/5560180/3/step_2047/hf
+    name: smollm2_1700_hp_30p_1BT
+
+  # HP 50p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp/smollm2/1_7B/5551447/5/step_2047/hf
+    name: smollm2_1700_hp_50p_1BT
+
+  # HPD 10p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp_distil/smollm2/1_7B/5560469/1/step_2047/hf
+    name: smollm2_1700_hpd_10p_1BT
+
+  # HPD 30p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp_distil/smollm2/1_7B/5560524/3/step_2047/hf
+    name: smollm2_1700_hpd_30p_1BT
+
+  # HPD 50p
+  - path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/checkpoints/hp_distil/smollm2/1_7B/5551449/5/step_2047/hf
+    name: smollm2_1700_hpd_50p_1BT
