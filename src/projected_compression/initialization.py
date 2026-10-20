@@ -69,7 +69,28 @@ def init_pc_attributes(cfg, metric_logger):
         cfg.projected_compression.source_model_for_distillation,
     )
 
+    # freeze_projections is only wired into the separate_block_optimizers path below.
+    # Fail loudly rather than silently training P in an "ablation" run.
+    if cfg.projected_compression.get("freeze_projections", False):
+        assert cfg.projected_compression.separate_block_optimizers, (
+            "freeze_projections=True requires separate_block_optimizers=True; "
+            "without it P1/P2 would still be trained and the no-P ablation would be a no-op."
+        )
+
     if cfg.projected_compression.separate_block_optimizers:
+        # Ablation: freeze P1/P2 everywhere so PCD trains only W_b (W_aux) + norms.
+        # To keep EVERYTHING about W_b identical to PCD (its grad, the shared
+        # per-block clip norm that includes P's grad, weight decay, the single
+        # scheduler param group), P params stay in the optimizer exactly as in
+        # PCD. We simply restore them to their init values after every
+        # optimizer.step() via a step-post-hook, so they never actually move.
+        freeze_projections = cfg.projected_compression.get("freeze_projections", False)
+        if freeze_projections:
+            logger.info(
+                "freeze_projections=True: P1/P2 (blocks + head + embedding) held at "
+                "init via step-post-hook; effectively optimizing only W_b/aux + norms."
+            )
+
         target_model_optimize_params = get_target_model_optimize_params(model)
 
         cpu_offload = cfg.projected_compression.get("cpu_offload_projections", False)
@@ -82,6 +103,17 @@ def init_pc_attributes(cfg, metric_logger):
             # so fall back to per-param scalar ops (params here are tiny, no perf cost).
             foreach=not cpu_offload,
         )
+        if freeze_projections:
+            # head P1/P2 + embedding projection live in the target-model optimizer
+            _register_freeze_projections_hook(
+                target_model_optimizer,
+                [model.projections.embedding]
+                + [
+                    p
+                    for n, p in model.projections.head.named_parameters()
+                    if _is_projection_matrix_param(n)
+                ],
+            )
         scheduler_fn = instantiate(cfg.trainer.scheduler)
         target_model_scheduler = scheduler_fn(
             optimizer=target_model_optimizer, n_steps=cfg.trainer.n_steps
@@ -95,6 +127,15 @@ def init_pc_attributes(cfg, metric_logger):
                 lr=learning_rate,
                 weight_decay=cfg.trainer.weight_decay,
             )
+            if freeze_projections:
+                _register_freeze_projections_hook(
+                    block_optimizer,
+                    [
+                        p
+                        for n, p in block.named_parameters()
+                        if _is_projection_matrix_param(n)
+                    ],
+                )
             optimizer.append(block_optimizer)
             scheduler.append(
                 scheduler_fn(optimizer=block_optimizer, n_steps=cfg.trainer.n_steps)
@@ -132,6 +173,53 @@ def load_checkpoint(model, optimizer, scheduler, checkpoint_folder):
     logger.info(
         f"Loaded sharded model checkpoint checkpoint from '{checkpoint_folder}'!"
     )
+
+
+def _is_projection_matrix_param(name: str) -> bool:
+    """True for the projection matrices P1/P2 (and the embedding projection).
+
+    P1/P2 live as ``projection_in_weight`` / ``projection_out_weight`` on every
+    CompressibleLinear (encoder blocks + head); the embedding projection is the
+    bare ``embedding`` parameter on ``Projections``. W_b (``auxiliary_weight`` /
+    ``auxiliary_embedding_weights``) and norms are *not* matched here.
+    """
+    return (
+        name.endswith("projection_in_weight")
+        or name.endswith("projection_out_weight")
+        or name == "embedding"
+    )
+
+
+def _register_freeze_projections_hook(optimizer, frozen_params):
+    """Hold ``frozen_params`` at their current (init) values across training.
+
+    The projection matrices stay in ``optimizer`` exactly as in PCD — so their
+    gradients are still computed and counted in the per-block clip norm, and W_b's
+    update/decay/scheduler are byte-identical to PCD — but after every
+    ``optimizer.step()`` we copy their saved init values back, so P never moves.
+    This is the ``freeze_projections`` ablation (PCD trains only W_b/aux + norms).
+    """
+    frozen_params = [p for p in frozen_params if p is not None]
+    if not frozen_params:
+        return
+
+    # Snapshot lazily, on the first step, rather than here: a resumed run calls
+    # load_checkpoint() *after* this hook is registered, so snapshotting now would
+    # pin the init values and silently revert the checkpoint's P on the first step.
+    # The pre-hook fires before any update, so it still captures untouched values.
+    snapshots = []
+
+    def _snapshot(_optimizer, _args, _kwargs):
+        if not snapshots:
+            snapshots.extend(p.detach().clone() for p in frozen_params)
+
+    def _restore(_optimizer, _args, _kwargs):
+        with torch.no_grad():
+            for p, snap in zip(frozen_params, snapshots):
+                p.data.copy_(snap)
+
+    optimizer.register_step_pre_hook(_snapshot)
+    optimizer.register_step_post_hook(_restore)
 
 
 def get_target_model_optimize_params(model):
