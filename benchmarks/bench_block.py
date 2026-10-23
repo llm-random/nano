@@ -98,7 +98,8 @@ def build(config_dir, config_name, mode, device):
 def step(m, x, grad_acc=1):
     """One optimizer step. Like PCTrainer.train: W_c is materialized once, `grad_acc`
     microbatch fwd/bwd passes accumulate into W_c.grad, then the projection backward and
-    optimizer step run once. `x` is one microbatch, reused for every accumulation pass."""
+    optimizer step run once. `x` is one microbatch, reused for every accumulation pass.
+    """
     target = m["target"]
     if m["mode"] == "pc":
         with torch.no_grad():
@@ -134,30 +135,52 @@ def main():
     ap.add_argument("--mode", choices=["pc", "hp"], required=True)
     ap.add_argument("--seqs", type=int, nargs="+", required=True)
     ap.add_argument("--seq-len", type=int, default=1024)
-    ap.add_argument("--warmup", type=int, default=2, help="untimed steps before measuring")
+    ap.add_argument(
+        "--warmup", type=int, default=2, help="untimed steps before measuring"
+    )
     ap.add_argument("--steps", type=int, default=10, help="timed steps")
     ap.add_argument("--stat", choices=["median", "mean"], default="median")
-    ap.add_argument("--seed", type=int, default=0,
-                    help="seeds random weights, projection index choice and input data")
-    ap.add_argument("--grad-acc", type=int, default=1,
-                    help="microbatches per optimizer step; --seqs is the TOTAL per step")
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="seeds random weights, projection index choice and input data",
+    )
+    ap.add_argument(
+        "--grad-acc",
+        type=int,
+        default=1,
+        help="microbatches per optimizer step; --seqs is the TOTAL per step",
+    )
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
     device = torch.device("cuda")
     m = build(args.config_dir, args.config_name, args.mode, device)
-    tag = {"config": args.config_name, "mode": args.mode, "dmodel": m["dmodel"], "dff": m["dff"],
-           "grad_acc": args.grad_acc, "seed": args.seed}
+    tag = {
+        "config": args.config_name,
+        "mode": args.mode,
+        "dmodel": m["dmodel"],
+        "dff": m["dff"],
+        "grad_acc": args.grad_acc,
+        "seed": args.seed,
+    }
 
     for seqs in sorted(args.seqs):
-        assert seqs % args.grad_acc == 0, f"--seqs {seqs} not divisible by --grad-acc {args.grad_acc}"
+        assert (
+            seqs % args.grad_acc == 0
+        ), f"--seqs {seqs} not divisible by --grad-acc {args.grad_acc}"
         tokens = seqs * args.seq_len
         x = None
         try:
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats()
             x = torch.randn(
-                seqs // args.grad_acc, args.seq_len, m["dmodel"], device=device, dtype=torch.bfloat16,
+                seqs // args.grad_acc,
+                args.seq_len,
+                m["dmodel"],
+                device=device,
+                dtype=torch.bfloat16,
                 requires_grad=True,
             )
             # Time every step (warm-up included) so warm-up behaviour can be inspected;
@@ -169,13 +192,27 @@ def main():
                 step(m, x, args.grad_acc)
                 torch.cuda.synchronize()
                 all_times.append(time.perf_counter() - t0)
-            times = all_times[args.warmup:]
-            t = statistics.median(times) if args.stat == "median" else statistics.mean(times)
-            rec = {**tag, "seqs": seqs, "tokens": tokens, "status": "ok", "stat": args.stat,
-                   "warmup": args.warmup, "steps": args.steps, "s_per_step": t,
-                   "s_std": statistics.stdev(times) if len(times) > 1 else 0.0,
-                   "tok_per_s": tokens / t, "peak_gib": torch.cuda.max_memory_allocated() / 2**30,
-                   "step_times": times, "all_step_times": all_times}
+            times = all_times[args.warmup :]
+            t = (
+                statistics.median(times)
+                if args.stat == "median"
+                else statistics.mean(times)
+            )
+            rec = {
+                **tag,
+                "seqs": seqs,
+                "tokens": tokens,
+                "status": "ok",
+                "stat": args.stat,
+                "warmup": args.warmup,
+                "steps": args.steps,
+                "s_per_step": t,
+                "s_std": statistics.stdev(times) if len(times) > 1 else 0.0,
+                "tok_per_s": tokens / t,
+                "peak_gib": torch.cuda.max_memory_allocated() / 2**30,
+                "step_times": times,
+                "all_step_times": all_times,
+            }
         except torch.OutOfMemoryError:
             rec = {**tag, "seqs": seqs, "tokens": tokens, "status": "oom"}
         print("BENCH " + json.dumps(rec), flush=True)

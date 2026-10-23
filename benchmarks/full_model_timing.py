@@ -30,16 +30,25 @@ def collect(api, project, name, mode, n_last):
         deltas = [b[1] - a[1] for a, b in zip(ts, ts[1:])]
         ok = r.state == "finished" and len(deltas) >= n_last
         rec = {
-            "mode": mode, "run_id": r.id, "state": r.state, "seqs": seqs,
+            "mode": mode,
+            "run_id": r.id,
+            "state": r.state,
+            "seqs": seqs,
             "tokens": seqs * c["common"]["sequence_length"],
             "grad_acc": c["trainer"]["gradient_accumulation_steps"],
             "micro": seqs // c["trainer"]["gradient_accumulation_steps"],
-            "n_steps": n_steps, "logged_rows": len(ts), "status": "ok" if ok else r.state,
+            "n_steps": n_steps,
+            "logged_rows": len(ts),
+            "status": "ok" if ok else r.state,
             "step_times": deltas,
         }
         if ok:
             last = deltas[-n_last:]
-            rec.update(s_per_step=statistics.mean(last), s_std=statistics.stdev(last), last_n=n_last)
+            rec.update(
+                s_per_step=statistics.mean(last),
+                s_std=statistics.stdev(last),
+                last_n=n_last,
+            )
         prev = out.get(seqs)
         if prev is None or (prev["status"] != "ok" and rec["status"] == "ok"):
             out[seqs] = rec
@@ -62,16 +71,22 @@ def main():
         for rec in list(pc.values()) + list(hp.values()):
             f.write(json.dumps(rec) + "\n")
 
-    print("| total tokens | micro×acc | HP s/step | PC s/step | PC−HP (s) | **PC overhead** |")
+    print(
+        "| total tokens | micro×acc | HP s/step | PC s/step | PC−HP (s) | **PC overhead** |"
+    )
     print("|---|---|---|---|---|---|")
     for seqs in sorted(set(pc) | set(hp)):
         a, b = pc.get(seqs, {}), hp.get(seqs, {})
         if a.get("status") == "ok" and b.get("status") == "ok":
             d = a["s_per_step"] - b["s_per_step"]
-            print(f"| {a['tokens']:,} | {a['micro']}×{a['grad_acc']} | {b['s_per_step']:.2f} | {a['s_per_step']:.2f} "
-                  f"| {d:+.2f} | **{100 * d / b['s_per_step']:.1f}%** |")
+            print(
+                f"| {a['tokens']:,} | {a['micro']}×{a['grad_acc']} | {b['s_per_step']:.2f} | {a['s_per_step']:.2f} "
+                f"| {d:+.2f} | **{100 * d / b['s_per_step']:.1f}%** |"
+            )
         else:
-            print(f"| {seqs * 1024:,} | — | {b.get('status', 'missing')} | {a.get('status', 'missing')} | — | — |")
+            print(
+                f"| {seqs * 1024:,} | — | {b.get('status', 'missing')} | {a.get('status', 'missing')} | — | — |"
+            )
     print("wrote", args.out)
 
 

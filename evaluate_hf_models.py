@@ -20,7 +20,9 @@ def log_results_to_wandb(run, results: dict, model_path: str):
     run.log(metrics)
 
 
-@hydra.main(config_path="configs/pc_project", config_name="eval_hf_models", version_base=None)
+@hydra.main(
+    config_path="configs/pc_project", config_name="eval_hf_models", version_base=None
+)
 def main(cfg: DictConfig):
     logger.info(OmegaConf.to_yaml(cfg))
 
@@ -31,7 +33,11 @@ def main(cfg: DictConfig):
 
         logger.info(f"Evaluating {model_name} from {model_path}")
 
-        cfg_to_log = {k: v for k, v in OmegaConf.to_container(cfg, resolve=False).items() if k != "infrastructure"}
+        cfg_to_log = {
+            k: v
+            for k, v in OmegaConf.to_container(cfg, resolve=False).items()
+            if k != "infrastructure"
+        }
         cfg_to_log["experiment_dir"] = os.getcwd()
         run = wandb.init(
             entity=cfg.wandb.entity,
