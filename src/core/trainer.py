@@ -53,7 +53,12 @@ class Trainer:
     weight_decay: float
     distributed: Optional[dict]
 
+    # Checkpoint save types this trainer can actually write. The projected-compression
+    # trainers widen this; anything outside it is rejected before training starts.
+    SUPPORTED_SAVE_TYPES = ("nano", "huggingface", "pc_finalize")
+
     def __attrs_post_init__(self):
+        self._validate_save_type()
         self.processed_tokens = self.training_state["processed_tokens"]
         self.start_step = self.training_state["next_step"]
         self.device = next(self.model.parameters()).device
@@ -347,20 +352,52 @@ class Trainer:
 
         self.metric_logger.flush_accumulated_metrics()
 
-    def save_checkpoint(self):
-        save_type = self.checkpoint.save.type  # "nano" | "huggingface" | "pc_finalize"
-        checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
+    def _validate_save_type(self):
+        """Reject a checkpoint save.type this trainer cannot write, before training starts.
+
+        Without this the run trains to completion and only then discovers it has nowhere
+        to save to, which on a multi-hour job means losing the whole run.
+        """
+        save_type = None
+        if self.checkpoint is not None and "save" in self.checkpoint:
+            save_type = self.checkpoint.save.get("type")
+
+        if save_type is None or save_type in self.SUPPORTED_SAVE_TYPES:
+            return
 
         if save_type in ("hf_only", "nano_and_hf"):
-            # Only the projected-compression trainers implement these: the HF model is
-            # rebuilt from target_model + projections, which a plain Trainer has not got.
-            # Fail before writing anything rather than silently skipping the HF half.
             raise NotImplementedError(
                 f"save.type='{save_type}' is implemented only by the projected-compression "
                 "trainers (src.projected_compression.trainer.PCTrainer and "
                 "trainer_distillation.PCDistillationTrainer), which override "
                 "save_checkpoint(). For a plain Trainer use save.type='nano', or "
                 "'huggingface' to export through src.core.conversion_to_hf."
+            )
+
+        raise ValueError(
+            f"Unknown checkpoint save.type='{save_type}'. {type(self).__name__} supports: "
+            f"{', '.join(self.SUPPORTED_SAVE_TYPES)}."
+        )
+
+    def save_checkpoint(self):
+        save_type = self.checkpoint.save.type  # "nano" | "huggingface" | "pc_finalize"
+        checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
+
+        # Fail before writing anything rather than part-writing a checkpoint.
+        self._validate_save_type()
+
+        if save_type in ("huggingface", "pc_finalize"):
+            # These are written once, when training ends, by train(). Reaching here means
+            # periodic checkpointing was switched on for them, which used to write the
+            # training state and no model at all -- a checkpoint interval that silently
+            # produced nothing. pc_finalize additionally cannot run mid-training:
+            # finalize_projection_weights() merges the projections into the weights in
+            # place and would corrupt the run.
+            raise NotImplementedError(
+                f"Periodic checkpointing is not implemented for save.type='{save_type}', "
+                "which is written once when training ends. Set "
+                "checkpoint.save.interval: -1, or use save.type='nano' if you need "
+                "intermediate checkpoints."
             )
 
         if save_type == "nano":

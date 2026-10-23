@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 class PCDistillationTrainer(TrainerDistillation):
     """Works only for mem_eff_pc model with distillation"""
 
+    # This trainer implements the HF save types core Trainer rejects.
+    SUPPORTED_SAVE_TYPES = TrainerDistillation.SUPPORTED_SAVE_TYPES + (
+        "hf_only",
+        "nano_and_hf",
+    )
+
     only_compress_model_gradient_clipping: bool
     only_target_model_gradient_clipping: Optional[Union[float, str]] = (
         None  # float = per-block projection clip threshold; "no_projection_clip" = clip target model only
