@@ -44,6 +44,10 @@ def _build_save_path(cfg):
     n_steps = cfg.trainer.n_steps
     if n_steps is not None and save_type in ("hf_only", "nano_and_hf"):
         return f"{base}/step_{n_steps - 1}/hf"
+    elif save_type == "huggingface":
+        # save_to_llama_3_hf() writes straight to get_full_checkpoint_path() with no
+        # step_N level (see Trainer.train), so this must not add one.
+        return base
     elif n_steps is not None:
         return f"{base}/step_{n_steps - 1}"
     return base
