@@ -1,6 +1,8 @@
 # Task: SliceGPT baseline for the PC paper
 
-Branch: `mas/nips` · Started: 2026-10-06 · Status: **planning (nothing implemented yet)**
+Branch: `mas/nips` · Started: 2026-10-06 · Status: **done — one-shot 1B + 8B results are in paper Table 1**
+
+The port itself lives on branch `slicegpt-baseline` (worktree `/home/maciej/code/nano-slicegpt`) and is **not part of this branch**. The implementation inventory and both results tables are at the end of this file.
 
 ## Goal
 
