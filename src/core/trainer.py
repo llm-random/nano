@@ -1,13 +1,12 @@
 import os
 import time
-from attr import define, field
+from attr import define
 import torch
 import torch.nn.functional as F
 from typing import Optional
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.checkpoint.state_dict import get_model_state_dict, StateDictOptions
 
 from src.projected_compression.compression import finalize_projection_weights
 from src.core.conversion_to_hf import save_to_llama_3_hf
@@ -53,7 +52,6 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
-    original_llama_path: Optional[str] = field(default=None, kw_only=True)
 
     def __attrs_post_init__(self):
         self.processed_tokens = self.training_state["processed_tokens"]
@@ -350,10 +348,22 @@ class Trainer:
         self.metric_logger.flush_accumulated_metrics()
 
     def save_checkpoint(self):
-        save_type = self.checkpoint.save.type  # "nano" | "hf_only" | "nano_and_hf"
+        save_type = self.checkpoint.save.type  # "nano" | "huggingface" | "pc_finalize"
         checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
 
-        if save_type in ("nano", "nano_and_hf"):
+        if save_type in ("hf_only", "nano_and_hf"):
+            # Only the projected-compression trainers implement these: the HF model is
+            # rebuilt from target_model + projections, which a plain Trainer has not got.
+            # Fail before writing anything rather than silently skipping the HF half.
+            raise NotImplementedError(
+                f"save.type='{save_type}' is implemented only by the projected-compression "
+                "trainers (src.projected_compression.trainer.PCTrainer and "
+                "trainer_distillation.PCDistillationTrainer), which override "
+                "save_checkpoint(). For a plain Trainer use save.type='nano', or "
+                "'huggingface' to export through src.core.conversion_to_hf."
+            )
+
+        if save_type == "nano":
             if (
                 isinstance(self.model, FSDP)
                 or self.model.__module__
@@ -380,9 +390,6 @@ class Trainer:
                         f"Saved non-sharded model checkpoint in '{checkpoint_path}'"
                     )
 
-        if save_type in ("hf_only", "nano_and_hf"):
-            self.save_hf_checkpoint(f"{checkpoint_folder}/hf")
-
         if os.environ["RANK"] == "0":
             save_training_state(
                 save_config=self.checkpoint.save,
@@ -390,36 +397,6 @@ class Trainer:
                 processed_tokens=self.processed_tokens,
                 metric_logger=self.metric_logger,
             )
-
-    def save_hf_checkpoint(self, save_path):
-        from src.projected_compression.convert_memeff_to_hf import load_pc_state_dict_to_llama
-        from transformers import AutoTokenizer
-
-        # Old PC models (comp configs) have projection matrices that must be merged
-        # before extracting the compressed state dict. Prune models have no projections
-        # so this is a no-op / raises AttributeError which we catch.
-        try:
-            with torch.no_grad():
-                finalize_projection_weights(self.model)
-        except AttributeError:
-            pass
-
-        model_sd = get_model_state_dict(
-            model=self.model,
-            options=StateDictOptions(full_state_dict=True, cpu_offload=True),
-        )
-
-        # get_model_state_dict returns "embedding.weight" for nn.Embedding modules,
-        # but load_pc_state_dict_to_llama expects "embedding" (raw parameter key).
-        if "embedding.weight" in model_sd:
-            model_sd["embedding"] = model_sd.pop("embedding.weight")
-
-        if int(os.environ.get("RANK", "0")) == 0:
-            llama_model = load_pc_state_dict_to_llama(model_sd, self.original_llama_path)
-            llama_model.save_pretrained(save_path)
-            tokenizer = AutoTokenizer.from_pretrained(self.original_llama_path)
-            tokenizer.save_pretrained(save_path)
-            logger.info(f"Saved HF checkpoint at step {self.step} to '{save_path}'")
 
     def save_pc_finalized_checkpoint(self):
         with torch.no_grad():
