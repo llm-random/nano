@@ -20,11 +20,12 @@ infrastructure:
     - 'export HYDRA_FULL_ERROR=1'
 
     # export pixi variables.
-    # USER_HOME_PATH is the per-user area; PROJECT_HOME_PATH above stays the shared
-    # project dir, so HF_HOME keeps pointing at the shared model cache. These used to
-    # be the same name, with the second export shadowing the first -- same resolved
+    # USER_HOME_PATH is the per-user area under the shared project root; PROJECT_HOME_PATH
+    # stays the shared dir, so HF_HOME keeps pointing at the shared model cache. These used
+    # to be the same name, with the second export shadowing the first -- same resolved
     # values, but a line added in between silently got the other base.
-    - 'export USER_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/mstefaniak'
+    # Derived from $USER: no account name belongs in a shared cluster config.
+    - 'export USER_HOME_PATH=$PROJECT_HOME_PATH/$USER'
     - 'export HF_DATASETS_CACHE="$USER_HOME_PATH/hf_datasets"'
     - 'export HF_MODULES_CACHE="$USER_HOME_PATH/hf_modules"'
     - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
