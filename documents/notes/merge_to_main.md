@@ -128,6 +128,30 @@ entropy; and both targets were checked on the clusters themselves —
 `run_eval.py:41` reads the same key, so eval submissions get the fix too. What remains unproven is only a
 real `run_exp.py` submission on each cluster; everything it depends on has been checked individually.
 
+### Interaction with other open PRs (checked 2026-10-25)
+
+**PR #188 "Mas/nips test"** (`mas/nips -> main`, open since 2026-06-07) covers this same work from the
+old branch: its head `cb035132` is exactly the commit squashed into `ffecbac6` here. The remote
+`mas/nips` is also **5 commits behind** the local branch — `gitignore:`, the no-P ablation, `benchmarks:`,
+`documents/:` and `figures:` were never pushed. MR 1 supersedes #188; close #188 referencing it rather
+than force-pushing `mas/nips`, which has been public since June and which `slicegpt-baseline` is based on.
+
+**PR #178 "fix cluster yamls"** (@j321m, open since 2026-04-27) conflicts with `mas/nips-clean` itself,
+not only with MR 3. Verified with `git merge-tree`:
+
+| File | Nature | Resolution |
+|---|---|---|
+| `pixi.toml` | mechanical, complementary | take both — #178 adds `lm-eval[hf]`, `plotly`, `seaborn`, `triton`, aarch64 torch 2.7.1; this branch adds `transformers 4.56.2`, `pytest`, `accelerate` |
+| `configs/_cluster/helios.yaml` | mostly mechanical, different keys | take both — #178 adds `RATTLER_CACHE_DIR`/`UV_CACHE_DIR` and a triton libstdc++ fix; MR 3 adds `cluster_cemetery_dir` |
+| `configs/_cluster/lem.yaml` | **needs a decision** | two per-user conventions, below |
+
+On `lem.yaml`, #178 uses `PROJECT_HOME_PATH=.../nano/$USER` (a directory per login, `plgmstefaniak`),
+while this branch uses an overridable `USER_HOME_PATH=.../mstefaniak` outside `nano/`, because that is
+the directory that already exists and holds the data. Both work; pick one before the second PR merges.
+
+The two are complementary in intent — #178 fixes helios *package-cache* quota, MR 3 fixes the
+*cemetery-clone* quota on both clusters. Neither subsumes the other.
+
 ## Goal and constraint
 
 Everything needed to continue the PC project must end up on `main`, because `mas/nips` is deleted
