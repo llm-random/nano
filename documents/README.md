@@ -14,6 +14,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | `concepts/` | Definitions: what a term means, how a thing is constructed, what it implies. Should stay true for months. | long-lived |
 | `notes/` | Task notebooks: a concrete investigation, its plan, its results, its open items. Dated, append-only. | per-task |
 | `scripts/` | Small runnable companions to the docs: parameter/FLOP calculators, figure notebooks. Importable, no side effects on import. | long-lived |
+| [issues.md](issues.md) | Known problems in the code and configs themselves -- what breaks, how it was found, current status. Cluster and environment trouble goes in `notes/` instead. | until fixed |
 
 ### concepts/
 
