@@ -1,6 +1,11 @@
 infrastructure:
   server: helios
   max_concurrent_jobs: null
+
+  # $HOME on helios is at ~84% of its 100k inode quota, and a nano clone is ~340 files
+  # per experiment. Keep the cemetery clones on group storage. See _misc/default.yaml
+  # for why this is cluster_cemetery_dir and not cemetery_experiments_dir.
+  cluster_cemetery_dir: "/net/storage/pr3/plgrid/plggllmeffi3/pc/$USER/llmrandom_cemetery"
   slurm:
     cpus_per_gpu: 12
     gres: ???
