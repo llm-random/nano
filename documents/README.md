@@ -39,6 +39,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | [pc_time.md](notes/pc_time.md) | PC vs HP training-time overhead vs batch size (paper Fig. 2) |
 | [slicegpt.md](notes/slicegpt.md) | SliceGPT baseline: port, hybrid SliceGPT+FFN-pruning design, one-shot results |
 | [table1_runs.md](notes/table1_runs.md) | Hardware and wall-clock time behind the Table 1 cells |
+| [claude-code-machine-setup.md](notes/claude-code-machine-setup.md) | Replicating the Claude Code setup (settings, skills, agent memory) on a new machine via the `claude-sync` repo |
 
 ## Conventions for writing here
 
