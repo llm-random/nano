@@ -1,7 +1,7 @@
 # Task: merge `mas/nips` into `main` and delete the branch
 
 Branch: `mas/nips` · Written: 2026-10-23 · Updated: 2026-10-25
-Status: **all fixes done and all tiers verified. Nothing is merged yet.**
+Status: **complete — three branches pushed, ready to open as merge requests.**
 
 9 commits sit on `mas/nips-merge-prep` (worktree `/home/maciej/code/nano-merge`), on top of `mas/nips`
 at `bced7b9d`. Tier 0, 1, 2 and 3 all pass — see *Execution log*. What remains is packaging, plus
@@ -95,6 +95,38 @@ default that affects everyone.
 - **`evals/`**: all 95 result files on `main`, or aggregated JSON + charts only? 2.9 MB either way.
 - **`configs/mastest/`**: gitignored, so it will **not** reach `main`. If any of it matters for continuing
   PC it must be committed deliberately — deleting the branch does not lose it, but nothing carries it over.
+
+### Completion record — 2026-10-25
+
+Three branches pushed to `origin` (`github.com/llm-random/nano`):
+
+| MR | Branch | Base | Commits |
+|---|---|---|---|
+| 1 | `mas/nips-clean` | `main` | 18 |
+| 2 | `fix/projected-embedding-config-drift` | **`mas/nips-clean`** | +1 |
+| 3 | `fix/cluster-cemetery-and-env` | **`mas/nips-clean`** | +1 |
+
+MR 2 and MR 3 are stacked on MR 1 — `documents/` does not exist on `main`, and MR 3 edits `lem.yaml`
+which MR 1 also changes. They are independent of each other, so they can merge in either order once
+MR 1 lands. Their compare base must be `mas/nips-clean`, not `main`, or each shows 19 commits.
+
+History: 15 junk commits squashed into one; resulting **tree hash identical** to the pre-squash branch
+(`606f1d4d`). Originals reachable via tag `backup/mas-nips-20261025`. `slicegpt-baseline` is based
+inside the squashed range and will need rebasing.
+
+**Step 9, the last open verification, is now closed as far as is possible without burning cluster time.**
+The cemetery redirect was traced end to end: `run_exp.py:204` reads
+`cfg.infrastructure.cemetery_experiments_dir`, `:205` does `mkdir -p` and clones into it; composing the
+configs shows that key resolving to the redirected path on lem and helios and to the unchanged default on
+entropy; and both targets were checked on the clusters themselves —
+
+| cluster | target | writable | space | quota |
+|---|---|---|---|---|
+| lem | `/lustre/pd03/.../mstefaniak/llmrandom_cemetery` | yes, exists | 17 T free (33 % used) | none (limit 0) |
+| helios | `/net/storage/pr3/.../plgmstefaniak/llmrandom_cemetery` | yes, exists | 19 T free, inodes 15 % | ample |
+
+`run_eval.py:41` reads the same key, so eval submissions get the fix too. What remains unproven is only a
+real `run_exp.py` submission on each cluster; everything it depends on has been checked individually.
 
 ## Goal and constraint
 
