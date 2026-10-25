@@ -1,12 +1,13 @@
 import os
 import time
-from attr import define
+from attr import define, field
 import torch
 import torch.nn.functional as F
 from typing import Optional
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.checkpoint.state_dict import get_model_state_dict, StateDictOptions
 
 from src.projected_compression.compression import finalize_projection_weights
 from src.core.conversion_to_hf import save_to_llama_3_hf
@@ -52,6 +53,7 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
+    original_llama_path: Optional[str] = field(default=None, kw_only=True)
 
     def __attrs_post_init__(self):
         self.processed_tokens = self.training_state["processed_tokens"]
@@ -136,7 +138,7 @@ class Trainer:
             self.metric_logger.flush()
 
         if self._should_save_final_checkpoint:
-            if self.checkpoint.save.type == "nano":
+            if self.checkpoint.save.type in ("nano", "hf_only", "nano_and_hf"):
                 self.save_checkpoint()
             elif self.checkpoint.save.type == "huggingface":
                 # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
@@ -299,9 +301,22 @@ class Trainer:
             if isinstance(self.model, FSDP):
                 return self.model.clip_grad_norm_(self.gradient_clipping)
             else:
-                return torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self.gradient_clipping
+                # Plain clip_grad_norm_ on FSDP2 DTensor sharded grads only computes
+                # the local shard norm without cross-rank reduction, underestimating
+                # the global norm by ~sqrt(world_size). Compute it correctly:
+                params = [p for p in self.model.parameters() if p.grad is not None]
+                local_norm_sq = torch.tensor(0.0, device=self.device)
+                for p in params:
+                    g = p.grad
+                    local_g = g.to_local() if hasattr(g, "to_local") else g
+                    local_norm_sq += local_g.float().norm(2.0) ** 2
+                if dist.is_initialized():
+                    dist.all_reduce(local_norm_sq, op=dist.ReduceOp.SUM)
+                total_norm = local_norm_sq.sqrt()
+                torch.nn.utils.clip_grads_with_norm_(
+                    params, self.gradient_clipping, total_norm
                 )
+                return total_norm
 
     def _update_processed_tokens(self, batch):
         self.processed_tokens += batch.numel() * int(os.environ["WORLD_SIZE"])
@@ -335,37 +350,38 @@ class Trainer:
         self.metric_logger.flush_accumulated_metrics()
 
     def save_checkpoint(self):
-        if (
-            isinstance(self.model, FSDP)
-            or self.model.__module__
-            == "torch.distributed.fsdp._fully_shard._fully_shard"
-        ):
-            # Sharded save
-            checkpoint_folder = step_checkpoint_path(
-                self.checkpoint.save.path, self.step
-            )
-            state_dict = {
-                "app": TrainingState(self.model, self.optimizer, self.scheduler)
-            }
-            dcp.save(state_dict, checkpoint_id=checkpoint_folder)
-            logger.info(f"Saved sharded model checkpoint in {checkpoint_folder}")
-        else:
-            # Non-sharded save
-            if os.environ["RANK"] == "0":
-                checkpoint_folder = step_checkpoint_path(
-                    self.checkpoint.save.path, self.step
-                )
-                os.makedirs(checkpoint_folder, exist_ok=True)
-                checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
-                state_to_save = {
-                    "model": self.model.state_dict(),
-                    "optim": self.optimizer.state_dict(),
-                    "scheduler": self.scheduler.state_dict(),
+        save_type = self.checkpoint.save.type  # "nano" | "hf_only" | "nano_and_hf"
+        checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
+
+        if save_type in ("nano", "nano_and_hf"):
+            if (
+                isinstance(self.model, FSDP)
+                or self.model.__module__
+                == "torch.distributed.fsdp._fully_shard._fully_shard"
+            ):
+                # Sharded save
+                state_dict = {
+                    "app": TrainingState(self.model, self.optimizer, self.scheduler)
                 }
-                torch.save(state_to_save, checkpoint_path)
-                logger.info(
-                    f"Saved non-sharded model checkpoint in '{checkpoint_path}'"
-                )
+                dcp.save(state_dict, checkpoint_id=checkpoint_folder)
+                logger.info(f"Saved sharded model checkpoint in {checkpoint_folder}")
+            else:
+                # Non-sharded save
+                if os.environ["RANK"] == "0":
+                    os.makedirs(checkpoint_folder, exist_ok=True)
+                    checkpoint_path = f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
+                    state_to_save = {
+                        "model": self.model.state_dict(),
+                        "optim": self.optimizer.state_dict(),
+                        "scheduler": self.scheduler.state_dict(),
+                    }
+                    torch.save(state_to_save, checkpoint_path)
+                    logger.info(
+                        f"Saved non-sharded model checkpoint in '{checkpoint_path}'"
+                    )
+
+        if save_type in ("hf_only", "nano_and_hf"):
+            self.save_hf_checkpoint(f"{checkpoint_folder}/hf")
 
         if os.environ["RANK"] == "0":
             save_training_state(
@@ -374,6 +390,36 @@ class Trainer:
                 processed_tokens=self.processed_tokens,
                 metric_logger=self.metric_logger,
             )
+
+    def save_hf_checkpoint(self, save_path):
+        from src.projected_compression.convert_memeff_to_hf import load_pc_state_dict_to_llama
+        from transformers import AutoTokenizer
+
+        # Old PC models (comp configs) have projection matrices that must be merged
+        # before extracting the compressed state dict. Prune models have no projections
+        # so this is a no-op / raises AttributeError which we catch.
+        try:
+            with torch.no_grad():
+                finalize_projection_weights(self.model)
+        except AttributeError:
+            pass
+
+        model_sd = get_model_state_dict(
+            model=self.model,
+            options=StateDictOptions(full_state_dict=True, cpu_offload=True),
+        )
+
+        # get_model_state_dict returns "embedding.weight" for nn.Embedding modules,
+        # but load_pc_state_dict_to_llama expects "embedding" (raw parameter key).
+        if "embedding.weight" in model_sd:
+            model_sd["embedding"] = model_sd.pop("embedding.weight")
+
+        if int(os.environ.get("RANK", "0")) == 0:
+            llama_model = load_pc_state_dict_to_llama(model_sd, self.original_llama_path)
+            llama_model.save_pretrained(save_path)
+            tokenizer = AutoTokenizer.from_pretrained(self.original_llama_path)
+            tokenizer.save_pretrained(save_path)
+            logger.info(f"Saved HF checkpoint at step {self.step} to '{save_path}'")
 
     def save_pc_finalized_checkpoint(self):
         with torch.no_grad():

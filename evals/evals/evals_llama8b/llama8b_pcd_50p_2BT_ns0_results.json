@@ -1,0 +1,669 @@
+{
+  "results": {
+    "arc_challenge": {
+      "alias": "arc_challenge",
+      "acc,none": 0.42235494880546076,
+      "acc_stderr,none": 0.014434138713379965,
+      "acc_norm,none": 0.43856655290102387,
+      "acc_norm_stderr,none": 0.014500682618212822
+    },
+    "arc_easy": {
+      "alias": "arc_easy",
+      "acc,none": 0.7550505050505051,
+      "acc_stderr,none": 0.008824588611218978,
+      "acc_norm,none": 0.7091750841750841,
+      "acc_norm_stderr,none": 0.00931881592117676
+    },
+    "hellaswag": {
+      "alias": "hellaswag",
+      "acc,none": 0.5144393547102171,
+      "acc_stderr,none": 0.004987700288855808,
+      "acc_norm,none": 0.6912965544712208,
+      "acc_norm_stderr,none": 0.004610143575553405
+    },
+    "lambada_openai": {
+      "alias": "lambada_openai",
+      "perplexity,none": 5.5582967394607685,
+      "perplexity_stderr,none": 0.14024837367610724,
+      "acc,none": 0.6386570929555598,
+      "acc_stderr,none": 0.006692767061105764
+    },
+    "openbookqa": {
+      "alias": "openbookqa",
+      "acc,none": 0.314,
+      "acc_stderr,none": 0.020776701920308973,
+      "acc_norm,none": 0.426,
+      "acc_norm_stderr,none": 0.022136577335085575
+    },
+    "piqa": {
+      "alias": "piqa",
+      "acc,none": 0.750816104461371,
+      "acc_stderr,none": 0.010091882770120146,
+      "acc_norm,none": 0.7589771490750816,
+      "acc_norm_stderr,none": 0.009979042717267253
+    },
+    "sciq": {
+      "alias": "sciq",
+      "acc,none": 0.955,
+      "acc_stderr,none": 0.006558812241406063,
+      "acc_norm,none": 0.927,
+      "acc_norm_stderr,none": 0.008230354715243976
+    },
+    "social_iqa": {
+      "alias": "social_iqa",
+      "acc,none": 0.44268167860798363,
+      "acc_stderr,none": 0.01123948242574217
+    },
+    "winogrande": {
+      "alias": "winogrande",
+      "acc,none": 0.6582478295185478,
+      "acc_stderr,none": 0.013330103018622926
+    }
+  },
+  "group_subtasks": {
+    "arc_easy": [],
+    "arc_challenge": [],
+    "hellaswag": [],
+    "piqa": [],
+    "winogrande": [],
+    "openbookqa": [],
+    "sciq": [],
+    "social_iqa": [],
+    "lambada_openai": []
+  },
+  "configs": {
+    "arc_challenge": {
+      "task": "arc_challenge",
+      "tag": [
+        "ai2_arc"
+      ],
+      "dataset_path": "allenai/ai2_arc",
+      "dataset_name": "ARC-Challenge",
+      "training_split": "train",
+      "validation_split": "validation",
+      "test_split": "test",
+      "doc_to_text": "Question: {{question}}\nAnswer:",
+      "doc_to_target": "{{choices.label.index(answerKey)}}",
+      "unsafe_code": false,
+      "doc_to_choice": "{{choices.text}}",
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "fewshot_config": {
+        "sampler": "default",
+        "split": null,
+        "process_docs": null,
+        "fewshot_indices": null,
+        "samples": null,
+        "doc_to_text": "Question: {{question}}\nAnswer:",
+        "doc_to_choice": "{{choices.text}}",
+        "doc_to_target": "{{choices.label.index(answerKey)}}",
+        "gen_prefix": null,
+        "fewshot_delimiter": "\n\n",
+        "target_delimiter": " "
+      },
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        },
+        {
+          "metric": "acc_norm",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "multiple_choice",
+      "repeats": 1,
+      "should_decontaminate": true,
+      "doc_to_decontamination_query": "Question: {{question}}\nAnswer:",
+      "metadata": {
+        "version": 1.0,
+        "pretrained": "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf",
+        "tokenizer": "meta-llama/Llama-3.1-8B",
+        "batch_size": 4,
+        "trust_remote_code": true
+      }
+    },
+    "arc_easy": {
+      "task": "arc_easy",
+      "tag": [
+        "ai2_arc"
+      ],
+      "dataset_path": "allenai/ai2_arc",
+      "dataset_name": "ARC-Easy",
+      "training_split": "train",
+      "validation_split": "validation",
+      "test_split": "test",
+      "doc_to_text": "Question: {{question}}\nAnswer:",
+      "doc_to_target": "{{choices.label.index(answerKey)}}",
+      "unsafe_code": false,
+      "doc_to_choice": "{{choices.text}}",
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "fewshot_config": {
+        "sampler": "default",
+        "split": null,
+        "process_docs": null,
+        "fewshot_indices": null,
+        "samples": null,
+        "doc_to_text": "Question: {{question}}\nAnswer:",
+        "doc_to_choice": "{{choices.text}}",
+        "doc_to_target": "{{choices.label.index(answerKey)}}",
+        "gen_prefix": null,
+        "fewshot_delimiter": "\n\n",
+        "target_delimiter": " "
+      },
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        },
+        {
+          "metric": "acc_norm",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "multiple_choice",
+      "repeats": 1,
+      "should_decontaminate": true,
+      "doc_to_decontamination_query": "Question: {{question}}\nAnswer:",
+      "metadata": {
+        "version": 1.0,
+        "pretrained": "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf",
+        "tokenizer": "meta-llama/Llama-3.1-8B",
+        "batch_size": 4,
+        "trust_remote_code": true
+      }
+    },
+    "hellaswag": {
+      "task": "hellaswag",
+      "tag": [
+        "multiple_choice"
+      ],
+      "dataset_path": "Rowan/hellaswag",
+      "training_split": "train",
+      "validation_split": "validation",
+      "process_docs": "def process_docs(dataset: datasets.Dataset) -> datasets.Dataset:\n    def _process_doc(doc):\n        ctx = doc[\"ctx_a\"] + \" \" + doc[\"ctx_b\"].capitalize()\n        out_doc = {\n            \"query\": preprocess(doc[\"activity_label\"] + \": \" + ctx),\n            \"choices\": [preprocess(ending) for ending in doc[\"endings\"]],\n            \"gold\": int(doc[\"label\"]),\n        }\n        return out_doc\n\n    return dataset.map(_process_doc)\n",
+      "doc_to_text": "{{query}}",
+      "doc_to_target": "{{label}}",
+      "unsafe_code": false,
+      "doc_to_choice": "choices",
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "fewshot_config": {
+        "sampler": "default",
+        "split": null,
+        "process_docs": "<function process_docs at 0x7f86d5830fe0>",
+        "fewshot_indices": null,
+        "samples": null,
+        "doc_to_text": "{{query}}",
+        "doc_to_choice": "choices",
+        "doc_to_target": "{{label}}",
+        "gen_prefix": null,
+        "fewshot_delimiter": "\n\n",
+        "target_delimiter": " "
+      },
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        },
+        {
+          "metric": "acc_norm",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "multiple_choice",
+      "repeats": 1,
+      "should_decontaminate": false,
+      "metadata": {
+        "version": 1.0,
+        "pretrained": "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf",
+        "tokenizer": "meta-llama/Llama-3.1-8B",
+        "batch_size": 4,
+        "trust_remote_code": true
+      }
+    },
+    "lambada_openai": {
+      "task": "lambada_openai",
+      "tag": [
+        "lambada"
+      ],
+      "dataset_path": "EleutherAI/lambada_openai",
+      "dataset_name": "default",
+      "test_split": "test",
+      "doc_to_text": "{{text.split(' ')[:-1]|join(' ')}}",
+      "doc_to_target": "{{' '+text.split(' ')[-1]}}",
+      "unsafe_code": false,
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "fewshot_config": {
+        "sampler": "default",
+        "split": null,
+        "process_docs": null,
+        "fewshot_indices": null,
+        "samples": null,
+        "doc_to_text": "{{text.split(' ')[:-1]|join(' ')}}",
+        "doc_to_choice": null,
+        "doc_to_target": "{{' '+text.split(' ')[-1]}}",
+        "gen_prefix": null,
+        "fewshot_delimiter": "\n\n",
+        "target_delimiter": " "
+      },
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "perplexity",
+          "aggregation": "perplexity",
+          "higher_is_better": false
+        },
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "loglikelihood",
+      "repeats": 1,
+      "should_decontaminate": true,
+      "doc_to_decontamination_query": "{{text}}",
+      "metadata": {
+        "version": 1.0,
+        "pretrained": "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf",
+        "tokenizer": "meta-llama/Llama-3.1-8B",
+        "batch_size": 4,
+        "trust_remote_code": true
+      }
+    },
+    "openbookqa": {
+      "task": "openbookqa",
+      "dataset_path": "allenai/openbookqa",
+      "dataset_name": "main",
+      "training_split": "train",
+      "validation_split": "validation",
+      "test_split": "test",
+      "doc_to_text": "question_stem",
+      "doc_to_target": "{{choices.label.index(answerKey.lstrip())}}",
+      "unsafe_code": false,
+      "doc_to_choice": "{{choices.text}}",
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "fewshot_config": {
+        "sampler": "default",
+        "split": null,
+        "process_docs": null,
+        "fewshot_indices": null,
+        "samples": null,
+        "doc_to_text": "question_stem",
+        "doc_to_choice": "{{choices.text}}",
+        "doc_to_target": "{{choices.label.index(answerKey.lstrip())}}",
+        "gen_prefix": null,
+        "fewshot_delimiter": "\n\n",
+        "target_delimiter": " "
+      },
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        },
+        {
+          "metric": "acc_norm",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "multiple_choice",
+      "repeats": 1,
+      "should_decontaminate": true,
+      "doc_to_decontamination_query": "question_stem",
+      "metadata": {
+        "version": 1.0,
+        "pretrained": "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf",
+        "tokenizer": "meta-llama/Llama-3.1-8B",
+        "batch_size": 4,
+        "trust_remote_code": true
+      }
+    },
+    "piqa": {
+      "task": "piqa",
+      "dataset_path": "baber/piqa",
+      "training_split": "train",
+      "validation_split": "validation",
+      "doc_to_text": "Question: {{goal}}\nAnswer:",
+      "doc_to_target": "label",
+      "unsafe_code": false,
+      "doc_to_choice": "{{[sol1, sol2]}}",
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "fewshot_config": {
+        "sampler": "default",
+        "split": null,
+        "process_docs": null,
+        "fewshot_indices": null,
+        "samples": null,
+        "doc_to_text": "Question: {{goal}}\nAnswer:",
+        "doc_to_choice": "{{[sol1, sol2]}}",
+        "doc_to_target": "label",
+        "gen_prefix": null,
+        "fewshot_delimiter": "\n\n",
+        "target_delimiter": " "
+      },
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        },
+        {
+          "metric": "acc_norm",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "multiple_choice",
+      "repeats": 1,
+      "should_decontaminate": true,
+      "doc_to_decontamination_query": "goal",
+      "metadata": {
+        "version": 1.0,
+        "pretrained": "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf",
+        "tokenizer": "meta-llama/Llama-3.1-8B",
+        "batch_size": 4,
+        "trust_remote_code": true
+      }
+    },
+    "sciq": {
+      "task": "sciq",
+      "dataset_path": "allenai/sciq",
+      "training_split": "train",
+      "validation_split": "validation",
+      "test_split": "test",
+      "doc_to_text": "{{support.lstrip()}}\nQuestion: {{question}}\nAnswer:",
+      "doc_to_target": 3,
+      "unsafe_code": false,
+      "doc_to_choice": "{{[distractor1, distractor2, distractor3, correct_answer]}}",
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "fewshot_config": {
+        "sampler": "default",
+        "split": null,
+        "process_docs": null,
+        "fewshot_indices": null,
+        "samples": null,
+        "doc_to_text": "{{support.lstrip()}}\nQuestion: {{question}}\nAnswer:",
+        "doc_to_choice": "{{[distractor1, distractor2, distractor3, correct_answer]}}",
+        "doc_to_target": 3,
+        "gen_prefix": null,
+        "fewshot_delimiter": "\n\n",
+        "target_delimiter": " "
+      },
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        },
+        {
+          "metric": "acc_norm",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "multiple_choice",
+      "repeats": 1,
+      "should_decontaminate": true,
+      "doc_to_decontamination_query": "{{support}} {{question}}",
+      "metadata": {
+        "version": 1.0,
+        "pretrained": "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf",
+        "tokenizer": "meta-llama/Llama-3.1-8B",
+        "batch_size": 4,
+        "trust_remote_code": true
+      }
+    },
+    "social_iqa": {
+      "task": "social_iqa",
+      "dataset_path": "allenai/social_i_qa",
+      "training_split": "train",
+      "validation_split": "validation",
+      "doc_to_text": "Q: {{context}} {{question}}\nA:",
+      "doc_to_target": "{{ (label|int) - 1 }}",
+      "unsafe_code": false,
+      "doc_to_choice": "{{[answerA, answerB, answerC]}}",
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "fewshot_config": {
+        "sampler": "default",
+        "split": null,
+        "process_docs": null,
+        "fewshot_indices": null,
+        "samples": null,
+        "doc_to_text": "Q: {{context}} {{question}}\nA:",
+        "doc_to_choice": "{{[answerA, answerB, answerC]}}",
+        "doc_to_target": "{{ (label|int) - 1 }}",
+        "gen_prefix": null,
+        "fewshot_delimiter": "\n\n",
+        "target_delimiter": " "
+      },
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "multiple_choice",
+      "repeats": 1,
+      "should_decontaminate": false,
+      "metadata": {
+        "version": 0.0,
+        "pretrained": "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf",
+        "tokenizer": "meta-llama/Llama-3.1-8B",
+        "batch_size": 4,
+        "trust_remote_code": true
+      }
+    },
+    "winogrande": {
+      "task": "winogrande",
+      "dataset_path": "allenai/winogrande",
+      "dataset_name": "winogrande_xl",
+      "training_split": "train",
+      "validation_split": "validation",
+      "doc_to_text": "def doc_to_text(doc):\n    answer_to_num = {\"1\": 0, \"2\": 1}\n    return answer_to_num[doc[\"answer\"]]\n",
+      "doc_to_target": "def doc_to_target(doc):\n    idx = doc[\"sentence\"].index(\"_\") + 1\n    return doc[\"sentence\"][idx:].strip()\n",
+      "unsafe_code": false,
+      "doc_to_choice": "def doc_to_choice(doc):\n    idx = doc[\"sentence\"].index(\"_\")\n    options = [doc[\"option1\"], doc[\"option2\"]]\n    return [doc[\"sentence\"][:idx] + opt for opt in options]\n",
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "fewshot_config": {
+        "sampler": "default",
+        "split": null,
+        "process_docs": null,
+        "fewshot_indices": null,
+        "samples": null,
+        "doc_to_text": "<function doc_to_text at 0x7f86be3adda0>",
+        "doc_to_choice": "<function doc_to_choice at 0x7f86be3ae3e0>",
+        "doc_to_target": "<function doc_to_target at 0x7f86be3ae160>",
+        "gen_prefix": null,
+        "fewshot_delimiter": "\n\n",
+        "target_delimiter": " "
+      },
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "multiple_choice",
+      "repeats": 1,
+      "should_decontaminate": true,
+      "doc_to_decontamination_query": "sentence",
+      "metadata": {
+        "version": 1.0,
+        "pretrained": "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf",
+        "tokenizer": "meta-llama/Llama-3.1-8B",
+        "batch_size": 4,
+        "trust_remote_code": true
+      }
+    }
+  },
+  "versions": {
+    "arc_challenge": 1.0,
+    "arc_easy": 1.0,
+    "hellaswag": 1.0,
+    "lambada_openai": 1.0,
+    "openbookqa": 1.0,
+    "piqa": 1.0,
+    "sciq": 1.0,
+    "social_iqa": 0.0,
+    "winogrande": 1.0
+  },
+  "n-shot": {
+    "arc_challenge": 0,
+    "arc_easy": 0,
+    "hellaswag": 0,
+    "lambada_openai": 0,
+    "openbookqa": 0,
+    "piqa": 0,
+    "sciq": 0,
+    "social_iqa": 0,
+    "winogrande": 0
+  },
+  "higher_is_better": {
+    "arc_challenge": {
+      "acc": true,
+      "acc_norm": true
+    },
+    "arc_easy": {
+      "acc": true,
+      "acc_norm": true
+    },
+    "hellaswag": {
+      "acc": true,
+      "acc_norm": true
+    },
+    "lambada_openai": {
+      "perplexity": false,
+      "acc": true
+    },
+    "openbookqa": {
+      "acc": true,
+      "acc_norm": true
+    },
+    "piqa": {
+      "acc": true,
+      "acc_norm": true
+    },
+    "sciq": {
+      "acc": true,
+      "acc_norm": true
+    },
+    "social_iqa": {
+      "acc": true
+    },
+    "winogrande": {
+      "acc": true
+    }
+  },
+  "n-samples": {
+    "lambada_openai": {
+      "original": 5153,
+      "effective": 5153
+    },
+    "social_iqa": {
+      "original": 1954,
+      "effective": 1954
+    },
+    "sciq": {
+      "original": 1000,
+      "effective": 1000
+    },
+    "openbookqa": {
+      "original": 500,
+      "effective": 500
+    },
+    "winogrande": {
+      "original": 1267,
+      "effective": 1267
+    },
+    "piqa": {
+      "original": 1838,
+      "effective": 1838
+    },
+    "hellaswag": {
+      "original": 10042,
+      "effective": 10042
+    },
+    "arc_challenge": {
+      "original": 1172,
+      "effective": 1172
+    },
+    "arc_easy": {
+      "original": 2376,
+      "effective": 2376
+    }
+  },
+  "config": {
+    "model": "hf",
+    "model_args": "pretrained=/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results/5097542/1/step_2047/hf,tokenizer=meta-llama/Llama-3.1-8B,batch_size=4,trust_remote_code=True",
+    "model_num_parameters": 4512746496,
+    "model_dtype": "torch.float32",
+    "model_revision": "main",
+    "model_sha": "",
+    "batch_size": null,
+    "batch_sizes": [],
+    "device": "cuda",
+    "use_cache": null,
+    "limit": null,
+    "bootstrap_iters": 100000,
+    "gen_kwargs": null,
+    "random_seed": 0,
+    "numpy_seed": 1234,
+    "torch_seed": 1234,
+    "fewshot_seed": 1234
+  },
+  "git_hash": "ba997e6",
+  "date": 1777130972.3775876,
+  "pretty_env_info": "'NoneType' object has no attribute 'splitlines'",
+  "transformers_version": "4.56.2",
+  "lm_eval_version": "0.4.11",
+  "upper_git_hash": null,
+  "tokenizer_pad_token": [
+    "<|end_of_text|>",
+    "128001"
+  ],
+  "tokenizer_eos_token": [
+    "<|end_of_text|>",
+    "128001"
+  ],
+  "tokenizer_bos_token": [
+    "<|begin_of_text|>",
+    "128000"
+  ],
+  "eot_token_id": 128001,
+  "max_length": 131072
+}
