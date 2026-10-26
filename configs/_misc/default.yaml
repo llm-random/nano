@@ -16,7 +16,10 @@ infrastructure:
 
   generated_configs_path: generated_configs
 
-  cemetery_experiments_dir: "~/llmrandom_cemetery"
+  # A cluster config can redirect this by setting infrastructure.cluster_cemetery_dir.
+  # It cannot just set cemetery_experiments_dir: _misc is listed AFTER _cluster in every
+  # config's defaults list, so a plain value in _cluster/*.yaml is clobbered by this one.
+  cemetery_experiments_dir: "${oc.select:infrastructure.cluster_cemetery_dir,'~/llmrandom_cemetery'}"
 
 trainer:
   checkpoint:

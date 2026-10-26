@@ -1,0 +1,70 @@
+# 1-GPU PC smoketest for the LEM cluster (plgrid-lem-gpu-h100).
+# Real Llama-1B projected-compression (mem-eff path, PCTrainer) @ 90%, 10 steps,
+# no checkpoint. Purpose: prove the pixi env, dataset paths, source model,
+# importances and the PC training loop still work end-to-end on lem.
+defaults:
+  - ../_cluster@_here_: lem
+  - ../_model/llama@_here_: projected_mem_eff_1B
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 1024
+  batch_size: 16
+  dmodel: 448 # 90p
+  dff: 1728
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  gradient_accumulation_steps: 8
+  n_steps: 10
+  learning_rate: 13
+  scheduler:
+    warmup_steps: 2
+  distributed:
+    fsdp2: null
+  eval_dataloader: None
+  eval_interval: 0
+
+  gradient_clipping: 0.25
+  only_compress_model_gradient_clipping: false
+  only_target_model_gradient_clipping: 1.0
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/llama1b_in_nano.pt
+  path_to_importances: /lustre/pd03/plgrid/plgllmefficont3/plgj321m/pc/importances/1b/5401128/0/minitron_dimensions_importances.pt
+
+  init_norms_with_ones: false
+  separate_block_optimizers: true
+  adjust_grad_norm: false
+  cpu_offload_projections: false
+
+model:
+  cast_bfloat16: false
+
+infrastructure:
+  metric_logger:
+    name: smoketest_lem_pc90_1gpu
+    new_wandb_job: true
+    wandb_entity: ideas_cv
+    project_name: llm-random-test
+    tags:
+      - smoketest
+      - pc
+      - llama_1
+      - 90p
+      - 1gpu
+      - lem
+
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    gres: "gpu:hopper:1"
+    time: "0-02:00:00"

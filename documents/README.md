@@ -41,6 +41,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | [slicegpt.md](notes/slicegpt.md) | SliceGPT baseline: port, hybrid SliceGPT+FFN-pruning design, one-shot results |
 | [table1_runs.md](notes/table1_runs.md) | Hardware and wall-clock time behind the Table 1 cells |
 | [claude-code-machine-setup.md](notes/claude-code-machine-setup.md) | Replicating the Claude Code setup (settings, skills, agent memory) on a new machine via the `claude-sync` repo |
+| [cluster_fixes_lem_helios.md](notes/cluster_fixes_lem_helios.md) | lem and helios blockers: $HOME quota, HF cache permissions, PIXI_HOME -- diagnosis and fix plan |
 
 ## Conventions for writing here
 
