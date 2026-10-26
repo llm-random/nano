@@ -1,0 +1,6 @@
+# Commits that only reformat code. Opt in with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (or set it globally; git ignores the file if the config is unset)
+
+# style: black 25.1.0 formatting sweep, no logic changes (16 files)
+9053eca4554149493825ebce2c61dd1e6d413ed1

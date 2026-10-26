@@ -1,6 +1,14 @@
 infrastructure:
   server: lem
   max_concurrent_jobs: null
+
+  # $HOME on lem is a 20G-quota NFS export and is currently over it, so the
+  # _misc/default.yaml value of ~/llmrandom_cemetery makes every `git clone` fail with
+  # "Disk quota exceeded" (run_exp.py only surfaces it as UnexpectedExit, exit 128).
+  # $USER is safe here even though this is used on the LOGIN node before exp.job runs:
+  # run_exp.py only ever interpolates this into remote shell commands (mkdir -p, test -d,
+  # git clone), so the remote shell expands it.
+  cluster_cemetery_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/$USER/llmrandom_cemetery"
   slurm:
     cpus_per_gpu: 16
     gres: "gpu:hopper:4"
@@ -9,7 +17,7 @@ infrastructure:
     nodes: 1
     partition: plgrid-lem-gpu-h100
     time: "1-00:00:00"
-    account: "plgllmefficont2"
+    account: "plgllmefficont3"
 
   script:
     - '${export_env_variables_placeholders:}'
@@ -19,12 +27,25 @@ infrastructure:
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
 
-    # export pixi variables
-    - 'export PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi'
+    # export pixi variables.
+    # USER_HOME_PATH is the per-user area under the shared project root; PROJECT_HOME_PATH
+    # stays the shared dir, so HF_HOME keeps pointing at the shared model cache. These used
+    # to be the same name, with the second export shadowing the first -- same resolved
+    # values, but a line added in between silently got the other base.
+    # Derived from $USER: no account name belongs in a shared cluster config.
+    - 'export USER_HOME_PATH=$PROJECT_HOME_PATH/$USER'
+    - 'export HF_DATASETS_CACHE="$USER_HOME_PATH/hf_datasets"'
+    - 'export HF_MODULES_CACHE="$USER_HOME_PATH/hf_modules"'
+    # The shared $PROJECT_HOME_PATH/hf_cache is not group-writable and its hub/ holds
+    # only gpt2, so the llama tokenizer load dies with "PermissionError ... Check cache
+    # directory permissions" before step 1. Keep the hub cache per-user and writable.
+    - 'export HF_HUB_CACHE="$USER_HOME_PATH/hf_cache"'
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
+    - 'export PIXI_HOME=$USER_HOME_PATH/pixi'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
-    - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
-    - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
-    - 'export XDG_STATE_HOME="$PIXI_HOME/state"'
+    - 'export XDG_DATA_HOME="$USER_HOME_PATH/data"'
+    - 'export XDG_CACHE_HOME="$USER_HOME_PATH/cache"'
+    - 'export XDG_STATE_HOME="$USER_HOME_PATH/state"'
 
     # activate pixi
     - 'cd "$PIXI_HOME"'

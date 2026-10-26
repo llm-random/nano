@@ -1,0 +1,74 @@
+# Batch-size probe for the PC-overhead timing experiment (paper Fig. 2).
+# Plain PC (no distillation) @ 70%, n_blocks=1 on ONE H100, grad_acc=1, 10 steps, no checkpoint.
+# Goal: find the largest batch (tokens) that fits and measure step time.
+# Batch = sequences of 1024 tokens: 16..1954 seqs = 16k..2.0M tokens.
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model/llama@_here_: projected_mem_eff_1B
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 1024
+  batch_size: 32   # placeholder so run_exp can resolve ${common.batch_size}; overridden by ^batch_size
+  ^batch_size: [32, 48, 64, 80, 98, 128, 160, 256]
+  dmodel: 960 # 70%
+  n_blocks: 1   # single-layer timing model (see documents/notes/pc_time.md)
+  dff: 3840
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+  gradient_accumulation_steps: 1
+  n_steps: 10
+  learning_rate: 13
+  scheduler:
+    warmup_steps: 2   # must be < n_steps for the cosine scheduler
+  distributed:
+    fsdp2: null
+  eval_dataloader: None
+  eval_interval: 0
+
+  gradient_clipping: 0.25
+  only_compress_model_gradient_clipping: false
+  only_target_model_gradient_clipping: 1.0
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  source_model_path: /storage_nvme_4/nano/j321m/pc/trunc/llama1b_1blk_in_nano.pt
+  path_to_importances: /storage_nvme_4/nano/j321m/pc/trunc/importances_1blk.pt
+
+  init_norms_with_ones: false
+  separate_block_optimizers: true
+  adjust_grad_norm: false
+  cpu_offload_projections: false
+
+model:
+  cast_bfloat16: false
+
+infrastructure:
+  server: entropy_j
+  metric_logger:
+    name: pc70_1blk_bs_probe
+    new_wandb_job: true
+    wandb_entity: ideas_cv
+    project_name: pc_time
+    tags:
+      - pc
+      - llama_1
+      - 70p
+      - 1blk
+      - bs_probe
+      - 1gpu
+
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    partition: h100
+    gres: "gpu:h100:1"
+    time: "0-00:40:00"   # short, so it can backfill around the queued 4-GPU jobs

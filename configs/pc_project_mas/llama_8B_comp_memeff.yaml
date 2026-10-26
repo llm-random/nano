@@ -1,0 +1,179 @@
+defaults:
+  # - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: lem
+  # - ../_cluster@_here_: helios
+  - ../_model/llama@_here_: projected_mem_eff_8B
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+  # dmodel: 1056 # 10p
+  # dff: 3168
+  # dmodel: 2160 # 30p
+  # dff: 6480
+  dmodel: 3072 # 50p
+  dff: 9216
+
+trainer:
+  _target_: src.projected_compression.trainer.PCTrainer
+
+  # # # # gradient_accumulation_steps: 16 # for 2 nodes
+  gradient_accumulation_steps: 32 # for 2 nodes 50%
+  # gradient_accumulation_steps: 32 # for 1 node 10%
+
+
+  # n_steps: 1024
+  # n_steps: 2048
+  # n_steps: 4096
+  # n_steps: 6144
+  ^n_steps: 
+    - 1024
+    - 2048
+    - 4096
+    - 6144
+  
+  # learning_rate: 12 # 10p optimal # 14
+  # learning_rate: 15 # 30p optimal # 16
+  # learning_rate: 15 # 50p optimal # 14 -> 15?
+  # learning_rate: 14 # 50p optimal # 14 -> 15?
+  # ^learning_rate: 
+    # - 12
+    # - 13
+    # - 14
+    # - 15
+    # - 16
+
+  learning_rate: 15 # 50p
+  # learning_rate: 15 # 30p
+  # learning_rate: 13 # 10p
+
+  scheduler:
+    warmup_steps: 40
+
+  distributed:
+    fsdp2: null
+    
+  eval_dataloader: None
+  eval_interval: 0
+
+
+  gradient_clipping: 0.25 #best
+  # --- Gradient clipping ---
+  # Single value applied to whichever params are being clipped (see modes below).
+  # gradient_clipping: 0.0625
+  # gradient_clipping: 0.125
+  # gradient_clipping: 0.25
+  # gradient_clipping: 0.5
+  # gradient_clipping: 1.0
+  # gradient_clipping: 2.0
+  # ^gradient_clipping: 
+  #   - 0.0625
+  #   - 0.125
+    # - 0.25
+    # - 0.5
+    # - 1.0
+
+  # --- Gradient clipping mode (pick one) ---
+  #
+  # Mode A: per-block independent clipping, approx 2x backward — loss.backward() gives
+  #   dL/dWc; proj backward uses UNCLIPPED dL/dWc to compute dL/dP and zeroes dL/dWc;
+  #   each block's proj grads clipped with its own norm independently; only norm layer
+  #   grads remain after, clipped using total proj grad norm as scale.
+  # only_compress_model_gradient_clipping: true
+  # only_target_model_gradient_clipping: false
+  #
+  # Mode A-B: clip Wc first (like a normal model), then propagate CLIPPED dL/dWc to
+  #   projections without additional clipping on proj grads.
+  # only_compress_model_gradient_clipping: false
+  # only_target_model_gradient_clipping: "no_projection_clip"
+  #
+  # Mode A-C: same as B but also clip proj grads per-block at the same threshold.
+  only_compress_model_gradient_clipping: false
+  only_target_model_gradient_clipping: 1.0 #best
+  # only_target_model_gradient_clipping: 0.0625
+  # only_target_model_gradient_clipping: 0.125
+  # only_target_model_gradient_clipping: 0.25
+  # only_target_model_gradient_clipping: 0.5
+  # only_target_model_gradient_clipping: 10.0
+  #
+  # Mode D: shared global norm, approx 3x backward — extra proj pass collects per-block
+  #   norms first; global norm across all blocks + norm layers used to clip both proj
+  #   grads (per block) and Wc grads with the same scale.
+  # only_compress_model_gradient_clipping: false
+  # only_target_model_gradient_clipping: false
+
+  original_llama_path: meta-llama/Llama-3.1-8B
+  checkpoint:
+    save: #switch
+      interval: 0  # 0 = only save at the end of training
+      model_checkpoint_filename: __model_checkpoint_filename.pt
+      path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results # lem new
+      # path: /net/scratch/hscra/plgrid/plgmstefaniak/checkpoints/test # helios   
+      # path: /storage_nvme_3/mstefaniak/nano_checkpoints/tmp # entropy   
+      training_state_filename: __training_state_filename.pt
+      type: hf_only  # "nano" | "hf_only" | "nano_and_hf"
+
+projected_compression:
+  modules_to_shard:
+    - src.projected_compression.mem_eff.CompressibleBlock
+    - ${model.source_model.embedding._target_}
+    - ${model.source_model.encoder.block_fn._target_}
+    - ${model.source_model.head._target_}
+
+  # source_model_path: /storage_nvme_3/mstefaniak/pc/llama38b.pt # entropy
+  # path_to_importances: /storage_nvme_3/mstefaniak/pc/llama8_fw_importances_8m/117045/0/minitron_dimensions_importances.pt
+
+  source_model_path: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/hf_to_nano_converted/llama8b_in_nano.pt"
+  path_to_importances: "/lustre/pd01/plgrid/plgllmefficont2/projected_compression/importances/8b/minitron_dimensions_importances.pt" # LEM
+
+  # source_model_path: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/llama38b.pt
+  # path_to_importances: /net/storage/pr3/plgrid/plggllmeffi/projected_compression/20260120_importances/minitron_dimensions_importances.pt # helios
+
+  init_norms_with_ones: false
+
+  # --- Optimizer mode (pick one) ---
+  #
+  # Separate per-block optimizers: each CompressibleBlock has its own AdamW.
+  # Allows per-block gradient clipping and independent learning rate schedules.
+  separate_block_optimizers: true
+  #
+  # Single optimizer covering all parameters (original PC, simpler but shared grad norm).
+  # separate_block_optimizers: false
+
+  adjust_grad_norm: false
+
+  # cpu_offload_projections: false is the correct setting for 4× H100 80GB.
+  # All proj blocks + optimizer state stay on GPU (FSDP2-sharded via modules_to_shard).
+  # cpu_offload was ~10s/step due to PCIe bottleneck; full-GPU is ~1.5s/step.
+  cpu_offload_projections: false
+  # cpu_offload_projections: true  # only if running on fewer / smaller GPUs and VRAM is tight
+
+
+model:
+  cast_bfloat16: false # whether to cast bfloat16 when calculating compressed matrix
+  # cast_bfloat16: true
+
+infrastructure:
+  metric_logger:
+    name: llama8_pc_memeff
+    tags:
+      - nano
+      - pc
+      - llama_8
+      - projected_compression
+      - mem_eff
+      # - 10p
+      # - 30p
+      - 50p
+
+  slurm: 
+    job-name: ${infrastructure.metric_logger.name}
+    gres: "gpu:hopper:4" # lem
+    # gres: gpu:4 # helios, entropy
+    nodes: 2
+    time: "3-00:00:00"

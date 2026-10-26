@@ -198,3 +198,15 @@ tmp/
 data_long_ctx/
 data_test/
 checkpoint/
+# local scratch / nested repos (not for experiment branches)
+pc_paper/
+claude-memory-nano.tar.gz
+internships.md
+# third-party SliceGPT clone (upstream repo + paper PDF, kept locally only;
+# provenance recorded in documents/notes/slicegpt.md)
+slicegpt/
+# intermediate renders of the channel-influence figures; only generated_final/ is committed
+influences_figs/plotly_regen/generated/
+influences_figs/plotly_regen/generated_1p5x/
+influences_figs/plotly_regen/generated_2x/
+influences_figs/plotly_regen/backup_duplicated_attn_charts/

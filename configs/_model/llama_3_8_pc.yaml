@@ -19,10 +19,8 @@ model:
 
   embedding:
     _target_: src.projected_compression.model.ProjectedEmbedding
-    embedding:
-      _target_: src.projected_compression.model.Embedding
-      num_embeddings: ${common.vocab_size}
-      embedding_dim: ${common.base_dmodel}
+    num_embeddings: ${common.vocab_size}
+    embedding_dim: ${common.base_dmodel}
 
     result_out_features: ${common.dmodel} 
     
@@ -113,5 +111,6 @@ model:
 apply_functions:
   - _target_: src.projected_compression.compression.init_compression
     _partial_: true
-    dmodel: ${common.dmodel}
-    dff: ${common.dff}
+    dimensions_importances_path: ??? # CHANGE
+    target_dmodel: ${common.dmodel}
+    target_dff: ${common.dff}

@@ -74,6 +74,15 @@ def get_cosine_scheduler_with_warmup(
         total_iters=warmup_steps,
     )
     after_warmup_steps = n_steps - warmup_steps - 1
+    # n_steps == 0 is legitimate: the conversion and importances configs build a
+    # scheduler they never step. Only guard the case that does get stepped, where
+    # T_max == 0 would otherwise surface as a bare ZeroDivisionError on step 1.
+    assert n_steps == 0 or after_warmup_steps >= 1, (
+        f"n_steps={n_steps} must be greater than warmup_steps+1={warmup_steps + 1}: the "
+        f"cosine phase would get T_max={after_warmup_steps}, and T_max=0 raises a bare "
+        "ZeroDivisionError on the first scheduler step. Easy to hit when shrinking n_steps "
+        "for a smoke test -- lower warmup_steps as well."
+    )
     constant_scheduler = torch.optim.lr_scheduler.ConstantLR(
         optimizer, factor=1.0
     )  # TODO this is only because of a bug in llm-random
