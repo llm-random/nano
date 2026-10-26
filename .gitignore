@@ -203,8 +203,10 @@ pc_paper/
 claude-memory-nano.tar.gz
 internships.md
 # third-party SliceGPT clone (upstream repo + paper PDF, kept locally only;
-# provenance recorded in documents/notes/slicegpt.md)
-slicegpt/
+# provenance recorded in documents/notes/slicegpt.md).
+# Anchored with a leading slash: an unanchored `slicegpt/` also matches
+# src/projected_compression/slicegpt/ and configs/slicegpt/, which are ours.
+/slicegpt/
 # intermediate renders of the channel-influence figures; only generated_final/ is committed
 influences_figs/plotly_regen/generated/
 influences_figs/plotly_regen/generated_1p5x/
