@@ -1,0 +1,60 @@
+# Recovery training (full-parameter, nothing frozen) WITH DISTILLATION (teacher = base Llama-3.2-1B, like HPD) of the SliceGPT hybrid baseline ("SliceGPT + FFN pruning"),
+# Llama-3.2-1B. Mirrors configs/pc_project_mas/llama_1B_prune_distillation.yaml (HPD) exactly except for the model / loading.
+# Input checkpoint: configs/slicegpt/llama_1B_slice_hyb_entropy.yaml. See slicegpt.md.
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model@_here_: llama_3_1_sliced
+  - ../_trainer@_here_: llama3_1B_distillation
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - _self_
+
+# hybrid dims (d matched to HP total params, HP dff); lr = PLACEHOLDER (HPD's best LR per ratio) until the E2 sweep
+slicegpt_dims:
+  r50: {d: 1256, dff: 5376, lr: 11}
+  r70: {d: 912, dff: 3840, lr: 11}
+  r90: {d: 432, dff: 1728, lr: 12}
+slicegpt_ratio: r50   # or `^slicegpt_ratio: [r50, r70, r90]`
+
+common:
+  sequence_length: 1024
+  batch_size: 512
+  dmodel: ${slicegpt_dims.${slicegpt_ratio}.d}
+  dff: ${slicegpt_dims.${slicegpt_ratio}.dff}
+
+trainer:
+  gradient_accumulation_steps: 8
+  ^n_steps:
+    - 2048    # 1B tokens
+    - 4096    # 2B
+    - 8192    # 4B
+    - 12288   # "6B" (6.4B)
+  learning_rate: ${slicegpt_dims.${slicegpt_ratio}.lr}
+  scheduler:
+    warmup_steps: 40
+  eval_interval: 0
+  eval_dataloader: None
+  checkpoint:
+    load:
+      type: sliced_nano
+      path: /storage_nvme_4/nano/j321m/pc/slicegpt/llama1b_slicegpt_hyb_${slicegpt_ratio}.pt
+    save:
+      type: nano   # sliced models (shortcut_Q) are not HF-exportable
+      interval: 0
+      path: /storage_nvme_4/nano/j321m/pc/checkpoints/slicegpt_hyb_distil_1b
+      training_state_filename: __training_state_filename.pt
+
+infrastructure:
+  server: entropy_j
+  metric_logger:
+    name: llama1_slicegpt_hyb_distil_${slicegpt_ratio}
+    new_wandb_job: true
+    wandb_entity: ideas_cv
+    project_name: pc_v2
+    tags: [nano, llama_1, slicegpt, hybrid, rft, distillation]
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    partition: h100
+    gres: "gpu:h100:4"
+    time: "0-12:00:00"

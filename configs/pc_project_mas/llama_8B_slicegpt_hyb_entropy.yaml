@@ -1,0 +1,61 @@
+# Recovery training (full-parameter, nothing frozen) of the SliceGPT hybrid baseline ("SliceGPT + FFN pruning"),
+# Llama-3.1-8B. Mirrors configs/pc_project_mas/llama_8B_prune.yaml (HP) exactly except for the model / loading.
+# TODO: verify Table 1 8B HP setup (seq/batch/LR) against wandb before running (only 1B was verified).
+# Input checkpoint: configs/slicegpt/llama_8B_slice_hyb_entropy.yaml. See slicegpt.md.
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model@_here_: llama_3_8_sliced
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - _self_
+
+# hybrid dims (d matched to HP total params, HP dff); lr = PLACEHOLDER (HP's best LR per ratio) until the E2 sweep
+slicegpt_dims:
+  r50: {d: 2744, dff: 9216, lr: 13}
+  r70: {d: 1960, dff: 6480, lr: 13}
+  r90: {d: 984, dff: 3168, lr: 9}
+slicegpt_ratio: r50   # or `^slicegpt_ratio: [r50, r70, r90]`
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+  dmodel: ${slicegpt_dims.${slicegpt_ratio}.d}
+  dff: ${slicegpt_dims.${slicegpt_ratio}.dff}
+
+trainer:
+  gradient_accumulation_steps: 32
+  ^n_steps:
+    - 1024    # 1B tokens (seq 2048 x batch 512)
+    - 2048    # 2B
+    - 4096    # 4B
+    - 6144    # 6B
+  learning_rate: ${slicegpt_dims.${slicegpt_ratio}.lr}
+  scheduler:
+    warmup_steps: 40
+  eval_interval: 0
+  eval_dataloader: None
+  checkpoint:
+    load:
+      type: sliced_nano
+      path: /storage_nvme_4/nano/j321m/pc/slicegpt/llama8b_slicegpt_hyb_${slicegpt_ratio}.pt
+    save:
+      type: nano   # sliced models (shortcut_Q) are not HF-exportable
+      interval: 0
+      path: /storage_nvme_4/nano/j321m/pc/checkpoints/slicegpt_hyb_8b
+      training_state_filename: __training_state_filename.pt
+
+infrastructure:
+  server: entropy_j
+  metric_logger:
+    name: llama8_slicegpt_hyb_${slicegpt_ratio}
+    new_wandb_job: true
+    wandb_entity: ideas_cv
+    project_name: pc_v2
+    tags: [nano, llama_8, slicegpt, hybrid, rft]
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    partition: h100
+    gres: "gpu:h100:4"
+    time: "2-00:00:00"
