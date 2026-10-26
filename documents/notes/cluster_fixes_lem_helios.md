@@ -103,17 +103,21 @@ Add to `configs/_cluster/lem.yaml`, under `infrastructure:`, so future submissio
 touch `$HOME`:
 
 ```yaml
-  cemetery_experiments_dir: "/lustre/pd03/plgrid/plgllmefficont3/mstefaniak/llmrandom_cemetery"
+  cluster_cemetery_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/$USER/llmrandom_cemetery"
 ```
 
 This is lem-scoped and leaves entropy and helios on the `_misc/default.yaml` value
 `~/llmrandom_cemetery`.
 
-> **Must be a literal path, not `$USER_HOME_PATH`.** This value is used by `run_exp.py`
-> on the *login node* (`mkdir -p`, then `git clone`), before `exp.job` runs, so none of
-> the `infrastructure.script` exports exist yet. `~` works (the remote shell expands it);
-> `$USER_HOME_PATH` would expand to empty. It does inherit the existing hardcoded
-> `mstefaniak` problem -- see §2.
+> **Not `$USER_HOME_PATH` -- but `$USER` is fine.** This value is used by `run_exp.py` on
+> the *login node* (`mkdir -p`, then `git clone`), before `exp.job` runs, so none of the
+> `infrastructure.script` exports exist yet: `$USER_HOME_PATH` would expand to empty.
+> `$USER` is different -- it is set in every login shell, and this value is only ever
+> interpolated into *remote shell* commands (`run_exp.py:204-205`), so the remote shell
+> expands it. `~` works for the same reason.
+>
+> **As shipped it uses `$USER`**, which also removes the hardcoded `mstefaniak` problem
+> that §2 describes.
 
 ### Verify
 
@@ -151,26 +155,38 @@ One line in `configs/_cluster/lem.yaml`:
 `HF_HUB_CACHE` overrides the hub location independently of `HF_HOME`, so the shared
 `HF_HOME` keeps working for anything else that reads it.
 
-### Remaining weakness
+### Remaining weakness -- RESOLVED, see below
 
-`USER_HOME_PATH` is hardcoded to `/lustre/pd03/plgrid/plgllmefficont3/mstefaniak`. For
-another group member this points their hub cache at **your** directory, which is itself
-`drwxr-sr-x` -- so they would hit the same `PermissionError`, just somewhere else. The
-fix is correct for you and no worse for them, but it does not fix it for them.
+The original diagnosis: `USER_HOME_PATH` was hardcoded to
+`/lustre/pd03/plgrid/plgllmefficont3/mstefaniak`, so another group member would point their
+hub cache at **your** directory (itself `drwxr-sr-x`) and hit the same `PermissionError`
+somewhere else. The reasoning at the time was that `$USER` could not be substituted,
+because on lem the username is `plgmstefaniak` while that directory is `mstefaniak`.
 
-`$USER` cannot be substituted: on lem the username is `plgmstefaniak` while the directory
-is `mstefaniak`, and the sibling directories mix both conventions (`plgj321m`,
-`plgmaciejpioro` vs `mstefaniak`, `wdrz`, `md`). There is no rule to derive one from the
-other.
-
-### Hardening (optional, backwards-compatible)
+**That reasoning applied to the old path, and no longer holds.** The shipped config does
+not point at `<grant-root>/mstefaniak` at all -- it uses `<grant-root>/nano/$USER`, and
+`nano/` already uses login-named per-user directories (`plgj321m`, `plgmtboro`,
+`plgggwozdz02`). So `$USER` is exactly the right key there, and no account name remains in
+any `configs/_cluster/*` file:
 
 ```yaml
-    - 'export USER_HOME_PATH="${USER_HOME_PATH:-/lustre/pd03/plgrid/plgllmefficont3/mstefaniak}"'
+    - 'export USER_HOME_PATH=$PROJECT_HOME_PATH/$USER'
 ```
 
-Behaviour is unchanged for you; another member exports `USER_HOME_PATH` once in their lem
-`~/.bashrc` and pixi, the caches and `XDG_*` all follow.
+Verified by expanding the exported `script:` block under two different `$USER` values.
+
+**One migration step this implies:** the existing 414 G of data (pixi env, HF caches,
+checkpoints) still lives at the old `<grant-root>/mstefaniak`, and **10
+`configs/pc_project_mas/*.yaml` files hardcode that path** for checkpoints and evals. It
+was therefore *not* moved. Instead a symlink makes both resolve:
+
+```
+/lustre/pd03/plgrid/plgllmefficont3/nano/plgmstefaniak -> ../mstefaniak
+```
+
+Nothing was copied, the 10 configs keep working, and it is reversible by removing the
+symlink. Moving the data for real is a separate task that must update those configs in
+lockstep.
 
 > **Verify propagation before relying on this.** `exp.job` runs under `#!/bin/bash -l` and
 > Slurm defaults to `--export=ALL`, so the submitting login shell's environment should
