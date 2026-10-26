@@ -1,0 +1,75 @@
+# One-shot SliceGPT (faithful: residual width only, NO dff pruning) for Llama-3.2-1B, no recovery training.
+# dmodel = HP's dmodel at 50 / 70 / 90 % (1344 / 960 / 448), dff stays 8192 -> same width as HP, more params (slicegpt.md).
+# Also evaluates one-shot HP (`pruning.prune`, same dmodel, HP dff) on the SAME eval batches for comparison.
+# Submit: python run_exp.py --config-path configs/slicegpt --config-name llama_1B_slice_oneshot_entropy
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model@_here_: llama_3_1          # FULL base model
+  - ../_trainer@_here_: llama            # only for the FineWeb-Edu dataset/tokenizer config
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - _self_
+
+init_model_opt_sched_fn:
+  _target_: src.projected_compression.slicegpt.run_slicing.slice_llama_model
+  _partial_: true
+
+common:
+  sequence_length: 2048   # RoPE cache length = calibration length; eval uses 1024-token sequences
+  batch_size: 512
+
+# dmodel = HP dmodel; hp_dff only for the HP reference (configs/pc_project_mas/llama_1B_prune.yaml)
+oneshot_dims:
+  r50: {d: 1344, hp_dff: 5376}
+  r70: {d: 960, hp_dff: 3840}
+  r90: {d: 448, hp_dff: 1728}
+
+slicegpt:
+  ratio: r50                   # default for run_exp's pre-expansion check; overridden by the grid below
+  ^ratio: [r50, r70, r90]
+  target_d: ${oneshot_dims.${slicegpt.ratio}.d}
+  target_dff: 8192             # faithful SliceGPT: dff not compressed
+  orientation: random          # SliceGPT repo default
+  center_embeddings: false     # SliceGPT's LayerNorm-only step (changes RMSNorm models) -> off
+  seed: 0
+  dimensions_importances_path: /storage_nvme_4/nano/j321m/pc/importances/1b/minitron_dimensions_importances.pt
+  source:
+    type: nano
+    path: /storage_nvme_4/nano/j321m/pc/llama1b_in_nano.pt
+  calibration:
+    n_samples: 1024
+    sequence_length: 2048
+    batch_size: 16
+    seed: 42                   # != training seed 123
+  eval:
+    n_samples: 100
+    sequence_length: 1024
+    batch_size: 10
+    seed: 7
+    fused_model: true
+  hp_reference:
+    enabled: true
+    target_dmodel: ${slicegpt.target_d}
+    target_dff: ${oneshot_dims.${slicegpt.ratio}.hp_dff}
+  save_path: /storage_nvme_4/nano/j321m/pc/slicegpt
+  save_name: llama1b_slicegpt_oneshot_${slicegpt.ratio}_d${slicegpt.target_d}
+
+trainer:
+  distributed: null
+  n_steps: 1   # unused (no training); keeps the trainer's warmup interpolation resolvable
+
+infrastructure:
+  server: entropy_j
+  metric_logger:
+    name: llama1_slicegpt_oneshot_${slicegpt.ratio}_d${slicegpt.target_d}
+    new_wandb_job: true
+    wandb_entity: ideas_cv
+    project_name: pc_v2
+    tags: [nano, llama_1, slicegpt, oneshot, no_rft]
+  slurm:
+    job-name: llama1_slicegpt_oneshot
+    partition: h100
+    gres: "gpu:h100:1"
+    mem_per_gpu: 300G          # calibration activations: 1024 x 2048 x 2048 fp32 = 17 GB per signal list (~3 held)
+    time: "0-04:00:00"

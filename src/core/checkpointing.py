@@ -77,7 +77,7 @@ def get_full_checkpoint_path(path):
 def load_training_state(load_config):
     training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
 
-    if load_config.type == "huggingface" or load_config.type == "llm-random":
+    if load_config.type in ("huggingface", "llm-random", "sliced_nano"):
         logger.info(
             f"Checkpoint type: '{load_config.type}'. Starting training from step 0."
         )

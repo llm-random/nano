@@ -271,6 +271,13 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
+    elif cfg.trainer.checkpoint.load.type == "sliced_nano":
+        # SliceGPT baseline: plain state dict produced by src.projected_compression.slicegpt.run_slicing
+        state_dict = torch.load(cfg.trainer.checkpoint.load.path, map_location="cpu")
+        model.load_state_dict(state_dict, strict=True)
+        model, optimizer, scheduler = get_model_optimizer_scheduler(
+            cfg, model, learning_rate
+        )
     elif cfg.trainer.checkpoint.load.type == "finalized_pc":
         load_finalized_pc_checkpoint(model, cfg.trainer.checkpoint.load)
         model, optimizer, scheduler = get_model_optimizer_scheduler(
