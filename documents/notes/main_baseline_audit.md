@@ -145,6 +145,18 @@ and the path could not be tested on any machine with a GPU. Both indices and pro
 now follow the model's own device and dtype, which also lifts the float32-only limitation
 recorded as F12.
 
+**F16 — the test suite cannot run on lem.** Both pixi environments there
+(`nano/$USER/pixi` and the older `plgllmefficont3/mstefaniak/pixi`) are at lock version 6
+and **neither contains pytest**: the committed lock predates the `pytest` dependency that
+`pixi.toml` declares. `python -m pytest` on lem gives `No module named pytest`, so only
+the smoketest could run there. helios's environment does have it.
+
+This is the v6 pin's cost, now concrete. The lock is deliberately held at 6 because helios
+runs pixi 0.67.1 and cannot read 7 (F7), so bringing lem's environment up to date means
+either regenerating the lock — which breaks helios — or installing pytest into lem's
+environment out of band. Worth a decision rather than a drift: a gate that cannot run on
+one of the three clusters is only a partial gate.
+
 ### Not fixed — need facts I cannot verify from here
 
 **F9 — `configs/_cluster/lem.yaml:58-59` hardcodes another account's directory.**
@@ -407,7 +419,8 @@ are standing on and leaves it broken if the job is killed.
 | 25254605 | helios GH200 | one failing test, full traceback | `RuntimeError: indices should be either on cpu or on the same device as the indexed tensor` at `compression.py:99` |
 | 25255266 | helios GH200 | suite + smoketest, after the device fix | PC tests **now pass on GPU**; smoketest trains (14.375 → 9.5625, rc=0); one new failure, `test_sharded_checkpoint_round_trips` |
 | 25255801 | helios GH200 | that failure, full traceback | see below |
-| 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | see below |
+| 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
+| 6173802 | lem 4×H100 | PCD-50 prefix vs the reference curve | see below |
 
 The two helios jobs together are what found F15, and the pairing matters: the smoketest
 passing while the unit tests failed is exactly what distinguishes "production is broken"
