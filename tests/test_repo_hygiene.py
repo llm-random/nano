@@ -235,3 +235,60 @@ def test_no_new_account_names_in_shared_config():
     ), "account name in shared config -- key it on $USER instead:\n  " + "\n  ".join(
         offenders
     )
+
+
+# Cluster/dataset pairs whose eval path is knowingly the same as its train path.
+# Shrink this list; never add to it. See F10 in the baseline audit notes.
+KNOWN_EVAL_PATH_EQUALS_TRAIN = {
+    ("local", "fineweb"),
+    ("local", "c4"),  # toy local dataset, one directory on purpose
+    ("entropy", "fineweb"),
+    ("helios", "fineweb"),
+    ("lem", "fineweb"),
+}
+
+
+def test_eval_data_is_not_the_training_data():
+    """An eval path equal to the train path measures nothing.
+
+    The datasets are a deterministic function of their seed (see
+    test_core_framework.py), and `_dataset/fineweb.yaml` gives its eval dataloader the
+    same `split: train` and the same `seed: 123` as the train one. So where the paths
+    also coincide, the eval dataloader yields *the batches the model is training on*, in
+    the same order, and the reported eval loss is a re-scoring of training data rather
+    than a measure of generalisation -- wrong in the flattering direction.
+
+    c4 gets this right: its eval points at a `validation` directory with `split:
+    validation`. fineweb does not, on any cluster, because no validation split was ever
+    downloaded -- `datasets/fineweb/` contains only `train` while `datasets/c4/` has
+    both. 29 of the 64 configs using fineweb have eval enabled.
+
+    Those pairs are allowlisted rather than silently changed: the fix is to build a
+    held-out split or to stop reporting fineweb eval, and both are decisions about
+    experiments, not cleanups. The point of this test is that no *other* dataset
+    acquires the same shape.
+    """
+    offenders = []
+    for path in _tracked("configs/_cluster/*.yaml"):
+        cluster = os.path.basename(path)[:-5]
+        with open(os.path.join(REPO_ROOT, path)) as handle:
+            doc = yaml.safe_load(handle) or {}
+        switch = doc.get("cluster_switch") or {}
+        for key, train_value in switch.items():
+            if not key.startswith("train_path_"):
+                continue
+            family = key[len("train_path_") :]
+            eval_value = switch.get(f"eval_path_{family}")
+            if train_value is None or eval_value is None:
+                continue  # not configured on this cluster
+            if (
+                train_value == eval_value
+                and (cluster, family) not in KNOWN_EVAL_PATH_EQUALS_TRAIN
+            ):
+                offenders.append(
+                    f"{path}: {family} eval path == train path ({train_value!r})"
+                )
+    assert not offenders, (
+        "eval data is the training data, so eval loss measures nothing:\n  "
+        + "\n  ".join(offenders)
+    )
