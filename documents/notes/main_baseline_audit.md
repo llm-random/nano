@@ -420,7 +420,8 @@ are standing on and leaves it broken if the job is killed.
 | 25255266 | helios GH200 | suite + smoketest, after the device fix | PC tests **now pass on GPU**; smoketest trains (14.375 → 9.5625, rc=0); one new failure, `test_sharded_checkpoint_round_trips` |
 | 25255801 | helios GH200 | that failure, full traceback | see below |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
-| 6173802 | lem 4×H100 | PCD-50 prefix vs the reference curve | see below |
+| ~~6173802~~ | lem 4×H100 | PCD-50 prefix, first attempt | **cancelled** -- its log pipeline died of SIGPIPE (see below) and the job was training blind |
+| 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | tracking and converging; see below |
 
 The two helios jobs together are what found F15, and the pairing matters: the smoketest
 passing while the unit tests failed is exactly what distinguishes "production is broken"
@@ -436,6 +437,37 @@ normally.
 while failing on a machine with a GPU — the same shape of problem as F15, in my own test
 rather than in the framework. It builds a CPU device mesh with gloo, which is fine on a
 CPU-only box and evidently not fine where CUDA is present.
+
+### PCD-50 prefix result
+
+Job 6174094, 4×H100 on lem, against wandb `uhhl03fy`. Both runs use the same config with
+only the paths retargeted, `n_steps` at 4096 so the schedule matches, truncated by wall
+clock.
+
+| step | reference | this run | delta |
+|---|---|---|---|
+| 0 | 8.875 | 8.9375 | +0.063 |
+| 10 | 5.625 | 5.28125 | −0.344 |
+| 20 | 4.75 | 4.625 | −0.125 |
+| 40 | 4.125 | 4.0 | −0.125 |
+| 48 | 3.890625 | 3.875 | −0.016 |
+| 53 | 3.734375 | 3.734375 | **0.000** |
+
+The two curves start apart and converge: deltas up to 0.34 (6.1% relative) in the first
+twenty steps, then inside ±0.05 from step 40 and exactly equal at 53. Mean delta over the
+first 54 steps is −0.066.
+
+That shape is what different hardware should produce. The reference ran on entropy, this
+on H100; the losses are logged at bf16 granularity, where 8.875 and 8.9375 are adjacent
+representable values, so the early steps cannot agree more closely than they do. Early
+training is also where the loss is steepest and least determined, so a fixed absolute
+tolerance would be the wrong test there.
+
+**What this does and does not establish.** It shows that `main` puts a PCD-50 run on the
+same trajectory as the recorded one, which is the cheap signal worth having. It does not
+reproduce the final loss: that needs the full 4096 steps to 2.6705, a multi-hour 4-GPU
+run that has not been submitted. Treat the tier as "no contradiction found", not as "the
+paper's numbers reproduce".
 
 ### A trap worth not repeating
 
