@@ -440,34 +440,39 @@ CPU-only box and evidently not fine where CUDA is present.
 
 ### PCD-50 prefix result
 
-Job 6174094, 4×H100 on lem, against wandb `uhhl03fy`. Both runs use the same config with
-only the paths retargeted, `n_steps` at 4096 so the schedule matches, truncated by wall
-clock.
+Job 6174094, 4×H100 on lem, 132 steps, against wandb `uhhl03fy`. Same config with only
+the paths retargeted, `n_steps` at 4096 so the schedule matches, truncated by wall clock.
 
-| step | reference | this run | delta |
-|---|---|---|---|
-| 0 | 8.875 | 8.9375 | +0.063 |
-| 10 | 5.625 | 5.28125 | −0.344 |
-| 20 | 4.75 | 4.625 | −0.125 |
-| 40 | 4.125 | 4.0 | −0.125 |
-| 48 | 3.890625 | 3.875 | −0.016 |
-| 53 | 3.734375 | 3.734375 | **0.000** |
+| step | reference | this run | delta | rel |
+|---|---|---|---|---|
+| 0 | 8.875 | 8.9375 | +0.0625 | 0.70% |
+| 5 | 6.78125 | 6.53125 | −0.2500 | 3.69% |
+| 10 | 5.625 | 5.28125 | −0.3438 | 6.11% |
+| 20 | 4.75 | 4.625 | −0.1250 | 2.63% |
+| 40 | 4.125 | 4.0 | −0.1250 | 3.03% |
+| 60 | 3.703125 | 3.71875 | +0.0156 | 0.42% |
+| **80** | 3.5 | 3.5 | **0.0000** | 0.00% |
+| **100** | 3.390625 | 3.390625 | **0.0000** | 0.00% |
+| **120** | 3.3125 | 3.3125 | **0.0000** | 0.00% |
+| **131** | 3.28125 | 3.28125 | **0.0000** | 0.00% |
 
-The two curves start apart and converge: deltas up to 0.34 (6.1% relative) in the first
-twenty steps, then inside ±0.05 from step 40 and exactly equal at 53. Mean delta over the
-first 54 steps is −0.066.
+Over the 92 steps from 40 onward: mean delta **−0.0017**, max |delta| 0.125. Over the
+first twenty: max |delta| 0.344.
 
-That shape is what different hardware should produce. The reference ran on entropy, this
-on H100; the losses are logged at bf16 granularity, where 8.875 and 8.9375 are adjacent
-representable values, so the early steps cannot agree more closely than they do. Early
-training is also where the loss is steepest and least determined, so a fixed absolute
-tolerance would be the wrong test there.
+So the two runs start apart and then agree, exactly, at every anchor from step 80. The
+early spread is what different hardware should produce — the reference ran on entropy,
+this on H100, and the losses are logged at bf16 granularity where 8.875 and 8.9375 are
+adjacent representable values, so the first steps cannot agree more closely than they do.
+Early training is also the steepest, least determined part of the curve, which is why a
+fixed absolute tolerance would be the wrong test there and why the plan called for a
+prefix comparison rather than a single number.
 
-**What this does and does not establish.** It shows that `main` puts a PCD-50 run on the
-same trajectory as the recorded one, which is the cheap signal worth having. It does not
-reproduce the final loss: that needs the full 4096 steps to 2.6705, a multi-hour 4-GPU
-run that has not been submitted. Treat the tier as "no contradiction found", not as "the
-paper's numbers reproduce".
+**What this establishes, and what it does not.** `main` puts a PCD-50 run on the recorded
+trajectory and holds it there to within bf16 resolution for a hundred steps. That is a
+real signal and it is the cheap one worth having. It is **not** a reproduction of the
+final loss: that needs all 4096 steps to 2.6705, a multi-hour 4-GPU run which was not
+submitted. Read this tier as "no contradiction found over the first 3% of training", not
+as "the paper's numbers reproduce".
 
 ### A trap worth not repeating
 
