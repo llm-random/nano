@@ -15,6 +15,7 @@ not have them.
 """
 
 import os
+import re
 import subprocess
 import sys
 
@@ -36,8 +37,8 @@ pytestmark = [
 N_STEPS = 12
 
 
-def _run(tmp_path, save_type):
-    save_path = str(tmp_path / "ckpt")
+def _run(tmp_path, save_type, n_steps=N_STEPS, name="ckpt", extra=()):
+    save_path = str(tmp_path / name)
     result = subprocess.run(
         [
             sys.executable,
@@ -49,9 +50,10 @@ def _run(tmp_path, save_type):
             "--config-name",
             "tiny_local",
             "infrastructure.metric_logger.type=stdout",
-            f"trainer.n_steps={N_STEPS}",
+            f"trainer.n_steps={n_steps}",
             f"trainer.checkpoint.save.type={save_type}",
             f"trainer.checkpoint.save.path={save_path}",
+            *extra,
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -63,6 +65,16 @@ def _run(tmp_path, save_type):
         f"{result.stdout[-3000:]}\n{result.stderr[-3000:]}"
     )
     return save_path, result.stdout + result.stderr
+
+
+def _losses_by_step(output):
+    """step -> train loss, parsed from the stdout metric logger."""
+    found = {}
+    for line in output.splitlines():
+        match = re.search(r"step:(\d+) .*train/loss: ([0-9.]+)", line)
+        if match:
+            found[int(match.group(1))] = match.group(2)
+    return found
 
 
 def test_local_training_writes_a_nano_checkpoint(tmp_path):
@@ -95,3 +107,64 @@ def test_training_loop_reports_a_loss_for_every_step(tmp_path):
     assert len(losses) >= N_STEPS, f"expected >= {N_STEPS} losses, got {len(losses)}"
     assert all(value == value for value in losses), "loss went NaN"
     assert all(value > 0 for value in losses), "loss is not positive"
+
+
+RESUME_STEPS = 20
+RESUME_AT = 10
+
+
+def test_resuming_reproduces_the_uninterrupted_run(tmp_path):
+    """A resumed run must continue, not start the data over.
+
+    The datasets reseed in __iter__ and train() takes one batch per step, so a resumed
+    run used to get a fresh iterator at batch 0 and re-train on data it had already
+    seen, while the step counter carried on from the checkpoint. It failed in the worst
+    possible direction: the loss after a resume came out *lower*, because the model was
+    being shown examples it had already learned, so it read as a good run rather than a
+    broken one. Measured at 10.17 against 12.39 on this config.
+
+    n_steps is held equal across both runs on purpose. warmup_steps and the cosine
+    T_max are derived from n_steps, so a shorter first run would train under a
+    different learning-rate schedule and the comparison would be meaningless.
+    """
+    uninterrupted, output_a = _run(
+        tmp_path,
+        "nano",
+        n_steps=RESUME_STEPS,
+        name="straight",
+        extra=[f"trainer.checkpoint.save.interval={RESUME_AT}"],
+    )
+    checkpoint = os.path.join(uninterrupted, f"step_{RESUME_AT}")
+    assert os.path.isdir(checkpoint), f"no mid-run checkpoint at {checkpoint}"
+
+    _, output_b = _run(
+        tmp_path,
+        "nano",
+        n_steps=RESUME_STEPS,
+        name="resumed",
+        extra=[
+            "trainer.checkpoint.load.type=nano",
+            f"trainer.checkpoint.load.path={checkpoint}",
+            "trainer.checkpoint.load.training_state_filename="
+            "__training_state_filename.pt",
+            "trainer.checkpoint.load.only_weights=false",
+        ],
+    )
+
+    straight = _losses_by_step(output_a)
+    resumed = _losses_by_step(output_b)
+
+    compared = [s for s in range(RESUME_AT + 1, RESUME_STEPS) if s in straight]
+    assert len(compared) >= 5, f"too few steps to compare: {compared}"
+    assert set(compared) <= set(resumed), (
+        f"resumed run is missing steps {sorted(set(compared) - set(resumed))} -- "
+        "it did not pick up where the checkpoint left off"
+    )
+
+    mismatched = {
+        s: (straight[s], resumed[s]) for s in compared if straight[s] != resumed[s]
+    }
+    assert not mismatched, (
+        "resumed run diverged from the uninterrupted one "
+        f"(step: straight vs resumed): {mismatched}"
+    )

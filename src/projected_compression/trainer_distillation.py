@@ -68,7 +68,7 @@ class PCDistillationTrainer(TrainerDistillation):
 
     def train(self):
         for step, batch in zip(
-            range(self.start_step, self.n_steps), self.train_dataloader
+            range(self.start_step, self.n_steps), self._batches_from_start_step()
         ):
             self.step = step
             self.metric_logger.set_step(step)

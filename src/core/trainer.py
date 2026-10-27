@@ -1,3 +1,4 @@
+import itertools
 import os
 import time
 from attr import define
@@ -117,9 +118,32 @@ class Trainer:
             and self.checkpoint.save.path is not None
         )
 
+    def _batches_from_start_step(self):
+        """Training batches, fast-forwarded past the steps a previous run already took.
+
+        The datasets are deterministic iterables that reseed in __iter__ (see
+        AbstractDataset), and train() consumes exactly one batch per step. A resumed run
+        therefore gets a *fresh* iterator starting at batch 0 and re-trains on data it
+        has already seen, while the step counter carries on from the checkpoint.
+
+        That fails quietly in the worst way: the loss after a resume comes out lower,
+        not higher, because the model is being shown examples it already learned.
+
+        Skipping start_step batches reproduces the sequence an uninterrupted run would
+        have seen. It costs one pass over the skipped batches, which is the price of a
+        dataset that cannot seek.
+        """
+        if not self.start_step:
+            return self.train_dataloader
+        logger.info(
+            f"Resuming at step {self.start_step}: skipping that many batches so the run "
+            "does not repeat data it has already trained on."
+        )
+        return itertools.islice(self.train_dataloader, self.start_step, None)
+
     def train(self):
         for step, batch in zip(
-            range(self.start_step, self.n_steps), self.train_dataloader
+            range(self.start_step, self.n_steps), self._batches_from_start_step()
         ):
             self.step = step
             self.metric_logger.set_step(step)
