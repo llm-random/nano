@@ -20,22 +20,31 @@ Audited from `main @ 2e51359c`, 2026-10-27, on branch `fix/main-baseline-audit`.
 
 | | before | after |
 |---|---|---|
-| Tests in the suite | 11 | **58** (52 run in CI) |
-| Test files | 2 | 6 |
+| Tests in the suite | 11 | **62** (56 run in CI) |
+| Test files | 2 | 7 |
 | Runnable configs that compose *and* resolve | 76 / 82 | **82 / 82** |
 | `src/core` → projected-compression references | 3 | **0** |
 | CI | `black` only | `black` + the test suite |
 | A bare `pytest` run | collection error | passes |
 
-Tiers 0 and 1 are complete and enforced in CI, and the CPU-reachable half of Tier 2 is
-done — including resume-from-checkpoint, which found the most serious bug in this audit
-(F14).
+Tiers 0 and 1 are complete and enforced in CI. Tier 2 is done on CPU — including
+resume-from-checkpoint, which found the most serious bug in this audit (F14). Tier 3 is
+partly done on CPU, and Tier 5 partly done on helios.
 
-Tiers 3–5 and the GPU half of Tier 2 are **blocked**. `ssh entropy` fails with
-`Permission denied (publickey)`; verbose output confirms the key is offered and the
-server rejects it, with only `publickey` accepted, so it needs authorising server-side.
-Independently, the framework has no CPU distributed path (see Tier 3), so those tiers
-could not run here even with a working login.
+Two corrections worth carrying forward, because both were wrong in an earlier draft and
+both cost real coverage:
+
+- **"No cluster access."** entropy is genuinely unreachable (`Permission denied
+  (publickey)`; the key is offered and the server rejects it, so it needs authorising
+  server-side). But **helios and lem both authenticate.** Checking only the cluster that
+  had been named, and concluding there was none, was a mistake.
+- **"Distributed cannot run without a GPU."** The framework is CUDA-gated, but FSDP2 is
+  not: `fully_shard` works on a CPU mesh with gloo. That reaches `pc_finalize` and the
+  sharded checkpoint path, neither of which had any test. See Tier 3.
+
+What genuinely still needs a GPU cluster: more than one rank, NCCL, the bfloat16
+mixed-precision policy, the 4-GPU world size, and **the numerical reproduction (Tier 4)**
+— nothing here proves `main` still produces the paper's numbers.
 
 ---
 
@@ -165,10 +174,13 @@ must be initialised before any dtype or device change, and a float64 model raise
 alone: the production ordering is correct and changing the signature is churn. Documented
 in `tests/test_projected_compression.py`.
 
-**F13 — `finalize()` cannot run single-process on CPU.** It calls `.full_tensor()`, a
-DTensor method, and reads `os.environ["RANK"]`, so the `pc_finalize` path is only
-reachable under FSDP2. That is why Tier 1 covers `init_compression` but not finalization;
-finalization needs a cluster test.
+**F13 — `finalize()` needs DTensor parameters, not a GPU.** It calls `.full_tensor()`
+and reads `os.environ["RANK"]`, so it is unreachable unless the model is sharded. This
+was first recorded as "needs a cluster"; that was wrong. `fully_shard` on a CPU mesh with
+gloo provides DTensors, and `tests/test_distributed_cpu.py` covers the merge. A related
+fact worth knowing: `finalize()` replaces the FSDP-managed parameters and sets them to
+`None` off rank 0, so **a finalized model cannot be used for a forward pass or trained
+on** — it is a save-and-exit path.
 
 ---
 
@@ -226,22 +238,51 @@ difference on the first attempt instead of a 2.2 regression.
 Still blocked on access: plain/PC/distillation/prune training on a GPU. The existing
 `smoketest_pc_1gpu_{helios,lem}` configs cover some of it.
 
-### Tiers 3–5 — **blocked twice over**
+### Tier 3 — distributed — **partly done on CPU**
 
-Not only is there no cluster: distributed **cannot run here at all**. Both
-`main.py:distributed_setup()` and `setup_distributed_training()` are hard-gated on
-`torch.cuda.is_available()`, and the backend is hardcoded `nccl`. There is no CPU/gloo
-path, so a multi-process CPU run falls back to single-process and tests nothing. Adding
-one would be a framework change, not an audit.
+An earlier draft of this document said Tier 3 was impossible without a GPU. That was
+wrong, and worth recording as a lesson: the *framework* is CUDA-gated, but FSDP2 is not.
+`main.py:distributed_setup()` and `setup_distributed_training()` both check
+`torch.cuda.is_available()`, and `setup_fsdp2_model` builds its mesh with
+`init_device_mesh("cuda", ...)` — but `fully_shard` itself works on a CPU mesh with the
+gloo backend and produces real DTensor parameters with a working `full_tensor()`.
 
-The practical consequence is worth stating plainly: **every FSDP2 and sharded-checkpoint
-code path has zero automated coverage anywhere**, including CI, and can only ever be
-tested on a GPU cluster.
+`tests/test_distributed_cpu.py` uses that to reach two paths that had no test anywhere:
 
-FSDP2 2-GPU vs 1-GPU parity; the 4-GPU world size, still argued only by transitivity;
-`pc_finalize` end to end (F13 means it cannot be tested anywhere else); per-block gradient
-clipping; the numerical reproduction below; cross-cluster submission and the cemetery
-redirect.
+- **`pc_finalize`** — `ProjectedLinear.finalize()` calls `.full_tensor()` and reads
+  `os.environ["RANK"]`, so it is unreachable unless the parameters are DTensors. This was
+  recorded below as F13, "cannot run single-process on CPU"; that was also wrong. The test
+  checks the merge directly: each layer must collapse to `P_out W P_in + auxiliary`.
+- **the sharded checkpoint path** — `dcp.save`/`dcp.load` over `TrainingState`, which the
+  plain `torch.save` checkpoints never touch.
+
+Two things the fixture has to do, both learned the hard way. It perturbs the projections
+and the auxiliary term first, to stand in for a trained model: straight after
+`init_compression` the projections are one-hot and the auxiliary term is zero, so merging
+it is a no-op and deleting it from `finalize()` entirely still passed. And it compares
+weights rather than a forward pass, because `finalize()` replaces the FSDP-managed
+parameters outright (and sets them to `None` off rank 0), so the module cannot be run
+afterwards — fine for production, which finalizes, dumps the state dict and stops, but it
+does mean **a finalized model cannot be trained on**.
+
+Still needs a cluster: more than one rank, NCCL, the bfloat16 mixed-precision policy
+production uses, the 4-GPU world size (still argued only by transitivity), FSDP2 2-GPU vs
+1-GPU parity, and per-block gradient clipping.
+
+### Tier 5 — cross-cluster — **partly done on helios**
+
+entropy is unreachable (`Permission denied (publickey)`; the key is offered and the server
+rejects it, so it needs authorising server-side). **helios and lem both authenticate** —
+checking only the cluster that had been named, and reporting "no cluster access", was a
+mistake.
+
+Run on helios (GH200, `plgllmefficont3-gpu-gh200`): the branch checked out on group
+storage, the test suite under the cluster's own pixi environment, and
+`smoketest_pc_1gpu_helios.yaml` — a self-contained tiny PC model that exercises the pixi
+env, the fineweb path, the PC model build, `init_compression` and the training loop on a
+real GPU. See the execution log at the end.
+
+Still open: lem, and the cemetery redirect end to end.
 
 ### Tier 4 — numerical reproduction, the real acceptance gate
 
