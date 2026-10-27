@@ -206,7 +206,9 @@ def test_pc_finalize_merges_the_projections_exactly(cpu_process_group, tmp_path)
             or module.result_out_features is not None
         ):
             weight = weight + module.auxiliary_weight.full_tensor().float()
-        expected[name] = weight
+        # finalize() hardcodes device="cpu" for the merged weight, since its only
+        # consumer writes a checkpoint. Compare there, not on the mesh device.
+        expected[name] = weight.cpu()
 
     assert expected, "no ProjectedLinear layers found"
 
@@ -219,7 +221,7 @@ def test_pc_finalize_merges_the_projections_exactly(cpu_process_group, tmp_path)
             continue
         assert module.weight is not None, f"{name}: weight dropped on rank 0"
         torch.testing.assert_close(
-            module.weight.detach().float(), expected[name], rtol=1e-5, atol=1e-5
+            module.weight.detach().float().cpu(), expected[name], rtol=1e-5, atol=1e-5
         )
         checked += 1
     assert checked == len(expected), f"only {checked}/{len(expected)} layers checked"
