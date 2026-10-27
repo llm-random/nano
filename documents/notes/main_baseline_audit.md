@@ -322,11 +322,17 @@ closes the `documents/issues.md` item which until now rested on a transitivity a
 and it means real multi-rank NCCL sharding *is* exercised; only the unit tests are confined
 to a single rank.
 
-Outstanding in this tier: **1-GPU vs 2-GPU parity** at fixed seed (submitted as helios job
-25259068 — the global batch is `total_batch_size` regardless of world size, so the two
-should compute the same thing and any real divergence means FSDP2 is changing the maths
-rather than distributing it), the bfloat16 mixed-precision policy, and per-block gradient
-clipping.
+**The bfloat16 policy and per-block clipping are covered too**, which an earlier draft
+also listed as outstanding. `setup_fsdp2_model` applies
+`MixedPrecisionPolicy(param_dtype=torch.bfloat16)` unconditionally, and that run went
+through it; its log carries `train/grad_norm`, `train/projection_grad_norm` and the
+per-module `..._embedding` / `..._head` norms under `gradient_clipping: 0.25` with
+`only_target_model_gradient_clipping: 1.0`.
+
+What is genuinely outstanding in this tier is one thing: **1-GPU vs 2-GPU parity** at
+fixed seed (helios job 25259068). The global batch is `total_batch_size` regardless of
+world size, so the two should compute the same thing; a real divergence would mean FSDP2
+is changing the maths rather than distributing it.
 
 ### Tier 5 — cross-cluster — **partly done on helios**
 
@@ -373,9 +379,18 @@ config with only its paths retargeted, 35-minute wall clock. The config is gener
 the cluster rather than committed, following `smoke/README.md` -- a composed config is a
 snapshot, and committing one means it silently stops testing current code.
 
-Also in scope for this tier and **not** done: re-running `run_eval.py` against the
-committed `evals/evals/aggregated_results_llama1b.json`, and `benchmarks/bench_block.py`
-against its committed `.jsonl`.
+Also in scope for this tier, and **not** done, with reasons:
+
+- `benchmarks/bench_block.py` against its committed `.jsonl`. This one cannot be done
+  honestly from here: it measures **step times**, and the committed results were produced
+  on entropy (`llama_1B_pc_1blk_bs_probe_*_entropy`). Re-running on helios GH200 or lem
+  H100 and diffing the numbers compares hardware, not code, and would look like a
+  regression check while being nothing of the sort. The defensible variant is to compare
+  the **PC-vs-HP overhead ratio** rather than absolute milliseconds, since that is what
+  Fig. 2 actually reports and it is far more robust across machines — worth doing, not
+  done here.
+- `run_eval.py` against `evals/evals/aggregated_results_llama1b.json`. Needs a trained
+  checkpoint at one of the paper's configurations, which this audit never produced.
 
 ### Tier 5 — cross-cluster — **partly done on helios**
 
