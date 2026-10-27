@@ -437,6 +437,18 @@ while failing on a machine with a GPU — the same shape of problem as F15, in m
 rather than in the framework. It builds a CPU device mesh with gloo, which is fine on a
 CPU-only box and evidently not fine where CUDA is present.
 
+### A trap worth not repeating
+
+The first PCD-50 submission (6173802) piped the training output through
+`| grep ... | head -200`. `head` exits once it has its 200 lines, which closes the pipe;
+`grep` then dies of SIGPIPE on its next write and everything after that is discarded. The
+job kept training for another 17 minutes against a log file that had stopped growing,
+which looks exactly like a hung job. With four ranks each logging loss, learning rate and
+several projection gradient norms, 200 lines is about 8 steps.
+
+`#SBATCH --output` already captures stdout. Do not add a pipeline on top of it; filter
+the file afterwards.
+
 ### What running on a cluster was worth
 
 Nothing in Tiers 0–3 would have found F15 — it only appears where `torch.cuda.is_available()`
