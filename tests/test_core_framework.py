@@ -144,3 +144,82 @@ def test_caret_key_whose_value_is_not_a_list_is_rejected():
     cfg = OmegaConf.create({"trainer": {"^n_steps": 10}})
     with pytest.raises(Exception, match="not a list"):
         create_grid_config(cfg)
+
+
+# --------------------------------------------------------------------------------------
+# dataloader determinism
+#
+# These need the local dummy dataset, which is gitignored, so they are skipped where it
+# is absent. They matter more than they look: the resume bug fixed in this branch was a
+# data-ordering bug, and the property that makes the fix correct -- that the stream is a
+# deterministic function of the seed -- is exactly what is asserted here.
+
+import os  # noqa: E402
+
+import resolver  # noqa: F401,E402
+from hydra import compose, initialize_config_dir  # noqa: E402
+from hydra.utils import instantiate  # noqa: E402
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+needs_local_data = pytest.mark.skipif(
+    not (
+        os.path.isdir(os.path.join(REPO_ROOT, "data"))
+        and os.path.isdir(os.path.join(REPO_ROOT, "data_eval"))
+    ),
+    reason="local dummy dataset not present (data/ and data_eval/ are gitignored)",
+)
+
+
+def _train_batches(n, seed=None):
+    for key, value in dict(
+        WORLD_SIZE="1", LOCAL_WORLD_SIZE="1", RANK="0", LOCAL_RANK="0"
+    ).items():
+        os.environ.setdefault(key, value)
+    overrides = ["infrastructure.metric_logger.type=stdout"]
+    if seed is not None:
+        overrides.append(f"trainer.train_dataloader.dataset.seed={seed}")
+    with initialize_config_dir(
+        version_base=None, config_dir=os.path.join(REPO_ROOT, "configs")
+    ):
+        cfg = compose(config_name="tiny_local", overrides=overrides)
+    loader = instantiate(cfg.trainer.train_dataloader, _convert_="all")
+    out = []
+    for i, batch in enumerate(loader):
+        if i >= n:
+            break
+        out.append(batch.clone())
+    return out
+
+
+@needs_local_data
+def test_the_batch_stream_is_a_function_of_the_seed():
+    """Two loaders built with the same seed must yield the same batches."""
+    first = _train_batches(4, seed=123)
+    second = _train_batches(4, seed=123)
+    assert len(first) == len(second) == 4
+    for i, (a, b) in enumerate(zip(first, second)):
+        assert torch.equal(
+            a, b
+        ), f"batch {i} differs between two identically seeded loaders"
+
+
+@needs_local_data
+def test_a_different_seed_gives_a_different_stream():
+    """Otherwise the seed is not doing anything and 'deterministic by seed' is vacuous."""
+    assert not all(
+        torch.equal(a, b)
+        for a, b in zip(_train_batches(4, seed=123), _train_batches(4, seed=999))
+    ), "changing the seed did not change the batches"
+
+
+@needs_local_data
+def test_restarting_a_loader_replays_from_the_beginning():
+    """The property the resume fix is built on.
+
+    AbstractDataset.__iter__ reseeds, so a fresh iterator starts the stream over. That
+    is why Trainer._batches_from_start_step has to skip start_step batches by hand: if
+    this ever became false -- a stateful or sharded loader, say -- skipping would be
+    wrong and resume would silently corrupt the data order again.
+    """
+    assert torch.equal(_train_batches(1, seed=123)[0], _train_batches(1, seed=123)[0])
