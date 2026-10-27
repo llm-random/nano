@@ -49,11 +49,9 @@ def _build(target_dmodel, target_dff, seed=0, dtype=torch.float32):
 
     Composed the way run_exp.py does: config_dir is the directory, config_name is bare.
 
-    float32 on CPU, deliberately: init_compression builds the projection and auxiliary
-    weights with no dtype or device, so they are always float32 on CPU. Production gets
-    away with it because apply_functions runs before setup_distributed_training moves
-    the model (main.py), but it does mean compression must be initialised before any
-    dtype or device change -- and that a float64 model here would raise.
+    float32 on CPU because that is what production trains in. The projections now follow
+    the model's own device and dtype, so other combinations work too -- see
+    test_compression_follows_the_models_device_and_dtype.
     """
     overrides = [f"common.{k}={v}" for k, v in COMMON.items()]
     overrides += [
@@ -240,3 +238,83 @@ def test_gradients_reach_the_projections_and_not_the_base_weights():
     for name, param in model.named_parameters():
         if not param.requires_grad:
             assert param.grad is None, f"{name}: frozen weight received a gradient"
+
+
+def test_importance_scores_have_the_shapes_the_method_assumes():
+    """dmodel importances are one global vector; dff importances are per layer.
+
+    The residual stream is shared across blocks, so a dimension dropped from it must be
+    dropped everywhere -- one ranking for the whole model. Each block's feed-forward is
+    independent, so dff is ranked per block. If these ever came back the other way round
+    the compression would still run and still produce a model; it would just be
+    compressing the wrong thing.
+    """
+    from src.projected_compression.compression import calculate_dimension_importances
+
+    model = _build(BASE_DMODEL // 2, BASE_DFF // 2)
+    topk_dmodel, topk_dff = BASE_DMODEL // 2, BASE_DFF // 2
+    dmodel_indices, dff_indices = calculate_dimension_importances(
+        model, topk_dmodel, topk_dff
+    )
+
+    assert dmodel_indices.shape == (topk_dmodel,), (
+        "dmodel importances must be a single global ranking, got "
+        f"{tuple(dmodel_indices.shape)}"
+    )
+    assert dff_indices.shape == (
+        N_BLOCKS,
+        topk_dff,
+    ), f"dff importances must be one ranking per block, got {tuple(dff_indices.shape)}"
+
+    # indices must be valid, unique and sorted -- the projections index with them
+    assert dmodel_indices.min() >= 0 and dmodel_indices.max() < BASE_DMODEL
+    assert len(set(dmodel_indices.tolist())) == topk_dmodel, "duplicate dmodel indices"
+    assert torch.equal(dmodel_indices, dmodel_indices.sort().values), "not sorted"
+    for block, row in enumerate(dff_indices):
+        assert row.min() >= 0 and row.max() < BASE_DFF
+        assert (
+            len(set(row.tolist())) == topk_dff
+        ), f"duplicate dff indices in block {block}"
+
+
+def test_compression_follows_the_models_device_and_dtype():
+    """The projections must be built where the model already is.
+
+    They used to be created with no device or dtype -- always float32 on CPU -- while
+    init_compression put the top-k indices on whatever get_device() returned. On any
+    machine with a GPU that is cuda, so this path died with "indices should be either on
+    cpu or on the same device as the indexed tensor". It is why the whole
+    llama_1B_comp family could not run on a GPU, and it went unnoticed because the
+    paper runs all use the mem-eff path instead.
+
+    float64 stands in for "a dtype other than the default" so this is checkable without
+    a GPU; the device half is asserted alongside it and is what actually broke.
+    """
+    model = _build(BASE_DMODEL // 2, BASE_DFF // 2, dtype=torch.float64)
+    _compress(model, BASE_DMODEL // 2, BASE_DFF // 2, "identity")
+
+    reference = next(model.parameters())
+    checked = 0
+    for name, module in model.named_modules():
+        if not isinstance(module, ProjectedLinear):
+            continue
+        for attribute in (
+            "projection_in_weight",
+            "projection_out_weight",
+            "auxiliary_weight",
+        ):
+            parameter = getattr(module, attribute)
+            if parameter is None:
+                continue
+            assert (
+                parameter.dtype == reference.dtype
+            ), f"{name}.{attribute} is {parameter.dtype}, model is {reference.dtype}"
+            assert (
+                parameter.device == reference.device
+            ), f"{name}.{attribute} is on {parameter.device}, model is on {reference.device}"
+            checked += 1
+    assert checked > 0, "no projections were checked"
+
+    # and it still runs
+    out = _logits(model, _batch())
+    assert out.dtype == torch.float64 and torch.isfinite(out).all()
