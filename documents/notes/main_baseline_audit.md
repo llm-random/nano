@@ -446,6 +446,8 @@ are standing on and leaves it broken if the job is killed.
 | 25255266 | helios GH200 | suite + smoketest, after the device fix | PC tests **now pass on GPU**; smoketest trains, rc=0; one new failure in a test this branch added |
 | 25255801 / 25256547 / 25256588 | helios GH200 | the remaining failures, full tracebacks | each a device assumption in a test of mine, not the framework: CPU mesh under CUDA, finalize() writing to CPU, noise built on CPU |
 | **25257102** | helios GH200 | **final suite + smoketest at HEAD** | **55 passed, 7 skipped, 0 failed** (`pytest exit=0`); smoketest trains, rc=0 |
+| 25259068 | helios GH200 ×2 | 1-GPU vs 2-GPU FSDP2 parity at fixed seed | running at time of writing |
+| 6174690 | lem 4×H100 | **full 4096-step PCD-50** | submitted, 8h limit; queued behind other work |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
 | ~~6173802~~ | lem 4×H100 | PCD-50 prefix, first attempt | **cancelled** -- its log pipeline died of SIGPIPE (see below) and the job was training blind |
 | 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | **451 steps, agrees to bf16 resolution from step 80**; see below |
@@ -502,6 +504,16 @@ The early spread is what different hardware should produce: the reference ran on
 this on H100, and early training is the steepest, least determined part of the curve.
 A fixed absolute tolerance would be the wrong test there, which is why the plan called
 for a prefix comparison rather than a single final number.
+
+**The full run is submitted.** lem job **6174690**, 4×H100, `n_steps: 4096`, 8-hour wall
+clock, same config as the prefix. At the prefix's ~4 s/step that is roughly 4.5 hours of
+compute once it starts, and it was queued behind other work at submission time, so it will
+finish well after this audit was written. Its result belongs in this section when it
+lands; the prefix below is what was available at the time of writing.
+
+If the allocation is better spent elsewhere, `scancel 6174690` on lem costs nothing — the
+prefix comparison already carries most of the signal, and the final number is a
+confirmation rather than a discovery.
 
 **What this establishes, and what it does not.** `main` puts a PCD-50 run on the recorded
 trajectory and holds it there for 11% of training. That is a real signal and it is the
