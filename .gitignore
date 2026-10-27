@@ -212,3 +212,9 @@ influences_figs/plotly_regen/generated/
 influences_figs/plotly_regen/generated_1p5x/
 influences_figs/plotly_regen/generated_2x/
 influences_figs/plotly_regen/backup_duplicated_attn_charts/
+
+# smoke suite output: configs are regenerated from the live repo on every run
+# (smoke/README.md explains why they are not committed), plus its work and log dirs
+smoke/generated/
+smoke_work/
+smoke_results/
