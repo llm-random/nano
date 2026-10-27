@@ -300,6 +300,55 @@ real GPU. See the execution log at the end.
 
 Still open: lem, and the cemetery redirect end to end.
 
+### Tier 4 — numerical reproduction — **prefix run submitted**
+
+Nothing below this tier proves `main` still produces the paper's numbers.
+
+The reference is wandb run **`uhhl03fy`** (`ideas_cv/pc_v2`, name `llama1_pcd_50p_2BT_repro`),
+the designated PCD-50 repro. Two things about reading it that cost time:
+
+- the metric key is **`steps/train/loss`**, not `train/loss`; querying the obvious name
+  returns an empty history for a run that is in fact complete.
+- the original `ic3zozd8` is **not** in `pc_v2` and does not resolve there.
+
+Its final is `steps/100/train/loss` = **2.67046875**, which is the 2.6705 the notes record.
+
+Early curve, pulled from that run and kept at `scratchpad/pcd50_reference.json` (142 points):
+
+| step | 0 | 1 | 5 | 10 | 20 | 40 | 60 | 80 | 100 | 120 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| loss | 8.875 | 8.3125 | 6.78125 | 5.625 | 4.75 | 4.125 | 3.70312 | 3.5 | 3.39062 | 3.3125 |
+
+**Comparing a prefix requires keeping `n_steps` at 4096** and truncating the job by wall
+clock instead. `warmup_steps` and the cosine `T_max` are both derived from `n_steps`, so
+shortening it changes the learning-rate schedule and the comparison proves nothing. This
+is the same trap that made F14 look like a rounding error on the first attempt, and it is
+worth stating because the instinct is always to shorten the run.
+
+Submitted on lem as job 6173802: 4 H100 (matching the reference world size), the repro
+config with only its paths retargeted, 35-minute wall clock. The config is generated on
+the cluster rather than committed, following `smoke/README.md` -- a composed config is a
+snapshot, and committing one means it silently stops testing current code.
+
+Also in scope for this tier and **not** done: re-running `run_eval.py` against the
+committed `evals/evals/aggregated_results_llama1b.json`, and `benchmarks/bench_block.py`
+against its committed `.jsonl`.
+
+### Tier 5 — cross-cluster — **partly done on helios**
+
+entropy is unreachable (`Permission denied (publickey)`; the key is offered and the server
+rejects it, so it needs authorising server-side). **helios and lem both authenticate** —
+checking only the cluster that had been named, and reporting "no cluster access", was a
+mistake.
+
+Run on helios (GH200, `plgllmefficont3-gpu-gh200`): the branch checked out on group
+storage, the test suite under the cluster's own pixi environment, and
+`smoketest_pc_1gpu_helios.yaml` — a self-contained tiny PC model that exercises the pixi
+env, the fineweb path, the PC model build, `init_compression` and the training loop on a
+real GPU. See the execution log at the end.
+
+Still open: lem, and the cemetery redirect end to end.
+
 ### Tier 4 — numerical reproduction, the real acceptance gate
 
 Nothing below this tier proves `main` still produces the paper's numbers.
