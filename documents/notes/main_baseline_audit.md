@@ -173,11 +173,27 @@ fix is probably `.../datasets/fineweb-edu/...` — but that is a claim about wha
 lem, and guessing a data path breaks everyone's runs. Allowlisted in the Tier 0 test so
 new violations still fail.
 
-**F10 — on the same two lines, `eval_path_fineweb` points at the *train* directory.**
-Identical to `train_path_fineweb`, ending `/train/train`, while c4 alongside it correctly
-splits `/train` and `/validation`. If that is read as written, fineweb eval runs on
-training data and the eval loss is meaningless — which would quietly flatter every
-fineweb run. More serious than F9 and needs the same lem access to settle.
+**F10 — fineweb eval is the training data, on every cluster.** `_dataset/fineweb.yaml`
+gives its eval dataloader `split: train` and `seed: 123`, identical to the train one, and
+`eval_path_fineweb` equals `train_path_fineweb` in `entropy.yaml`, `helios.yaml` and
+`lem.yaml`. The datasets are a deterministic function of their seed, so that dataloader
+yields **the batches the model is training on, in the same order**. Reported fineweb eval
+loss re-scores training data instead of measuring generalisation, and errs in the
+flattering direction. **29 of the 64 configs using fineweb have eval enabled.**
+
+Verified directly rather than inferred: `datasets/fineweb/` contains only `train` on both
+helios and lem, while `datasets/c4/` has `train` and `validation`. No fineweb validation
+split was ever downloaded. c4 is configured correctly and shows what right looks like, so
+this is a missing dataset split, not a copy-paste error — which is also why all three
+clusters share it.
+
+Left for the user: the fix is to build a held-out split or to stop reporting fineweb eval,
+and both are decisions about experiments rather than cleanups. Guarded by
+`tests/test_repo_hygiene.py::test_eval_data_is_not_the_training_data`, with the affected
+pairs allowlisted so that no other dataset acquires the same shape.
+
+Scope: the paper's headline numbers are train loss (`steps/train/loss`) and its downstream
+numbers come from lm_eval via `evals/`, so neither depends on this dataloader.
 
 ### Recorded, no change made
 
