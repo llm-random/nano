@@ -185,8 +185,12 @@ def test_pc_finalize_merges_the_projections_exactly(cpu_process_group, tmp_path)
             ):
                 parameter = getattr(module, attribute)
                 if parameter is not None:
+                    # Generated on CPU so the seeded generator keeps the perturbation
+                    # reproducible, then moved to wherever the parameter lives -- on a
+                    # CUDA mesh these parameters are not on CPU.
+                    noise = torch.rand(parameter.shape, generator=generator).mul(0.1)
                     parameter.add_(
-                        torch.rand(parameter.shape, generator=generator).mul(0.1)
+                        noise.to(device=parameter.device, dtype=parameter.dtype)
                     )
 
     _shard(model)
