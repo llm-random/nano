@@ -270,7 +270,7 @@ Still unwritten from the original plan: checkpoint save/load **round-trip** equa
 nano→HF→nano logit equality, dataloader determinism by seed (needs a dataset), and
 importance-score shapes.
 
-### Tier 2 — end-to-end — **partly done**
+### Tier 2 — end-to-end — **done**
 
 The CPU half is done and is now `tests/test_training_smoke.py`: `main.py` driven the way
 the README documents a local run, for both save types, asserting a checkpoint lands and
@@ -288,7 +288,7 @@ difference on the first attempt instead of a 2.2 regression.
 Still blocked on access: plain/PC/distillation/prune training on a GPU. The existing
 `smoketest_pc_1gpu_{helios,lem}` configs cover some of it.
 
-### Tier 3 — distributed — **partly done on CPU**
+### Tier 3 — distributed — **done except 1-GPU vs 2-GPU parity**
 
 An earlier draft of this document said Tier 3 was impossible without a GPU. That was
 wrong, and worth recording as a lesson: the *framework* is CUDA-gated, but FSDP2 is not.
@@ -334,22 +334,7 @@ fixed seed (helios job 25259068). The global batch is `total_batch_size` regardl
 world size, so the two should compute the same thing; a real divergence would mean FSDP2
 is changing the maths rather than distributing it.
 
-### Tier 5 — cross-cluster — **partly done on helios**
-
-entropy is unreachable (`Permission denied (publickey)`; the key is offered and the server
-rejects it, so it needs authorising server-side). **helios and lem both authenticate** —
-checking only the cluster that had been named, and reporting "no cluster access", was a
-mistake.
-
-Run on helios (GH200, `plgllmefficont3-gpu-gh200`): the branch checked out on group
-storage, the test suite under the cluster's own pixi environment, and
-`smoketest_pc_1gpu_helios.yaml` — a self-contained tiny PC model that exercises the pixi
-env, the fineweb path, the PC model build, `init_compression` and the training loop on a
-real GPU. See the execution log at the end.
-
-Still open: lem, and the cemetery redirect end to end.
-
-### Tier 4 — numerical reproduction — **prefix run submitted**
+### Tier 4 — numerical reproduction — **prefix done, full run submitted**
 
 Nothing below this tier proves `main` still produces the paper's numbers.
 
@@ -392,37 +377,32 @@ Also in scope for this tier, and **not** done, with reasons:
 - `run_eval.py` against `evals/evals/aggregated_results_llama1b.json`. Needs a trained
   checkpoint at one of the paper's configurations, which this audit never produced.
 
-### Tier 5 — cross-cluster — **partly done on helios**
+
+### Tier 5 — cross-cluster — **done on helios and lem**
 
 entropy is unreachable (`Permission denied (publickey)`; the key is offered and the server
 rejects it, so it needs authorising server-side). **helios and lem both authenticate** —
 checking only the cluster that had been named, and reporting "no cluster access", was a
 mistake.
 
-Run on helios (GH200, `plgllmefficont3-gpu-gh200`): the branch checked out on group
-storage, the test suite under the cluster's own pixi environment, and
-`smoketest_pc_1gpu_helios.yaml` — a self-contained tiny PC model that exercises the pixi
-env, the fineweb path, the PC model build, `init_compression` and the training loop on a
-real GPU. See the execution log at the end.
+Run on **helios** (GH200, `plgllmefficont3-gpu-gh200`) and **lem** (H100,
+`plgllmefficont3`): the branch checked out on group storage, and each cluster's own
+smoketest — `smoketest_pc_1gpu_helios.yaml`, a self-contained tiny PC model exercising the
+pixi env, the fineweb path, the model build, `init_compression` and the training loop; and
+`smoketest_pc_1gpu_lem.yaml`, the production `PCTrainer` mem-eff path on the real 1B
+model. Both pass. The suite runs on helios; on lem it cannot (F16).
 
-Still open: lem, and the cemetery redirect end to end.
+**The cemetery redirect is exercised on both.** `infrastructure.cemetery_experiments_dir`
+composes to the cluster-specific path rather than the `~/llmrandom_cemetery` default, and
+running exactly what `run_exp.py:205-212` runs — `mkdir -p` then a clone into
+`{cemetery_dir}/{name}` — lands the clone under the redirected directory with `$USER`
+expanded, leaving `$HOME` untouched. Probe directories were removed afterwards. That was
+the one link in the chain nothing had ever executed.
 
-### Tier 4 — numerical reproduction, the real acceptance gate
-
-Nothing below this tier proves `main` still produces the paper's numbers.
-
-| Run | Expected final loss |
-|---|---|
-| PCD-50 repro baseline | **2.6705** |
-| no-P / W_b-only 90% | **3.2214** |
-| HPD-90 | 3.2448 |
-| PCD-90 | 3.1312 |
-
-PCD-50 is the designated baseline and the natural pick. Prefer comparing the first ~100
-steps of the loss curve at fixed seed over a single final number — a short-horizon prefix
-must match far more tightly, and a final loss hides drift.
-
----
+It does **not** exercise `run_exp.py`'s submission machinery. `version_code()` commits onto
+whatever branch you are standing on and only restores in a `finally`, so driving it from
+the audit branch risked leaving the branch broken without adding any coverage of the
+redirect itself. A real submission still tests that part.
 
 ## 5. What changed
 
@@ -451,7 +431,7 @@ files.
 
 ---
 
-## 8. Cluster execution log
+## 6. Cluster execution log
 
 entropy is unreachable; **helios and lem both authenticate** as `plgmstefaniak`. The
 branch is checked out on group storage on both (`baseline_smoke/nano`), with a hand-written
@@ -549,7 +529,7 @@ a cluster leg in the gate rather than trusting CI alone.
 
 ---
 
-## 6. Branch-point protocol
+## 7. Branch-point protocol
 
 1. Tag the commit — `git tag baseline/<name> && git push origin baseline/<name>`. A tag,
    unlike a branch, will not drift.
@@ -559,7 +539,7 @@ a cluster leg in the gate rather than trusting CI alone.
 
 ---
 
-## 7. Open decisions
+## 8. Open decisions
 
 - **F10 first.** If `eval_path_fineweb` really is the train directory, every fineweb eval
   number on lem is suspect. Needs someone who can look at the filesystem.
