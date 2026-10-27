@@ -1,4 +1,4 @@
-"""Tier 3/5 of the baseline audit, as far as it can be taken without a GPU.
+"""Tier 3 of the baseline audit: FSDP2, finalization and sharded checkpoints.
 
 See documents/notes/main_baseline_audit.md. The framework's own distributed entry points
 are hard-gated on torch.cuda.is_available() and setup_fsdp2_model builds its mesh with
@@ -14,8 +14,14 @@ That is enough to cover the two things which otherwise have no test anywhere:
 * the sharded checkpoint path, which goes through torch.distributed.checkpoint rather
   than torch.save.
 
-What this does NOT cover, and a cluster still must: more than one rank, NCCL, the
-bfloat16 mixed-precision policy production uses, and any CUDA-specific behaviour.
+The mesh follows the hardware: CPU with gloo on a workstation, CUDA with NCCL on a
+cluster node, where these then exercise the real production configuration. Forcing a CPU
+mesh where CUDA is present is not merely redundant, it breaks -- FSDP2's collectives pick
+a CUDA stream and fail with "'Stream' object has no attribute 'record_event'". That was
+found by running this file on helios.
+
+What a single rank still cannot cover: more than one rank, real sharding across devices,
+and the bfloat16 mixed-precision policy production uses.
 """
 
 import os
@@ -38,14 +44,28 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE_DMODEL, BASE_DFF, N_BLOCKS, VOCAB, SEQ = 32, 64, 2, 61, 16
 
 
+def _mesh_device():
+    """Shard on the device this machine actually has.
+
+    On a workstation that is CPU with gloo, which is the point of this file. On a cluster
+    node it is CUDA with NCCL, so the same tests then exercise the real production
+    configuration rather than a CPU imitation of it -- and forcing a CPU mesh where CUDA
+    is present does not work anyway: dcp save/load fails.
+    """
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
 @pytest.fixture(scope="module")
 def cpu_process_group():
-    """A single-rank gloo group, so fully_shard has a mesh to shard over."""
+    """A single-rank process group, so fully_shard has a mesh to shard over."""
     already = dist.is_initialized()
     if not already:
         os.environ.setdefault("MASTER_ADDR", "localhost")
         os.environ.setdefault("MASTER_PORT", "29591")
-        dist.init_process_group(backend="gloo", rank=0, world_size=1)
+        backend = "nccl" if _mesh_device() == "cuda" else "gloo"
+        if backend == "nccl":
+            torch.cuda.set_device(0)
+        dist.init_process_group(backend=backend, rank=0, world_size=1)
     for key, value in dict(RANK="0", WORLD_SIZE="1", LOCAL_RANK="0").items():
         os.environ.setdefault(key, value)
     os.environ["RANK"] = "0"
@@ -58,7 +78,9 @@ def _shard(model):
     from torch.distributed.device_mesh import init_device_mesh
     from torch.distributed.fsdp import fully_shard
 
-    mesh = init_device_mesh("cpu", (dist.get_world_size(),))
+    device = _mesh_device()
+    model = model.to(device)
+    mesh = init_device_mesh(device, (dist.get_world_size(),))
     fully_shard(model, mesh=mesh)
     return model
 
@@ -144,6 +166,7 @@ def test_pc_finalize_merges_the_projections_exactly(cpu_process_group, tmp_path)
     target_dmodel, target_dff = BASE_DMODEL // 2, BASE_DFF // 2
     model = _pc_model(target_dmodel, target_dff)
     _compress(model, target_dmodel, target_dff, tmp_path)
+    model = model.to(_mesh_device())
 
     # Stand in for a trained model. Straight after init_compression the projections are
     # one-hot and the auxiliary term is all zeros, so merging it in is a no-op and the
@@ -237,7 +260,7 @@ def test_sharded_checkpoint_round_trips(cpu_process_group, tmp_path):
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0)
 
-    model(torch.randn(4, 8)).sum().backward()
+    model(torch.randn(4, 8, device=_mesh_device())).sum().backward()
     optimizer.step()
     saved = next(iter(model.parameters())).full_tensor().clone()
 

@@ -205,7 +205,7 @@ in `tests/test_projected_compression.py`.
 **F13 — `finalize()` needs DTensor parameters, not a GPU.** It calls `.full_tensor()`
 and reads `os.environ["RANK"]`, so it is unreachable unless the model is sharded. This
 was first recorded as "needs a cluster"; that was wrong. `fully_shard` on a CPU mesh with
-gloo provides DTensors, and `tests/test_distributed_cpu.py` covers the merge. A related
+gloo provides DTensors, and `tests/test_distributed.py` covers the merge. A related
 fact worth knowing: `finalize()` replaces the FSDP-managed parameters and sets them to
 `None` off rank 0, so **a finalized model cannot be used for a forward pass or trained
 on** — it is a save-and-exit path.
@@ -275,7 +275,7 @@ wrong, and worth recording as a lesson: the *framework* is CUDA-gated, but FSDP2
 `init_device_mesh("cuda", ...)` — but `fully_shard` itself works on a CPU mesh with the
 gloo backend and produces real DTensor parameters with a working `full_tensor()`.
 
-`tests/test_distributed_cpu.py` uses that to reach two paths that had no test anywhere:
+`tests/test_distributed.py` uses that to reach two paths that had no test anywhere:
 
 - **`pc_finalize`** — `ProjectedLinear.finalize()` calls `.full_tensor()` and reads
   `os.environ["RANK"]`, so it is unreachable unless the parameters are DTensors. This was
