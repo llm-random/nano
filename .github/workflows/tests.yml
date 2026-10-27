@@ -19,6 +19,10 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
+          # setup-python hashes a dependency file to key the pip cache, and defaults to
+          # requirements.txt / pyproject.toml. This repo has neither -- dependencies live
+          # in pixi.toml -- so point it there or the step fails outright.
+          cache-dependency-path: 'pixi.toml'
 
       - name: Install dependencies
         # CPU wheels: every test selected below runs on CPU, and the CUDA build is an
