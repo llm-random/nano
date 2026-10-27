@@ -315,9 +315,18 @@ parameters outright (and sets them to `None` off rank 0), so the module cannot b
 afterwards — fine for production, which finalizes, dumps the state dict and stops, but it
 does mean **a finalized model cannot be trained on**.
 
-Still needs a cluster: more than one rank, NCCL, the bfloat16 mixed-precision policy
-production uses, the 4-GPU world size (still argued only by transitivity), FSDP2 2-GPU vs
-1-GPU parity, and per-block gradient clipping.
+**The 4-GPU world size is now directly observed.** The PCD-50 run (lem job 6174094) logged
+four distinct ranks, four `Sharding done` lines — FSDP2 sharding once per rank — and four
+allocated H100s, under the production `PCDistillationTrainer` with the real 1B model. That
+closes the `documents/issues.md` item which until now rested on a transitivity argument,
+and it means real multi-rank NCCL sharding *is* exercised; only the unit tests are confined
+to a single rank.
+
+Outstanding in this tier: **1-GPU vs 2-GPU parity** at fixed seed (submitted as helios job
+25259068 — the global batch is `total_batch_size` regardless of world size, so the two
+should compute the same thing and any real divergence means FSDP2 is changing the maths
+rather than distributing it), the bfloat16 mixed-precision policy, and per-block gradient
+clipping.
 
 ### Tier 5 — cross-cluster — **partly done on helios**
 
