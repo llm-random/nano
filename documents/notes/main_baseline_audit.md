@@ -20,7 +20,7 @@ Audited from `main @ 2e51359c`, 2026-10-27, on branch `fix/main-baseline-audit`.
 
 | | before | after |
 |---|---|---|
-| Tests in the suite | 11 | **62** (56 run in CI) |
+| Tests in the suite | 11 | **63** (57 run in CI) |
 | Test files | 2 | 7 |
 | Runnable configs that compose *and* resolve | 76 / 82 | **82 / 82** |
 | `src/core` → projected-compression references | 3 | **0** |
@@ -128,6 +128,22 @@ is now bit-identical to the uninterrupted one at every step.
 This path was marked untested in `configs/_checkpoints/none.yaml`
 (`training_state_filename: null # not tested`), so it is unlikely any published result
 came through a resume — but any preempted-and-requeued job would have hit it.
+
+**F15 — `init_compression` built the projections on CPU regardless of the model.** The
+top-k indices went to `get_device()` while `init_projections` created its weights with no
+device or dtype, so always float32 on CPU. Where the model is not on `get_device()` the
+norm slice `cloned_data[dmodel_top_indices]` gathers a CPU tensor with cuda indices and
+raises; every test in `tests/test_projected_compression.py` failed on helios while passing
+locally.
+
+Not a production outage, and worth being precise about: `main.py` places the model before
+`apply_functions` runs, so the gather is consistent there, and FSDP2 then shards the
+CPU-created projections onto the GPU. The helios smoketest trains normally before and
+after the fix. What remained was a latent inconsistency — the projections landed wherever
+FSDP2 later put them rather than where the model was, nothing fixed them up without FSDP2,
+and the path could not be tested on any machine with a GPU. Both indices and projections
+now follow the model's own device and dtype, which also lifts the float32-only limitation
+recorded as F12.
 
 ### Not fixed — need facts I cannot verify from here
 
@@ -323,6 +339,35 @@ given real structure.
 The two save paths were also compared against `main` directly on a real run: identical
 loss trace step for step, and byte-identical `model.safetensors` and nano checkpoint
 files.
+
+---
+
+---
+
+## 8. Cluster execution log
+
+entropy is unreachable; **helios and lem both authenticate** as `plgmstefaniak`. The
+branch is checked out on group storage on both (`baseline_smoke/nano`), with a hand-written
+sbatch that reproduces the env from each cluster's own `_cluster/*.yaml` script block —
+deliberately not through `run_exp.py`, whose `version_code()` commits onto the branch you
+are standing on and leaves it broken if the job is killed.
+
+| job | cluster | what it ran | outcome |
+|---|---|---|---|
+| 25254406 | helios GH200 | suite + `smoketest_pc_1gpu_helios` | smoketest **passed** (loss 14.375 → 9.875 over 20 steps on GPU); 5 PC unit tests **failed** |
+| 25254605 | helios GH200 | one failing test, full traceback | `RuntimeError: indices should be either on cpu or on the same device as the indexed tensor` at `compression.py:99` |
+| 25255266 | helios GH200 | suite + smoketest, after the device fix | see below |
+| 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | see below |
+
+The two helios jobs together are what found F15, and the pairing matters: the smoketest
+passing while the unit tests failed is exactly what distinguishes "production is broken"
+from "this is untestable on a GPU". Only the second is true.
+
+### What running on a cluster was worth
+
+Nothing in Tiers 0–3 would have found F15 — it only appears where `torch.cuda.is_available()`
+is true, which no amount of local CPU testing reproduces. That is the argument for keeping
+a cluster leg in the gate rather than trusting CI alone.
 
 ---
 
