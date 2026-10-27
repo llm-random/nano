@@ -20,18 +20,22 @@ Audited from `main @ 2e51359c`, 2026-10-27, on branch `fix/main-baseline-audit`.
 
 | | before | after |
 |---|---|---|
-| Tests in the suite | 11 | **54** (49 run in CI) |
+| Tests in the suite | 11 | **58** (52 run in CI) |
 | Test files | 2 | 6 |
 | Runnable configs that compose *and* resolve | 76 / 82 | **82 / 82** |
 | `src/core` → projected-compression references | 3 | **0** |
 | CI | `black` only | `black` + the test suite |
 | A bare `pytest` run | collection error | passes |
 
-Tiers 0 and 1 are complete and enforced in CI. Tiers 2–5 need a cluster and are
-**blocked**: entropy refuses every key available here (`Permission denied (publickey)`
-for `mstefaniak`, with `~/.ssh/id_rsa`, `~/.ssh/llm-random` and the agent). The one part
-of Tier 2 that does not need a cluster — a real end-to-end training run — was done on
-CPU instead and is now a test.
+Tiers 0 and 1 are complete and enforced in CI, and the CPU-reachable half of Tier 2 is
+done — including resume-from-checkpoint, which found the most serious bug in this audit
+(F14).
+
+Tiers 3–5 and the GPU half of Tier 2 are **blocked**. `ssh entropy` fails with
+`Permission denied (publickey)`; verbose output confirms the key is offered and the
+server rejects it, with only `publickey` accepted, so it needs authorising server-side.
+Independently, the framework has no CPU distributed path (see Tier 3), so those tiers
+could not run here even with a working login.
 
 ---
 
@@ -95,6 +99,26 @@ hit this immediately.
 `None`. That is the branch every config using the `n` means `2**-n` convention takes, so
 wandb recorded `exp_lr: None` for those runs. The rate itself was always right; the
 exponent is what identifies a run afterwards, and run provenance leans on it.
+
+**F14 — a resumed run replayed the data from the beginning.** `train()` takes exactly
+one batch per step and zips `range(start_step, n_steps)` against `self.train_dataloader`.
+The datasets are deterministic iterables that reseed in `__iter__`, so a resumed run got
+a **fresh** iterator starting at batch 0 while the step counter carried on from the
+checkpoint: a run resumed at step 11 re-trained on batches 0, 1, 2 … and never saw the
+batches it was supposed to.
+
+It failed in the worst direction. On `tiny_local`, a 20-step run interrupted at step 10
+and resumed reported **10.17** at step 11 against **12.39** uninterrupted — the loss
+*drops* by 2.2, because the model is being shown examples it already learned, so it reads
+as a good run rather than a broken one.
+
+Fixed with `Trainer._batches_from_start_step()`, used by all three training loops
+(`src/core/trainer.py` and the two PC trainers that override `train()`). The resumed run
+is now bit-identical to the uninterrupted one at every step.
+
+This path was marked untested in `configs/_checkpoints/none.yaml`
+(`training_state_filename: null # not tested`), so it is unlikely any published result
+came through a resume — but any preempted-and-requeued job would have hit it.
 
 ### Not fixed — need facts I cannot verify from here
 
@@ -190,11 +214,29 @@ The CPU half is done and is now `tests/test_training_smoke.py`: `main.py` driven
 the README documents a local run, for both save types, asserting a checkpoint lands and
 the loop reports a finite positive loss every step.
 
-The cluster half is **blocked on access**: plain/PC/distillation/prune training on a GPU,
-and resume-from-checkpoint. The existing `smoketest_pc_1gpu_{helios,lem}` configs cover
-some of this.
+**Resume-from-checkpoint is done** and was the most valuable test in this whole audit —
+it is what found F14. It runs on CPU: a 20-step run checkpointed mid-flight at step 10,
+resumed, and compared step for step against the uninterrupted run.
 
-### Tiers 3–5 — **blocked on access**
+Holding `n_steps` equal across the two runs is essential and was not obvious: `warmup_steps`
+and the cosine `T_max` derive from `n_steps`, so a shorter first run trains under a
+different learning-rate schedule. Getting that wrong made F14 look like a 0.017 rounding
+difference on the first attempt instead of a 2.2 regression.
+
+Still blocked on access: plain/PC/distillation/prune training on a GPU. The existing
+`smoketest_pc_1gpu_{helios,lem}` configs cover some of it.
+
+### Tiers 3–5 — **blocked twice over**
+
+Not only is there no cluster: distributed **cannot run here at all**. Both
+`main.py:distributed_setup()` and `setup_distributed_training()` are hard-gated on
+`torch.cuda.is_available()`, and the backend is hardcoded `nccl`. There is no CPU/gloo
+path, so a multi-process CPU run falls back to single-process and tests nothing. Adding
+one would be a framework change, not an audit.
+
+The practical consequence is worth stating plainly: **every FSDP2 and sharded-checkpoint
+code path has zero automated coverage anywhere**, including CI, and can only ever be
+tested on a GPU cluster.
 
 FSDP2 2-GPU vs 1-GPU parity; the 4-GPU world size, still argued only by transitivity;
 `pc_finalize` end to end (F13 means it cannot be tested anywhere else); per-block gradient
