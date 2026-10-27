@@ -20,6 +20,8 @@ common:
 
 
 trainer:
+  # pc_finalize lives on the PC trainer, not src.core.trainer (which stays PC-free).
+  _target_: src.projected_compression.trainer.PCFinalizeTrainer
   gradient_accumulation_steps: 1
   n_steps: 0
   

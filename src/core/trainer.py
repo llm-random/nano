@@ -8,7 +8,6 @@ from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from src.projected_compression.compression import finalize_projection_weights
 from src.core.conversion_to_hf import save_to_llama_3_hf
 import torch.distributed.checkpoint as dcp
 import logging
@@ -53,9 +52,13 @@ class Trainer:
     weight_decay: float
     distributed: Optional[dict]
 
-    # Checkpoint save types this trainer can actually write. The projected-compression
-    # trainers widen this; anything outside it is rejected before training starts.
-    SUPPORTED_SAVE_TYPES = ("nano", "huggingface", "pc_finalize")
+    # Checkpoint save types this trainer can actually write. Subclasses widen this;
+    # anything outside it is rejected before training starts.
+    SUPPORTED_SAVE_TYPES = ("nano", "huggingface")
+
+    # Of those, the ones written once when training ends rather than on the periodic
+    # interval. Subclasses that add such a type widen this too.
+    FINAL_ONLY_SAVE_TYPES = ("huggingface",)
 
     def __attrs_post_init__(self):
         self._validate_save_type()
@@ -141,30 +144,41 @@ class Trainer:
             self.metric_logger.flush()
 
         if self._should_save_final_checkpoint:
-            if self.checkpoint.save.type in ("nano", "hf_only", "nano_and_hf"):
-                self.save_checkpoint()
-            elif self.checkpoint.save.type == "huggingface":
-                # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
-                model_state_dict = self.model.state_dict()
-                full_state = cast_state_dict_to_tensors(model_state_dict)
+            self.save_final_checkpoint()
 
-                if os.environ["RANK"] == "0":
-                    dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = (
-                        self.model.encoder.get_model_dimensions()
-                    )
+    def save_final_checkpoint(self):
+        """Write the checkpoint that is produced once, when training ends.
 
-                    save_to_llama_3_hf(  # dev fixed values
-                        full_state,
-                        save_dir=get_full_checkpoint_path(self.checkpoint.save.path),
-                        dmodel=dmodel,
-                        dff=dff,
-                        n_att_heads=n_att_heads,
-                        n_kvatt_heads=n_kvatt_heads,
-                        head_dim=head_dim,
-                        nlayers=nlayers,
-                    )
-            elif self.checkpoint.save.type == "pc_finalize":
-                self.save_pc_finalized_checkpoint()
+        Subclasses that widen SUPPORTED_SAVE_TYPES override this to handle the type they
+        added, and defer to super() for the rest.
+        """
+        if self.checkpoint.save.type in ("nano", "hf_only", "nano_and_hf"):
+            self.save_checkpoint()
+        elif self.checkpoint.save.type == "huggingface":
+            # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
+            model_state_dict = self.model.state_dict()
+            full_state = cast_state_dict_to_tensors(model_state_dict)
+
+            if os.environ["RANK"] == "0":
+                dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = (
+                    self.model.encoder.get_model_dimensions()
+                )
+
+                save_to_llama_3_hf(  # dev fixed values
+                    full_state,
+                    save_dir=get_full_checkpoint_path(self.checkpoint.save.path),
+                    dmodel=dmodel,
+                    dff=dff,
+                    n_att_heads=n_att_heads,
+                    n_kvatt_heads=n_kvatt_heads,
+                    head_dim=head_dim,
+                    nlayers=nlayers,
+                )
+        else:
+            raise ValueError(
+                f"No final-checkpoint writer for save.type="
+                f"'{self.checkpoint.save.type}' in {type(self).__name__}."
+            )
 
     def _preprocess_input(self, batch):  # TODO test it
         input_ids = batch[:, :-1].contiguous()
@@ -365,34 +379,23 @@ class Trainer:
         if save_type is None or save_type in self.SUPPORTED_SAVE_TYPES:
             return
 
-        if save_type in ("hf_only", "nano_and_hf"):
-            raise NotImplementedError(
-                f"save.type='{save_type}' is implemented only by the projected-compression "
-                "trainers (src.projected_compression.trainer.PCTrainer and "
-                "trainer_distillation.PCDistillationTrainer), which override "
-                "save_checkpoint(). For a plain Trainer use save.type='nano', or "
-                "'huggingface' to export through src.core.conversion_to_hf."
-            )
-
         raise ValueError(
             f"Unknown checkpoint save.type='{save_type}'. {type(self).__name__} supports: "
             f"{', '.join(self.SUPPORTED_SAVE_TYPES)}."
         )
 
     def save_checkpoint(self):
-        save_type = self.checkpoint.save.type  # "nano" | "huggingface" | "pc_finalize"
+        save_type = self.checkpoint.save.type  # see SUPPORTED_SAVE_TYPES
         checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
 
         # Fail before writing anything rather than part-writing a checkpoint.
         self._validate_save_type()
 
-        if save_type in ("huggingface", "pc_finalize"):
+        if save_type in self.FINAL_ONLY_SAVE_TYPES:
             # These are written once, when training ends, by train(). Reaching here means
             # periodic checkpointing was switched on for them, which used to write the
             # training state and no model at all -- a checkpoint interval that silently
-            # produced nothing. pc_finalize additionally cannot run mid-training:
-            # finalize_projection_weights() merges the projections into the weights in
-            # place and would corrupt the run.
+            # produced nothing.
             raise NotImplementedError(
                 f"Periodic checkpointing is not implemented for save.type='{save_type}', "
                 "which is written once when training ends. Set "
@@ -433,27 +436,4 @@ class Trainer:
                 step=self.step,
                 processed_tokens=self.processed_tokens,
                 metric_logger=self.metric_logger,
-            )
-
-    def save_pc_finalized_checkpoint(self):
-        with torch.no_grad():
-            finalize_projection_weights(self.model)
-            model_state_dict = cast_state_dict_to_tensors(self.model.state_dict())
-
-        if os.environ["RANK"] == "0":
-            checkpoint_folder = step_checkpoint_path(
-                self.checkpoint.save.path, self.step
-            )
-            os.makedirs(checkpoint_folder, exist_ok=True)
-            checkpoint_path = (
-                f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
-            )
-            state_to_save = {
-                "model": model_state_dict,
-                "optim": None,
-                "scheduler": None,
-            }
-            torch.save(state_to_save, checkpoint_path)
-            logger.info(
-                f"Saved non-sharded Finalized PC model checkpoint in '{checkpoint_path}'"
             )
