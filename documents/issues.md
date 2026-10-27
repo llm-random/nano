@@ -12,8 +12,7 @@ helios `PIXI_HOME`) are deliberately **not** here -- see
 
 ## 1. `ProjectedEmbedding` configs still pass the pre-#147 nested `embedding:` argument
 
-**Status:** fixed on branch `fix/projected-embedding-config-drift` (PR pending).
-Still broken on `origin/main`.
+**Status:** **fixed**, merged in #193 (2026-10-26).
 
 **Breaks:** every non-mem-eff PC model built from one of these files dies at instantiation with
 
@@ -66,8 +65,7 @@ result_out_features: ${common.dmodel}
 
 ## 2. Two configs call `init_compression` with its pre-importances signature
 
-**Status:** fixed on branch `fix/projected-embedding-config-drift` (PR pending). Still broken on
-`origin/main`.
+**Status:** **fixed**, merged in #193 (2026-10-26).
 
 **Breaks:** the run reaches model construction and then dies with
 
@@ -126,10 +124,13 @@ not are base files whose `???` placeholders are filled by their children.
 | `configs/_model/llama_3_8_pc.yaml` is an orphan | Referenced by no config. It was fixed under issues 1 and 2 for consistency, but it is dead weight -- either wire it up or drop it. |
 | `configs/pc_project/llama_tiny_comp.yaml` cannot run as shipped | `learning_rate: ???`, and now also `dimensions_importances_path: ???`. It is the only consumer of `llama_tiny_compressor.yaml`. |
 | ~38 configs fail to compose | Pre-existing and **byte-identical between `origin/main` and `mas/nips`** (verified during the merge review), e.g. `_model/llama/*.yaml` -> `Could not find 'ff_layer/dense'`. Not a regression; a separate cleanup task. |
-| `pixi run` rewrites `pixi.lock` v6 -> v7 | pixi 0.81.0 locally. Shipping that lock to a cluster whose pixi is older breaks it (helios is 0.67.1). Workaround: invoke launchers as `./.pixi/envs/default/bin/python run_exp.py ...`, which leaves the lock alone. |
+| `pixi run` rewrites `pixi.lock` v6 -> v7 | pixi 0.81.0 locally. Shipping that lock to a cluster whose pixi is older breaks it (**helios runs 0.67.1**, which cannot read v7). **Decision 2026-10-26: keep the committed lock at v6 and do not regenerate it**, even though `pixi.toml` now declares `pytest` that the lock does not carry -- `pixi install` re-solves anyway, and pixi 0.81 already reports the lock out-of-date independently. Workaround for launchers: `./.pixi/envs/default/bin/python run_exp.py ...`, which leaves the lock alone. |
 | `run_exp.py` leaves the branch broken if killed | `version_code()` commits onto the branch you are standing on and only restores in a `finally`, which a SIGTERM bypasses. See `notes/cluster_fixes_lem_helios.md` for the repair recipe. |
 | 4-GPU production world size not directly observed | The merge review verified the branch is numerically inert vs `mas/nips` (loss metrics bit-identical, gradient-norm deltas *smaller* than two runs of the same code) and ran it at world_size 2 on h100. The 4-GPU run matching the paper's world size was queued and then cancelled; 4-GPU correctness follows by transitivity from "code unchanged" + "the unchanged code ran at 4 GPUs". Kept here as a reminder in case anything ever looks off at 4 GPUs. |
 | `save_to_llama_3_hf` writes no tokenizer | `src/core/conversion_to_hf.py` saves `config.json` + weights but no tokenizer, unlike `PCTrainer.save_hf_checkpoint` which saves one. So HP/HPD HF checkpoints need a tokenizer supplied separately for lm_eval. Pre-existing on `origin/main`. |
 | `pc_finalize` still couples `src/core/` to PC | `src/core/trainer.py` keeps the `finalize_projection_weights` import, the `save.type == "pc_finalize"` dispatch and `save_pc_finalized_checkpoint`. Deliberate: both configs using `pc_finalize` run on the plain `Trainer`, so repointing them at `PCTrainer` (which assumes `model.target_model`) would break them. Removing it is its own task. |
 | `configs/mastest/` never reaches `main` | 50 configs, 252 KB, matched by `.gitignore:194 *mastest*`. 47 of them are already broken (`MissingConfigException`). Nothing carries them over; if any matter they must be committed deliberately. |
 | cemetery clone per submission -- **checked, not a bug** | `run_exp.py:205` runs `mkdir -p {cemetery_dir}` on every submission, then clones into `{cemetery_dir}/{experiment_branch_name}` guarded by `test -d`. Branch names are timestamped, so each submission does get a fresh clone. The quota problem was clones *accumulating* (253 of them, 13 G on lem), never that they were missing. |
+| cemetery redirect never exercised end to end | `infrastructure.cluster_cemetery_dir` landed in #194 and is live on `main`, but **no real `run_exp.py` submission has used it** on either cluster. Each link was checked separately: the key resolves per-cluster (compose), `run_exp.py:204-205` reads exactly that key then `mkdir -p` + clones, and both targets exist, are writable and have room (lem 17 T free, no quota; helios 19 T, inodes 15 %). The first lem or helios submission is the actual test. |
+| lem data is symlinked, not moved | The per-user path is now `<grant-root>/nano/$USER`, but the 414 G of data (pixi env, HF caches, checkpoints) still sits at the old `<grant-root>/mstefaniak`, and **10 `configs/pc_project_mas/*.yaml` hardcode that old path** for checkpoints and evals. A symlink `nano/plgmstefaniak -> ../mstefaniak` makes both resolve, so nothing was copied and nothing broke. Moving it for real is a separate task that must update those 10 configs in lockstep. |
+| ~~unanchored `slicegpt/` in `.gitignore`~~ | **Fixed in #195.** `slicegpt/` without a leading slash matches a directory of that name at *any* depth, so it silently excluded `src/projected_compression/slicegpt/` and `configs/slicegpt/` as well as the third-party clone it was written for -- `git add` did nothing, with no error. Now `/slicegpt/`. Worth remembering as a pattern: unanchored directory rules in `.gitignore` are depth-independent. |
