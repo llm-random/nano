@@ -2,8 +2,18 @@
 
 exec 1>&2
 
-if ! "$HOME/.pixi/bin/pixi" run black --check . 
-then 
+# pixi.lock is deliberately held at v6: helios runs pixi 0.67.1, which cannot read v7.
+# Any `pixi run` without --frozen silently rewrites it, and the diff is ~12k lines, so
+# it is easy to wave through in review and only shows up as a failed submission later.
+if [ -f pixi.lock ] && [ "$(head -n 1 pixi.lock)" != "version: 6" ]; then
+    echo "pixi.lock is not version 6 -- helios cannot read a v7 lock."
+    echo "Run: git checkout -- pixi.lock   (and use 'pixi run --frozen')"
+    exit 1
+fi
+
+# --frozen so this check does not itself rewrite the lock it just validated.
+if ! "$HOME/.pixi/bin/pixi" run --frozen black --check .
+then
     echo "Black formatting check failed"
     exit 1
 fi

@@ -21,3 +21,6 @@ if REPO_ROOT not in sys.path:
 def pytest_configure(config):
     config.addinivalue_line("markers", "gpu: requires a CUDA device")
     config.addinivalue_line("markers", "slow: takes more than a few seconds")
+    config.addinivalue_line(
+        "markers", "network: needs to reach the HuggingFace hub"
+    )

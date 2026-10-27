@@ -1,0 +1,49 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        # CPU wheels: every test selected below runs on CPU, and the CUDA build is an
+        # order of magnitude larger. Versions are the ones pinned in pixi.toml, so CI
+        # and the clusters agree; update both together.
+        run: |
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+            torch==2.7.1 \
+            torchao==0.11.0 \
+            torchtune==0.6.1 \
+            transformers==4.56.2 \
+            datasets==3.1.0 \
+            hydra-core==1.3.2 \
+            pydantic==2.10.4 \
+            "lm-eval>=0.4.0" \
+            "wandb>=0.23.1,<0.24" \
+            "pytest>=8.0,<9" \
+            attrs pyyaml numpy
+
+      - name: Run tests
+        # Offline on purpose: a test that quietly depends on the HuggingFace hub passes
+        # on a workstation with a warm cache and fails here, so make that explicit
+        # rather than intermittent. Tests that genuinely need the hub are marked
+        # `network` and deselected -- meta-llama is gated and a runner has no token.
+        env:
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'
+        run: pytest -m "not gpu and not slow and not network"
