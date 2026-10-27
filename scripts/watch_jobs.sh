@@ -15,6 +15,10 @@
 #    version of this list omitted pytest's own failure lines and duly reported a job
 #    with a FAILED test in it as clean -- widen the alternation rather than narrow it.
 #  * Every line is flushed as it is produced; no `head`, which would SIGPIPE the producer.
+#  * An empty squeue result is only believed after ABSENT_LIMIT consecutive readings, and
+#    a failed query is distinguished from a genuine absence. A transient squeue or ssh
+#    failure returns nothing, which otherwise looks identical to "the job finished" -- it
+#    reported a running job as finished once before this was added.
 #  * A job that is never seen in the queue at all -- already finished, or a typo -- is
 #    reported and dropped after MISSING_LIMIT polls instead of being waited on forever.
 #    An unfindable job is a result too, and hanging on it is the same silent failure as
@@ -24,13 +28,21 @@
 : "${WATCH_LOG_DIRS:=\$HOME:\$SCRATCH}"
 set -uo pipefail
 
-declare -A LAST SEEN MISSES
+declare -A LAST SEEN MISSES ABSENT
 POLL="${POLL:-60}"
 MISSING_LIMIT="${MISSING_LIMIT:-3}"
+ABSENT_LIMIT="${ABSENT_LIMIT:-2}"
 
-state_of() {  # $1=host $2=jobid -> slurm state, or "" if absent
-  timeout 45 ssh -o BatchMode=yes "$1" \
-    "squeue -j $2 -h -o %T 2>/dev/null" 2>/dev/null | tr -d '[:space:]'
+state_of() {  # $1=host $2=jobid -> slurm state, "" if absent, "?" if the query failed
+  local out rc
+  out=$(timeout 45 ssh -o BatchMode=yes "$1" \
+        "squeue -j $2 -h -o %T 2>/dev/null; echo rc=\$?" 2>/dev/null)
+  rc=$(printf '%s' "$out" | sed -n 's/.*rc=\([0-9]*\).*/\1/p' | tail -1)
+  # No rc marker at all means ssh itself failed or timed out -- that is "unknown", not
+  # "the job is gone". A non-zero rc from squeue, by contrast, is "Invalid job id": the
+  # job has been purged from the queue, which IS gone.
+  [ -z "$rc" ] && { echo "?"; return; }
+  printf '%s' "$out" | sed 's/rc=[0-9]*//' | tr -d '[:space:]'
 }
 
 log_errors() {  # $1=host $2=jobid -- surface the first real error line, once
@@ -45,7 +57,7 @@ log_errors() {  # $1=host $2=jobid -- surface the first real error line, once
      2>/dev/null | sort -u | head -3" 2>/dev/null
 }
 
-for spec in "$@"; do LAST[$spec]=""; SEEN[$spec]=0; MISSES[$spec]=0; done
+for spec in "$@"; do LAST[$spec]=""; SEEN[$spec]=0; MISSES[$spec]=0; ABSENT[$spec]=0; done
 remaining=$#
 
 while [ "$remaining" -gt 0 ]; do
@@ -53,8 +65,12 @@ while [ "$remaining" -gt 0 ]; do
     [ "${LAST[$spec]}" = "__done__" ] && continue
     host=${spec%%:*}; job=${spec##*:}
     st=$(state_of "$host" "$job")
+    if [ "$st" = "?" ]; then
+      continue  # query failed; say nothing rather than guess
+    fi
     if [ -n "$st" ]; then
       SEEN[$spec]=1
+      ABSENT[$spec]=0
       if [ "$st" != "${LAST[$spec]}" ]; then
         echo "[$(date +%H:%M:%S)] $spec -> $st"
         LAST[$spec]=$st
@@ -67,6 +83,8 @@ while [ "$remaining" -gt 0 ]; do
         remaining=$((remaining-1))
       fi
     else
+      ABSENT[$spec]=$(( ${ABSENT[$spec]} + 1 ))
+      [ "${ABSENT[$spec]}" -lt "$ABSENT_LIMIT" ] && continue
       errs=$(log_errors "$host" "$job")
       if [ -n "$errs" ]; then
         echo "[$(date +%H:%M:%S)] $spec FINISHED with errors in log:"
