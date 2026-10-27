@@ -405,12 +405,24 @@ are standing on and leaves it broken if the job is killed.
 |---|---|---|---|
 | 25254406 | helios GH200 | suite + `smoketest_pc_1gpu_helios` | smoketest **passed** (loss 14.375 → 9.875 over 20 steps on GPU); 5 PC unit tests **failed** |
 | 25254605 | helios GH200 | one failing test, full traceback | `RuntimeError: indices should be either on cpu or on the same device as the indexed tensor` at `compression.py:99` |
-| 25255266 | helios GH200 | suite + smoketest, after the device fix | see below |
+| 25255266 | helios GH200 | suite + smoketest, after the device fix | PC tests **now pass on GPU**; smoketest trains (14.375 → 9.5625, rc=0); one new failure, `test_sharded_checkpoint_round_trips` |
+| 25255801 | helios GH200 | that failure, full traceback | see below |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | see below |
 
 The two helios jobs together are what found F15, and the pairing matters: the smoketest
 passing while the unit tests failed is exactly what distinguishes "production is broken"
 from "this is untestable on a GPU". Only the second is true.
+
+The smoketest's losses are close but **not bit-identical** across the device fix
+(step 15: 9.8125 before, 9.875 after). That is expected rather than alarming: the
+projections are now created on the GPU in the model's dtype instead of on CPU in float32
+and moved there afterwards, so the arithmetic differs in the last bits. Both runs descend
+normally.
+
+`test_sharded_checkpoint_round_trips` is a test this branch added, and it passes on CPU
+while failing on a machine with a GPU — the same shape of problem as F15, in my own test
+rather than in the framework. It builds a CPU device mesh with gloo, which is fine on a
+CPU-only box and evidently not fine where CUDA is present.
 
 ### What running on a cluster was worth
 
