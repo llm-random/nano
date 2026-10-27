@@ -1,0 +1,38 @@
+defaults:
+  - ../_cluster@_here_: entropy
+  - ../_model@_here_: tiny
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: c4
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - ../_eval@_here_: none
+
+common:
+  sequence_length: 128
+  batch_size: 16
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 100
+  learning_rate: 1e-3
+
+  checkpoint:
+    save:
+      type: huggingface
+      path: checkpoint
+
+infrastructure:
+
+  metric_logger:
+    name: test_core
+    tags:
+      - nano
+      - pr_test
+      - core
+      - train
+
+  slurm:
+    time: "00:10:00"
+    gres: gpu:2
+    job-name: ${infrastructure.metric_logger.name}
+    mem_per_gpu: 100G
