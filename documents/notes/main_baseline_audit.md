@@ -27,9 +27,15 @@ Audited from `main @ 2e51359c`, 2026-10-27, on branch `fix/main-baseline-audit`.
 | CI | `black` only | `black` + the test suite |
 | A bare `pytest` run | collection error | passes |
 
-Tiers 0 and 1 are complete and enforced in CI. Tier 2 is done on CPU — including
-resume-from-checkpoint, which found the most serious bug in this audit (F14). Tier 3 is
-partly done on CPU, and Tier 5 partly done on helios.
+All six tiers have been run to the extent one rank and two reachable clusters allow.
+Tiers 0 and 1 are enforced in CI. Tier 2 is done on CPU — including
+resume-from-checkpoint, which found the most serious bug here (F14) — and its GPU half
+passes on both helios and lem. Tier 3 is covered to a single rank on real GPUs. Tier 4
+reproduces the reference trajectory for 451 steps. Tier 5 passes on helios and lem.
+
+The suite's final state on GH200 (job 25257102, at HEAD): **55 passed, 7 skipped, 0
+failed**. The skips are the dataloader-determinism and training-smoke tests, which need
+the gitignored `data/`.
 
 Two corrections worth carrying forward, because both were wrong in an earlier draft and
 both cost real coverage:
@@ -433,8 +439,9 @@ are standing on and leaves it broken if the job is killed.
 |---|---|---|---|
 | 25254406 | helios GH200 | suite + `smoketest_pc_1gpu_helios` | smoketest **passed** (loss 14.375 → 9.875 over 20 steps on GPU); 5 PC unit tests **failed** |
 | 25254605 | helios GH200 | one failing test, full traceback | `RuntimeError: indices should be either on cpu or on the same device as the indexed tensor` at `compression.py:99` |
-| 25255266 | helios GH200 | suite + smoketest, after the device fix | PC tests **now pass on GPU**; smoketest trains (14.375 → 9.5625, rc=0); one new failure, `test_sharded_checkpoint_round_trips` |
-| 25255801 | helios GH200 | that failure, full traceback | see below |
+| 25255266 | helios GH200 | suite + smoketest, after the device fix | PC tests **now pass on GPU**; smoketest trains, rc=0; one new failure in a test this branch added |
+| 25255801 / 25256547 / 25256588 | helios GH200 | the remaining failures, full tracebacks | each a device assumption in a test of mine, not the framework: CPU mesh under CUDA, finalize() writing to CPU, noise built on CPU |
+| **25257102** | helios GH200 | **final suite + smoketest at HEAD** | **55 passed, 7 skipped, 0 failed** (`pytest exit=0`); smoketest trains, rc=0 |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
 | ~~6173802~~ | lem 4×H100 | PCD-50 prefix, first attempt | **cancelled** -- its log pipeline died of SIGPIPE (see below) and the job was training blind |
 | 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | **451 steps, agrees to bf16 resolution from step 80**; see below |
