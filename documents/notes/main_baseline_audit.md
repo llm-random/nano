@@ -421,7 +421,7 @@ are standing on and leaves it broken if the job is killed.
 | 25255801 | helios GH200 | that failure, full traceback | see below |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
 | ~~6173802~~ | lem 4×H100 | PCD-50 prefix, first attempt | **cancelled** -- its log pipeline died of SIGPIPE (see below) and the job was training blind |
-| 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | tracking and converging; see below |
+| 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | **451 steps, agrees to bf16 resolution from step 80**; see below |
 
 The two helios jobs together are what found F15, and the pairing matters: the smoketest
 passing while the unit tests failed is exactly what distinguishes "production is broken"
@@ -440,39 +440,47 @@ CPU-only box and evidently not fine where CUDA is present.
 
 ### PCD-50 prefix result
 
-Job 6174094, 4×H100 on lem, 132 steps, against wandb `uhhl03fy`. Same config with only
-the paths retargeted, `n_steps` at 4096 so the schedule matches, truncated by wall clock.
+Job 6174094, 4×H100 on lem, ran to its wall clock and reached **step 450** — 11% of the
+4096-step reference. Compared against wandb `uhhl03fy` over all 451 matched steps. Same
+config with only the paths retargeted, `n_steps` at 4096 so the schedule matches.
 
-| step | reference | this run | delta | rel |
+| step | reference | this run | delta |
+|---|---|---|---|
+| 0 | 8.875 | 8.9375 | +0.0625 |
+| 10 | 5.625 | 5.28125 | −0.3438 |
+| 40 | 4.125 | 4.0 | −0.1250 |
+| 80 | 3.5 | 3.5 | 0.0000 |
+| 120 | 3.3125 | 3.3125 | 0.0000 |
+| 200 | 3.25 | 3.265625 | +0.0156 |
+| 300 | 3.125 | 3.125 | 0.0000 |
+| 400 | 3.0625 | 3.046875 | −0.0156 |
+| 450 | 3.0625 | 3.078125 | +0.0156 |
+
+| band | n | max \|delta\| | mean delta | exactly equal |
 |---|---|---|---|---|
-| 0 | 8.875 | 8.9375 | +0.0625 | 0.70% |
-| 5 | 6.78125 | 6.53125 | −0.2500 | 3.69% |
-| 10 | 5.625 | 5.28125 | −0.3438 | 6.11% |
-| 20 | 4.75 | 4.625 | −0.1250 | 2.63% |
-| 40 | 4.125 | 4.0 | −0.1250 | 3.03% |
-| 60 | 3.703125 | 3.71875 | +0.0156 | 0.42% |
-| **80** | 3.5 | 3.5 | **0.0000** | 0.00% |
-| **100** | 3.390625 | 3.390625 | **0.0000** | 0.00% |
-| **120** | 3.3125 | 3.3125 | **0.0000** | 0.00% |
-| **131** | 3.28125 | 3.28125 | **0.0000** | 0.00% |
+| 0–20 | 21 | 0.3438 | −0.1384 | 2/21 |
+| 21–80 | 60 | 0.1250 | −0.0122 | 18/60 |
+| 81–200 | 120 | 0.0469 | +0.0044 | 33/120 |
+| 201–451 | 250 | 0.0625 | +0.0074 | 84/250 |
 
-Over the 92 steps from 40 onward: mean delta **−0.0017**, max |delta| 0.125. Over the
-first twenty: max |delta| 0.344.
+Over everything from step 40 on: mean **+0.005**, max |delta| 0.125, and **129 of 411
+steps exactly equal**.
 
-So the two runs start apart and then agree, exactly, at every anchor from step 80. The
-early spread is what different hardware should produce — the reference ran on entropy,
-this on H100, and the losses are logged at bf16 granularity where 8.875 and 8.9375 are
-adjacent representable values, so the first steps cannot agree more closely than they do.
-Early training is also the steepest, least determined part of the curve, which is why a
-fixed absolute tolerance would be the wrong test there and why the plan called for a
-prefix comparison rather than a single number.
+So after a noisy first twenty steps the two runs agree to within bf16 resolution and stay
+there for four hundred steps, with no drift in either direction. One ulp at these
+magnitudes is 0.0156 to 0.0625, which is the size of almost every non-zero delta past
+step 80 — the curves are as close as the logging precision can express.
+
+The early spread is what different hardware should produce: the reference ran on entropy,
+this on H100, and early training is the steepest, least determined part of the curve.
+A fixed absolute tolerance would be the wrong test there, which is why the plan called
+for a prefix comparison rather than a single final number.
 
 **What this establishes, and what it does not.** `main` puts a PCD-50 run on the recorded
-trajectory and holds it there to within bf16 resolution for a hundred steps. That is a
-real signal and it is the cheap one worth having. It is **not** a reproduction of the
-final loss: that needs all 4096 steps to 2.6705, a multi-hour 4-GPU run which was not
-submitted. Read this tier as "no contradiction found over the first 3% of training", not
-as "the paper's numbers reproduce".
+trajectory and holds it there for 11% of training. That is a real signal and it is the
+strongest one available short of the full run. It is **not** a reproduction of the final
+loss: 2.6705 needs all 4096 steps, a multi-hour 4-GPU job that was not submitted. Read
+this tier as "no contradiction found over the first 11% of training".
 
 ### A trap worth not repeating
 
