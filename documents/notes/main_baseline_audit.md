@@ -601,6 +601,8 @@ are standing on and leaves it broken if the job is killed.
 | **6174690** | lem 4×H100 | **full 4096-step PCD-50** | **COMPLETED 4h41m, rc=0, all 4096 steps.** Final `steps/100/train/loss` **2.674062** vs reference **2.670469** (+0.0036, 0.13%); mean \|delta\| 0.0088 over 40 points. See "PCD-50 full run" |
 | **25325254** | helios GH200 | **`pc_finalize` end to end** through `main.py` | **both stages rc=0**; merged state dict has 39 tensors and **0** projection/auxiliary tensors, `embedding.weight` `(128256, 256)`. First execution of the config this branch retargets. See "pc_finalize end to end" |
 | **25325890** | helios GH200 | **suite at branch HEAD** (`377ae27d`) | **56 passed, 10 skipped, 0 failed**, `pytest` exit 0. Refreshes the stale 25257102 figure |
+| 25327019 | helios GH200 | resume from a sharded checkpoint, eval off | run A rc=0; **run B rc=1, `ZeroDivisionError`** — found F18 |
+| **25328745** | helios GH200 | the same, at the fixed HEAD | **`RESUME_RESULT=IDENTICAL`** — resumed run bit-identical to the uninterrupted one over 9 steps |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
 | ~~6173802~~ | lem 4×H100 | PCD-50 prefix, first attempt | **cancelled** -- its log pipeline died of SIGPIPE (see below) and the job was training blind |
 | 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | **451 steps, agrees to bf16 resolution from step 80**; see below |
@@ -738,6 +740,44 @@ back by another.
 config also sets `n_steps: 0`, so real finalized 1B checkpoints land in `step_-1` too. It is
 deterministic and findable, so it is cosmetic — but changing it would move where production
 checkpoints are written, which is not a call to make quietly inside an audit.
+
+### Resume on a GPU, from a sharded checkpoint
+
+F14 (resume replayed the data) and F18 (resume crashed with eval off) were both fixed and
+tested on CPU in a single process. The PCD-50 run saved only at the end, so
+**sharded-checkpoint resume on real GPUs had no coverage at all** — and that is the shape
+production actually uses. Running it is what found F18.
+
+The recipe needs no new config, only overrides on the existing helios smoketest: train 20
+steps with `save.interval=10`, then a second run at the same `n_steps` with
+`load.path=<ckpt>/step_10`, `load.training_state_filename=__training_state_filename.pt` and
+`load.only_weights=false` — the combination `_checkpoints/none.yaml` marks `# not tested`.
+`n_steps` is held equal because warmup and the cosine `T_max` derive from it.
+
+| job | HEAD | result |
+|---|---|---|
+| 25327019 | before F18 | run A rc=0; **run B rc=1, `ZeroDivisionError`** — resume impossible |
+| **25328745** | after F18 | run A rc=0, run B rc=0, **`RESUME_RESULT=IDENTICAL`** |
+
+At the fixed HEAD the resumed run picks up at exactly step 11 and its losses are
+**bit-identical** to the uninterrupted run for every compared step:
+
+| step | straight | resumed |
+|---|---|---|
+| 11 | 11.1875 | 11.1875 |
+| 12 | 10.625 | 10.625 |
+| 13 | 10.375 | 10.375 |
+| 14 | 10.125 | 10.125 |
+| 15 | 9.875 | 9.875 |
+| 16 | 10.0 | 10.0 |
+| 17 | 9.6875 | 9.6875 |
+| 18 | 9.625 | 9.625 |
+| 19 | 9.5625 | 9.5625 |
+
+So on a GPU, from an FSDP2 sharded checkpoint, with eval off: the run resumes at all (F18)
+and resumes onto the right data (F14). A 2-GPU variant is queued to add the multi-rank
+dimension; the single-rank result above is what the sharded `dcp` save/load round-trip and
+the `only_weights=false` path rest on.
 
 ### A trap worth not repeating
 
