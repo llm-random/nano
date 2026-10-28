@@ -8,6 +8,7 @@ Everything in this file runs in seconds and is safe for CI.
 
 import importlib
 import os
+import re
 import subprocess
 import warnings
 
@@ -401,3 +402,40 @@ def test_call_sites_match_the_function_signature():
     assert not offenders, "call sites disagree with the function signature:\n  " + (
         "\n  ".join(offenders)
     )
+
+
+def test_pixi_version_is_bounded_below_the_lock_bump():
+    """A pixi new enough to rewrite the lock must be refused, not left to do it.
+
+    Measured across four versions: 0.63.2 writes lock v6, 0.67.1 leaves it at v6, and
+    0.77.0 and 0.81.0 both bump it to v7. helios runs 0.67.1 and cannot read v7, so one
+    `pixi run` on a modern pixi rewrote the lock and broke the cluster. `requires-pixi`
+    turns that into a refusal with a clear message.
+
+    The upper bound has to stay at or below 0.77, the first version observed to bump the
+    format, and the lower bound must admit lem's 0.63.2 and helios's 0.67.1.
+    """
+    import tomllib
+
+    with open(os.path.join(REPO_ROOT, "pixi.toml"), "rb") as handle:
+        manifest = tomllib.load(handle)
+    requires = (manifest.get("workspace") or {}).get("requires-pixi")
+    assert (
+        requires
+    ), "pixi.toml declares no requires-pixi, so a too-new pixi will rewrite the lock"
+
+    upper = re.search(r"<\s*([0-9]+\.[0-9]+)", requires)
+    assert upper, f"requires-pixi {requires!r} has no upper bound"
+    major, minor = (int(part) for part in upper.group(1).split("."))
+    assert (major, minor) <= (0, 77), (
+        f"requires-pixi upper bound {upper.group(1)} admits pixi 0.77+, which bumps the "
+        "lock to v7 and breaks helios"
+    )
+
+    lower = re.search(r">=\s*([0-9]+\.[0-9]+)", requires)
+    assert lower, f"requires-pixi {requires!r} has no lower bound"
+    lo_major, lo_minor = (int(part) for part in lower.group(1).split("."))
+    assert (lo_major, lo_minor) <= (
+        0,
+        63,
+    ), f"requires-pixi lower bound {lower.group(1)} excludes lem's pixi 0.63.2"

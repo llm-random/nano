@@ -271,6 +271,31 @@ names is a file that exists, and the old string fails it. Every other checkpoint
 in `src/core` and `src/projected_compression` already names the variable it wrote to, so
 this was the only one.
 
+**F7 — `pixi run` rewrote the lock to v7. FIXED, and it was worse than recorded.**
+The finding said pixi 0.81 rewrites `pixi.lock` from v6 to v7, which helios's 0.67.1
+cannot read. Measuring four real versions rather than inferring from one:
+
+| pixi | where | effect on the lock |
+|---|---|---|
+| 0.63.2 | lem | writes **v6** |
+| 0.67.1 | helios | leaves it at **v6** |
+| **0.77.0** | **entropy** | **bumps to v7** |
+| 0.81.0 | this machine | bumps to v7 |
+
+**entropy's own pixi corrupts the lock**, which nothing had recorded — the entry named only
+the local 0.81, so the hazard looked like a workstation problem when one of the clusters
+has it too.
+
+`pixi.toml` now declares `requires-pixi = ">=0.60,<0.77"`. A too-new pixi stops with a
+clear message instead of silently rewriting: verified in both directions, local 0.81
+refuses and lem's 0.63.2 runs normally leaving the lock byte-identical. The clusters
+activate from their own `PIXI_HOME`, which carries its own manifest, so the bound binds
+only inside the repo — which is exactly where the damage happened. Running code on a newer
+pixi still works by bypassing it, as `documents/issues.md` already advised:
+`./.pixi/envs/default/bin/python run_exp.py ...`.
+
+I had twice called this infrastructure and out of scope. It was neither.
+
 **F16 — the committed lock did not satisfy the manifest. FIXED.** `pixi.toml` declared
 `pytest = ">=8.0,<9"` and `accelerate = ">=0.26.0"` that `pixi.lock` did not carry, and
 pinned `transformers == 4.56.2` while the lock held **4.55.0**. Any environment installed

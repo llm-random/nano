@@ -5,6 +5,18 @@ name = "nano"
 platforms = ["linux-64", "linux-aarch64", "osx-arm64"]   # drop osx-64 (Intel Mac)
 version = "0.1.0"
 
+# Refuse to run rather than silently rewrite the lock. Measured, not guessed:
+# pixi 0.63.2 writes lock v6, 0.67.1 leaves it at v6, but 0.77.0 and 0.81.0 both bump it
+# to v7 -- and helios's pixi 0.67.1 cannot read v7, so a single `pixi run` on a modern
+# pixi used to break the clusters by rewriting +6234/-6089 lines of lock nobody asked it
+# to touch. With this bound a too-new pixi stops with a clear message instead.
+#
+# lem runs 0.63.2 and helios 0.67.1, so both stay inside it. The clusters activate their
+# environment from their own PIXI_HOME, which has its own manifest, so this bound applies
+# only to pixi commands run inside the repo -- which is exactly where the damage happened.
+# To use a newer pixi for running code, bypass pixi: ./.pixi/envs/default/bin/python ...
+requires-pixi = ">=0.60,<0.77"
+
 [tasks]
 install_hooks = "git config --local core.hooksPath .githooks"
 
