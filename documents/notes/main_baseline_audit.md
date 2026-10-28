@@ -263,13 +263,34 @@ fix is probably `.../datasets/fineweb-edu/...` — but that is a claim about wha
 lem, and guessing a data path breaks everyone's runs. Allowlisted in the Tier 0 test so
 new violations still fail.
 
-**F10 — fineweb eval is the training data, on every cluster.** `_dataset/fineweb.yaml`
-gives its eval dataloader `split: train` and `seed: 123`, identical to the train one, and
-`eval_path_fineweb` equals `train_path_fineweb` in `entropy.yaml`, `helios.yaml` and
-`lem.yaml`. The datasets are a deterministic function of their seed, so that dataloader
-yields **the batches the model is training on, in the same order**. Reported fineweb eval
-loss re-scores training data instead of measuring generalisation, and errs in the
-flattering direction. **29 of the 64 configs using fineweb have eval enabled.**
+**F10 — fineweb eval was the training data, on every cluster. FIXED.**
+`_dataset/fineweb.yaml` gave its eval dataloader `split: train` and `seed: 123`, the same
+as the train one, and `eval_path_fineweb` equalled `train_path_fineweb` on entropy, helios
+and lem. The datasets are a deterministic function of their seed, so eval yielded **the
+batches the model was training on, in the same order** — a re-scoring of training data,
+wrong in the flattering direction, across **29 of the 64 fineweb configs**.
+
+Not a typo: `datasets/fineweb/` holds only `train` on both clusters, verified directly,
+while `datasets/c4/` has `train` and `validation`. No fineweb validation split was ever
+downloaded, which is why eval was pointed at the training data.
+
+I first recorded this as needing a decision about experiments, and deferred it. That was
+wrong — there is no second directory to point at, but none is needed. `load_from_disk`
+returns a **map-style** dataset before `to_iterable_dataset`, so a `holdout` parameter can
+carve a disjoint slice out of the one directory that exists: the last `holdout_fraction`
+(default 1%) of rows to eval, everything before the cut to train, both computed from the
+same row count so they cannot overlap. `holdout=None` keeps the old whole-dataset
+behaviour.
+
+Tested by disjointness rather than by configuration — defeat the holdout either way and
+20 of 20 sequences appear in both slices. The hygiene test now accepts a shared eval path
+**only** where a disjoint holdout is declared, and its allowlist drops from five entries to
+one (the toy local c4, one directory on purpose).
+
+**Consequence worth stating plainly:** fineweb training runs now see 99% of the rows, so
+new runs are not bit-comparable with older ones. That is inherent to having an honest eval
+rather than one that scores training data; the fraction is a config knob. Paper headline
+numbers are train loss and the downstream evals come from lm_eval, so those are unaffected.
 
 Verified directly rather than inferred: `datasets/fineweb/` contains only `train` on both
 helios and lem, while `datasets/c4/` has `train` and `validation`. No fineweb validation
@@ -476,11 +497,12 @@ but `_dataset/fineweb.yaml`, `c4.yaml` and `local_dummy.yaml` all set `false` on
 the train and the eval dataloader. So eval loss is scored on a rank-dependent subset, and
 eval numbers do not compare across GPU counts either.
 
-The train-side sharding is a deliberate strategy and should stay; what it needs is to be
-documented and recorded per run. The eval side looks like a straightforward miss — setting
-`world_size_independent: true` on the three eval dataloaders would match the docstring — but
-it changes what every eval number means, so it is recorded in `documents/issues.md` for a
-decision rather than changed inside an audit.
+**The eval side is fixed.** All three eval dataloaders are now
+`world_size_independent: true`, matching the docstring, and
+`test_eval_dataloaders_are_world_size_independent` enforces it, so eval no longer moves
+with the GPU count. The train-side sharding keeps `false`: it is a deliberate strategy and
+should stay. What *it* needs is to be documented and recorded per run, which is why
+`world_size` belongs in run provenance next to the seed.
 
 ### Tier 4 — numerical reproduction — **done, full run reproduces the reference**
 
@@ -827,9 +849,13 @@ a cluster leg in the gate rather than trusting CI alone.
 
 ## 8. Open decisions
 
-- **F10 first.** If `eval_path_fineweb` really is the train directory, every fineweb eval
-  number on lem is suspect. Needs someone who can look at the filesystem.
-- **F9**: what is the shared fineweb path on lem?
+- ~~**F10 first.**~~ **Fixed, not deferred.** Every fineweb eval number recorded before
+  this change scored training data and should be treated as meaningless rather than
+  merely suspect. New runs get a real held-out 1%; see F10. What is left for you is only
+  whether 1% is the right fraction, and whether any published fineweb eval number needs
+  retracting.
+- ~~**F9**: what is the shared fineweb path on lem?~~ **Accepted as-is** on 2026-10-28 —
+  the hardcoded account directory stays, allowlisted so no new ones appear.
 - **Tier 4 tolerance**: how close must a repro be to count as a pass? Now answerable with
   a measurement rather than a guess — the full run lands **+0.13%** on the final number
   and holds **+0.0003 to +0.0092** on the rolling mean from step 201 to the end, on
