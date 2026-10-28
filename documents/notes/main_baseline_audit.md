@@ -1126,6 +1126,21 @@ a cluster leg in the gate rather than trusting CI alone.
    **v6**, Tier 4 and the 4-rank Tier 3 evidence on **lem** (4×H100), Tiers 0/1/2 in CI
    and on **helios** (GH200), Tier 5 on both.
 3. Branch the new project from that tag.
+4. **Refresh each cluster's environment from the repo's lock**, or the new project
+   inherits the drift this audit found. A cluster's `PIXI_HOME` holds its own copy of
+   `pixi.toml` and `pixi.lock`, and nothing syncs it: entropy's still has no pytest and
+   runs `transformers 5.12.1` against a manifest pinning `==4.56.2`. Check with
+   `scripts/sync_cluster_env.sh <PIXI_HOME>` (dry run) and apply it only after confirming
+   who else uses that environment.
+5. **Decide what happens to `configs/mastest/` before branching.** 50 configs, 252 KB,
+   matched by `.gitignore:194 *mastest*`, 47 of them already broken. They are gitignored
+   on purpose, so nothing is wrong — but nothing carries them to the new project either,
+   and the failure mode is someone assuming they came along. Commit the ones that matter
+   deliberately, or accept losing them.
+6. **Know what the tag does and does not cover.** Tier 4 and the four-rank Tier 3
+   evidence rest on lem alone; entropy contributes the suite and a CPU smoketest; lem
+   cannot run the suite at all for want of pytest. The per-cluster table in section 1 is
+   the honest version.
 
 ---
 
