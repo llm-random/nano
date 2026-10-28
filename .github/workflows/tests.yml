@@ -40,7 +40,8 @@ jobs:
             "lm-eval>=0.4.0" \
             "wandb>=0.23.1,<0.24" \
             "pytest>=8.0,<9" \
-            attrs pyyaml numpy
+            attrs pyyaml numpy \
+            fabric GitPython
 
       - name: Run tests
         # Offline on purpose: a test that quietly depends on the HuggingFace hub passes
