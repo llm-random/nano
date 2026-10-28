@@ -603,6 +603,7 @@ are standing on and leaves it broken if the job is killed.
 | **25325890** | helios GH200 | **suite at branch HEAD** (`377ae27d`) | **56 passed, 10 skipped, 0 failed**, `pytest` exit 0. Refreshes the stale 25257102 figure |
 | 25327019 | helios GH200 | resume from a sharded checkpoint, eval off | run A rc=0; **run B rc=1, `ZeroDivisionError`** — found F18 |
 | **25328745** | helios GH200 | the same, at the fixed HEAD | **`RESUME_RESULT=IDENTICAL`** — resumed run bit-identical to the uninterrupted one over 9 steps |
+| **25326196** | helios 2×GH200 | the same at **two ranks** | **`RESUME_RESULT=IDENTICAL`** — multi-rank sharded resume bit-identical to its own uninterrupted run |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
 | ~~6173802~~ | lem 4×H100 | PCD-50 prefix, first attempt | **cancelled** -- its log pipeline died of SIGPIPE (see below) and the job was training blind |
 | 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | **451 steps, agrees to bf16 resolution from step 80**; see below |
@@ -774,10 +775,22 @@ At the fixed HEAD the resumed run picks up at exactly step 11 and its losses are
 | 18 | 9.625 | 9.625 |
 | 19 | 9.5625 | 9.5625 |
 
-So on a GPU, from an FSDP2 sharded checkpoint, with eval off: the run resumes at all (F18)
-and resumes onto the right data (F14). A 2-GPU variant is queued to add the multi-rank
-dimension; the single-rank result above is what the sharded `dcp` save/load round-trip and
-the `only_weights=false` path rest on.
+**The 2-GPU variant agrees** (job 25326196, 2×GH200, COMPLETED 20m25s, both runs rc=0,
+`RESUME_RESULT=IDENTICAL`). Its absolute losses differ from the 1-GPU run, exactly as the
+`world_size` sharding above predicts — 11.5 against 11.1875 at step 11 — but the resumed
+run matches *its own* uninterrupted run bit for bit at every compared step:
+
+| step | straight | resumed |
+|---|---|---|
+| 11 | 11.5 | 11.5 |
+| 13 | 10.8125 | 10.8125 |
+| 15 | 10.1875 | 10.1875 |
+| 17 | 9.75 | 9.75 |
+| 19 | 9.5 | 9.5 |
+
+So on a GPU, from an FSDP2 sharded checkpoint, with eval off, at one rank and at two: the
+run resumes at all (F18) and resumes onto the right data (F14). Multi-rank sharded
+`dcp` save/load and the `only_weights=false` path are both covered.
 
 ### A trap worth not repeating
 
