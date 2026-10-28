@@ -623,6 +623,7 @@ are standing on and leaves it broken if the job is killed.
 | **6174690** | lem 4×H100 | **full 4096-step PCD-50** | **COMPLETED 4h41m, rc=0, all 4096 steps.** Final `steps/100/train/loss` **2.674062** vs reference **2.670469** (+0.0036, 0.13%); mean \|delta\| 0.0088 over 40 points. See "PCD-50 full run" |
 | **25325254** | helios GH200 | **`pc_finalize` end to end** through `main.py` | **both stages rc=0**; merged state dict has 39 tensors and **0** projection/auxiliary tensors, `embedding.weight` `(128256, 256)`. First execution of the config this branch retargets. See "pc_finalize end to end" |
 | **25325890** | helios GH200 | **suite at branch HEAD** (`377ae27d`) | **56 passed, 10 skipped, 0 failed**, `pytest` exit 0. Refreshes the stale 25257102 figure |
+| **25332615** | helios GH200 | **fineweb holdout on real cluster data**, eval ON | `HOLDOUT_RC=0`; train 1266316358 rows / eval 12791074 rows from the same cut, `eval/loss` computed on the held-out slice |
 | 25327019 | helios GH200 | resume from a sharded checkpoint, eval off | run A rc=0; **run B rc=1, `ZeroDivisionError`** — found F18 |
 | **25328745** | helios GH200 | the same, at the fixed HEAD | **`RESUME_RESULT=IDENTICAL`** — resumed run bit-identical to the uninterrupted one over 9 steps |
 | **25326196** | helios 2×GH200 | the same at **two ranks** | **`RESUME_RESULT=IDENTICAL`** — multi-rank sharded resume bit-identical to its own uninterrupted run |
@@ -817,6 +818,30 @@ run matches *its own* uninterrupted run bit for bit at every compared step:
 So on a GPU, from an FSDP2 sharded checkpoint, with eval off, at one rank and at two: the
 run resumes at all (F18) and resumes onto the right data (F14). Multi-rank sharded
 `dcp` save/load and the `only_weights=false` path are both covered.
+
+### The fineweb holdout on real data
+
+The holdout (F10) was written and unit-tested against the tiny local dataset. That proves
+the slices are disjoint, but real fineweb is a 1.28-billion-row Arrow dataset and the split
+runs `len()` and `.select()` over it before `to_iterable_dataset` — a different proposition
+at that size, and not something a CPU test can speak to. `smoketest_fineweb_holdout_helios`
+runs both branches against the cluster copy, with eval left **on**, because the eval
+dataloader is half of what is being tested.
+
+helios job **25332615**, 1×GH200, `HOLDOUT_RC=0`:
+
+```
+holdout='train': 1266316358 of 1279107432 rows (cut at 1266316358)
+holdout='eval':    12791074 of 1279107432 rows (cut at 1266316358)
+```
+
+Exactly 1% held out, both slices taken from the same cut, so disjoint by construction at
+full scale and not merely in the fixture. `eval/loss` is computed (15.25, then 15.0 — a
+random tiny model, so the value means nothing; that it is *computed on the held-out slice*
+is the point). Training descends normally over 12 steps.
+
+This also exercises `world_size_independent: true` on the eval dataloader, which is the
+other half of the F10/GPU-count fix.
 
 ### A trap worth not repeating
 
