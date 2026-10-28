@@ -190,9 +190,9 @@ class Trainer:
         `_dataset/fineweb.yaml` pins to 8192 samples of 2048 tokens -- the same samples
         for every run, so the number is comparable across them.
 
-        It runs before the final checkpoint on purpose: `pc_finalize` merges the
-        projections and sets the parameters to None off rank 0, so after saving there is
-        no model left to evaluate.
+        It runs before the final checkpoint on purpose. A subclass's final save may
+        consume the model -- rewriting its parameters, or dropping them off rank 0 --
+        so a score taken afterwards would be of whatever the save left behind.
         """
         if self.eval_dataloader is None or not hasattr(
             self.eval_dataloader, "__iter__"

@@ -274,10 +274,11 @@ def test_final_eval_puts_the_model_in_eval_mode():
 def test_train_runs_the_final_eval_before_saving():
     """Order matters, and nothing else in the suite would notice if it changed.
 
-    save_pc_finalized_checkpoint merges the projections and sets the parameters to None
-    off rank 0, so a final eval placed after it would score a model that no longer
+    PCFinalizeTrainer's final save merges the projections and sets the parameters to
+    None off rank 0, so a final eval placed after it would score a model that no longer
     exists. This reads the source rather than driving a full training run, because the
-    guarantee is about call order, not about what either call computes.
+    guarantee is about call order, not about what either call computes. (Naming that
+    here is fine: this is a test, not src/core, which must stay PC-free.)
     """
     import inspect
 
