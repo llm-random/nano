@@ -185,18 +185,32 @@ names is a file that exists, and the old string fails it. Every other checkpoint
 in `src/core` and `src/projected_compression` already names the variable it wrote to, so
 this was the only one.
 
-**F16 — `pytest` is declared but not locked, so the project env lacks it.**
-`pixi.toml:24` lists `pytest = ">=8.0,<9"` under `[pypi-dependencies]` (added in c8dfd4bf,
-Oct 23), but `pixi.lock` was last regenerated in March and carries no pytest distribution.
-Any environment installed from the committed lock therefore has no pytest: confirmed on
-**lem** — both `nano/$USER/pixi` and the older `plgllmefficont3/mstefaniak/pixi`, where
-`python -m pytest` gives `No module named pytest`, so only the smoketest could run — and on
-the **local** `.pixi/envs/default` here, which fails the same way. helios's environment
-does have pytest (job 25257102 ran the suite through it), so it predates or was built
-outside this lock. The suite was run locally through the system interpreter, not through
-pixi. This is wider than "lem is stale": nobody who installs from the lock can run the
-gate through the project's own environment manager, and CI only passes because it installs
-with pip.
+**F16 — the committed lock did not satisfy the manifest. FIXED.** `pixi.toml` declared
+`pytest = ">=8.0,<9"` and `accelerate = ">=0.26.0"` that `pixi.lock` did not carry, and
+pinned `transformers == 4.56.2` while the lock held **4.55.0**. Any environment installed
+from the committed lock therefore had no pytest — confirmed on lem (both
+`nano/$USER/pixi` and `plgllmefficont3/mstefaniak/pixi`: `No module named pytest`) and in
+the local `.pixi/envs/default`. helios's environment was re-solved rather than installed
+from the lock, so it had pytest all along.
+
+The fix is the by-the-book one, and the reason it was thought impossible was a wrong
+assumption of mine: that regenerating the lock necessarily moves it to v7. It does with the
+local pixi 0.81.0, but the format follows the *writer*. **lem runs pixi 0.63.2 and helios
+0.67.1** (read on a GH200 compute node — helios's login node is x86_64 while its pixi
+binary is aarch64, so the version cannot be read from the login node). Regenerating with
+pixi **0.63.2**, the older of the two, keeps the lock at **v6** and both clusters can read
+it.
+
+The result is small and targeted — **168 insertions, 41 deletions**, against the
++6234/−6089 that a pixi 0.81 rewrite produces — and re-running `pixi lock` reports
+"Lock-file was already up-to-date", so it is stable rather than churning. It adds pytest
+8.4.2 (with `iniconfig` and `pluggy`) and `accelerate` 1.15.0, and moves `transformers`
+4.55.0 → 4.56.2 and `tokenizers` 0.21.4 → 0.22.2.
+
+That bump is not a new risk: helios's environment **already runs transformers 4.56.2 and
+pytest 8.4.2**, verified on a compute node. The regenerated lock codifies what production
+already runs and brings lem into line with both helios and the manifest. The v6 pin and its
+hygiene test are unchanged, so F7 still holds: do not let pixi 0.81 rewrite the lock.
 
 This is the v6 pin's cost, now concrete. The lock is deliberately held at 6 because helios
 runs pixi 0.67.1 and cannot read 7 (F7), so bringing lem's environment up to date means
@@ -496,7 +510,8 @@ smoketest — `smoketest_pc_1gpu_helios.yaml`, a self-contained tiny PC model ex
 pixi env, the fineweb path, the model build, `init_compression` and the training loop; and
 `smoketest_pc_1gpu_lem.yaml`, the production `PCTrainer` mem-eff path on the real 1B
 model. Both pass. The suite runs on helios — 56 passed, 10 skipped, 0 failed at branch HEAD
-(job 25325890) — and on lem it cannot (F16). `pc_finalize` also runs end to end on helios;
+(job 25325890). It could not run on lem when this was written; F16 is now fixed, so a
+fresh install from the lock there gets pytest. `pc_finalize` also runs end to end on helios;
 see its section in the cluster log.
 
 **The cemetery redirect is exercised on both.** `infrastructure.cemetery_experiments_dir`
@@ -739,12 +754,9 @@ a cluster leg in the gate rather than trusting CI alone.
   different hardware from the reference. A threshold of 0.5% on the final loss would pass
   this comfortably and still catch anything that actually broke; the first 100 steps need
   excluding from any per-point bound, since that point alone is 0.14 off.
-- **F16 — regenerate `pixi.lock` or not.** The lock has no pytest, so the gate cannot be
-  run through the project env on lem or locally. Regenerating it moves the lock to v7,
-  which helios's pixi 0.67.1 cannot read (F7). The options are: pin pixi for everyone and
-  regenerate; install pytest out of band per cluster; or keep running the suite through a
-  non-pixi interpreter, as CI and this work both do. This one needs your call — all three
-  cost someone something.
+- ~~**F16 — regenerate `pixi.lock` or not.**~~ **Resolved.** Regenerating with pixi 0.63.2
+  keeps the lock at v6, so no cluster loses the ability to read it, and the premise that
+  regeneration forces v7 was wrong — the format follows the writer, not the lock. See F16.
 - `configs/ff_layer/` is a component group living outside the underscore convention; the
   Tier 0 test special-cases it. Renaming it to `_ff_layer` would remove the special case.
 - `test_slicegpt.py` sits at the repo root because it calls hydra's `initialize()`, which
