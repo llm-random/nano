@@ -191,7 +191,24 @@ class FineWebEduDataset(AbstractDataset):
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
         world_size_independent: bool = False,
+        holdout: Optional[str] = None,
+        holdout_fraction: float = 0.01,
     ):
+        """holdout carves a disjoint evaluation slice out of a single directory.
+
+        fineweb ships only a `train` directory -- no validation split was ever
+        downloaded -- so eval was pointed at the training data and scored the batches
+        the model was training on. There is no second directory to point at, but there
+        is no need for one: the last `holdout_fraction` of the rows can be reserved.
+        Pass holdout="train" to take everything before the cut and holdout="eval" to
+        take everything after it. Both are computed from the same row count, so the two
+        are disjoint by construction.
+
+        holdout=None keeps the old behaviour of using every row, for callers that
+        genuinely want the whole dataset.
+        """
+        self.holdout = holdout
+        self.holdout_fraction = holdout_fraction
         super().__init__(
             sequence_length,
             tokenize_fn,
@@ -204,13 +221,47 @@ class FineWebEduDataset(AbstractDataset):
         )
         self._load_dataset(path, seed, tokenize_fn, shuffle)
 
+    def _holdout_split(self, hf_dataset):
+        if self.holdout is None:
+            return hf_dataset
+        if self.holdout not in ("train", "eval"):
+            raise ValueError(
+                f"holdout must be None, 'train' or 'eval', got {self.holdout!r}"
+            )
+        if not 0.0 < self.holdout_fraction < 1.0:
+            raise ValueError(
+                f"holdout_fraction must be in (0, 1), got {self.holdout_fraction}"
+            )
+
+        total = len(hf_dataset)
+        held_out = max(1, int(total * self.holdout_fraction))
+        cut = total - held_out
+        if cut < 1:
+            raise ValueError(
+                f"holdout_fraction {self.holdout_fraction} leaves no training rows "
+                f"in a dataset of {total}"
+            )
+
+        if self.holdout == "train":
+            selected = hf_dataset.select(range(cut))
+        else:
+            selected = hf_dataset.select(range(cut, total))
+        logger.info(
+            f"holdout='{self.holdout}': {len(selected)} of {total} rows "
+            f"(cut at {cut})"
+        )
+        return selected
+
     def _load_dataset(self, path, seed, tokenize_fn, shuffle: bool):
         if path is None:
             raise ValueError("Path to dataset must be provided for FineWebEduDataset")
         else:
             logger.debug(f"Loading dataset from path '{path}'")
             hf_dataset = load_from_disk(path)
-            hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
+            hf_dataset = self._holdout_split(hf_dataset)
+            hf_dataset = hf_dataset.to_iterable_dataset(
+                num_shards=min(self.NUM_SHARDS, len(hf_dataset))
+            )
 
         if not self.world_size_independent:
             hf_dataset = split_dataset_by_node(

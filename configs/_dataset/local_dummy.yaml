@@ -26,5 +26,7 @@ trainer:
       seed: 123
       use_new_sampling_method: true
       shuffle: true
-      world_size_independent: false
+      # True for eval, per AbstractDataset's contract: otherwise each rank evaluates
+      # on a different slice and the number depends on the GPU count.
+      world_size_independent: true
     num_workers: 0

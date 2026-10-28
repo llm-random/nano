@@ -324,3 +324,63 @@ def test_the_logged_training_state_path_is_where_the_file_lands(tmp_path, caplog
         f"log points at '{path}', which does not exist -- a resume following this "
         f"log would restart from step 0"
     )
+
+
+# ---------------------------------------------------------------------------
+# The fineweb holdout.
+#
+# fineweb ships only a train directory on every cluster -- no validation split
+# was ever downloaded -- so eval was pointed at the training data and scored the
+# batches the model was training on, in the same order, flattering in exactly
+# the direction nobody checks. There is no second directory to point at, so the
+# fix carves one: the last holdout_fraction of rows goes to eval and the rest to
+# train, both computed from the same row count. These assert the two slices are
+# genuinely disjoint rather than merely configured to be.
+
+
+def _holdout_stream(n, holdout, monkeypatch, fraction=0.2):
+    from src.core.datasets import FineWebEduDataset, gpt2_tokenize_fn
+
+    monkeypatch.setenv("WORLD_SIZE", "1")
+    monkeypatch.setenv("RANK", "0")
+    dataset = FineWebEduDataset(
+        sequence_length=16,
+        tokenize_fn=gpt2_tokenize_fn(),
+        path=os.path.join(REPO_ROOT, "data"),
+        seed=123,
+        shuffle=True,
+        world_size_independent=True,
+        holdout=holdout,
+        holdout_fraction=fraction,
+    )
+    return [tuple(sequence) for sequence in itertools.islice(iter(dataset), n)]
+
+
+@needs_local_data
+def test_the_holdout_slices_do_not_overlap(monkeypatch):
+    """What train sees and what eval sees must be disjoint."""
+    train = _holdout_stream(20, "train", monkeypatch)
+    evaluation = _holdout_stream(20, "eval", monkeypatch)
+    assert train and evaluation
+    shared = set(train) & set(evaluation)
+    assert not shared, f"{len(shared)} sequences appear in both train and eval holdouts"
+
+
+@needs_local_data
+def test_without_a_holdout_eval_sees_the_training_data(monkeypatch):
+    """The bug this guards against, stated as a fact rather than a worry.
+
+    With holdout=None both dataloaders read every row with the same seed, so they
+    produce the same stream -- which is what made the reported eval loss meaningless.
+    """
+    first = _holdout_stream(8, None, monkeypatch)
+    second = _holdout_stream(8, None, monkeypatch)
+    assert first == second, "two unheld-out streams should be identical, by seed"
+
+
+@needs_local_data
+def test_holdout_rejects_a_nonsense_setting(monkeypatch):
+    with pytest.raises(ValueError, match="holdout must be"):
+        _holdout_stream(1, "validation", monkeypatch)
+    with pytest.raises(ValueError, match="holdout_fraction"):
+        _holdout_stream(1, "eval", monkeypatch, fraction=1.5)

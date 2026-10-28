@@ -237,36 +237,49 @@ def test_no_new_account_names_in_shared_config():
     )
 
 
-# Cluster/dataset pairs whose eval path is knowingly the same as its train path.
-# Shrink this list; never add to it. See F10 in the baseline audit notes.
+# Cluster/dataset pairs whose eval path is the same directory as its train path AND
+# which do not carve a disjoint holdout out of it. Shrink this list; never add to it.
+# See F10 in the baseline audit notes.
 KNOWN_EVAL_PATH_EQUALS_TRAIN = {
-    ("local", "fineweb"),
     ("local", "c4"),  # toy local dataset, one directory on purpose
-    ("entropy", "fineweb"),
-    ("helios", "fineweb"),
-    ("lem", "fineweb"),
 }
 
 
+def _holdout_pair(dataset_family):
+    """The (train, eval) holdout settings a dataset config declares, if any."""
+    config = os.path.join(REPO_ROOT, "configs", "_dataset", f"{dataset_family}.yaml")
+    if not os.path.isfile(config):
+        return (None, None)
+    with open(config) as handle:
+        doc = yaml.safe_load(handle) or {}
+    loaders = doc.get("trainer") or {}
+    out = []
+    for key in ("train_dataloader", "eval_dataloader"):
+        loader = loaders.get(key) or {}
+        dataset = loader.get("dataset") or {}
+        out.append(dataset.get("holdout"))
+    return tuple(out)
+
+
 def test_eval_data_is_not_the_training_data():
-    """An eval path equal to the train path measures nothing.
+    """An eval path equal to the train path measures nothing, unless it is held out.
 
     The datasets are a deterministic function of their seed (see
     test_core_framework.py), and `_dataset/fineweb.yaml` gives its eval dataloader the
     same `split: train` and the same `seed: 123` as the train one. So where the paths
-    also coincide, the eval dataloader yields *the batches the model is training on*, in
-    the same order, and the reported eval loss is a re-scoring of training data rather
-    than a measure of generalisation -- wrong in the flattering direction.
+    also coincide and nothing separates the rows, the eval dataloader yields *the
+    batches the model is training on*, in the same order, and the reported eval loss is
+    a re-scoring of training data rather than a measure of generalisation -- wrong in
+    the flattering direction.
 
-    c4 gets this right: its eval points at a `validation` directory with `split:
-    validation`. fineweb does not, on any cluster, because no validation split was ever
-    downloaded -- `datasets/fineweb/` contains only `train` while `datasets/c4/` has
-    both. 29 of the 64 configs using fineweb have eval enabled.
+    fineweb has only a `train` directory on every cluster: no validation split was ever
+    downloaded, which is why eval was pointed at the training data. There is no second
+    directory to point at, so the fix is `holdout`, which reserves the tail of the rows
+    for eval and gives the rest to train. The two slices come from the same row count,
+    so they cannot overlap, and the shared path is then no longer a defect.
 
-    Those pairs are allowlisted rather than silently changed: the fix is to build a
-    held-out split or to stop reporting fineweb eval, and both are decisions about
-    experiments, not cleanups. The point of this test is that no *other* dataset
-    acquires the same shape.
+    This test accepts a shared path only when the config declares that split. Anything
+    else sharing a path, with no holdout and no allowlist entry, fails.
     """
     offenders = []
     for path in _tracked("configs/_cluster/*.yaml"):
@@ -281,14 +294,44 @@ def test_eval_data_is_not_the_training_data():
             eval_value = switch.get(f"eval_path_{family}")
             if train_value is None or eval_value is None:
                 continue  # not configured on this cluster
-            if (
-                train_value == eval_value
-                and (cluster, family) not in KNOWN_EVAL_PATH_EQUALS_TRAIN
-            ):
-                offenders.append(
-                    f"{path}: {family} eval path == train path ({train_value!r})"
-                )
+            if train_value != eval_value:
+                continue
+            if (cluster, family) in KNOWN_EVAL_PATH_EQUALS_TRAIN:
+                continue
+            train_holdout, eval_holdout = _holdout_pair(family)
+            if train_holdout == "train" and eval_holdout == "eval":
+                continue  # disjoint by construction
+            offenders.append(
+                f"{path}: {family} eval path == train path ({train_value!r}) "
+                f"with holdout train={train_holdout!r} eval={eval_holdout!r}"
+            )
     assert not offenders, (
         "eval data is the training data, so eval loss measures nothing:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_eval_dataloaders_are_world_size_independent():
+    """Eval must not depend on the GPU count.
+
+    AbstractDataset's own contract says world_size_independent "should be 'True' for
+    tests and eval", but every shipped dataset config set it False on both dataloaders.
+    With False the rows are split across ranks by split_dataset_by_node, so each rank
+    evaluates on a different slice and the reported number changes with the number of
+    GPUs -- two runs of the same config are not comparable unless they used the same
+    world size.
+    """
+    offenders = []
+    for path in _tracked("configs/_dataset/*.yaml"):
+        with open(os.path.join(REPO_ROOT, path)) as handle:
+            doc = yaml.safe_load(handle) or {}
+        loader = (doc.get("trainer") or {}).get("eval_dataloader") or {}
+        dataset = loader.get("dataset") or {}
+        if "world_size_independent" not in dataset:
+            continue
+        if dataset["world_size_independent"] is not True:
+            offenders.append(
+                f"{path}: eval_dataloader world_size_independent="
+                f"{dataset['world_size_independent']!r}, must be True"
+            )
+    assert not offenders, "eval depends on the GPU count:\n  " + "\n  ".join(offenders)
