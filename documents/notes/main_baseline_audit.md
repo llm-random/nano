@@ -658,6 +658,8 @@ are standing on and leaves it broken if the job is killed.
 | **25325254** | helios GH200 | **`pc_finalize` end to end** through `main.py` | **both stages rc=0**; merged state dict has 39 tensors and **0** projection/auxiliary tensors, `embedding.weight` `(128256, 256)`. First execution of the config this branch retargets. See "pc_finalize end to end" |
 | **25325890** | helios GH200 | **suite at branch HEAD** (`377ae27d`) | **56 passed, 10 skipped, 0 failed**, `pytest` exit 0. Refreshes the stale 25257102 figure |
 | **25332615** | helios GH200 | **fineweb holdout on real cluster data**, eval ON | `HOLDOUT_RC=0`; train 1266316358 rows / eval 12791074 rows from the same cut, `eval/loss` computed on the held-out slice |
+| ~~6183879~~ / ~~6183912~~ | lem 4×H100 | mem-eff PC → HF conversion, first attempts | **both failed** — `TypeError` then `AttributeError`; found F19's two defects |
+| **6183950** | lem 4×H100 | **the same at the twice-fixed HEAD** | `CONVERT_RC=0`; `hidden_size` 1344, `intermediate_size` 5376, safetensors + tokenizer written. Reloaded on an H100: **0.802B params, finite logits, "The capital of France is" → ' Paris'** |
 | 25327019 | helios GH200 | resume from a sharded checkpoint, eval off | run A rc=0; **run B rc=1, `ZeroDivisionError`** — found F18 |
 | **25328745** | helios GH200 | the same, at the fixed HEAD | **`RESUME_RESULT=IDENTICAL`** — resumed run bit-identical to the uninterrupted one over 9 steps |
 | **25326196** | helios 2×GH200 | the same at **two ranks** | **`RESUME_RESULT=IDENTICAL`** — multi-rank sharded resume bit-identical to its own uninterrupted run |
@@ -876,6 +878,46 @@ is the point). Training descends normally over 12 steps.
 
 This also exercises `world_size_independent: true` on the eval dataloader, which is the
 other half of the F10/GPU-count fix.
+
+### Mem-eff PC → HF conversion, end to end
+
+`llama_1B_memeff_to_hf_conversion` is one of the configs F3 unblocked, and the PCD-50 run
+finally supplied the trained checkpoint it needs. I had twice recorded it as blocked on
+gated `meta-llama/Llama-3.2-1B` access. **Both times that was wrong**: helios holds an HF
+token, and lem has the model in the group's shared cache
+(`.../nano/plgj321m/hf_cache/hub`). Running it found F19 — two independent defects in four
+lines, which had made every mem-eff PC checkpoint unconvertible since March.
+
+lem job **6183950**, 4×H100, against the PCD-50 checkpoint from job 6174690.
+`CONVERT_RC=0`:
+
+| field | value | expected |
+|---|---|---|
+| `hidden_size` | 1344 | 1344 (50% of 2688) |
+| `intermediate_size` | 5376 | 5376 |
+| `num_hidden_layers` | 16 | unchanged from the source |
+| `tie_word_embeddings` | False | False — the compressed model has independent embedding and head |
+| weights | `model.safetensors` | — |
+| tokenizer | `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json` | — |
+
+Structure alone would not prove much, so the output was loaded back through
+`AutoModelForCausalLM` on an H100:
+
+```
+params: 0.802B      logits (1, 6, 128256), all finite
+next-token loss on a six-token prompt: 3.5079
+top-1 continuation for "The capital of France is" -> ' Paris'
+```
+
+So the converted checkpoint is not merely well-formed, it is a working language model. That
+is the full PC pipeline exercised end to end on `main`: train a compressed 1B to the paper's
+loss, convert it to HF, and get something that answers. It is also the step immediately
+before lm_eval, so the downstream evaluation path now has a real input.
+
+Two notes. `dcp.load` reads shards straight from `checkpoint.load.path`, while the
+distillation trainer writes them to `step_<n>/model`, so the path has to include `/model`.
+And the run config is `configs/pc_project_mas/_lem_memeff_to_hf.yaml`, left on the cluster
+rather than committed, like `_lem_pcd50_prefix.yaml` — these carry absolute per-user paths.
 
 ### A trap worth not repeating
 
