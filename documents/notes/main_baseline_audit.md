@@ -966,7 +966,39 @@ What is set up there:
 | config | `configs/pc_project_mas/smoketest_pc_1gpu_entropy.yaml`, importances path left `???` and passed at submit time |
 | job | **30689** — suite + 1-GPU PC smoketest, log at `~j321m/mas_smoke_30689.out` |
 
-**The job did not run inside this audit.** `h100` is the single node `h100a` and it was full
+**Result: both halves pass on entropy.**
+
+| job | what | result |
+|---|---|---|
+| **30703** | full test suite, CPU | **`SUITE_RC=0`** — passes against `transformers 5.12.1`, where `pixi.toml` pins `==4.56.2` |
+| **30711** | 1-GPU PC smoketest, CPU, 20k-row fineweb slice | **`SMOKE_RC=0`** — loss 21.71 → 16.27 over 4 steps, peak RSS **6.29 GB** |
+| ~~30700/30706/30707~~ | earlier attempts | cancelled or OOM — see below |
+| 30689 | the same on a real GPU | still queued; estimated start 2026-10-29 14:00 |
+
+The suite result is the more informative half: entropy's environment is **not** built from
+this repo's lock, so this is the branch holding up against a substantially different
+dependency set than helios or lem.
+
+**Two things had to be solved to get there, and both are worth recording.**
+
+*No pytest in the environment.* entropy's env has the same gap as lem's. Refreshing it was
+not an option — it is shared, and moving `transformers` 5.12.1 → 4.56.2 could break someone
+else's work. A `python -m venv --system-site-packages` layered over it, with pytest
+installed into the venv alone, is additive and isolated.
+
+*Memory, which was misdiagnosed twice.* The smoketest OOM'd at 32 GB and the new fineweb
+holdout was the obvious suspect; it was not (see "The fineweb holdout on real data"). The
+real cause is **Arrow page cache**: SLURM's cgroup counts mmap'd pages, and streaming the
+1.27-billion-row dataset pulls them in, so the memory floor of a fineweb run is set by the
+dataset rather than by the model. Peak RSS on a 20 000-row slice of the same dataset in the
+same format is **6.29 GB** for a 146M-parameter model — the model was never the problem.
+That is why production asks 90–220 GB per GPU and why a modest allocation OOMs on a tiny
+model. Raising the request does not help on a busy node: 120 GB could not be scheduled at
+all, and 60 GB would not backfill, while 28 GB with a sliced dataset ran immediately and
+exercises `FineWebEduDataset`, `_load_dataset`, the holdout, `split_dataset_by_node`, the
+sample packer, `init_compression` and the training loop identically.
+
+**The GPU variant did not run inside this audit.** `h100` is the single node `h100a` and it was full
 of other users' multi-day jobs; the scheduler put job 30689's estimated start at
 **2026-10-29 13:12**, well after this was written. It was left queued rather than cancelled,
 since it costs nothing and runs unattended — read `~j321m/mas_smoke_30689.out` for the
