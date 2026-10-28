@@ -930,6 +930,41 @@ distillation trainer writes them to `step_<n>/model`, so the path has to include
 And the run config is `configs/pc_project_mas/_lem_memeff_to_hf.yaml`, left on the cluster
 rather than committed, like `_lem_pcd50_prefix.yaml` — these carry absolute per-user paths.
 
+### entropy
+
+The audit recorded entropy as unreachable for most of its life. That was wrong.
+`~/.ssh/config` defines three aliases for `entropy.mimuw.edu.pl`: `entropy` (user
+`mstefaniak`) and `entropym` (user `crewtool`) are both refused with
+`Permission denied (publickey)`, but **`entropy_j` (user `j321m`) connects** — and that is
+the account the project normally uses there. I tested one alias, got a refusal, and
+generalised it to the host.
+
+Running there means acting on a colleague's shared account against a shared GPU cap, so it
+was done only after asking, kept to one GPU via `sbatch`, with nothing of theirs touched
+and no job of theirs cancelled.
+
+What is set up there:
+
+| | |
+|---|---|
+| checkout | `/storage_nvme_4/nano/j321m/mas_baseline_audit/nano`, branch at `741dee9` |
+| importances | `.../mas_baseline_audit/tiny_random_dimensions_importances.pt`, 37 KB, seeded |
+| env | `/storage_nvme_4/nano/j321m/pixi` — pixi **0.77.0**, torch 2.7.1+cu128, **transformers 5.12.1** |
+| config | `configs/pc_project_mas/smoketest_pc_1gpu_entropy.yaml`, importances path left `???` and passed at submit time |
+| job | **30689** — suite + 1-GPU PC smoketest, log at `~j321m/mas_smoke_30689.out` |
+
+**The job did not run inside this audit.** `h100` is the single node `h100a` and it was full
+of other users' multi-day jobs; the scheduler put job 30689's estimated start at
+**2026-10-29 13:12**, well after this was written. It was left queued rather than cancelled,
+since it costs nothing and runs unattended — read `~j321m/mas_smoke_30689.out` for the
+result.
+
+Two things are worth knowing before reading it. entropy's environment is **not** built from
+this repo's lock: it carries `transformers 5.12.1` against a manifest pinning `==4.56.2`, so
+a failure there may be an environment difference rather than a defect in `main`. And the
+same suite and the same smoketest already pass on helios and lem, so this is a third
+data point rather than the only one.
+
 ### A trap worth not repeating
 
 The first PCD-50 submission (6173802) piped the training output through
