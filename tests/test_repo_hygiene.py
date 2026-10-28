@@ -444,3 +444,44 @@ def test_pixi_version_is_bounded_below_the_lock_bump():
         0,
         63,
     ), f"requires-pixi lower bound {lower.group(1)} excludes lem's pixi 0.63.2"
+
+
+# Model configs referenced by nothing. Dead weight still has to be maintained -- the
+# orphan below was edited under two earlier issues purely to keep it consistent with
+# configs that are actually used. They are allowlisted rather than deleted: an orphan
+# model config is plausibly staging for work that has not landed, and deleting someone
+# else's work-in-progress is not an audit's call. The point is that the set must not
+# grow.
+KNOWN_ORPHAN_MODEL_CONFIGS = {
+    # documents/issues.md recorded one orphan. Running the check found five: the entry
+    # was written from a spot inspection rather than a search.
+    "configs/_model/llama_3_8_pc.yaml",
+    "configs/_model/llama_3_1_pc.yaml",
+    "configs/_model/llama/projected_tiny.yaml",
+    "configs/_model/llama/projected_mem_eff_tiny.yaml",
+    "configs/_model/llama/small.yaml",
+    "configs/_model/smollm/projected_tiny.yaml",
+}
+
+
+def test_no_new_orphan_model_configs():
+    """A model config nothing references is maintenance cost with no consumer."""
+    referenced = set()
+    for path in _tracked("configs/**/*.yaml", "configs/*.yaml"):
+        text = open(os.path.join(REPO_ROOT, path)).read()
+        for match in re.finditer(r"_model[^:\n]*:\s*([A-Za-z0-9_/]+)", text):
+            referenced.add(match.group(1).split("/")[-1])
+
+    orphans = set()
+    for path in _tracked("configs/_model/**/*.yaml", "configs/_model/*.yaml"):
+        stem = os.path.basename(path)[:-5]
+        if stem.startswith("base_") or stem == "default":
+            continue  # base fragments are pulled in by defaults lists, not by name
+        if stem not in referenced:
+            orphans.add(path)
+
+    new = orphans - KNOWN_ORPHAN_MODEL_CONFIGS
+    assert not new, (
+        "model configs referenced by nothing -- wire them up or drop them:\n  "
+        + "\n  ".join(sorted(new))
+    )
