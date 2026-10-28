@@ -35,9 +35,12 @@ turned out to be a wrong expectation rather than a defect, and is now pinned by 
 **Tier 4 reproduces the PCD-50 paper number over a complete 4096-step run** — final loss
 2.6741 against the reference 2.6705, +0.13%. Tier 5 passes on helios and lem.
 
-The suite's final state on GH200 (job 25257102, at HEAD): **55 passed, 7 skipped, 0
-failed**. The skips are the dataloader-determinism and training-smoke tests, which need
-the gitignored `data/`.
+The suite's final state on GH200 (job **25325890**, at branch HEAD `377ae27d`):
+**56 passed, 10 skipped, 0 failed**, `pytest` exit 0, with `-m "not network"` selecting 66
+of the 68. The 10 skips are exactly the tests that need the gitignored `data/` — three
+dataloader-determinism, three rank-sharding, four training-smoke — which helios does not
+have, since it reads fineweb from cluster storage instead. Run locally with `data/`
+present, all 68 pass.
 
 Two corrections worth carrying forward, because both were wrong in an earlier draft and
 both cost real coverage:
@@ -464,7 +467,9 @@ Run on **helios** (GH200, `plgllmefficont3-gpu-gh200`) and **lem** (H100,
 smoketest — `smoketest_pc_1gpu_helios.yaml`, a self-contained tiny PC model exercising the
 pixi env, the fineweb path, the model build, `init_compression` and the training loop; and
 `smoketest_pc_1gpu_lem.yaml`, the production `PCTrainer` mem-eff path on the real 1B
-model. Both pass. The suite runs on helios; on lem it cannot (F16).
+model. Both pass. The suite runs on helios — 56 passed, 10 skipped, 0 failed at branch HEAD
+(job 25325890) — and on lem it cannot (F16). `pc_finalize` also runs end to end on helios;
+see its section in the cluster log.
 
 **The cemetery redirect is exercised on both.** `infrastructure.cemetery_experiments_dir`
 composes to the cluster-specific path rather than the `~/llmrandom_cemetery` default, and
@@ -523,6 +528,7 @@ are standing on and leaves it broken if the job is killed.
 | 25259068 | helios GH200 ×2 | 1-GPU vs 2-GPU FSDP2 parity at fixed seed | running at time of writing |
 | **6174690** | lem 4×H100 | **full 4096-step PCD-50** | **COMPLETED 4h41m, rc=0, all 4096 steps.** Final `steps/100/train/loss` **2.674062** vs reference **2.670469** (+0.0036, 0.13%); mean \|delta\| 0.0088 over 40 points. See "PCD-50 full run" |
 | **25325254** | helios GH200 | **`pc_finalize` end to end** through `main.py` | **both stages rc=0**; merged state dict has 39 tensors and **0** projection/auxiliary tensors, `embedding.weight` `(128256, 256)`. First execution of the config this branch retargets. See "pc_finalize end to end" |
+| **25325890** | helios GH200 | **suite at branch HEAD** (`377ae27d`) | **56 passed, 10 skipped, 0 failed**, `pytest` exit 0. Refreshes the stale 25257102 figure |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
 | ~~6173802~~ | lem 4×H100 | PCD-50 prefix, first attempt | **cancelled** -- its log pipeline died of SIGPIPE (see below) and the job was training blind |
 | 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | **451 steps, agrees to bf16 resolution from step 80**; see below |
