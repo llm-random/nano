@@ -965,6 +965,17 @@ a failure there may be an environment difference rather than a defect in `main`.
 same suite and the same smoketest already pass on helios and lem, so this is a third
 data point rather than the only one.
 
+**The lock fix does not reach the clusters, and that is worth stating plainly.** Each
+cluster sets `PIXI_HOME=$PROJECT_HOME_PATH/$USER/pixi`, a directory with **its own copy** of
+`pixi.toml` and `pixi.lock`. F16 repaired the repo's lock; nothing syncs it outward, so
+entropy's env still has no pytest — the same symptom as lem. Refreshing a cluster env means
+copying the repo's manifest and lock into that `PIXI_HOME` and re-installing, which is a
+deployment step a PR cannot perform. It was deliberately not attempted on entropy: the env
+is shared, and moving `transformers` 5.12.1 → 4.56.2 could break someone else's work. Where
+the suite has to run without touching a shared env,
+`python -m venv --system-site-packages` layered over it, with pytest installed into the venv
+alone, is additive and isolated — that is what the entropy run does.
+
 ### A trap worth not repeating
 
 The first PCD-50 submission (6173802) piped the training output through
