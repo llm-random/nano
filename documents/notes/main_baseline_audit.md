@@ -110,10 +110,10 @@ for want of trying:
 | `tests/test_trainer_save_types.py` | **new** — save-type contract, 12 tests, ~4s |
 | `tests/test_training_smoke.py` | **new** — end-to-end local run, 3 tests, ~28s, `slow` |
 | `tests/test_convert_memeff_to_hf.py` | 2 tests, now marked `network` |
-| `test_slicegpt.py` | 9 tests, CPU, tiny model from the real configs |
+| `tests/test_slicegpt.py` | 9 tests, CPU, tiny model from the real configs |
 | `smoke/` | SliceGPT end-to-end scenarios, cluster |
 
-`test_slicegpt.py` was the pattern everything new follows: a tiny model composed from the
+`tests/test_slicegpt.py` was the pattern everything new follows: a tiny model composed from the
 *real* configs with the dimensions overridden, so config wiring is exercised too.
 
 ---
@@ -1164,6 +1164,8 @@ a cluster leg in the gate rather than trusting CI alone.
   regeneration forces v7 was wrong — the format follows the writer, not the lock. See F16.
 - `configs/ff_layer/` is a component group living outside the underscore convention; the
   Tier 0 test special-cases it. Renaming it to `_ff_layer` would remove the special case.
-- `test_slicegpt.py` sits at the repo root because it calls hydra's `initialize()`, which
-  resolves `config_path` relative to the calling file. Switching it to
-  `initialize_config_dir` with an absolute path would let it move under `tests/`.
+- ~~`test_slicegpt.py` sits at the repo root~~ **moved.** It called hydra's
+  `initialize()`, which resolves `config_path` relative to the calling file. It now uses
+  `initialize_config_dir` with a path built from the repo root, so it lives under
+  `tests/` with everything else and `pytest.ini` no longer needs a second testpath. Same
+  9 tests pass before and after.
