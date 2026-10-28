@@ -45,10 +45,15 @@ present, all 68 pass.
 Two corrections worth carrying forward, because both were wrong in an earlier draft and
 both cost real coverage:
 
-- **"No cluster access."** entropy is genuinely unreachable (`Permission denied
-  (publickey)`; the key is offered and the server rejects it, so it needs authorising
-  server-side). But **helios and lem both authenticate.** Checking only the cluster that
-  had been named, and concluding there was none, was a mistake.
+- **"No cluster access."** Wrong twice over, and the second time took three corrections to
+  shake. helios and lem both authenticate as `plgmstefaniak`; checking only the cluster
+  that had been named and concluding there was none was the first mistake. The second:
+  **entropy is reachable too.** `~/.ssh/config` defines *three* aliases for
+  `entropy.mimuw.edu.pl` — `entropy` (user `mstefaniak`) and `entropym` (user `crewtool`)
+  both fail with `Permission denied (publickey)`, but **`entropy_j` (user `j321m`)
+  connects**. I tested one alias, got a refusal, and generalised it to the host. The
+  lesson is the same one F15 and the FSDP2-on-CPU correction taught: a single negative
+  result is not a property of the system.
 - **"Distributed cannot run without a GPU."** The framework is CUDA-gated, but FSDP2 is
   not: `fully_shard` works on a CPU mesh with gloo. That reaches `pc_finalize` and the
   sharded checkpoint path, neither of which had any test. See Tier 3.
@@ -58,8 +63,11 @@ mixed-precision policy, the 4-GPU world size, the numerical reproduction, and `p
 through `main.py`. Three things remain out of reach, each for a stated reason rather than
 for want of trying:
 
-- **entropy**, and with it the `bench_block.py` timing comparison — its committed `.jsonl`
-  was produced there and step times are not comparable off that hardware.
+- **`bench_block.py`'s timing comparison.** Its committed `.jsonl` was produced on entropy
+  and step times are not comparable off that hardware. entropy is now reachable (see
+  below), so this is no longer blocked in principle — it was simply not re-run, because
+  the defensible comparison is the PC-vs-HP overhead *ratio* rather than absolute step
+  times, and that is an experiment rather than an audit check.
 - **`llama_1B_memeff_to_hf_conversion.yaml`** — `convert_memeff_to_hf.py` calls
   `AutoConfig.from_pretrained` and `AutoTokenizer.from_pretrained` on
   `meta-llama/Llama-3.2-1B`, a **gated** repo. lem's HF cache holds only `models--gpt2`;
@@ -584,10 +592,12 @@ Also in scope for this tier, and **not** done, with reasons:
 
 ### Tier 5 — cross-cluster — **done on helios and lem**
 
-entropy is unreachable (`Permission denied (publickey)`; the key is offered and the server
-rejects it, so it needs authorising server-side). **helios and lem both authenticate** —
-checking only the cluster that had been named, and reporting "no cluster access", was a
-mistake.
+All three clusters are reachable. helios and lem authenticate as `plgmstefaniak`; entropy
+authenticates only through the `entropy_j` alias as **`j321m`** — the `entropy` and
+`entropym` aliases (users `mstefaniak` and `crewtool`) are refused with
+`Permission denied (publickey)`. Running there means acting on a colleague's shared
+account against a shared GPU cap, so it was done only after asking, and kept to one GPU
+through `sbatch`, with nothing of theirs touched and no job of theirs cancelled.
 
 Run on **helios** (GH200, `plgllmefficont3-gpu-gh200`) and **lem** (H100,
 `plgllmefficont3`): the branch checked out on group storage, and each cluster's own
@@ -640,7 +650,8 @@ files.
 
 ## 6. Cluster execution log
 
-entropy is unreachable; **helios and lem both authenticate** as `plgmstefaniak`. The
+All three clusters are reachable: **helios and lem** as `plgmstefaniak`, **entropy** only
+via the `entropy_j` alias as `j321m`. The
 branch is checked out on group storage on both (`baseline_smoke/nano`), with a hand-written
 sbatch that reproduces the env from each cluster's own `_cluster/*.yaml` script block —
 deliberately not through `run_exp.py`, whose `version_code()` commits onto the branch you
