@@ -164,3 +164,29 @@ def test_resuming_with_a_loader_but_eval_off_does_not_divide_by_zero():
         eval_interval=0, next_step=10, eval_dataloader=CountingLoader()
     )
     assert stub.start_step == 10
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint folder naming.
+#
+# Trainer.step is start_step - 1, so -1 before the first step. A run with
+# n_steps: 0 -- how every finalize and conversion pass is configured -- never
+# advances it, and _should_save_final_checkpoint is satisfied at
+# step >= n_steps - 1, so the finalized model was written to a folder named
+# literally "step_-1". Observed on helios job 25325254, the first end-to-end run
+# of llama_1B_comp_finalize.
+
+
+def test_a_finalize_pass_does_not_write_to_a_negative_step_folder():
+    from src.core.checkpointing import step_checkpoint_path
+
+    path = step_checkpoint_path("/tmp/ckpt", -1)
+    assert not path.endswith("step_-1"), f"negative step leaked into the path: {path}"
+    assert path.endswith("step_0"), path
+
+
+@pytest.mark.parametrize("step", [0, 1, 10, 4095])
+def test_ordinary_steps_are_unchanged(step):
+    from src.core.checkpointing import step_checkpoint_path
+
+    assert step_checkpoint_path("/tmp/ckpt", step).endswith(f"step_{step}")

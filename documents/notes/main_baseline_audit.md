@@ -758,11 +758,15 @@ than a CPU fixture, the lazy import inside the method that breaks the
 `compression` → `main` cycle, and a sharded nano checkpoint written by one process and read
 back by another.
 
-**One wart, not fixed.** The output lands in `step_-1`: `n_steps: 0` leaves `self.step` at
-−1 and `step_checkpoint_path` interpolates it straight into the folder name. The shipped 1B
-config also sets `n_steps: 0`, so real finalized 1B checkpoints land in `step_-1` too. It is
-deterministic and findable, so it is cosmetic — but changing it would move where production
-checkpoints are written, which is not a call to make quietly inside an audit.
+**A wart, now fixed.** The output landed in `step_-1`: `n_steps: 0` leaves `self.step` at
+−1 and `step_checkpoint_path` interpolated it straight into the folder name. Not
+PC-specific — any save type with `n_steps: 0` hits it, since
+`_should_save_final_checkpoint` is satisfied at `step >= n_steps - 1`.
+
+I first left this alone, reasoning that changing it moves where production checkpoints are
+written. That was too cautious: a pass that completes no steps *is* at step 0, and a
+negative index in a path is something an operator then has to go hunting for.
+`step_checkpoint_path` clamps to 0, with a test that ordinary steps are untouched.
 
 ### Resume on a GPU, from a sharded checkpoint
 
