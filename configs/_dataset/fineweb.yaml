@@ -16,15 +16,16 @@ trainer:
       shuffle: true
       world_size_independent: false
       # fineweb ships only a train directory, so eval used to score the training data.
-      # The holdout reserves the last 1% of rows for eval and keeps the rest here; the
-      # two slices are computed from the same row count, so they cannot overlap.
+      # The holdout reserves a fixed tail of rows for eval and keeps the rest here; both
+      # slices come from the same row count, so they cannot overlap. 262144 rows is a
+      # generous margin over the ~14k needed for 16.8M tokens at this corpus's document
+      # length, and still only 0.02% of the 1.27 billion rows.
       holdout: train
     num_workers: 2
 
   eval_dataloader:
     dataset:
       _target_: src.core.datasets.FineWebEduDataset
-      sequence_length: ${common.sequence_length}
       tokenize_fn: ???
       path: ${cluster_switch.eval_path_fineweb}
       split: train
@@ -35,4 +36,10 @@ trainer:
       # a different slice and the number depends on the GPU count.
       world_size_independent: true
       holdout: eval
+      # A fixed eval set: 8192 samples x 2048 tokens = 16,777,216 tokens, the same ones
+      # every time it is measured. sequence_length is pinned here rather than inherited
+      # from common, so the eval number stays comparable between runs that train at
+      # different sequence lengths.
+      sequence_length: 2048
+      max_samples: 8192
     num_workers: 2

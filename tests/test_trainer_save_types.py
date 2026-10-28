@@ -190,3 +190,100 @@ def test_ordinary_steps_are_unchanged(step):
     from src.core.checkpointing import step_checkpoint_path
 
     assert step_checkpoint_path("/tmp/ckpt", step).endswith(f"step_{step}")
+
+
+# ---------------------------------------------------------------------------
+# The final eval.
+#
+# Scores the held-out set once when training ends and logs it as final_ce. It
+# has to run before the final checkpoint: pc_finalize merges the projections and
+# sets parameters to None off rank 0, so after saving there is no model left.
+
+
+class _RecordingLogger:
+    def __init__(self):
+        self.logged = {}
+
+    def log(self, name, value):
+        self.logged[name] = value
+
+    def flush(self):
+        pass
+
+    def flush_accumulated_metrics(self):
+        pass
+
+
+class _FinalEvalStub:
+    """The smallest object Trainer.final_eval needs."""
+
+    final_eval = Trainer.final_eval
+
+    def __init__(self, loader, max_samples, n_eval_steps=2):
+        self.eval_dataloader = loader
+        if loader is not None:
+            loader.dataset = type("D", (), {"max_samples": max_samples})()
+        self.n_eval_steps = n_eval_steps
+        self.device = torch.device("cpu")
+        self.metric_logger = _RecordingLogger()
+        self.model = torch.nn.Linear(2, 2)
+        self.seen = 0
+
+    def calculate_loss(self, batch):
+        self.seen += 1
+        return type("L", (), {"reported_loss": torch.tensor(float(self.seen))})()
+
+
+class _Loader(list):
+    """A list of batches that also carries a .dataset, like a DataLoader."""
+
+
+def _batches(n):
+    return _Loader(torch.zeros(1, 2) for _ in range(n))
+
+
+def test_final_eval_logs_final_ce_over_the_whole_fixed_set():
+    stub = _FinalEvalStub(_batches(4), max_samples=4)
+    stub.final_eval()
+    assert "final_ce" in stub.metric_logger.logged, "final_ce was not logged"
+    # losses 1,2,3,4 -> mean 2.5; all four batches were read, not just n_eval_steps
+    assert stub.metric_logger.logged["final_ce"] == pytest.approx(2.5)
+    assert stub.seen == 4
+
+
+def test_final_eval_does_not_hang_on_an_uncapped_stream():
+    """Without max_samples the eval stream is endless, so it must fall back to a budget."""
+    stub = _FinalEvalStub(_batches(100), max_samples=None, n_eval_steps=3)
+    stub.final_eval()
+    assert stub.seen == 3, f"read {stub.seen} batches instead of n_eval_steps"
+
+
+def test_final_eval_is_a_no_op_without_an_eval_dataloader():
+    stub = _FinalEvalStub(None, max_samples=None)
+    stub.final_eval()
+    assert stub.metric_logger.logged == {}
+
+
+def test_final_eval_puts_the_model_in_eval_mode():
+    stub = _FinalEvalStub(_batches(2), max_samples=2)
+    stub.model.train()
+    stub.final_eval()
+    assert not stub.model.training, "the model was not switched to eval mode"
+
+
+def test_train_runs_the_final_eval_before_saving():
+    """Order matters, and nothing else in the suite would notice if it changed.
+
+    save_pc_finalized_checkpoint merges the projections and sets the parameters to None
+    off rank 0, so a final eval placed after it would score a model that no longer
+    exists. This reads the source rather than driving a full training run, because the
+    guarantee is about call order, not about what either call computes.
+    """
+    import inspect
+
+    source = inspect.getsource(Trainer.train)
+    assert "self.final_eval()" in source, "train() does not run the final eval"
+    assert "self.save_final_checkpoint()" in source
+    assert source.index("self.final_eval()") < source.index(
+        "self.save_final_checkpoint()"
+    ), "the final eval runs after the checkpoint, so pc_finalize leaves nothing to score"

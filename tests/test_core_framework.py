@@ -338,7 +338,7 @@ def test_the_logged_training_state_path_is_where_the_file_lands(tmp_path, caplog
 # genuinely disjoint rather than merely configured to be.
 
 
-def _holdout_stream(n, holdout, monkeypatch, fraction=0.2):
+def _holdout_stream(n, holdout, monkeypatch, rows=60, max_samples=None):
     from src.core.datasets import FineWebEduDataset, gpt2_tokenize_fn
 
     monkeypatch.setenv("WORLD_SIZE", "1")
@@ -351,7 +351,8 @@ def _holdout_stream(n, holdout, monkeypatch, fraction=0.2):
         shuffle=True,
         world_size_independent=True,
         holdout=holdout,
-        holdout_fraction=fraction,
+        holdout_rows=rows,
+        max_samples=max_samples,
     )
     return [tuple(sequence) for sequence in itertools.islice(iter(dataset), n)]
 
@@ -382,8 +383,10 @@ def test_without_a_holdout_eval_sees_the_training_data(monkeypatch):
 def test_holdout_rejects_a_nonsense_setting(monkeypatch):
     with pytest.raises(ValueError, match="holdout must be"):
         _holdout_stream(1, "validation", monkeypatch)
-    with pytest.raises(ValueError, match="holdout_fraction"):
-        _holdout_stream(1, "eval", monkeypatch, fraction=1.5)
+    with pytest.raises(ValueError, match="holdout_rows must be"):
+        _holdout_stream(1, "eval", monkeypatch, rows=0)
+    with pytest.raises(ValueError, match="leaves no training rows"):
+        _holdout_stream(1, "eval", monkeypatch, rows=10**9)
 
 
 # ---------------------------------------------------------------------------
@@ -413,3 +416,29 @@ def test_metric_logger_accepts_either_config_form(as_plain_dict):
         config = OmegaConf.create(config)
     logger_obj = get_metric_logger(metric_logger_config=config)
     assert logger_obj is not None
+
+
+# ---------------------------------------------------------------------------
+# A fixed eval set.
+#
+# An eval number is only comparable across runs if it is measured on the same
+# samples. Two things used to break that. The stream was endless, so "the eval
+# set" was however much of it got read; and Trainer.eval reused one iterator
+# created at startup, so each evaluation scored whatever came next rather than
+# the same data -- eval loss moved partly because the data moved. max_samples
+# makes the set finite, and eval re-creates the iterator so it replays.
+
+
+@needs_local_data
+def test_max_samples_makes_the_stream_finite(monkeypatch):
+    """Without a cap the packer never ends, so the eval 'set' has no size."""
+    capped = _holdout_stream(100, "eval", monkeypatch, max_samples=7)
+    assert len(capped) == 7, f"expected the stream to stop at 7, got {len(capped)}"
+
+
+@needs_local_data
+def test_the_eval_set_is_the_same_samples_every_time(monkeypatch):
+    """Re-iterating must replay, not continue."""
+    first = _holdout_stream(5, "eval", monkeypatch, max_samples=5)
+    second = _holdout_stream(5, "eval", monkeypatch, max_samples=5)
+    assert first == second, "the eval set changed between evaluations"

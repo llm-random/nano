@@ -177,8 +177,58 @@ class Trainer:
 
             self.metric_logger.flush()
 
+        self.final_eval()
+
         if self._should_save_final_checkpoint:
             self.save_final_checkpoint()
+
+    def final_eval(self):
+        """Score the held-out set once, after training, and log it as `final_ce`.
+
+        The periodic eval reads `n_eval_steps` batches so it stays cheap enough to run
+        during training. This one reads the whole held-out set, which
+        `_dataset/fineweb.yaml` pins to 8192 samples of 2048 tokens -- the same samples
+        for every run, so the number is comparable across them.
+
+        It runs before the final checkpoint on purpose: `pc_finalize` merges the
+        projections and sets the parameters to None off rank 0, so after saving there is
+        no model left to evaluate.
+        """
+        if self.eval_dataloader is None or not hasattr(
+            self.eval_dataloader, "__iter__"
+        ):
+            logger.info("No eval dataloader; skipping the final eval.")
+            return
+
+        dataset = getattr(self.eval_dataloader, "dataset", None)
+        max_samples = getattr(dataset, "max_samples", None)
+        batches = iter(self.eval_dataloader)
+        if max_samples is None:
+            # An uncapped eval stream never ends, so read the periodic eval's budget
+            # rather than hang. Set max_samples on the eval dataset for a fixed set.
+            logger.warning(
+                "Eval dataset has no max_samples, so the stream is endless; "
+                f"final_ce will cover {self.n_eval_steps} batches instead of a fixed set."
+            )
+            batches = itertools.islice(batches, self.n_eval_steps)
+
+        self.model.eval()
+        losses = []
+        with torch.no_grad():
+            for batch in batches:
+                batch = batch.to(self.device)
+                loss_metrics = self.calculate_loss(batch)
+                losses.append(loss_metrics.reported_loss.detach())
+                self.metric_logger.flush_accumulated_metrics()
+
+        if not losses:
+            logger.warning("Final eval produced no batches; not logging final_ce.")
+            return
+
+        final_ce = torch.stack(losses).mean().item()
+        logger.info(f"final_ce over {len(losses)} batches: {final_ce}")
+        self.metric_logger.log("final_ce", final_ce)
+        self.metric_logger.flush()
 
     def save_final_checkpoint(self):
         """Write the checkpoint that is produced once, when training ends.
@@ -329,6 +379,13 @@ class Trainer:
         self.metric_logger.set_step(None)  # disables heavy logging
         losses = []
         eval_fingerprint = []
+        # Restart the eval stream every time. The iterator used to be created once and
+        # carried forward, so each evaluation scored whatever came next rather than the
+        # same held-out samples -- eval loss then moved between evaluations partly
+        # because the data moved, which is not what an eval number is for. The dataset
+        # reseeds in __iter__, so a fresh iterator replays the same samples in the same
+        # order.
+        self.eval_iterator = iter(self.eval_dataloader)
         with torch.no_grad():
             for _ in range(self.n_eval_steps):
                 batch = next(self.eval_iterator)

@@ -135,6 +135,11 @@ def _runnable_configs():
 
     Component groups live in underscore-prefixed directories, plus configs/ff_layer,
     which predates that convention.
+
+    The special case is deliberate, not an oversight waiting to be tidied. Renaming the
+    directory to _ff_layer would remove this line, but model configs reference the group
+    by path, so the rename touches every referencing config and collides with any
+    in-flight branch that touches one. One line and this comment is the cheaper trade.
     """
     return [
         path

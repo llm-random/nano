@@ -120,7 +120,9 @@ class AbstractDataset(IterableDataset):
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
         world_size_independent: bool = False,
+        max_samples: Optional[int] = None,
     ):
+        self.max_samples = max_samples
         self.world_size = int(os.environ.get("WORLD_SIZE"))
         self.rank = int(os.environ.get("RANK"))
         self.rng = random.Random(seed)
@@ -167,13 +169,24 @@ class AbstractDataset(IterableDataset):
                     buffer, document_lengths = [], []
 
     def __iter__(self):
+        """Restart the stream.
+
+        Reseeding here is what makes a fresh iterator replay from the beginning, which
+        the resume path depends on. `max_samples` caps the stream, turning an otherwise
+        endless packer into a fixed, finite set -- an eval set has to be the *same*
+        samples every time it is measured, or the number moves for reasons that have
+        nothing to do with the model.
+        """
         self.rng.seed(self.seed)
         if self.world_size_independent:
-            return itertools.islice(
+            stream = itertools.islice(
                 self.sample_packer(), self.rank, None, self.world_size
             )
         else:
-            return self.sample_packer()
+            stream = self.sample_packer()
+        if self.max_samples is not None:
+            stream = itertools.islice(stream, self.max_samples)
+        return stream
 
 
 class FineWebEduDataset(AbstractDataset):
@@ -191,8 +204,9 @@ class FineWebEduDataset(AbstractDataset):
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
         world_size_independent: bool = False,
+        max_samples: Optional[int] = None,
         holdout: Optional[str] = None,
-        holdout_fraction: float = 0.01,
+        holdout_rows: int = 262144,
     ):
         """holdout carves a disjoint evaluation slice out of a single directory.
 
@@ -204,11 +218,14 @@ class FineWebEduDataset(AbstractDataset):
         take everything after it. Both are computed from the same row count, so the two
         are disjoint by construction.
 
-        holdout=None keeps the old behaviour of using every row, for callers that
-        genuinely want the whole dataset.
+        The reserve is a fixed number of rows rather than a fraction, so the eval set
+        does not grow with the corpus: an eval number is only comparable across runs if
+        it is measured on the same data, and a fraction of a changing dataset is not.
+
+        holdout=None uses every row, for callers that genuinely want the whole dataset.
         """
         self.holdout = holdout
-        self.holdout_fraction = holdout_fraction
+        self.holdout_rows = holdout_rows
         super().__init__(
             sequence_length,
             tokenize_fn,
@@ -218,6 +235,7 @@ class FineWebEduDataset(AbstractDataset):
             use_new_sampling_method,
             shuffle,
             world_size_independent,
+            max_samples,
         )
         self._load_dataset(path, seed, tokenize_fn, shuffle)
 
@@ -228,27 +246,23 @@ class FineWebEduDataset(AbstractDataset):
             raise ValueError(
                 f"holdout must be None, 'train' or 'eval', got {self.holdout!r}"
             )
-        if not 0.0 < self.holdout_fraction < 1.0:
-            raise ValueError(
-                f"holdout_fraction must be in (0, 1), got {self.holdout_fraction}"
-            )
+        if self.holdout_rows < 1:
+            raise ValueError(f"holdout_rows must be >= 1, got {self.holdout_rows}")
 
         total = len(hf_dataset)
-        held_out = max(1, int(total * self.holdout_fraction))
-        cut = total - held_out
-        if cut < 1:
+        if self.holdout_rows >= total:
             raise ValueError(
-                f"holdout_fraction {self.holdout_fraction} leaves no training rows "
-                f"in a dataset of {total}"
+                f"holdout_rows {self.holdout_rows} leaves no training rows in a "
+                f"dataset of {total}"
             )
+        cut = total - self.holdout_rows
 
         if self.holdout == "train":
             selected = hf_dataset.select(range(cut))
         else:
             selected = hf_dataset.select(range(cut, total))
         logger.info(
-            f"holdout='{self.holdout}': {len(selected)} of {total} rows "
-            f"(cut at {cut})"
+            f"holdout='{self.holdout}': {len(selected)} of {total} rows (cut at {cut})"
         )
         return selected
 
@@ -304,6 +318,7 @@ class C4Dataset(AbstractDataset):
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
         world_size_independent: bool = False,
+        max_samples: Optional[int] = None,
     ):
         super().__init__(
             sequence_length,
@@ -314,6 +329,7 @@ class C4Dataset(AbstractDataset):
             use_new_sampling_method,
             shuffle,
             world_size_independent,
+            max_samples,
         )
         self._load_dataset(path, split, seed, tokenize_fn, shuffle)
 
