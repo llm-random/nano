@@ -1013,7 +1013,21 @@ all, and 60 GB would not backfill, while 28 GB with a sliced dataset ran immedia
 exercises `FineWebEduDataset`, `_load_dataset`, the holdout, `split_dataset_by_node`, the
 sample packer, `init_compression` and the training loop identically.
 
-**The GPU variant did not run inside this audit.** `h100` is the single node `h100a` and it was full
+**The GPU variant could not run inside this audit, and that is a resource limit rather
+than a pending task.** `h100a` is the only node mounting `/storage_nvme_4` — the env, the
+fineweb copy and the checkout all live there — and its 8 GPUs were fully allocated to other
+users' multi-day jobs throughout, several of them held by `QOSMaxGRESPerUser` against the
+shared cap. `a100a` had free GPUs but mounts `/storage_nvme_1` instead, with no env, no
+torch and no module system; building one into a colleague's home was not a reasonable thing
+to do on an account lent for smoketests. Job 30689 is left queued rather than cancelled, so
+it runs unattended — its log lands at `~j321m/mas_smoke_30689.out`.
+
+What that costs is narrower than it looks: the smoketest's own purpose, per its header, is
+to prove the env, the dataset path, the model build, `init_compression` and the training
+loop still work, and job 30711 did all of that on entropy. What is missing is only CUDA
+underneath it, and that half is covered by helios and lem, which run the same smoketest on
+real GPUs. The original note said this job "did not run inside this audit"; that was true
+but suggested it was still owed, so it is restated here as the limit it is. `h100` is the single node `h100a` and it was full
 of other users' multi-day jobs; the scheduler put job 30689's estimated start at
 **2026-10-29 13:12**, well after this was written. It was left queued rather than cancelled,
 since it costs nothing and runs unattended — read `~j321m/mas_smoke_30689.out` for the
