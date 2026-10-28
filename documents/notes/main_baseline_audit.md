@@ -20,18 +20,20 @@ Audited from `main @ 2e51359c`, 2026-10-27, on branch `fix/main-baseline-audit`.
 
 | | before | after |
 |---|---|---|
-| Tests in the suite | 11 | **63** (57 run in CI) |
+| Tests in the suite | 11 | **68** (62 selected in CI) |
 | Test files | 2 | 7 |
 | Runnable configs that compose *and* resolve | 76 / 82 | **82 / 82** |
 | `src/core` → projected-compression references | 3 | **0** |
 | CI | `black` only | `black` + the test suite |
 | A bare `pytest` run | collection error | passes |
 
-All six tiers have been run to the extent one rank and two reachable clusters allow.
-Tiers 0 and 1 are enforced in CI. Tier 2 is done on CPU — including
-resume-from-checkpoint, which found the most serious bug here (F14) — and its GPU half
-passes on both helios and lem. Tier 3 is covered to a single rank on real GPUs. Tier 4
-reproduces the reference trajectory for 451 steps. Tier 5 passes on helios and lem.
+**All six tiers are done.** Tiers 0 and 1 are enforced in CI. Tier 2 is done on CPU —
+including resume-from-checkpoint, which found the most serious bug here (F14) — and its GPU
+half passes on both helios and lem. Tier 3 is covered to a single rank in the unit tests
+and to four real ranks by the PCD-50 run; its last open question, 1-GPU vs 2-GPU parity,
+turned out to be a wrong expectation rather than a defect, and is now pinned by tests.
+**Tier 4 reproduces the PCD-50 paper number over a complete 4096-step run** — final loss
+2.6741 against the reference 2.6705, +0.13%. Tier 5 passes on helios and lem.
 
 The suite's final state on GH200 (job 25257102, at HEAD): **55 passed, 7 skipped, 0
 failed**. The skips are the dataloader-determinism and training-smoke tests, which need
@@ -48,9 +50,10 @@ both cost real coverage:
   not: `fully_shard` works on a CPU mesh with gloo. That reaches `pc_finalize` and the
   sharded checkpoint path, neither of which had any test. See Tier 3.
 
-What genuinely still needs a GPU cluster: more than one rank, NCCL, the bfloat16
-mixed-precision policy, the 4-GPU world size, and **the numerical reproduction (Tier 4)**
-— nothing here proves `main` still produces the paper's numbers.
+Everything that needed a GPU cluster has had one: more than one rank, NCCL, the bfloat16
+mixed-precision policy, the 4-GPU world size, and the numerical reproduction. What remains
+unreachable is entropy, and with it the `bench_block.py` timing comparison, whose committed
+`.jsonl` was produced there and is not comparable off that hardware.
 
 ---
 
@@ -151,11 +154,18 @@ and the path could not be tested on any machine with a GPU. Both indices and pro
 now follow the model's own device and dtype, which also lifts the float32-only limitation
 recorded as F12.
 
-**F16 — the test suite cannot run on lem.** Both pixi environments there
-(`nano/$USER/pixi` and the older `plgllmefficont3/mstefaniak/pixi`) are at lock version 6
-and **neither contains pytest**: the committed lock predates the `pytest` dependency that
-`pixi.toml` declares. `python -m pytest` on lem gives `No module named pytest`, so only
-the smoketest could run there. helios's environment does have it.
+**F16 — `pytest` is declared but not locked, so the project env lacks it.**
+`pixi.toml:24` lists `pytest = ">=8.0,<9"` under `[pypi-dependencies]` (added in c8dfd4bf,
+Oct 23), but `pixi.lock` was last regenerated in March and carries no pytest distribution.
+Any environment installed from the committed lock therefore has no pytest: confirmed on
+**lem** — both `nano/$USER/pixi` and the older `plgllmefficont3/mstefaniak/pixi`, where
+`python -m pytest` gives `No module named pytest`, so only the smoketest could run — and on
+the **local** `.pixi/envs/default` here, which fails the same way. helios's environment
+does have pytest (job 25257102 ran the suite through it), so it predates or was built
+outside this lock. The suite was run locally through the system interpreter, not through
+pixi. This is wider than "lem is stale": nobody who installs from the lock can run the
+gate through the project's own environment manager, and CI only passes because it installs
+with pip.
 
 This is the v6 pin's cost, now concrete. The lock is deliberately held at 6 because helios
 runs pixi 0.67.1 and cannot read 7 (F7), so bringing lem's environment up to date means
@@ -288,7 +298,7 @@ difference on the first attempt instead of a 2.2 regression.
 Still blocked on access: plain/PC/distillation/prune training on a GPU. The existing
 `smoketest_pc_1gpu_{helios,lem}` configs cover some of it.
 
-### Tier 3 — distributed — **done except 1-GPU vs 2-GPU parity**
+### Tier 3 — distributed — **done**
 
 An earlier draft of this document said Tier 3 was impossible without a GPU. That was
 wrong, and worth recording as a lesson: the *framework* is CUDA-gated, but FSDP2 is not.
@@ -329,12 +339,61 @@ through it; its log carries `train/grad_norm`, `train/projection_grad_norm` and 
 per-module `..._embedding` / `..._head` norms under `gradient_clipping: 0.25` with
 `only_target_model_gradient_clipping: 1.0`.
 
-What is genuinely outstanding in this tier is one thing: **1-GPU vs 2-GPU parity** at
-fixed seed (helios job 25259068). The global batch is `total_batch_size` regardless of
-world size, so the two should compute the same thing; a real divergence would mean FSDP2
-is changing the maths rather than distributing it.
+**1-GPU vs 2-GPU parity: the test was wrong, not the framework.** helios job 25259068 ran
+the same config at both world sizes with a fixed seed. Step 0 matched exactly (22.0 — same
+init), both runs converged to ~9.6, but intermediate steps diverged by up to **0.75**, mean
+|delta| 0.244 over 20 steps. I had expected equality on the reasoning that the global batch
+is `total_batch_size` regardless of world size, so a divergence would mean FSDP2 was
+changing the maths rather than distributing it.
 
-### Tier 4 — numerical reproduction — **prefix done, full run submitted**
+It is not FSDP2. It is the dataloader, and it is deliberate. `C4Dataset._load_dataset` and
+`FineWebEduDataset._load_dataset` both do this before any shuffling:
+
+```python
+if not self.world_size_independent:
+    hf_dataset = split_dataset_by_node(hf_dataset, rank=self.rank, world_size=self.world_size)
+```
+
+Every shipped config sets `world_size_independent: false`, so the HF dataset is sharded at
+load time — each rank takes its share of the 64 shards — and `AbstractDataset.__iter__`
+then returns the packer unsliced. The `true` branch is the other route: load the whole
+dataset on every rank and stride it by rank inside `__iter__`. Both shard; they shard at
+different layers.
+
+The consequence is that **a 2-GPU run does not read the same corpus order as a 1-GPU run.**
+Measured directly, three separate processes with `WORLD_SIZE`/`RANK` set in each
+environment (one process per rank is the only way to check this — `importlib.reload` inside
+a single process does not re-read the env cleanly, and an earlier probe that appeared to
+show ranks replaying one stream was reporting a hardcoded `echo`, not a measurement):
+
+| streams compared | shared sequences of 24 |
+|---|---|
+| world_size=2 rank 0 vs rank 1 | **0** |
+| world_size=2 rank 0 vs world_size=1 | **0** |
+| world_size=2 rank 1 vs world_size=1 | **0** |
+
+Ranks do not duplicate data — the thing actually worth worrying about — but neither does
+either rank replay the 1-GPU stream. Shard assignment and shuffle both change with
+`world_size`, and packing boundaries follow the stream, so the global batch at step *n* is
+a different set of samples. Identical per-step losses across world sizes is **not a
+property this framework has, and asserting it would be a wrong test**. The 0.75 spread is
+two runs on different samples of the same corpus converging to the same place, which is
+what the end of the curve shows.
+
+What does have to hold is that ranks never train on the same samples: silent duplication
+would scale the effective batch down and hide behind a plausible loss curve.
+`test_ranks_never_see_the_same_sample` asserts it on both branches, and
+`test_world_size_independent_partitions_one_stream` pins the `true` branch to an exact
+interleave of the single-rank stream. Mutation-tested: dropping the `split_dataset_by_node`
+call puts 12 of 12 sequences on both ranks, and dropping the `islice` stride breaks the
+partition.
+
+Reproducibility is therefore per world size: fixed seed and fixed `world_size` give the
+same data, which is what the resume test and the determinism tests already check. Anyone
+branching from here should know that **changing the GPU count changes the data**, so it is
+not a free knob for a run you intend to compare against an earlier one.
+
+### Tier 4 — numerical reproduction — **done, full run reproduces the reference**
 
 Nothing below this tier proves `main` still produces the paper's numbers.
 
@@ -447,7 +506,7 @@ are standing on and leaves it broken if the job is killed.
 | 25255801 / 25256547 / 25256588 | helios GH200 | the remaining failures, full tracebacks | each a device assumption in a test of mine, not the framework: CPU mesh under CUDA, finalize() writing to CPU, noise built on CPU |
 | **25257102** | helios GH200 | **final suite + smoketest at HEAD** | **55 passed, 7 skipped, 0 failed** (`pytest exit=0`); smoketest trains, rc=0 |
 | 25259068 | helios GH200 ×2 | 1-GPU vs 2-GPU FSDP2 parity at fixed seed | running at time of writing |
-| 6174690 | lem 4×H100 | **full 4096-step PCD-50** | submitted, 8h limit; queued behind other work |
+| **6174690** | lem 4×H100 | **full 4096-step PCD-50** | **COMPLETED 4h41m, rc=0, all 4096 steps.** Final `steps/100/train/loss` **2.674062** vs reference **2.670469** (+0.0036, 0.13%); mean \|delta\| 0.0088 over 40 points. See "PCD-50 full run" |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
 | ~~6173802~~ | lem 4×H100 | PCD-50 prefix, first attempt | **cancelled** -- its log pipeline died of SIGPIPE (see below) and the job was training blind |
 | 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | **451 steps, agrees to bf16 resolution from step 80**; see below |
@@ -505,21 +564,44 @@ this on H100, and early training is the steepest, least determined part of the c
 A fixed absolute tolerance would be the wrong test there, which is why the plan called
 for a prefix comparison rather than a single final number.
 
-**The full run is submitted.** lem job **6174690**, 4×H100, `n_steps: 4096`, 8-hour wall
-clock, same config as the prefix. At the prefix's ~4 s/step that is roughly 4.5 hours of
-compute once it starts, and it was queued behind other work at submission time, so it will
-finish well after this audit was written. Its result belongs in this section when it
-lands; the prefix below is what was available at the time of writing.
+**The full run landed — see "PCD-50 full run" below.** It completed all 4096 steps and
+reproduces the reference, so this tier no longer rests on the prefix alone.
 
-If the allocation is better spent elsewhere, `scancel 6174690` on lem costs nothing — the
-prefix comparison already carries most of the signal, and the final number is a
-confirmation rather than a discovery.
+**What the prefix established, and what it did not.** It put a PCD-50 run on the recorded
+trajectory and held it there for 11% of training — a real signal, but not a reproduction of
+the final loss. That needed all 4096 steps. The full run below supplies it.
 
-**What this establishes, and what it does not.** `main` puts a PCD-50 run on the recorded
-trajectory and holds it there for 11% of training. That is a real signal and it is the
-strongest one available short of the full run. It is **not** a reproduction of the final
-loss: 2.6705 needs all 4096 steps, a multi-hour 4-GPU job that was not submitted. Read
-this tier as "no contradiction found over the first 11% of training".
+### PCD-50 full run
+
+lem job **6174690**, 4×H100, `n_steps: 4096`, **COMPLETED in 4h41m, exit 0**, all 4096
+steps, final checkpoint written. Compared against wandb `uhhl03fy`
+(`llama1_pcd_50p_2BT_repro`) on `steps/100/train/loss`, the 100-step rolling mean the
+reference logs every 100 steps — 40 points, reconstructed from this run's per-step
+`train/loss` over the same windows.
+
+| step | reference | this run | delta |
+|---|---|---|---|
+| 101 | 4.252344 | 4.107813 | −0.144531 |
+| 201 | 3.262969 | 3.263281 | +0.000312 |
+| 501 | 3.029688 | 3.037031 | +0.007344 |
+| 1001 | 2.900781 | 2.908281 | +0.007500 |
+| 2001 | 2.771094 | 2.777656 | +0.006563 |
+| 3001 | 2.697344 | 2.706562 | +0.009219 |
+| 4001 | **2.670469** | **2.674062** | **+0.003594** |
+
+Across all 40 points, mean |delta| **0.0088**, max 0.1445 — and that maximum is entirely
+the first point. From step 201 on, every delta lies between **+0.0003 and +0.0092**, mean
+**+0.0053**: a small constant offset, not drift, and it does not widen over four thousand
+steps. The final number, the one the paper reports, agrees to **+0.0036 (0.13%)**.
+
+The single outlier at step 101 is the steepest part of the curve averaged over the first
+hundred steps, where the reference's hardware (entropy) and this run's (H100) have the most
+room to differ; the prefix comparison saw the same early spread and the same convergence
+afterwards. Shifting the window by one step moves mean |delta| to 0.0077 — the alignment is
+not load-bearing.
+
+**`main` reproduces the PCD-50 paper number.** That is the strongest statement this audit
+can make about the baseline, and it is now made on a complete run rather than a prefix.
 
 ### A trap worth not repeating
 
@@ -546,7 +628,10 @@ a cluster leg in the gate rather than trusting CI alone.
 1. Tag the commit — `git tag baseline/<name> && git push origin baseline/<name>`. A tag,
    unlike a branch, will not drift.
 2. Record here: the tag, the Tier 4 numbers actually observed, the pixi lock version, and
-   the cluster each tier was verified on.
+   the cluster each tier was verified on. As of this audit those are: final
+   `steps/100/train/loss` **2.674062** against reference `uhhl03fy` **2.670469**, lock
+   **v6**, Tier 4 and the 4-rank Tier 3 evidence on **lem** (4×H100), Tiers 0/1/2 in CI
+   and on **helios** (GH200), Tier 5 on both.
 3. Branch the new project from that tag.
 
 ---
@@ -556,7 +641,18 @@ a cluster leg in the gate rather than trusting CI alone.
 - **F10 first.** If `eval_path_fineweb` really is the train directory, every fineweb eval
   number on lem is suspect. Needs someone who can look at the filesystem.
 - **F9**: what is the shared fineweb path on lem?
-- **Tier 4 tolerance**: how close must the repro be to count as a pass?
+- **Tier 4 tolerance**: how close must a repro be to count as a pass? Now answerable with
+  a measurement rather than a guess — the full run lands **+0.13%** on the final number
+  and holds **+0.0003 to +0.0092** on the rolling mean from step 201 to the end, on
+  different hardware from the reference. A threshold of 0.5% on the final loss would pass
+  this comfortably and still catch anything that actually broke; the first 100 steps need
+  excluding from any per-point bound, since that point alone is 0.14 off.
+- **F16 — regenerate `pixi.lock` or not.** The lock has no pytest, so the gate cannot be
+  run through the project env on lem or locally. Regenerating it moves the lock to v7,
+  which helios's pixi 0.67.1 cannot read (F7). The options are: pin pixi for everyone and
+  regenerate; install pytest out of band per cluster; or keep running the suite through a
+  non-pixi interpreter, as CI and this work both do. This one needs your call — all three
+  cost someone something.
 - `configs/ff_layer/` is a component group living outside the underscore convention; the
   Tier 0 test special-cases it. Renaming it to `_ff_layer` would remove the special case.
 - `test_slicegpt.py` sits at the repo root because it calls hydra's `initialize()`, which

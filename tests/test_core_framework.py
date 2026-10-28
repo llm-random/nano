@@ -5,6 +5,7 @@ generator -- the parts a new, non-PC project inherits wholesale from main -- so 
 matter most for main as a branch point. No GPU, no data, no cluster.
 """
 
+import itertools
 import math
 
 import pytest
@@ -223,3 +224,65 @@ def test_restarting_a_loader_replays_from_the_beginning():
     wrong and resume would silently corrupt the data order again.
     """
     assert torch.equal(_train_batches(1, seed=123)[0], _train_batches(1, seed=123)[0])
+
+
+# ---------------------------------------------------------------------------
+# Rank sharding.
+#
+# A 1-GPU and a 2-GPU run of the same config do not see the same data, and that
+# surprised me enough to chase it: a 2-GPU parity smoketest diverged from the
+# 1-GPU run by up to 0.75 in loss. The mechanism is in _load_dataset. With
+# world_size_independent=False -- what every shipped config sets -- the HF
+# dataset is split by split_dataset_by_node at load time, so each rank reads a
+# different third of the 64 shards and AbstractDataset.__iter__ hands back the
+# packer unsliced. With True, every rank loads the whole dataset and __iter__
+# strides it by rank instead. Both shard; they just shard at different layers.
+#
+# So cross-world-size loss equality is not a property this framework has, and a
+# test asserting it would be wrong. What must hold is that ranks never train on
+# the same samples -- silent duplication would quietly scale the effective batch
+# down and is exactly the kind of bug that hides behind a plausible loss curve.
+# That is what these two assert, one per branch.
+
+
+def _rank_stream(n, world_size, rank, world_size_independent, monkeypatch):
+    from src.core.datasets import C4Dataset, gpt2_tokenize_fn
+
+    monkeypatch.setenv("WORLD_SIZE", str(world_size))
+    monkeypatch.setenv("RANK", str(rank))
+    dataset = C4Dataset(
+        sequence_length=16,
+        tokenize_fn=gpt2_tokenize_fn(),
+        path=os.path.join(REPO_ROOT, "data"),
+        split="train",
+        seed=123,
+        shuffle=True,
+        world_size_independent=world_size_independent,
+    )
+    return [tuple(sequence) for sequence in itertools.islice(iter(dataset), n)]
+
+
+@needs_local_data
+@pytest.mark.parametrize("world_size_independent", [False, True])
+def test_ranks_never_see_the_same_sample(world_size_independent, monkeypatch):
+    """Two ranks of one run must train on disjoint data, by either sharding route."""
+    first = _rank_stream(12, 2, 0, world_size_independent, monkeypatch)
+    second = _rank_stream(12, 2, 1, world_size_independent, monkeypatch)
+    assert first, "rank 0 produced no samples"
+    shared = set(first) & set(second)
+    assert not shared, (
+        f"{len(shared)} of 12 sequences are on both ranks with "
+        f"world_size_independent={world_size_independent}; ranks are duplicating data"
+    )
+
+
+@needs_local_data
+def test_world_size_independent_partitions_one_stream(monkeypatch):
+    """The True branch is a stride, so the ranks interleave back into the 1-GPU stream."""
+    whole = _rank_stream(8, 1, 0, True, monkeypatch)
+    first = _rank_stream(4, 2, 0, True, monkeypatch)
+    second = _rank_stream(4, 2, 1, True, monkeypatch)
+    interleaved = [sequence for pair in zip(first, second) for sequence in pair]
+    assert (
+        interleaved == whole
+    ), "world_size_independent=True did not partition the single-rank stream"
