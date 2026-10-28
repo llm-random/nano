@@ -1063,6 +1063,14 @@ the suite has to run without touching a shared env,
 `python -m venv --system-site-packages` layered over it, with pytest installed into the venv
 alone, is additive and isolated — that is what the entropy run does.
 
+`scripts/sync_cluster_env.sh` makes the deployment step one command rather than folklore.
+Dry-run against entropy's real `PIXI_HOME` (job 30716, exit 0, nothing changed) it reports:
+both locks at **v6**, but `pixi.toml` and `pixi.lock` both differ, and the cluster lock
+carries **0** pytest entries against the repo's **1**. That is the drift, measured. `--apply`
+was not passed, and should be run by whoever owns that environment rather than by an audit
+borrowing the account: it would move `transformers` 5.12.1 → 4.56.2 under everyone using
+it.
+
 ### A trap worth not repeating
 
 The first PCD-50 submission (6173802) piped the training output through
