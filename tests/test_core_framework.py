@@ -286,3 +286,41 @@ def test_world_size_independent_partitions_one_stream(monkeypatch):
     assert (
         interleaved == whole
     ), "world_size_independent=True did not partition the single-rank stream"
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint logging.
+#
+# save_training_state writes to step_<n>/ but used to log save_config.path, the
+# parent -- a path with no file at it. Resume takes load.path and looks for the
+# training state at exactly that path, so anyone following the log would point
+# it at the parent, get "Training state file not found. Starting training from
+# scratch", and silently restart at step 0. That is the same trap as F14, one
+# layer out: the loud part is right and the part you act on is wrong.
+
+
+def test_the_logged_training_state_path_is_where_the_file_lands(tmp_path, caplog):
+    """Whatever the log names has to be a file that exists."""
+    from omegaconf import OmegaConf
+
+    from src.core.checkpointing import save_training_state, step_checkpoint_path
+
+    save_config = OmegaConf.create(
+        {
+            "path": str(tmp_path),
+            "training_state_filename": "__training_state_filename.pt",
+        }
+    )
+    step = 5
+    os.makedirs(step_checkpoint_path(str(tmp_path), step), exist_ok=True)
+
+    with caplog.at_level("INFO", logger="src.core.checkpointing"):
+        save_training_state(save_config, step=step, processed_tokens=123)
+
+    logged = [m for m in caplog.messages if "Saved training state in" in m]
+    assert len(logged) == 1, f"expected one save line, got {logged}"
+    path = logged[0].split("'")[1]
+    assert os.path.isfile(path), (
+        f"log points at '{path}', which does not exist -- a resume following this "
+        f"log would restart from step 0"
+    )

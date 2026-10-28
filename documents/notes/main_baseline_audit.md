@@ -170,6 +170,21 @@ and the path could not be tested on any machine with a GPU. Both indices and pro
 now follow the model's own device and dtype, which also lifts the float32-only limitation
 recorded as F12.
 
+**F17 — `save_training_state` logged a path with no file at it.** The function writes to
+`step_checkpoint_path(save_config.path, step)` — that is `<path>/step_<n>/` — but logged
+`save_config.path`, the parent. Measured directly: the log named
+`<root>/__training_state_filename.pt` while the file sat at `<root>/step_5/`, and the root
+held nothing.
+
+That matters because resume reads `load.path` and looks for the training state at exactly
+that path. Anyone following the log would point `load.path` at the parent, get
+`Training state file ... not found. Starting training from scratch`, and restart at step 0
+having meant to resume. It is F14 one layer out: the thing that fails is loud, and the
+thing you act on is wrong. Fixed to log `path`; a test now asserts that whatever the log
+names is a file that exists, and the old string fails it. Every other checkpoint log line
+in `src/core` and `src/projected_compression` already names the variable it wrote to, so
+this was the only one.
+
 **F16 — `pytest` is declared but not locked, so the project env lacks it.**
 `pixi.toml:24` lists `pytest = ">=8.0,<9"` under `[pypi-dependencies]` (added in c8dfd4bf,
 Oct 23), but `pixi.lock` was last regenerated in March and carries no pytest distribution.

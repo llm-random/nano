@@ -60,7 +60,7 @@ def save_training_state(
     )
 
     logger.info(
-        f"Saved training state in '{save_config.path}/{save_config.training_state_filename}'"
+        f"Saved training state in '{path}/{save_config.training_state_filename}'"
     )
 
 
