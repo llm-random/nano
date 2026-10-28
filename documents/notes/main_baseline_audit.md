@@ -199,6 +199,26 @@ iterator for truthiness, which calls `__len__` and raises
 unit tests, whose stub loader has a length, but by the existing end-to-end resume test.
 The check is `is not None`.
 
+**F19 — both mem-eff → HF conversion configs had been dead since March.**
+`convert_memeff_to_hf.convert_pc_to_hf` called
+`get_metric_logger(..., neptune_run_id=None)`. The neptune → wandb transition (d25c326b,
+PR #169) renamed that parameter to `tracker_run_id` and missed this one caller — the only
+one left in the repo. `convert_pc_to_hf` is the `init_model_opt_sched_fn` entry point for
+**both** `llama_1B_memeff_to_hf_conversion` and `llama_8B_memeff_to_hf_conversion`, so both
+died with `TypeError` on the first line of real work. The mem-eff PC checkpoints that every
+`*_comp_memeff` run produces could not be converted to HF at all, which is the step before
+any lm_eval number.
+
+Nothing in the suite could see it. Tier 0 imports every module, but the bad call is inside
+a function body that no test executes, and the configs that reach it need a trained 1B
+checkpoint. It took running the conversion for real (lem job 6183879) to surface it.
+
+Fixed by dropping the argument — `tracker_run_id` defaults to `None`, so it carried no
+information. `test_call_sites_match_the_function_signature` now walks the AST of every
+tracked Python file and checks each `get_metric_logger` call's keywords against the live
+signature, which catches this whole class: a rename that misses a caller in code the tests
+never run.
+
 **F17 — `save_training_state` logged a path with no file at it.** The function writes to
 `step_checkpoint_path(save_config.path, step)` — that is `<path>/step_<n>/` — but logged
 `save_config.path`, the parent. Measured directly: the log named

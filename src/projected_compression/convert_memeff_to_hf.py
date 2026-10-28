@@ -86,7 +86,6 @@ def convert_pc_to_hf(cfg, metric_logger):
             metric_logger_config=instantiate(
                 cfg.infrastructure.metric_logger, _convert_="all"
             ),
-            neptune_run_id=None,
         )
 
     model = create_model(

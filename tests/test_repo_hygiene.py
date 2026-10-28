@@ -335,3 +335,55 @@ def test_eval_dataloaders_are_world_size_independent():
                 f"{dataset['world_size_independent']!r}, must be True"
             )
     assert not offenders, "eval depends on the GPU count:\n  " + "\n  ".join(offenders)
+
+
+# Functions whose call sites are checked against their real signature. Keep this to
+# widely-used factories: the point is a refactor that renames a parameter and misses a
+# caller, which import-time checks cannot see because the bad call sits in a function
+# body that nothing in the suite executes.
+#
+# get_metric_logger is here because exactly that happened. The neptune -> wandb
+# transition (d25c326b) renamed neptune_run_id to tracker_run_id, and
+# convert_memeff_to_hf.convert_pc_to_hf kept passing the old name. It is the entry point
+# for both llama_{1B,8B}_memeff_to_hf_conversion configs, so both had been dead since
+# March with a TypeError on the first line of real work. Found 2026-10-28 by running the
+# conversion on lem (job 6183879), not by any test.
+SIGNATURE_CHECKED_FUNCTIONS = {
+    "get_metric_logger": "src.core.metric_loggers",
+}
+
+
+def test_call_sites_match_the_function_signature():
+    import ast
+    import importlib
+    import inspect
+
+    offenders = []
+    for name, module_path in SIGNATURE_CHECKED_FUNCTIONS.items():
+        module = importlib.import_module(module_path)
+        allowed = set(inspect.signature(getattr(module, name)).parameters)
+        for path in _tracked("src/**/*.py") + _tracked("*.py"):
+            full = os.path.join(REPO_ROOT, path)
+            try:
+                tree = ast.parse(open(full).read(), filename=path)
+            except SyntaxError:  # pragma: no cover
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                called = getattr(func, "id", None) or getattr(func, "attr", None)
+                if called != name:
+                    continue
+                for keyword in node.keywords:
+                    if keyword.arg is None:  # **kwargs, cannot check
+                        continue
+                    if keyword.arg not in allowed:
+                        offenders.append(
+                            f"{path}:{node.lineno}: {name}() got "
+                            f"'{keyword.arg}', which is not in its signature "
+                            f"({', '.join(sorted(allowed))})"
+                        )
+    assert not offenders, "call sites disagree with the function signature:\n  " + (
+        "\n  ".join(offenders)
+    )
