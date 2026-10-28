@@ -485,3 +485,47 @@ def test_no_new_orphan_model_configs():
         "model configs referenced by nothing -- wire them up or drop them:\n  "
         + "\n  ".join(sorted(new))
     )
+
+
+def test_the_logged_save_path_is_never_a_none_path():
+    """With checkpointing off, the run record must not name a path built from `None`.
+
+    _build_save_path feeds wandb's `full_save_checkpoints_path`. When
+    checkpoint.save.path is null it used to interpolate the literal string, giving
+    "None/<jobid>/<task>/step_N" -- nothing is written there, so it is cosmetic, but it
+    is a path in the run record that does not exist, which is how F17 wasted time.
+    """
+    from omegaconf import OmegaConf
+
+    import main
+
+    cfg = OmegaConf.create(
+        {
+            "trainer": {
+                "checkpoint": {"save": {"path": None, "type": "nano"}},
+                "n_steps": 10,
+            }
+        }
+    )
+    assert "None/" not in main._build_save_path(cfg)
+
+    cfg.trainer.checkpoint.save.path = "/tmp/ckpt"
+    assert main._build_save_path(cfg).startswith("/tmp/ckpt")
+
+
+def test_world_size_is_recorded_with_the_run():
+    """A run is reproducible at a fixed (seed, world_size), so both belong in the record.
+
+    world_size_independent: false shards the corpus per rank, so changing the GPU count
+    changes which data a run trains on. The seed is in the config; without world_size
+    beside it the run record does not say what data the run actually saw.
+    """
+    import inspect
+
+    import main
+
+    source = inspect.getsource(main.initialize_training_components)
+    assert '"world_size"' in source, (
+        "world_size is not logged with the run, so the record cannot tell you what data "
+        "the run trained on"
+    )
