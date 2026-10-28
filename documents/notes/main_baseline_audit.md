@@ -109,8 +109,10 @@ to with `super()`; finalization moved to a new `PCFinalizeTrainer`. This also br
 import cycle, since `compression.py` imports `main`, which imports `src.core`.
 
 **F2 — `configs/pc_project/llmr_300.yaml` had `batch_size` twice** (512 then 16), which
-Hydra's strict loader rejects, so the config could not load at all. Both lines arrived in
-the same commit, so neither was "the later one"; kept 512, matching sibling `llmr_800`.
+Hydra's strict loader rejects, so the config could not load at all — nothing historical is
+affected, because no run ever got past loading it. Both lines arrived in the same commit,
+so neither was "the later one"; kept 512, matching sibling `llmr_800`. **Maciej confirmed
+512 on 2026-10-28**, so this is a decision rather than my guess.
 
 **F3 — three conversion configs could not compose by either invocation.**
 `_model/llama/base_model.yaml` referenced the `ff_layer` group absolutely, which resolves
