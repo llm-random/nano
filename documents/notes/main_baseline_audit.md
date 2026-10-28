@@ -20,7 +20,7 @@ Audited from `main @ 2e51359c`, 2026-10-27, on branch `fix/main-baseline-audit`.
 
 | | before | after |
 |---|---|---|
-| Tests in the suite | 11 | **68** (62 selected in CI) |
+| Tests in the suite | 11 | **69** (63 selected in CI) |
 | Test files | 2 | 7 |
 | Runnable configs that compose *and* resolve | 76 / 82 | **82 / 82** |
 | `src/core` → projected-compression references | 3 | **0** |
