@@ -372,7 +372,7 @@ through it; its log carries `train/grad_norm`, `train/projection_grad_norm` and 
 per-module `..._embedding` / `..._head` norms under `gradient_clipping: 0.25` with
 `only_target_model_gradient_clipping: 1.0`.
 
-**1-GPU vs 2-GPU parity: the test was wrong, not the framework.** helios job 25259068 ran
+**1-GPU vs 2-GPU parity: not an FSDP2 defect, but a real reproducibility bug.** helios job 25259068 ran
 the same config at both world sizes with a fixed seed. Step 0 matched exactly (22.0 — same
 init), both runs converged to ~9.6, but intermediate steps diverged by up to **0.75**, mean
 |delta| 0.244 over 20 steps. I had expected equality on the reasoning that the global batch
@@ -421,10 +421,23 @@ interleave of the single-rank stream. Mutation-tested: dropping the `split_datas
 call puts 12 of 12 sequences on both ranks, and dropping the `islice` stride breaks the
 partition.
 
-Reproducibility is therefore per world size: fixed seed and fixed `world_size` give the
-same data, which is what the resume test and the determinism tests already check. Anyone
-branching from here should know that **changing the GPU count changes the data**, so it is
-not a free knob for a run you intend to compare against an earlier one.
+**This is a bug, not just a caveat.** Reproducibility is per world size: a fixed seed gives
+the same data only at a fixed `world_size`. Nothing warns you when that changes, so a run
+preempted and requeued on a different GPU count silently trains on different data, and any
+A/B whose arms ran at different world sizes is confounded. `world_size` belongs in run
+provenance next to the seed.
+
+**The eval dataloader makes it worse, and contradicts the code's own docstring.**
+`C4Dataset`'s docstring says "world_size_independent should be 'True' for tests and eval" —
+but `_dataset/fineweb.yaml`, `c4.yaml` and `local_dummy.yaml` all set `false` on **both**
+the train and the eval dataloader. So eval loss is scored on a rank-dependent subset, and
+eval numbers do not compare across GPU counts either.
+
+The train-side sharding is a deliberate strategy and should stay; what it needs is to be
+documented and recorded per run. The eval side looks like a straightforward miss — setting
+`world_size_independent: true` on the three eval dataloaders would match the docstring — but
+it changes what every eval number means, so it is recorded in `documents/issues.md` for a
+decision rather than changed inside an audit.
 
 ### Tier 4 — numerical reproduction — **done, full run reproduces the reference**
 
