@@ -2,6 +2,7 @@
 import datetime
 import logging
 import os
+import signal
 import re
 import time
 from git import Repo
@@ -57,6 +58,55 @@ def reset_to_original_repo_state(
     print("Successfully restored working tree to the original state!")
 
 
+@contextmanager
+def restoring_repo_state(
+    repo: Repo,
+    original_branch: str,
+    original_branch_commit_hash: str,
+    versioning_branch: str,
+):
+    """Restore the working tree on the way out, including on SIGTERM and SIGINT.
+
+    A `finally` only runs when Python unwinds. The default SIGTERM handler kills the
+    process outright, so a cancelled or preempted submission left the repo standing on
+    the experiment branch with the original branch unrestored -- which is how
+    `run_exp.py leaves the branch broken if killed` got into documents/issues.md.
+
+    The handler restores, puts the previous handler back and re-raises the signal, so
+    the process still dies the way the caller asked it to.
+    """
+    restored = False
+
+    def _restore():
+        nonlocal restored
+        if restored:
+            return
+        restored = True
+        reset_to_original_repo_state(
+            repo, original_branch, original_branch_commit_hash, versioning_branch
+        )
+
+    previous = {}
+
+    def _handler(signum, _frame):
+        _restore()
+        signal.signal(signum, previous.get(signum, signal.SIG_DFL))
+        os.kill(os.getpid(), signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            previous[sig] = signal.signal(sig, _handler)
+        except ValueError:
+            # signal() only works on the main thread; leave the finally as the guard.
+            pass
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+        _restore()
+
+
 def version_code(
     remote_url: str,
     experiment_config_path: Optional[str] = None,
@@ -84,14 +134,12 @@ def version_code(
             # ignore if file is not tracked / doesn't exist
             pass
 
-    try:
+    with restoring_repo_state(
+        repo, original_branch, original_branch_commit_hash, experiment_branch_name
+    ):
         commit_pending_changes(repo)
         repo.git.checkout(b=experiment_branch_name)
         repo.git.push(remote_url, experiment_branch_name)
-    finally:
-        reset_to_original_repo_state(
-            repo, original_branch, original_branch_commit_hash, experiment_branch_name
-        )
 
     return experiment_branch_name
 

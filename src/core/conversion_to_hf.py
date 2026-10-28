@@ -1,8 +1,11 @@
 from collections import OrderedDict
 import re
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 import re
+
+# Both the config and the tokenizer come from the same source model, so name it once.
+SOURCE_LLAMA_REPO = "meta-llama/Llama-3.1-8B"
 
 
 def remap_nano_to_llama31_hf(nano_dict):
@@ -81,7 +84,7 @@ def save_to_llama_3_hf(
     head_dim: int,
     nlayers: int,
 ):
-    config = AutoConfig.from_pretrained("meta-llama/Llama-3.1-8B")
+    config = AutoConfig.from_pretrained(SOURCE_LLAMA_REPO)
 
     config.hidden_size = int(dmodel)
     config.intermediate_size = int(dff)
@@ -97,3 +100,9 @@ def save_to_llama_3_hf(
     print(f"Saving HF model with the following config {config}")
 
     hf_model.save_pretrained(save_dir)
+
+    # The tokenizer has to go with the weights. PCTrainer.save_hf_checkpoint already
+    # saves one; this path did not, so HP/HPD checkpoints came out unusable by lm_eval
+    # until somebody supplied a tokenizer by hand -- and the mismatch was silent.
+    tokenizer = AutoTokenizer.from_pretrained(SOURCE_LLAMA_REPO)
+    tokenizer.save_pretrained(save_dir)

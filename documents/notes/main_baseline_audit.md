@@ -33,7 +33,22 @@ half passes on both helios and lem. Tier 3 is covered to a single rank in the un
 and to four real ranks by the PCD-50 run; its last open question, 1-GPU vs 2-GPU parity,
 turned out to be a wrong expectation rather than a defect, and is now pinned by tests.
 **Tier 4 reproduces the PCD-50 paper number over a complete 4096-step run** — final loss
-2.6741 against the reference 2.6705, +0.13%. Tier 5 passes on helios and lem.
+2.6741 against the reference 2.6705, +0.13%. Tier 5 passes on helios, lem and entropy.
+
+**What each cluster actually carries, since "verified on three clusters" would overstate
+it.** The tiers are not uniformly distributed:
+
+| | helios (GH200) | lem (H100) | entropy (h100a) |
+|---|---|---|---|
+| test suite | yes | **no** — no pytest in the env | yes, via a layered venv |
+| PC smoketest | yes, GPU | yes, GPU, real 1B mem-eff | yes, **CPU only** |
+| Tier 3 distributed | 1 and 2 ranks, resume | **4 ranks**, production trainer | **no** |
+| Tier 4 numerical | — | **full 4096-step PCD-50** | **no** |
+| `pc_finalize` / PC→HF | `pc_finalize` end to end | PC→HF end to end | — |
+
+Tier 4 and the 4-rank Tier 3 evidence rest on **lem alone**; entropy contributes the suite
+against a different dependency set and a CPU smoketest, not a distributed or numerical run.
+A GPU smoketest there (job 30689) was still queued when this was written.
 
 The suite's final state on GH200 (job **25325890**, at branch HEAD `377ae27d`):
 **56 passed, 10 skipped, 0 failed**, `pytest` exit 0, with `-m "not network"` selecting 66
