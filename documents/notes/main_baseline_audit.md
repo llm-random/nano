@@ -890,6 +890,19 @@ is the point). Training descends normally over 12 steps.
 This also exercises `world_size_independent: true` on the eval dataloader, which is the
 other half of the F10/GPU-count fix.
 
+**The holdout costs no memory, which was worth checking rather than assuming.** Carving a
+slice out of a 1.27-billion-row dataset looks like it should be expensive: if `select` built
+an indices mapping, a 1.266-billion-entry index array would add roughly 10 GB of RSS to
+every fineweb run. It does not. `Dataset.select` takes a fast path when given a contiguous
+`range` — "If the indices correspond to a contiguous range, the Arrow table is simply
+sliced" — and both holdout calls pass `range(...)` objects. `_select_contiguous` is present
+in **datasets 3.1.0**, the version `pixi.toml` pins and the one the clusters run, so the
+fast path is the one that executes.
+
+This was checked because an entropy CPU run OOM'd at 32 GB and the holdout was the obvious
+suspect. It was the wrong suspect: the memory went on training a 146M-parameter model on
+CPU in float32 with Adam state, not on the dataset slice.
+
 ### Mem-eff PC → HF conversion, end to end
 
 `llama_1B_memeff_to_hf_conversion` is one of the configs F3 unblocked, and the PCD-50 run
