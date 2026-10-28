@@ -1,0 +1,70 @@
+# 1-GPU pc_finalize smoketest for the HELIOS cluster (plgrid-gpu-gh200).
+#
+# Mirrors configs/pc_project/llama_1B_comp_finalize.yaml -- same trainer target, same
+# save type, same n_steps: 0, same init_compression-then-load-weights shape -- but on the
+# tiny self-contained PC model, so it needs none of the 1B PC assets. The 1B config is the
+# only consumer of the pc_finalize save type and cannot run without a trained 1B PC
+# checkpoint and importances, so nothing ever executed that path through main.py. This
+# does.
+#
+# Takes the nano checkpoint written by smoketest_pc_1gpu_helios (save.path overridden on
+# the command line) and merges the projections into a standard Transformer.
+defaults:
+  - ../_cluster@_here_: helios
+  - ../_model@_here_: llama_tiny_compressor
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+
+common:
+  sequence_length: 1024
+  batch_size: 16
+
+trainer:
+  # pc_finalize lives on the PC trainer, not src.core.trainer (which stays PC-free).
+  _target_: src.projected_compression.trainer.PCFinalizeTrainer
+  gradient_accumulation_steps: 1
+  n_steps: 0
+  learning_rate: 1e-3 # not used
+  scheduler:
+    warmup_steps: 0
+  eval_dataloader: None
+  eval_interval: 0
+
+  checkpoint:
+    load:
+      type: nano
+      path: ??? # CHANGE -- the step folder written by the training smoketest
+    save:
+      type: pc_finalize
+      path: ??? # CHANGE
+
+# init_compression runs on the freshly built model to give it the projected structure the
+# checkpoint's weights fit into; main.py then loads the weights on top. Same random
+# importances file the training smoketest uses, so the structure matches.
+apply_functions:
+  - _target_: src.projected_compression.compression.init_compression
+    _partial_: true
+    dimensions_importances_path: /net/storage/pr3/plgrid/plggllmeffi3/pc/plgmstefaniak/pc_assets/tiny_random_dimensions_importances.pt
+    target_dmodel: ${common.dmodel}
+    target_dff: ${common.dff}
+
+infrastructure:
+  metric_logger:
+    name: smoketest_helios_pc_finalize
+    new_wandb_job: true
+    wandb_entity: ideas_cv
+    project_name: llm-random-test
+    tags:
+      - smoketest
+      - pc
+      - tiny_llama
+      - pc_finalize
+      - helios
+
+  slurm:
+    job-name: ${infrastructure.metric_logger.name}
+    gres: "gpu:1"
+    time: "0-00:30:00"
+    account: plgllmefficont3-gpu-gh200

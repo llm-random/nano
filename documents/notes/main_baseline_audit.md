@@ -51,9 +51,22 @@ both cost real coverage:
   sharded checkpoint path, neither of which had any test. See Tier 3.
 
 Everything that needed a GPU cluster has had one: more than one rank, NCCL, the bfloat16
-mixed-precision policy, the 4-GPU world size, and the numerical reproduction. What remains
-unreachable is entropy, and with it the `bench_block.py` timing comparison, whose committed
-`.jsonl` was produced there and is not comparable off that hardware.
+mixed-precision policy, the 4-GPU world size, the numerical reproduction, and `pc_finalize`
+through `main.py`. Three things remain out of reach, each for a stated reason rather than
+for want of trying:
+
+- **entropy**, and with it the `bench_block.py` timing comparison — its committed `.jsonl`
+  was produced there and step times are not comparable off that hardware.
+- **`llama_1B_memeff_to_hf_conversion.yaml`** — `convert_memeff_to_hf.py` calls
+  `AutoConfig.from_pretrained` and `AutoTokenizer.from_pretrained` on
+  `meta-llama/Llama-3.2-1B`, a **gated** repo. lem's HF cache holds only `models--gpt2`;
+  helios has `Llama-3.1-8B` but not `Llama-3.2-1B`. A trained checkpoint now exists, so
+  this is blocked purely on gated access being granted.
+- **`run_eval.py`** — it imports `version_code` from `run_exp`, which commits onto whatever
+  branch you are standing on and only restores in a `finally`. That is the same reason
+  `run_exp.py`'s submission machinery was left alone; driving it from the audit branch
+  risks leaving the branch broken. Its eval target would also need an HF checkpoint, so the
+  gated-access block applies to it as well.
 
 ---
 
@@ -312,7 +325,9 @@ gloo backend and produces real DTensor parameters with a working `full_tensor()`
 - **`pc_finalize`** — `ProjectedLinear.finalize()` calls `.full_tensor()` and reads
   `os.environ["RANK"]`, so it is unreachable unless the parameters are DTensors. This was
   recorded below as F13, "cannot run single-process on CPU"; that was also wrong. The test
-  checks the merge directly: each layer must collapse to `P_out W P_in + auxiliary`.
+  checks the merge directly: each layer must collapse to `P_out W P_in + auxiliary`. The
+  same path is now also exercised through `main.py` on a GPU — see "pc_finalize end to
+  end" in the cluster log.
 - **the sharded checkpoint path** — `dcp.save`/`dcp.load` over `TrainingState`, which the
   plain `torch.save` checkpoints never touch.
 
@@ -507,6 +522,7 @@ are standing on and leaves it broken if the job is killed.
 | **25257102** | helios GH200 | **final suite + smoketest at HEAD** | **55 passed, 7 skipped, 0 failed** (`pytest exit=0`); smoketest trains, rc=0 |
 | 25259068 | helios GH200 ×2 | 1-GPU vs 2-GPU FSDP2 parity at fixed seed | running at time of writing |
 | **6174690** | lem 4×H100 | **full 4096-step PCD-50** | **COMPLETED 4h41m, rc=0, all 4096 steps.** Final `steps/100/train/loss` **2.674062** vs reference **2.670469** (+0.0036, 0.13%); mean \|delta\| 0.0088 over 40 points. See "PCD-50 full run" |
+| **25325254** | helios GH200 | **`pc_finalize` end to end** through `main.py` | **both stages rc=0**; merged state dict has 39 tensors and **0** projection/auxiliary tensors, `embedding.weight` `(128256, 256)`. First execution of the config this branch retargets. See "pc_finalize end to end" |
 | 6173738 | lem H100 | suite + `smoketest_pc_1gpu_lem` (mem-eff path, real 1B) | smoketest **passed** on H100 (production `PCTrainer`, real 1B, rc=0); suite could not run — no pytest in the env (F16) |
 | ~~6173802~~ | lem 4×H100 | PCD-50 prefix, first attempt | **cancelled** -- its log pipeline died of SIGPIPE (see below) and the job was training blind |
 | 6174094 | lem 4×H100 | PCD-50 prefix vs the reference curve | **451 steps, agrees to bf16 resolution from step 80**; see below |
@@ -602,6 +618,48 @@ not load-bearing.
 
 **`main` reproduces the PCD-50 paper number.** That is the strongest statement this audit
 can make about the baseline, and it is now made on a complete run rather than a prefix.
+
+### pc_finalize end to end
+
+This branch retargets `configs/pc_project/llama_1B_comp_finalize.yaml` at the new
+`PCFinalizeTrainer`. That config is the **only** consumer of the `pc_finalize` save type,
+and it cannot run without a trained 1B PC checkpoint and an importances file, so nothing
+had ever driven the path through `main.py` — the change was covered by a CPU unit test
+against a synthetic model and nothing else. Verifying my own edit was the gap worth
+closing.
+
+The PCD-50 checkpoint cannot serve: it is a `projected_mem_eff_1B` model, whose
+finalization route is `llama_1B_memeff_to_hf_conversion.yaml`, a different config.
+`configs/pc_project_mas/smoketest_pc_finalize_helios.yaml` is a tiny analogue instead —
+same `_target_`, same `pc_finalize` save type, same `n_steps: 0`, same
+init-compression-then-load-weights shape, on the self-contained tiny model that needs none
+of the 1B assets.
+
+helios job **25325254**, 1×GH200, two stages:
+
+| stage | what | result |
+|---|---|---|
+| A | train the tiny PC model 6 steps, save type `nano` | loss 22.0 → 14.25, **sharded** checkpoint at `step_5`, rc=0 |
+| B | load it, finalize, save type `pc_finalize` | merged checkpoint written, rc=0 |
+
+The merged state dict holds **39 tensors and zero projection or auxiliary tensors**, with
+`embedding.weight` at `(128256, 256)` — the target width, down from `base_dmodel` 512. Both
+stages report **146,543,104** trainable parameters, which is the check that matters for the
+warning in the 1B config's own comment: `init_compression` has to rebuild exactly the
+structure the checkpoint's weights fit into, and it did.
+
+What this covers that nothing covered before: `PCFinalizeTrainer` reached through hydra's
+`_target_`, the `pc_finalize` save type and its validation, the `save_final_checkpoint()`
+override dispatch, `finalize_projection_weights` on a real FSDP2-sharded GPU model rather
+than a CPU fixture, the lazy import inside the method that breaks the
+`compression` → `main` cycle, and a sharded nano checkpoint written by one process and read
+back by another.
+
+**One wart, not fixed.** The output lands in `step_-1`: `n_steps: 0` leaves `self.step` at
+−1 and `step_checkpoint_path` interpolates it straight into the folder name. The shipped 1B
+config also sets `n_steps: 0`, so real finalized 1B checkpoints land in `step_-1` too. It is
+deterministic and findable, so it is cosmetic — but changing it would move where production
+checkpoints are written, which is not a call to make quietly inside an audit.
 
 ### A trap worth not repeating
 
