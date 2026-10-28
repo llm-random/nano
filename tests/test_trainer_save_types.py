@@ -11,6 +11,7 @@ between a clear error and a lost run.
 """
 
 import pytest
+import torch
 from omegaconf import OmegaConf
 
 from src.core.trainer import Trainer
@@ -81,3 +82,85 @@ def test_core_trainer_has_no_projected_compression_attributes():
     """The method that used to live here moved to PCFinalizeTrainer."""
     assert not hasattr(Trainer, "save_pc_finalized_checkpoint")
     assert hasattr(PCFinalizeTrainer, "save_pc_finalized_checkpoint")
+
+
+# ---------------------------------------------------------------------------
+# Resuming with eval switched off.
+#
+# __attrs_post_init__ advances the eval stream to where a resumed run left off:
+#
+#     if self.start_step > 0:
+#         n_skip_eval_batches = (start_step - 1) // self.eval_interval * n_eval_steps
+#
+# eval_interval is 0 whenever eval is off, which 31 shipped configs do -- the
+# PCD-50 repro among them -- so every such run raised ZeroDivisionError on
+# resume, before training began. A preempted job simply could not be restarted.
+# It needs no GPU and no data to reproduce, but it only fires on a resume, which
+# is why it sat behind the one path nothing routinely runs. Found on helios job
+# 25327019.
+
+
+def _post_init_with(eval_interval, next_step, eval_dataloader=None):
+    """Run Trainer.__attrs_post_init__ against the smallest object that satisfies it."""
+
+    class Stub:
+        __attrs_post_init__ = Trainer.__attrs_post_init__
+        _validate_save_type = Trainer._validate_save_type
+        SUPPORTED_SAVE_TYPES = Trainer.SUPPORTED_SAVE_TYPES
+        FINAL_ONLY_SAVE_TYPES = Trainer.FINAL_ONLY_SAVE_TYPES
+
+    stub = Stub()
+    stub.checkpoint = OmegaConf.create({"save": {"type": "nano"}})
+    stub.training_state = {"processed_tokens": 0, "next_step": next_step}
+    stub.model = torch.nn.Linear(2, 2)
+    stub.eval_dataloader = eval_dataloader
+    stub.eval_interval = eval_interval
+    stub.n_eval_steps = 2
+    stub.__attrs_post_init__()
+    return stub
+
+
+def test_resuming_with_eval_disabled_does_not_divide_by_zero():
+    """eval_interval: 0 plus a resume must not raise -- 31 configs ship that way."""
+    stub = _post_init_with(eval_interval=0, next_step=10)
+    assert stub.start_step == 10
+    assert stub.step == 9
+
+
+def test_resuming_with_eval_enabled_still_skips_the_eval_stream():
+    """The guard must not switch the skip off when eval is genuinely on."""
+    consumed = []
+
+    class CountingLoader:
+        def __iter__(self):
+            def gen():
+                for i in range(1000):
+                    consumed.append(i)
+                    yield i
+
+            return gen()
+
+    _post_init_with(eval_interval=5, next_step=11, eval_dataloader=CountingLoader())
+    # (11 - 1) // 5 * 2 == 4 eval batches skipped
+    assert len(consumed) == 4, f"expected 4 eval batches skipped, got {len(consumed)}"
+
+
+def test_starting_from_scratch_skips_nothing():
+    stub = _post_init_with(eval_interval=0, next_step=0)
+    assert stub.start_step == 0
+    assert stub.step == -1
+
+
+def test_resuming_with_a_loader_but_eval_off_does_not_divide_by_zero():
+    """No shipped config pairs eval_interval: 0 with a live eval_dataloader, but the
+    guard has to cover it: without the eval_interval check the division still runs and
+    still raises, and nothing else in the suite would notice."""
+
+    class CountingLoader:
+        def __iter__(self):
+            return iter(range(1000))
+
+    stub = _post_init_with(
+        eval_interval=0, next_step=10, eval_dataloader=CountingLoader()
+    )
+    assert stub.start_step == 10

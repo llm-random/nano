@@ -70,13 +70,23 @@ class Trainer:
             getattr(module, "is_moe", False) for module in self.model.modules()
         )
 
+        self.eval_iterator = None
         if self.eval_dataloader is not None and hasattr(
             self.eval_dataloader, "__iter__"
         ):
             self.eval_iterator = iter(self.eval_dataloader)
         self.step = self.start_step - 1
 
-        if self.start_step > 0:
+        # Resuming has to advance the eval stream to where it was -- but only when there
+        # is one. eval_interval is 0 whenever eval is switched off, which 31 shipped
+        # configs do (the PCD-50 repro among them), and dividing by it raised
+        # ZeroDivisionError before training began: those runs could not be resumed at
+        # all. eval_dataloader: None leaves no iterator to advance either.
+        if (
+            self.start_step > 0
+            and self.eval_interval > 0
+            and self.eval_iterator is not None
+        ):
             n_skip_eval_batches = (
                 (self.start_step - 1) // self.eval_interval * self.n_eval_steps
             )

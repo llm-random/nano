@@ -172,6 +172,33 @@ and the path could not be tested on any machine with a GPU. Both indices and pro
 now follow the model's own device and dtype, which also lifts the float32-only limitation
 recorded as F12.
 
+**F18 — resume crashed outright whenever eval was switched off.**
+`Trainer.__attrs_post_init__` advances the eval stream to where a resumed run left off:
+
+```python
+if self.start_step > 0:
+    n_skip_eval_batches = (self.start_step - 1) // self.eval_interval * self.n_eval_steps
+```
+
+`eval_interval` is **0** whenever eval is off, and **31 shipped configs set it** — the
+PCD-50 repro among them. So every one of those runs raised `ZeroDivisionError` before
+training began and **could not be resumed at all**: a preempted-and-requeued job was
+unrecoverable. Together with F14, which silently replayed the data, the resume path was
+broken in both directions — one loudly, one quietly.
+
+It needs no GPU and no data to reproduce, but it only fires on a resume, which is why it
+sat behind the one path nothing routinely runs. Found by the GPU resume job (helios
+25327019), not by anything in the suite.
+
+Guarded on `eval_interval > 0` and on an eval iterator existing, with four regression
+tests. Two things worth recording from the fix. `eval_iterator` was only ever assigned
+inside the eval branch, so reaching it with eval off was an `AttributeError` waiting behind
+the `ZeroDivisionError`; it is initialised to `None` now. And my first guard tested the
+iterator for truthiness, which calls `__len__` and raises
+`TypeError: object of type '_InfiniteConstantSampler' has no len()` — caught not by the new
+unit tests, whose stub loader has a length, but by the existing end-to-end resume test.
+The check is `is not None`.
+
 **F17 — `save_training_state` logged a path with no file at it.** The function writes to
 `step_checkpoint_path(save_config.path, step)` — that is `<path>/step_<n>/` — but logged
 `save_config.path`, the parent. Measured directly: the log named
