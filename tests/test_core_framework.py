@@ -384,3 +384,32 @@ def test_holdout_rejects_a_nonsense_setting(monkeypatch):
         _holdout_stream(1, "validation", monkeypatch)
     with pytest.raises(ValueError, match="holdout_fraction"):
         _holdout_stream(1, "eval", monkeypatch, fraction=1.5)
+
+
+# ---------------------------------------------------------------------------
+# get_metric_logger's config argument.
+#
+# Three call sites build it differently. main.py and initialization.py pass the
+# config node; convert_memeff_to_hf passed instantiate(..., _convert_="all"),
+# which is a plain dict, and get_metric_logger reads .type by attribute -- so
+# both mem-eff -> HF conversion configs died with AttributeError the moment the
+# earlier TypeError was fixed. Two bugs stacked in the same four lines, neither
+# reachable without a trained 1B checkpoint to run the config against.
+
+
+@pytest.mark.parametrize("as_plain_dict", [False, True])
+def test_metric_logger_accepts_either_config_form(as_plain_dict):
+    """A dict and a DictConfig describe the same config; both must work."""
+    from src.core.metric_loggers import get_metric_logger
+
+    config = {
+        "type": "stdout",
+        "name": "t",
+        "tags": [],
+        "new_wandb_job": True,
+        "heavy_metrics_calculation_interval": 100,
+    }
+    if not as_plain_dict:
+        config = OmegaConf.create(config)
+    logger_obj = get_metric_logger(metric_logger_config=config)
+    assert logger_obj is not None

@@ -219,6 +219,20 @@ tracked Python file and checks each `get_metric_logger` call's keywords against 
 signature, which catches this whole class: a rename that misses a caller in code the tests
 never run.
 
+**And a second bug was stacked behind it, in the same four lines.** With the `TypeError`
+gone the conversion got one line further and raised
+`AttributeError: 'dict' object has no attribute 'type'`. The call passed
+`instantiate(cfg.infrastructure.metric_logger, _convert_="all")`, and `_convert_="all"`
+yields a plain dict, while `get_metric_logger` reads `.type` by attribute. The two working
+call sites — `main.py:228` and `initialization.py:49` — pass the config node itself; this
+one also silently omitted `full_config`, which is what populates the wandb run config.
+
+The caller now matches those two, and `get_metric_logger` normalises a dict to a
+`DictConfig` rather than asking every caller to remember which form it is holding.
+`test_metric_logger_accepts_either_config_form` covers both. Two defects in four lines,
+neither reachable without a trained 1B checkpoint — which is the argument for running a
+config rather than reasoning about it.
+
 **F17 — `save_training_state` logged a path with no file at it.** The function writes to
 `step_checkpoint_path(save_config.path, step)` — that is `<path>/step_<n>/` — but logged
 `save_config.path`, the parent. Measured directly: the log named
