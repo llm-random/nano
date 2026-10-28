@@ -1013,14 +1013,27 @@ all, and 60 GB would not backfill, while 28 GB with a sliced dataset ran immedia
 exercises `FineWebEduDataset`, `_load_dataset`, the holdout, `split_dataset_by_node`, the
 sample packer, `init_compression` and the training loop identically.
 
-**The GPU variant could not run inside this audit, and that is a resource limit rather
-than a pending task.** `h100a` is the only node mounting `/storage_nvme_4` — the env, the
+**The GPU variant could not run inside this audit, and the constraint is hard.** Measured
+rather than assumed: `scontrol show node h100a` reports all 8 GPUs allocated, and the
+soonest-ending GPU job on that node has **1 day 11 hours** remaining, several of the queue
+held by `QOSMaxGRESPerUser` against the shared cap. No GPU frees on entropy for roughly 35
+hours, so this was never going to happen during the audit no matter how the job was sized —
+unlike the CPU work, where sizing was the whole battle (120 GB could not schedule, 60 GB
+would not backfill, 28 GB ran at once).
+
+A corrected job is queued as **30713** rather than left to fail: the original (30689) was
+written before two things were learned, and would have run the suite against an env with no
+pytest and the smoketest against the full 1.27-billion-row fineweb at 64 GB, which is what
+OOM'd. 30713 uses the layered venv and the sliced dataset, so it produces a real result
+whenever a GPU frees. Its log lands at `~j321m/mas_gpu_30713.out`.
+
+**This is a resource limit rather than a pending task.** `h100a` is the only node mounting `/storage_nvme_4` — the env, the
 fineweb copy and the checkout all live there — and its 8 GPUs were fully allocated to other
 users' multi-day jobs throughout, several of them held by `QOSMaxGRESPerUser` against the
 shared cap. `a100a` had free GPUs but mounts `/storage_nvme_1` instead, with no env, no
 torch and no module system; building one into a colleague's home was not a reasonable thing
 to do on an account lent for smoketests. Job 30689 is left queued rather than cancelled, so
-it runs unattended — its log lands at `~j321m/mas_smoke_30689.out`.
+it runs unattended.
 
 What that costs is narrower than it looks: the smoketest's own purpose, per its header, is
 to prove the env, the dataset path, the model build, `init_compression` and the training
