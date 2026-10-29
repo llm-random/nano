@@ -466,3 +466,135 @@ def test_rope_cannot_score_a_longer_sequence_than_it_was_built_for():
 
     with pytest.raises(RuntimeError, match="must match"):
         rope(torch.zeros(1, 2, 32, 8))
+
+
+# ---------------------------------------------------------------------------
+# `max_samples` is a budget for the whole job, not for each rank.
+#
+# The cap used to go on after the per-rank stride, so every rank took max_samples
+# samples out of its own substream and the job scored max_samples * world_size. The
+# eval set exists precisely to be independent of the GPU count, so that turned the one
+# number meant to be comparable between runs into one that moved with the launch. At
+# world_size 1 -- which is where it was tested -- the two are identical.
+
+
+def _capped_stream(monkeypatch, world_size, rank, max_samples, n=None):
+    from src.core.datasets import FineWebEduDataset, gpt2_tokenize_fn
+
+    monkeypatch.setenv("WORLD_SIZE", str(world_size))
+    monkeypatch.setenv("RANK", str(rank))
+    dataset = FineWebEduDataset(
+        sequence_length=16,
+        tokenize_fn=gpt2_tokenize_fn(),
+        path=os.path.join(REPO_ROOT, "data"),
+        seed=123,
+        shuffle=True,
+        world_size_independent=True,
+        holdout="eval",
+        holdout_rows=60,
+        max_samples=max_samples,
+    )
+    stream = iter(dataset)
+    if n is not None:
+        stream = itertools.islice(stream, n)
+    return [tuple(sequence) for sequence in stream]
+
+
+@needs_local_data
+@pytest.mark.parametrize("world_size", [1, 2, 4])
+def test_the_eval_set_is_the_same_whatever_the_gpu_count(monkeypatch, world_size):
+    """The union over ranks must be one fixed set of exactly max_samples samples."""
+    union = []
+    for rank in range(world_size):
+        union.extend(_capped_stream(monkeypatch, world_size, rank, max_samples=12))
+
+    single = _capped_stream(monkeypatch, 1, 0, max_samples=12)
+
+    assert len(single) == 12, f"the cap itself is wrong: {len(single)}"
+    assert len(union) == 12, (
+        f"world_size={world_size} scored {len(union)} samples, not 12 -- the cap is "
+        f"being applied per rank"
+    )
+    assert sorted(union) == sorted(single), "the ranks do not cover the same samples"
+
+
+@needs_local_data
+def test_the_ranks_do_not_score_the_same_sample_twice(monkeypatch):
+    """Striding after the cap still has to partition, not duplicate."""
+    per_rank = [
+        _capped_stream(monkeypatch, 4, rank, max_samples=12) for rank in range(4)
+    ]
+    flat = [sequence for rank in per_rank for sequence in rank]
+    assert len(flat) == len(set(flat)), "a sample is scored by more than one rank"
+
+
+@needs_local_data
+def test_a_capped_stream_refuses_a_sharded_dataloader(monkeypatch):
+    """world_size_independent=False hands each rank a different shard to cap."""
+    from src.core.datasets import FineWebEduDataset, gpt2_tokenize_fn
+
+    monkeypatch.setenv("WORLD_SIZE", "4")
+    monkeypatch.setenv("RANK", "0")
+    dataset = FineWebEduDataset(
+        sequence_length=16,
+        tokenize_fn=gpt2_tokenize_fn(),
+        path=os.path.join(REPO_ROOT, "data"),
+        seed=123,
+        shuffle=True,
+        world_size_independent=False,
+        holdout="eval",
+        holdout_rows=60,
+        max_samples=12,
+    )
+    with pytest.raises(ValueError, match="world_size_independent"):
+        iter(dataset)
+
+
+def test_a_capped_stream_refuses_multiple_dataloader_workers(monkeypatch):
+    """Each worker runs __iter__ and applies its own cap, so the job reads N * workers.
+
+    to_iterable_dataset shards by worker, so the workers do not hand back duplicate
+    rows -- which is what makes this a silent multiplication rather than an obvious
+    one. Needs no data: the check runs before anything is read.
+    """
+    from src.core.datasets import AbstractDataset
+
+    monkeypatch.setenv("WORLD_SIZE", "1")
+    monkeypatch.setenv("RANK", "0")
+    dataset = AbstractDataset(
+        sequence_length=16,
+        tokenize_fn=lambda x: x,
+        world_size_independent=True,
+        max_samples=8192,
+    )
+
+    class TwoWorkers:
+        num_workers = 2
+
+    monkeypatch.setattr(
+        torch.utils.data, "get_worker_info", lambda: TwoWorkers(), raising=True
+    )
+    with pytest.raises(ValueError, match="num_workers"):
+        dataset._check_the_cap_can_be_honoured()
+
+
+def test_an_uncapped_stream_is_fine_with_workers_and_sharding(monkeypatch):
+    """The guards must only fire when there is a cap to honour."""
+    from src.core.datasets import AbstractDataset
+
+    monkeypatch.setenv("WORLD_SIZE", "4")
+    monkeypatch.setenv("RANK", "0")
+    dataset = AbstractDataset(
+        sequence_length=16,
+        tokenize_fn=lambda x: x,
+        world_size_independent=False,
+        max_samples=None,
+    )
+
+    class TwoWorkers:
+        num_workers = 2
+
+    monkeypatch.setattr(
+        torch.utils.data, "get_worker_info", lambda: TwoWorkers(), raising=True
+    )
+    dataset._check_the_cap_can_be_honoured()  # must not raise

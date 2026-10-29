@@ -209,20 +209,52 @@ class Trainer:
             batches = itertools.islice(batches, self.n_eval_steps)
 
         self.model.eval()
-        losses = []
+        # Accumulate a weighted sum and a count rather than a list of batch means. The
+        # last batch of a fixed-size set is usually short, and with world_size_independent
+        # the ranks get within one sample of each other but not exactly the same number,
+        # so a mean of means is weighted wrong on both counts.
+        loss_sum = torch.zeros((), device=self.device, dtype=torch.float64)
+        n_samples = torch.zeros((), device=self.device, dtype=torch.float64)
+        skipped = 0
         with torch.no_grad():
             for batch in batches:
+                size = batch.shape[0]
+                if size % self.gradient_accumulation_steps:
+                    # calculate_loss splits the batch into gradient_accumulation_steps
+                    # chunks and divides each chunk's loss by that same number. On a
+                    # batch too short to fill every chunk it produces fewer chunks and
+                    # still divides by the full count, so the loss comes back
+                    # proportionally too low. Skipping the stub is better than folding a
+                    # known-wrong number into final_ce; with max_samples a multiple of
+                    # the batch size, which the shipped config is, there is no stub.
+                    skipped += size
+                    continue
                 batch = batch.to(self.device)
                 loss_metrics = self.calculate_loss(batch)
-                losses.append(loss_metrics.reported_loss.detach())
+                loss_sum += loss_metrics.reported_loss.detach().double() * size
+                n_samples += size
                 self.metric_logger.flush_accumulated_metrics()
 
-        if not losses:
+        # One reduction, after the loop. Reducing inside it would deadlock the moment
+        # two ranks got a different number of batches, which a fixed-size set split
+        # across ranks can easily produce.
+        if dist.is_initialized():
+            dist.all_reduce(loss_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(n_samples, op=dist.ReduceOp.SUM)
+
+        if n_samples.item() == 0:
             logger.warning("Final eval produced no batches; not logging final_ce.")
             return
 
-        final_ce = torch.stack(losses).mean().item()
-        logger.info(f"final_ce over {len(losses)} batches: {final_ce}")
+        if skipped:
+            logger.warning(
+                f"Final eval skipped {skipped} samples in batches too short to fill "
+                f"gradient_accumulation_steps={self.gradient_accumulation_steps}; set "
+                f"max_samples to a multiple of the batch size to score all of them."
+            )
+
+        final_ce = (loss_sum / n_samples).item()
+        logger.info(f"final_ce over {int(n_samples.item())} samples: {final_ce}")
         self.metric_logger.log("final_ce", final_ce)
         self.metric_logger.flush()
 

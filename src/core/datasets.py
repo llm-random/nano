@@ -176,17 +176,53 @@ class AbstractDataset(IterableDataset):
         endless packer into a fixed, finite set -- an eval set has to be the *same*
         samples every time it is measured, or the number moves for reasons that have
         nothing to do with the model.
+
+        The cap goes on before the per-rank stride, not after. After the stride each
+        rank yields `max_samples` samples out of its own substream, so the set the job
+        actually scores is `max_samples * world_size` and changes with the GPU count --
+        which is the dependence the eval set exists to remove. Capping first and
+        striding second makes the union across ranks exactly `max_samples`, the same
+        samples at any world size.
         """
+        self._check_the_cap_can_be_honoured()
         self.rng.seed(self.seed)
-        if self.world_size_independent:
-            stream = itertools.islice(
-                self.sample_packer(), self.rank, None, self.world_size
-            )
-        else:
-            stream = self.sample_packer()
+        stream = self.sample_packer()
         if self.max_samples is not None:
             stream = itertools.islice(stream, self.max_samples)
+        if self.world_size_independent:
+            stream = itertools.islice(stream, self.rank, None, self.world_size)
         return stream
+
+    def _check_the_cap_can_be_honoured(self):
+        """`max_samples` is a budget for the whole job, and two settings silently break
+        that. Both are a multiplication, not an error, so they would show up only as an
+        eval number that moved when the launch did.
+        """
+        if self.max_samples is None:
+            return
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None and worker_info.num_workers > 1:
+            # to_iterable_dataset shards by worker, so workers do not duplicate rows --
+            # but each one runs this __iter__ and applies its own cap, so the job reads
+            # max_samples * num_workers. A fixed eval set needs num_workers: 0.
+            raise ValueError(
+                f"max_samples={self.max_samples} with num_workers="
+                f"{worker_info.num_workers}: each worker applies the cap to its own "
+                f"shard, so the set read is {self.max_samples * worker_info.num_workers}"
+                f", not {self.max_samples}. Set num_workers: 0 on this dataloader."
+            )
+
+        if not self.world_size_independent and self.world_size > 1:
+            # split_dataset_by_node already gave this rank a disjoint shard, so there is
+            # no shared stream to cap -- every rank would take max_samples from a
+            # different slice.
+            raise ValueError(
+                f"max_samples={self.max_samples} needs world_size_independent=True; "
+                f"with False each of the {self.world_size} ranks is handed a different "
+                f"shard and caps that, so the set read is "
+                f"{self.max_samples * self.world_size}, not {self.max_samples}."
+            )
 
 
 class FineWebEduDataset(AbstractDataset):

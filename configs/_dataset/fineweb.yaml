@@ -55,4 +55,9 @@ trainer:
       # at that length.
       sequence_length: ${common.sequence_length}
       max_samples: 8192
-    num_workers: 2
+    # 0, not 2. to_iterable_dataset shards by DataLoader worker, so each worker runs
+    # __iter__ and applies max_samples to its own shard -- two workers read 16384
+    # samples, not 8192. The dataset raises rather than let that pass silently.
+    # Reading a fixed 8192 samples once at the end of a run does not need worker
+    # parallelism.
+    num_workers: 0

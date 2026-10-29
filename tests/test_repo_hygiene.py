@@ -6,6 +6,7 @@ found on main and fixed, so that branching from main cannot silently reintroduce
 Everything in this file runs in seconds and is safe for CI.
 """
 
+import ast
 import importlib
 import os
 import re
@@ -641,3 +642,36 @@ def test_both_fineweb_dataloaders_hold_out_the_same_rows():
     assert (
         rows["train_dataloader"] == rows["eval_dataloader"]
     ), f"holdout_rows disagree: {rows}; the slices would overlap"
+
+
+def test_no_test_name_is_defined_twice_in_a_file():
+    """A redefined test silently replaces the first one, which then never runs.
+
+    pytest collects module attributes, so two `def test_x` in one file leave only the
+    second. Nothing reports it: the count goes down by one and the suite stays green.
+    Caught while fixing this branch's review findings, where a new test reused the name
+    of an existing one and switched it off.
+
+    The same goes for helper classes and functions a test file defines.
+    """
+    offenders = []
+    for path in _tracked("tests"):
+        if not path.endswith(".py"):
+            continue
+        with open(os.path.join(REPO_ROOT, path)) as handle:
+            tree = ast.parse(handle.read(), filename=path)
+        seen = {}
+        for node in tree.body:
+            if not isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
+                continue
+            if node.name in seen:
+                offenders.append(
+                    f"{path}: {node.name} defined at line {seen[node.name]} and "
+                    f"again at line {node.lineno}; only the second one runs"
+                )
+            seen[node.name] = node.lineno
+    assert not offenders, "shadowed definitions in test files:\n  " + "\n  ".join(
+        offenders
+    )

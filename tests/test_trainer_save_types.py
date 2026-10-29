@@ -236,11 +236,14 @@ class _FinalEvalStub:
 
     final_eval = Trainer.final_eval
 
-    def __init__(self, loader, max_samples, n_eval_steps=2):
+    def __init__(
+        self, loader, max_samples, n_eval_steps=2, gradient_accumulation_steps=1
+    ):
         self.eval_dataloader = loader
         if loader is not None:
             loader.dataset = type("D", (), {"max_samples": max_samples})()
         self.n_eval_steps = n_eval_steps
+        self.gradient_accumulation_steps = gradient_accumulation_steps
         self.device = torch.device("cpu")
         self.metric_logger = _RecordingLogger()
         self.model = torch.nn.Linear(2, 2)
@@ -338,7 +341,7 @@ def test_a_real_eval_dataloader_survives_normalisation():
 
 
 @pytest.mark.parametrize("absent", [None, "None"])
-def test_final_eval_is_a_no_op_without_an_eval_dataloader(absent):
+def test_final_eval_is_a_no_op_after_a_string_eval_dataloader(absent):
     """Construct exactly as a shipped config does, then run the whole final_eval.
 
     This is the end-to-end shape of the bug: `eval_dataloader: None` in YAML, a trainer
@@ -352,3 +355,50 @@ def test_final_eval_is_a_no_op_without_an_eval_dataloader(absent):
     """
     stub = _post_init_with(eval_interval=0, next_step=0, eval_dataloader=absent)
     stub.final_eval()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# final_ce is the loss over the whole eval set, not a mean of batch means.
+
+
+class _SizedLoader(list):
+    """Batches of differing sizes, with a .dataset like a DataLoader's."""
+
+
+def _sized_stub(sizes, losses, gradient_accumulation_steps=1):
+    loader = _SizedLoader(torch.zeros(size, 2) for size in sizes)
+    stub = _FinalEvalStub(
+        loader,
+        max_samples=sum(sizes),
+        gradient_accumulation_steps=gradient_accumulation_steps,
+    )
+    seen = iter(losses)
+    stub.calculate_loss = lambda batch: type(
+        "L", (), {"reported_loss": torch.tensor(next(seen))}
+    )()
+    return stub
+
+
+def test_final_ce_weights_each_batch_by_its_size():
+    """A short last batch must not count as much as a full one.
+
+    8 samples at loss 1.0 and 2 samples at loss 6.0 is 20 over 10 samples, so 2.0. The
+    mean of the two batch means would be 3.5. This matters because a fixed-size eval set
+    split across ranks does not divide evenly into batches.
+    """
+    stub = _sized_stub([8, 2], [1.0, 6.0])
+    stub.final_eval()
+    assert stub.metric_logger.logged["final_ce"] == pytest.approx(2.0)
+
+
+def test_final_ce_skips_batches_too_short_to_chunk():
+    """calculate_loss divides by gradient_accumulation_steps however many chunks it got.
+
+    A batch of 2 split 4 ways yields 2 chunks, each divided by 4, so the loss comes back
+    at half its true value. Folding that into final_ce would bias the number down with
+    nothing to show for it; the stub batch is dropped and warned about instead, leaving
+    the full batch's 1.0.
+    """
+    stub = _sized_stub([8, 2], [1.0, 6.0], gradient_accumulation_steps=4)
+    stub.final_eval()
+    assert stub.metric_logger.logged["final_ce"] == pytest.approx(1.0)
