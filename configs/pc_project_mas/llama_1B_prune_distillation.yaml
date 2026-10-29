@@ -54,7 +54,7 @@ trainer:
     path: /lustre/pd03/plgrid/plgllmefficont3/mstefaniak/checkpoints/results # lem new
     
   eval_interval: 0
-  eval_dataloader: None
+  eval_dataloader: null
   # train_dataloader:
   #   dataset:
   #     seed: 1000

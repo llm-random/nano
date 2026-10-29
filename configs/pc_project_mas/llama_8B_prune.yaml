@@ -38,7 +38,7 @@ trainer:
     warmup_steps: 40
 
   eval_interval: 0
-  eval_dataloader: None
+  eval_dataloader: null
 
   checkpoint:
    load:

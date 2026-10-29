@@ -70,29 +70,27 @@ class Trainer:
             getattr(module, "is_moe", False) for module in self.model.modules()
         )
 
-        self.eval_iterator = None
-        if self.eval_dataloader is not None and hasattr(
-            self.eval_dataloader, "__iter__"
-        ):
-            self.eval_iterator = iter(self.eval_dataloader)
-        self.step = self.start_step - 1
-
-        # Resuming has to advance the eval stream to where it was -- but only when there
-        # is one. eval_interval is 0 whenever eval is switched off, which 31 shipped
-        # configs do (the PCD-50 repro among them), and dividing by it raised
-        # ZeroDivisionError before training began: those runs could not be resumed at
-        # all. eval_dataloader: None leaves no iterator to advance either.
-        if (
-            self.start_step > 0
-            and self.eval_interval > 0
-            and self.eval_iterator is not None
-        ):
-            n_skip_eval_batches = (
-                (self.start_step - 1) // self.eval_interval * self.n_eval_steps
+        # A bare `None` in YAML is the *string* "None" -- YAML's null is `null` or `~`.
+        # 37 shipped configs switch eval off with `eval_dataloader: None`, so without
+        # this the attribute arrives as a str, which is not None and does have
+        # __iter__, and so passes for a dataloader until something calls .to() on one
+        # of its characters. Normalise once, here, so every later check is `is None`.
+        if isinstance(self.eval_dataloader, str):
+            logger.info(
+                f"eval_dataloader is the string {self.eval_dataloader!r}, which YAML "
+                "produces for a bare `None`; treating it as no eval dataloader."
             )
-            logger.debug(f"Skipping {n_skip_eval_batches} eval batches")
-            for _ in range(n_skip_eval_batches):
-                next(self.eval_iterator)
+            self.eval_dataloader = None
+
+        # Not built here. Resuming used to wind this forward by
+        # (start_step - 1) // eval_interval * n_eval_steps batches, because one iterator
+        # was carried across the whole run and a resumed run had to land where it left
+        # off. eval() now restarts the stream on every call -- that restart is what makes
+        # the eval set the same samples every time -- so a wound-forward iterator would
+        # be discarded unread, after pulling ~10k batches through the tokenizer on a long
+        # resume. Do not add the skip back without first removing that restart.
+        self.eval_iterator = None
+        self.step = self.start_step - 1
 
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
         if self._has_moe_modules:
@@ -194,9 +192,7 @@ class Trainer:
         consume the model -- rewriting its parameters, or dropping them off rank 0 --
         so a score taken afterwards would be of whatever the save left behind.
         """
-        if self.eval_dataloader is None or not hasattr(
-            self.eval_dataloader, "__iter__"
-        ):
+        if self.eval_dataloader is None:
             logger.info("No eval dataloader; skipping the final eval.")
             return
 

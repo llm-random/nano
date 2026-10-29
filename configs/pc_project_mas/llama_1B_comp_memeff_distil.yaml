@@ -46,7 +46,7 @@ trainer:
   distributed:
     fsdp2: null
     
-  eval_dataloader: None
+  eval_dataloader: null
   eval_interval: 0
 
   gradient_clipping: 0.25 #best

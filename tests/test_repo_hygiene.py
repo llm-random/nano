@@ -529,3 +529,31 @@ def test_world_size_is_recorded_with_the_run():
         "world_size is not logged with the run, so the record cannot tell you what data "
         "the run trained on"
     )
+
+
+def test_no_config_writes_a_bare_none():
+    """A bare `None` in YAML is the string "None", not a null.
+
+    YAML spells the null `null` or `~`; `None` is just a three-letter scalar. Every one
+    of the 37 configs that switched eval off wrote `eval_dataloader: None`, so the
+    trainer received the string. A string is not None and does have __iter__, so it
+    passed every "is there a dataloader" guard and only failed once something called
+    .to() on one of its characters -- after training had finished, and before the final
+    checkpoint was written.
+
+    The trainer now normalises a str eval_dataloader to None, so this is belt and
+    braces: it keeps the configs honest about what they mean, and catches the same
+    mistake on a key that has no such normalisation.
+    """
+    offenders = []
+    for path in _tracked("configs"):
+        if not path.endswith(".yaml"):
+            continue
+        with open(os.path.join(REPO_ROOT, path)) as handle:
+            for number, line in enumerate(handle, start=1):
+                if re.match(r"^\s*[\w.]+:\s*None\s*(#.*)?$", line):
+                    offenders.append(f"{path}:{number}: {line.strip()}")
+    assert not offenders, (
+        "YAML reads a bare `None` as the string 'None'; write `null`:\n  "
+        + "\n  ".join(offenders)
+    )

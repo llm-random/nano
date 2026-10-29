@@ -48,7 +48,7 @@ trainer:
     fsdp2: null
 
   eval_interval: 1000000
-  eval_dataloader: None
+  eval_dataloader: null
 
   checkpoint:
     save: #only way to save PC_memeff model

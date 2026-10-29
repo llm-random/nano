@@ -46,7 +46,7 @@ trainer:
     path: null
     
   eval_interval: 1000000
-  eval_dataloader: None
+  eval_dataloader: null
   train_dataloader:
     dataset:
       seed: 1000

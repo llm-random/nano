@@ -85,9 +85,9 @@ def test_core_trainer_has_no_projected_compression_attributes():
 
 
 # ---------------------------------------------------------------------------
-# Resuming with eval switched off.
+# Resuming, and what __attrs_post_init__ does with the eval stream.
 #
-# __attrs_post_init__ advances the eval stream to where a resumed run left off:
+# __attrs_post_init__ used to advance the eval stream to where a resumed run left off:
 #
 #     if self.start_step > 0:
 #         n_skip_eval_batches = (start_step - 1) // self.eval_interval * n_eval_steps
@@ -98,6 +98,13 @@ def test_core_trainer_has_no_projected_compression_attributes():
 # It needs no GPU and no data to reproduce, but it only fires on a resume, which
 # is why it sat behind the one path nothing routinely runs. Found on helios job
 # 25327019.
+#
+# The skip is now gone entirely, because eval() restarts the stream on every call so
+# that each evaluation scores the same held-out samples. A wound-forward iterator is
+# discarded unread by that restart, so the skip bought nothing and cost ~10k batches
+# through the tokenizer at the start of a long resume. These tests pin both halves:
+# construction must not touch the eval stream at all, and must not divide by
+# eval_interval.
 
 
 def _post_init_with(eval_interval, next_step, eval_dataloader=None):
@@ -106,6 +113,7 @@ def _post_init_with(eval_interval, next_step, eval_dataloader=None):
     class Stub:
         __attrs_post_init__ = Trainer.__attrs_post_init__
         _validate_save_type = Trainer._validate_save_type
+        final_eval = Trainer.final_eval
         SUPPORTED_SAVE_TYPES = Trainer.SUPPORTED_SAVE_TYPES
         FINAL_ONLY_SAVE_TYPES = Trainer.FINAL_ONLY_SAVE_TYPES
 
@@ -127,8 +135,15 @@ def test_resuming_with_eval_disabled_does_not_divide_by_zero():
     assert stub.step == 9
 
 
-def test_resuming_with_eval_enabled_still_skips_the_eval_stream():
-    """The guard must not switch the skip off when eval is genuinely on."""
+def test_construction_never_reads_the_eval_stream():
+    """Not one batch, even resuming deep into a run with eval on.
+
+    This is the case the old skip loop was written for: next_step 11 at eval_interval 5
+    wound the stream forward by (11 - 1) // 5 * 2 == 4 batches. eval() then threw that
+    iterator away and built a fresh one, so the 4 batches were read and dropped. On a
+    real resume the number is in the thousands, and every one of them goes through the
+    tokenizer before the first training step.
+    """
     consumed = []
 
     class CountingLoader:
@@ -140,9 +155,11 @@ def test_resuming_with_eval_enabled_still_skips_the_eval_stream():
 
             return gen()
 
-    _post_init_with(eval_interval=5, next_step=11, eval_dataloader=CountingLoader())
-    # (11 - 1) // 5 * 2 == 4 eval batches skipped
-    assert len(consumed) == 4, f"expected 4 eval batches skipped, got {len(consumed)}"
+    stub = _post_init_with(
+        eval_interval=5, next_step=11, eval_dataloader=CountingLoader()
+    )
+    assert consumed == [], f"construction read {len(consumed)} eval batches"
+    assert stub.eval_iterator is None
 
 
 def test_starting_from_scratch_skips_nothing():
@@ -288,3 +305,50 @@ def test_train_runs_the_final_eval_before_saving():
     assert source.index("self.final_eval()") < source.index(
         "self.save_final_checkpoint()"
     ), "the final eval runs after the checkpoint, so pc_finalize leaves nothing to score"
+
+
+# ---------------------------------------------------------------------------
+# `eval_dataloader: None` is a string.
+#
+# YAML's null is `null` or `~`; a bare `None` is the three-letter string. 37 shipped
+# configs switch eval off with `eval_dataloader: None`, so the trainer gets "None".
+# That string is not None and does have __iter__, so it satisfied every "is there a
+# dataloader" guard, and final_eval -- which runs after the last step and *before* the
+# final checkpoint -- iterated its characters and raised AttributeError on 'N'.to().
+# Every PC run in the repo would have trained to completion and then died unsaved.
+# __attrs_post_init__ now normalises a str to None.
+
+
+@pytest.mark.parametrize("sentinel", ["None", "null", "~", ""])
+def test_a_string_eval_dataloader_is_normalised_to_none(sentinel):
+    stub = _post_init_with(eval_interval=0, next_step=0, eval_dataloader=sentinel)
+    assert stub.eval_dataloader is None
+
+
+def test_a_real_eval_dataloader_survives_normalisation():
+    """The normalisation must not reach anything that is actually a dataloader."""
+
+    class Loader:
+        def __iter__(self):
+            return iter(range(3))
+
+    loader = Loader()
+    stub = _post_init_with(eval_interval=2, next_step=0, eval_dataloader=loader)
+    assert stub.eval_dataloader is loader
+
+
+@pytest.mark.parametrize("absent", [None, "None"])
+def test_final_eval_is_a_no_op_without_an_eval_dataloader(absent):
+    """Construct exactly as a shipped config does, then run the whole final_eval.
+
+    This is the end-to-end shape of the bug: `eval_dataloader: None` in YAML, a trainer
+    built from it, and final_eval reached after the last step. The stub carries no
+    model, device, calculate_loss or metric_logger, so anything past the guard raises
+    AttributeError -- which is the assertion. Before the fix it raised
+    "'str' object has no attribute 'to'" here.
+
+    final_eval runs before save_final_checkpoint, so anything it raises costs the whole
+    run's output, not just the metric.
+    """
+    stub = _post_init_with(eval_interval=0, next_step=0, eval_dataloader=absent)
+    stub.final_eval()  # must not raise

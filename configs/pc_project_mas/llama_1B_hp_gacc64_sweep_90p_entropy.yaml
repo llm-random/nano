@@ -22,7 +22,7 @@ trainer:
   learning_rate: 11
   scheduler:
     warmup_steps: 2   # must be < n_steps for the cosine scheduler
-  eval_dataloader: None
+  eval_dataloader: null
   eval_interval: 0
   checkpoint:
     load:

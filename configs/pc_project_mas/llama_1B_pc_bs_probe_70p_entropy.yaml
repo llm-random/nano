@@ -26,7 +26,7 @@ trainer:
     warmup_steps: 2   # must be < n_steps for the cosine scheduler
   distributed:
     fsdp2: null
-  eval_dataloader: None
+  eval_dataloader: null
   eval_interval: 0
 
   gradient_clipping: 0.25

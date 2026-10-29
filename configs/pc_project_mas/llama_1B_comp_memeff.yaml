@@ -86,7 +86,7 @@ trainer:
   distributed:
     fsdp2: null
 
-  eval_dataloader: None
+  eval_dataloader: null
   eval_interval: 0
 
   original_llama_path: meta-llama/Llama-3.2-1B
