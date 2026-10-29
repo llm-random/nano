@@ -458,3 +458,54 @@ safety margin I had worried about.
 lem is the one that actually binds. entropy at 0.77.0 already writes v7, so it is bound
 by `requires-pixi` rather than by the lock version; lem at 0.63.2 is the version that
 would silently re-solve a v7 lock instead of failing, which is what the pin protects.
+
+## lem, 2026-10-29 14:20: SSH came back, and the real blocker is different
+
+`ui.wcss.pl` started answering again after refusing all day. The upgrade still did not
+happen, for a reason nobody had seen yet.
+
+**lem's home is 8.8 GB over a 20 GB quota, and refuses every write.**
+
+```
+$ quota -s
+hnud:/plgrid-users/...   28822M*   limit 20480M        (* = over)
+
+$ echo test > ~/.pixi/bin/pixi.writetest
+bash: .../pixi.writetest: Disk quota exceeded
+```
+
+`configs/_cluster/lem.yaml:45` resolves pixi through `$HOME/.pixi/bin`, so
+`pixi self-update` has to write into that quota and cannot. This is not a pixi problem
+and it is not SSH: it blocks anything that writes to home on lem, which includes
+checkpoints and logs for any run configured to land there.
+
+What is using it — read-only, nothing touched:
+
+| Path | Size |
+|------|------|
+| `~/llmrandom_cemetery` | 13 G |
+| `~/.local` | 7.1 G |
+| `~/lmeval_env` | 5.3 G |
+| `~/.cache` | 2.9 G |
+
+That sums to about the 28.8 G reported. Clearing it means deleting or moving things in
+your home, which is yours to decide, so it is left alone.
+
+**The 0.63.2 binary is backed up and ready** at
+`/lustre/pd01/plgrid/plgllmefficont3/$USER/pixi_backup/pixi.bak-20261029-142010`
+(verified: runs, reports 0.63.2). Once there is room in home, the upgrade is one command
+and the rollback is a copy.
+
+## Where the four items actually stand
+
+| Item | State | Blocker |
+|------|-------|---------|
+| helios pixi | **done, 0.83.0** | — (job 25364846) |
+| entropy pixi | 0.77.0 | binary belongs to `j321m`; permission classifier refuses, not routed around |
+| lem pixi | 0.63.2 | **home quota, 8.8 G over**; needs space freed, which is yours to do |
+| `requires-pixi` + v6 assertion | in place, correctly | lem's 0.63.2 silently re-solves a v7 lock instead of failing |
+
+lem is the item that actually binds the v6 pin. entropy at 0.77.0 already writes v7 and
+is held off by `requires-pixi` rather than by the lock format; lem at 0.63.2 is the
+version that would re-solve a v7 lock without saying so, which is what the pin exists
+to prevent.
