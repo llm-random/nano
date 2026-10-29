@@ -2,9 +2,13 @@
 
 exec 1>&2
 
-# pixi.lock is deliberately held at v6: helios runs pixi 0.67.1, which cannot read v7.
-# Any `pixi run` without --frozen silently rewrites it, and the diff is ~12k lines, so
-# it is easy to wave through in review and only shows up as a failed submission later.
+# pixi.lock is deliberately held at v6. The reason used to be that helios ran pixi
+# 0.67.1 and could not read v7; every cluster reads v7 now, so what is left is the
+# rewrite itself. `pixi run` without --frozen *re-solves* and rewrites the lock, ~12k
+# lines, with the pinned versions replaced and nothing in the diff saying so -- easy to
+# wave through in review, and it reaches the clusters.
+#
+# Keep this in step with PINNED_LOCK_VERSION in tests/test_repo_hygiene.py.
 if [ -f pixi.lock ] && [ "$(head -n 1 pixi.lock)" != "version: 6" ]; then
     echo "pixi.lock is not version 6 -- helios cannot read a v7 lock."
     echo "Run: git checkout -- pixi.lock"
@@ -12,11 +16,10 @@ if [ -f pixi.lock ] && [ "$(head -n 1 pixi.lock)" != "version: 6" ]; then
     exit 1
 fi
 
-# Call black through the environment's own interpreter rather than `pixi run`.
-# pixi.toml declares requires-pixi to stop a too-new pixi rewriting the lock to v7, and
-# that bound refuses `pixi run` on exactly the modern pixi most people have -- so routing
-# this through pixi would fail every commit. Bypassing it is the same workaround
-# documents/issues.md gives for running anything else in this repo.
+# Call black through the environment's own interpreter rather than `pixi run`. That
+# started as a workaround for requires-pixi, which refused `pixi run` on any modern
+# pixi; the bound is gone, but this is still the right call -- `pixi run` without
+# --frozen re-solves and rewrites the lock, which is the thing checked above.
 BLACK_PY="./.pixi/envs/default/bin/python"
 if [ ! -x "$BLACK_PY" ]; then
     echo "No pixi environment at $BLACK_PY; skipping the formatting check."

@@ -672,3 +672,83 @@ skipped: its home is 11T with no tight quota, and the obvious target
 (`$XDG_CACHE_HOME`, under `/storage_nvme_4`) is mounted on h100a and nowhere else, so
 pointing a cache there would be wrong on every other partition. That needs a decision
 about entropy's storage layout, not a guess from here.
+
+---
+
+# The blocked items are done (2026-10-29)
+
+With the two decisions made -- move lem's stale cemetery to lustre, skip entropy -- the
+sequence the plan has been pointing at for days finished.
+
+## lem's home
+
+`~/llmrandom_cemetery` was 13 G, 253 experiment clones, nothing written since 6 May, and
+lem has been using the lustre cemetery since the redirect went in.
+
+A plain `mv` was hopeless: 33 MB in three minutes, because it is ~73k small files going
+NFS to lustre, which is the worst case for both. `tar` to a single lustre file ran ~10x
+faster and finished.
+
+**Verified three ways before anything was removed**, because an archive you have not
+read is not a backup:
+
+| Check | Result |
+|-------|--------|
+| `tar -tf` reads the whole archive | no error -- not truncated |
+| top-level directories | 253 in archive, 253 in source |
+| total entries | 73,157 in archive, 73,157 in source |
+| md5 of sampled files, archive vs source | 5/5 match |
+
+Then the source went, and the quota with it: **28822M -> 15773M** of 20480M, over-limit
+marker gone, writes working. Archive at
+`<project lustre>/$USER/llmrandom_cemetery_home_2026-10-29.tar`.
+
+## lem's pixi
+
+0.63.2 -> **0.83.0**, verified from the PATH `configs/_cluster/lem.yaml:45` actually
+sets -- not a PATH of my own, which is the mistake that made helios look done when it
+was not:
+
+```
+resolved pixi: /home/grid/users/plgmstefaniak/.pixi/bin/pixi
+version: pixi 0.83.0
+PIXI_HOME lock BEFORE/AFTER: version: 6
+env OK: 2.7.1+cu128 | 4.56.2
+```
+
+The 0.63.2 binary stays at `<project lustre>/$USER/pixi_backup/` if it is ever wanted.
+
+## The bound is lifted
+
+Every cluster now reads v7: helios 0.83.0, lem 0.83.0, entropy 0.77.0. The reason
+`requires-pixi` existed is gone, and it cost more than it bought -- it refused every
+modern pixi command in the repo, `pixi run install_hooks` included, so the people who
+most needed the pre-commit hook were the ones who could not install it.
+
+Removed from `pixi.toml`. Confirmed: `pixi task list` on 0.81.0 now works in the repo and
+leaves `pixi.lock` byte-identical at v6.
+
+What replaces it is narrower and aimed at the actual damage. **The danger was never the
+format number; it was the re-solve the rewrite brings** -- +6234/-6089 lines with the
+pinned versions quietly replaced. So the lock version is pinned in two places that a
+test holds together, and moving to v7 is now a deliberate act: bump
+`PINNED_LOCK_VERSION`, regenerate, verify the environment on each cluster, merge.
+
+Tests changed to match, not deleted:
+
+- `test_pixi_lock_stays_at_version_6` -> `test_pixi_lock_stays_at_the_pinned_version`,
+  reason restated.
+- `test_pixi_version_is_bounded_below_the_lock_bump` ->
+  `test_no_requires_pixi_bound_is_reintroduced_without_a_reason`, which fails if the
+  bound returns without someone naming the cluster that needs it.
+- `test_the_lock_constraint_is_stated_consistently` now pins the hook and the CI check
+  to each other.
+- `test_apply_strips_requires_pixi_from_the_target_manifest` had quietly become vacuous
+  -- with no bound in the manifest it would pass with the strip deleted. A new test
+  exercises the strip against a manifest that does declare one, in plain, indented and
+  tab-indented forms. Mutation-tested by restoring the old column-zero anchor.
+
+## entropy
+
+Left at 0.77.0 by decision. It reads and writes v7, so it never blocked this; the item
+is closed as unnecessary rather than outstanding.

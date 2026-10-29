@@ -80,11 +80,11 @@ ts="$(date +%Y%m%d-%H%M%S)"
 [[ -f "$TARGET/pixi.lock" ]] && copy "$TARGET/pixi.lock" "$TARGET/pixi.lock.bak-$ts"
 copy "$REPO_ROOT/pixi.lock" "$TARGET/pixi.lock"
 
-# The manifest goes over without requires-pixi. That bound exists to stop a too-new pixi
-# rewriting the *repo's* lock to a format the clusters cannot read; a cluster's own
-# PIXI_HOME is a different thing, and carrying the bound there would stop that machine's
-# pixi managing its own environment. entropy runs pixi 0.77, which the bound excludes --
-# copying it verbatim would make this very script unusable there.
+# The manifest goes over without requires-pixi. The repo no longer declares one -- every
+# cluster reads v7 as of 2026-10-29 -- but the strip stays: a cluster's own PIXI_HOME is
+# not the repo, and a bound copied there would constrain that machine's pixi in managing
+# its own environment. If the bound ever comes back for a cluster that needs it, it must
+# still not travel. test_apply_strips_requires_pixi_from_the_target_manifest covers it.
 [[ -f "$TARGET/pixi.toml" ]] && copy "$TARGET/pixi.toml" "$TARGET/pixi.toml.bak-$ts"
 # -E with a leading-whitespace class, not a bare '^requires-pixi': TOML allows an
 # indented key, and an anchored match would miss it and carry the bound across, which

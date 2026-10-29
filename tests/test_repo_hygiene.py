@@ -255,23 +255,30 @@ def test_no_dataloader_outruns_the_models_sequence_length():
 # environment
 
 
-def test_pixi_lock_stays_at_version_6():
-    """helios runs pixi 0.67.1, which cannot read a v7 lock.
+def test_pixi_lock_stays_at_the_pinned_version():
+    """The lock changes only on purpose.
 
-    Any local `pixi run` rewrites the lock to v7 without asking, and the diff is large
-    enough to wave through in review. Committing that breaks submission on helios.
+    This used to say "helios cannot read v7". Every cluster now runs a pixi that reads
+    v7 -- helios and lem 0.83.0, entropy 0.77.0 -- so the format number is no longer the
+    danger, and requires-pixi is gone.
+
+    What remains is that `pixi run` without --frozen *re-solves* and rewrites the lock,
+    +6234/-6089 lines, with the pinned versions replaced and nothing in the diff saying
+    so. That is too large to review and it reaches the clusters. So the version is
+    declared once, and changing it is deliberate: bump PINNED_LOCK_VERSION, regenerate,
+    and verify the environment on every cluster before merging.
     """
     with open(os.path.join(REPO_ROOT, "pixi.lock")) as handle:
         first = handle.readline().strip()
-    assert first == "version: 6", (
-        f"pixi.lock is '{first}', expected 'version: 6'. A local `pixi run` rewrites it "
-        "to v7, which helios's pixi 0.67.1 cannot read. Run `git checkout -- pixi.lock`, "
-        "and use `pixi run --frozen` to avoid it."
+    assert first == f"version: {PINNED_LOCK_VERSION}", (
+        f"pixi.lock is '{first}', expected 'version: {PINNED_LOCK_VERSION}'. A `pixi "
+        f"run` without --frozen re-solves and rewrites it. Run "
+        f"`git checkout -- pixi.lock` and use `pixi run --frozen`. If the bump is "
+        f"intended, change PINNED_LOCK_VERSION here and in .githooks/pre-commit, and "
+        f"verify the environment on every cluster."
     )
 
 
-# Known account names in shared config, with nothing yet verified to replace them.
-# Shrink this list; never add to it. See F9/F10 in the baseline audit notes.
 KNOWN_USER_SPECIFIC = {
     "configs/_cluster/lem.yaml",  # fineweb paths under another account's directory
 }
@@ -472,49 +479,31 @@ def test_call_sites_match_the_function_signature():
     )
 
 
-def test_pixi_version_is_bounded_below_the_lock_bump():
-    """A pixi new enough to rewrite the lock must be refused, not left to do it.
+def test_no_requires_pixi_bound_is_reintroduced_without_a_reason():
+    """The bound was removed on 2026-10-29; putting it back needs a live reason.
 
-    Measured across four versions: 0.63.2 writes lock v6, 0.67.1 leaves it at v6, and
-    0.77.0 and 0.81.0 both bump it to v7. helios runs 0.67.1 and cannot read v7, so one
-    `pixi run` on a modern pixi rewrote the lock and broke the cluster. `requires-pixi`
-    turns that into a refusal with a clear message.
+    It existed because lem (0.63.2) and helios (0.67.x) could not read a v7 lock. Both
+    run 0.83.0 now, and entropy's 0.77.0 reads and writes v7, so no cluster is left that
+    the format can break. Meanwhile the bound refused *every* modern pixi command in the
+    repo -- `pixi run install_hooks` among them, so the people who most needed the
+    pre-commit hook were exactly the ones who could not install it.
 
-    The upper bound has to stay at or below 0.77, the first version observed to bump the
-    format, and the lower bound must admit lem's 0.63.2 and helios's 0.67.1.
+    If a cluster is ever rolled back to a pixi that cannot read the pinned lock format,
+    reinstate it, and change this test to name that cluster and that version.
     """
-    import tomllib
-
-    with open(os.path.join(REPO_ROOT, "pixi.toml"), "rb") as handle:
-        manifest = tomllib.load(handle)
-    requires = (manifest.get("workspace") or {}).get("requires-pixi")
-    assert (
-        requires
-    ), "pixi.toml declares no requires-pixi, so a too-new pixi will rewrite the lock"
-
-    upper = re.search(r"<\s*([0-9]+\.[0-9]+)", requires)
-    assert upper, f"requires-pixi {requires!r} has no upper bound"
-    major, minor = (int(part) for part in upper.group(1).split("."))
-    assert (major, minor) <= (0, 77), (
-        f"requires-pixi upper bound {upper.group(1)} admits pixi 0.77+, which bumps the "
-        "lock to v7 and breaks helios"
+    manifest = open(os.path.join(REPO_ROOT, "pixi.toml")).read()
+    declared = [
+        line
+        for line in manifest.splitlines()
+        if re.match(r"\s*requires-pixi\s*=", line)
+    ]
+    assert not declared, (
+        "pixi.toml declares requires-pixi again:\n  "
+        + "\n  ".join(declared)
+        + "\nIf a cluster needs it, say which one here and why."
     )
 
-    lower = re.search(r">=\s*([0-9]+\.[0-9]+)", requires)
-    assert lower, f"requires-pixi {requires!r} has no lower bound"
-    lo_major, lo_minor = (int(part) for part in lower.group(1).split("."))
-    assert (lo_major, lo_minor) <= (
-        0,
-        63,
-    ), f"requires-pixi lower bound {lower.group(1)} excludes lem's pixi 0.63.2"
 
-
-# Model configs referenced by nothing. Dead weight still has to be maintained -- the
-# orphan below was edited under two earlier issues purely to keep it consistent with
-# configs that are actually used. They are allowlisted rather than deleted: an orphan
-# model config is plausibly staging for work that has not landed, and deleting someone
-# else's work-in-progress is not an audit's call. The point is that the set must not
-# grow.
 KNOWN_ORPHAN_MODEL_CONFIGS = {
     # documents/issues.md recorded one orphan. Running the check found five: the entry
     # was written from a spot inspection rather than a search.
@@ -677,43 +666,21 @@ def test_no_test_name_is_defined_twice_in_a_file():
     )
 
 
-# The lock-format constraint is stated in three places, and they have to agree:
-#
-#   pixi.toml          requires-pixi, which refuses a pixi new enough to rewrite the lock
-#   .githooks/pre-commit   refuses to commit a lock that is not the pinned version
-#   test_pixi_lock_stays_at_version_6   the same check in CI
-#
-# LOWEST_V7_PIXI is the lowest pixi that bumps the lock format. Measured, not guessed:
-# 0.63.2 and 0.67.x leave a lock at v6, 0.77.0 and 0.81.0 rewrite it to v7. entropy runs
-# 0.77.0 and warns "the lock file ... uses an older format (v6)" on every invocation.
+# The lock version is stated in two places that have to agree: .githooks/pre-commit and
+# test_pixi_lock_stays_at_the_pinned_version. Bumping it means regenerating the lock and
+# verifying the environment on every cluster, because the rewrite is a re-solve.
 PINNED_LOCK_VERSION = 6
-LOWEST_V7_PIXI = (0, 77)
 
 
 def test_the_lock_constraint_is_stated_consistently():
-    """Three places enforce one rule; a change to any one of them must move all three.
+    """Two places pin the lock version; moving one must move the other.
 
-    They drifted apart once already in a quieter way: the bound's comment named helios
-    as the reason, and helios looked upgraded while the binary its experiments actually
-    use was untouched. A version read from the wrong PATH is not evidence, and neither
-    is a bound whose three statements disagree.
+    .githooks/pre-commit refuses to commit a lock that is not the pinned version, and
+    test_pixi_lock_stays_at_the_pinned_version is the same check in CI. They drifted
+    once in a quieter way: the reason both gave named helios, while helios looked
+    upgraded and the binary its experiments actually used was untouched. A version read
+    from the wrong PATH is not evidence, and neither is a pin whose statements disagree.
     """
-    manifest = open(os.path.join(REPO_ROOT, "pixi.toml")).read()
-    match = re.search(r'requires-pixi\s*=\s*"([^"]+)"', manifest)
-    assert match, "pixi.toml no longer declares requires-pixi"
-    bound = match.group(1)
-
-    upper = re.search(r"<\s*(\d+)\.(\d+)", bound)
-    assert upper, (
-        f"requires-pixi {bound!r} has no upper bound; a pixi that rewrites the lock to "
-        f"v{PINNED_LOCK_VERSION + 1} would be allowed to run here"
-    )
-    assert (int(upper.group(1)), int(upper.group(2))) <= LOWEST_V7_PIXI, (
-        f"requires-pixi {bound!r} admits pixi {upper.group(1)}.{upper.group(2)}, which "
-        f"is at or past {LOWEST_V7_PIXI[0]}.{LOWEST_V7_PIXI[1]} -- the lowest version "
-        f"that rewrites the lock to v{PINNED_LOCK_VERSION + 1}"
-    )
-
     hook = open(os.path.join(REPO_ROOT, ".githooks/pre-commit")).read()
     assert f"version: {PINNED_LOCK_VERSION}" in hook, (
         f"the pre-commit hook does not pin the lock to v{PINNED_LOCK_VERSION}; it and "
@@ -721,15 +688,11 @@ def test_the_lock_constraint_is_stated_consistently():
     )
 
     lock_version = open(os.path.join(REPO_ROOT, "pixi.lock")).readline().strip()
-    assert lock_version == f"version: {PINNED_LOCK_VERSION}", (
-        f"pixi.lock is {lock_version!r}, but the bound and the hook pin "
-        f"v{PINNED_LOCK_VERSION}"
-    )
+    assert (
+        lock_version == f"version: {PINNED_LOCK_VERSION}"
+    ), f"pixi.lock is {lock_version!r}, but the pin says v{PINNED_LOCK_VERSION}"
 
 
-# Variables that name a directory something will fill up over time. A cluster with a
-# small home quota cannot afford any of them pointing there, and the default for every
-# one of them is under $HOME.
 BULK_DIRECTORY_VARS = (
     "HF_HOME",
     "HF_HUB_CACHE",

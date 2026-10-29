@@ -148,8 +148,9 @@ def test_apply_strips_requires_pixi_from_the_target_manifest(tmp_path):
         "requires-pixi was copied into the cluster PIXI_HOME, which would stop that "
         "machine's pixi installing the environment"
     )
-    # and the repo's own manifest still has it
-    assert _declares_requires_pixi(open(os.path.join(REPO_ROOT, "pixi.toml")).read())
+    # The repo declares no bound since 2026-10-29, so the assertion above is only a
+    # guard for the future. The strip itself is tested directly below, against a
+    # manifest that does declare one.
 
 
 def test_apply_survives_a_filesystem_that_refuses_cp_p(tmp_path):
@@ -206,3 +207,39 @@ def test_apply_survives_a_filesystem_that_refuses_cp_p(tmp_path):
     assert not _declares_requires_pixi((target / "pixi.toml").read_text())
     assert list(target.glob("pixi.lock.bak-*")), "no backup of the replaced lock"
     assert list(target.glob("pixi.toml.bak-*")), "no backup of the replaced manifest"
+
+
+def test_the_strip_removes_a_bound_however_it_is_written(tmp_path):
+    """Test the strip against a manifest that actually has one.
+
+    The repo stopped declaring requires-pixi on 2026-10-29 -- every cluster reads v7 now
+    -- so the end-to-end test above no longer has a bound to strip and would pass with
+    the strip deleted. This keeps the logic covered, and covers the indented form: the
+    strip was once anchored at column zero, and TOML permits leading whitespace, so an
+    indented bound travelled to the cluster and broke pixi there.
+    """
+    strip = None
+    for line in open(SCRIPT):
+        if "requires-pixi" in line and line.strip().startswith("grep"):
+            strip = line.split('"$REPO_ROOT/pixi.toml"')[0].strip()
+            break
+    assert strip, "could not find the strip command in the script"
+
+    manifest = tmp_path / "pixi.toml"
+    manifest.write_text(
+        "[workspace]\n"
+        'requires-pixi = ">=0.60,<0.77"\n'
+        '  requires-pixi = ">=0.60,<0.77"\n'
+        "\t" + 'requires-pixi = ">=0.60,<0.77"\n'
+        "# requires-pixi is only mentioned here\n"
+        'name = "nano"\n'
+    )
+    result = subprocess.run(
+        ["bash", "-c", f'{strip} "{manifest}"'], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert not _declares_requires_pixi(result.stdout), (
+        "a bound survived the strip:\n" + result.stdout
+    )
+    assert "only mentioned here" in result.stdout, "the comment should survive"
+    assert 'name = "nano"' in result.stdout, "the rest of the manifest should survive"
