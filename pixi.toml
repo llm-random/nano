@@ -18,7 +18,10 @@ version = "0.1.0"
 requires-pixi = ">=0.60,<0.77"
 
 [tasks]
-install_hooks = "git config --local core.hooksPath .githooks"
+# Kept for habit, but it cannot run on a pixi that requires-pixi excludes -- which is
+# every pixi that would rewrite the lock, i.e. exactly the ones the hook protects
+# against. Run scripts/install_hooks.sh directly instead; it needs no pixi.
+install_hooks = "bash scripts/install_hooks.sh"
 
 [dependencies]
 python = "==3.12.3"

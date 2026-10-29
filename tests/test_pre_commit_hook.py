@@ -8,6 +8,7 @@ for anyone with the hook installed.
 """
 
 import os
+import re
 import shutil
 import subprocess
 
@@ -59,3 +60,76 @@ def test_the_hook_accepts_a_v6_lock(tmp_path):
     # no pixi env in the temp dir, so the formatting check should bow out cleanly
     result = _run_hook(str(work))
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Installing the hook must not need pixi.
+#
+# The only documented route was `pixi run install_hooks`. pixi.toml declares
+# requires-pixi to stop a too-new pixi rewriting pixi.lock to v7, and that bound refuses
+# *every* pixi command in the repo -- the install task included:
+#
+#   $ pixi run install_hooks
+#   Error: this project requires pixi '>=0.60,<0.77', but you have pixi 0.81.0
+#
+# The hook exists to catch a lock that a too-new pixi rewrote. The people who need it
+# are the people running a too-new pixi, and they were the ones who could not install
+# it. Found by running the documented command rather than reading it.
+
+
+def test_the_hook_installer_does_not_need_pixi():
+    """It may *mention* pixi -- the comment explains the catch-22 -- but never call it."""
+    installer = os.path.join(REPO_ROOT, "scripts/install_hooks.sh")
+    assert os.access(installer, os.X_OK), "scripts/install_hooks.sh is not executable"
+
+    offenders = []
+    for number, line in enumerate(open(installer), start=1):
+        code = line.split("#", 1)[0]
+        if re.search(r"(^|[|&;(`$]|\s)pixi(\s|$)", code):
+            offenders.append(f"{number}: {line.rstrip()}")
+    assert not offenders, (
+        "the installer invokes pixi, which is exactly what made it unreachable for "
+        "anyone whose pixi requires-pixi excludes:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_installer_actually_sets_hookspath(tmp_path):
+    """Run it against a throwaway repo, never this one."""
+    work = tmp_path / "repo"
+    (work / ".githooks").mkdir(parents=True)
+    hook = work / ".githooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 0\n")
+    hook.chmod(0o755)
+    subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+
+    result = subprocess.run(
+        ["bash", os.path.join(REPO_ROOT, "scripts/install_hooks.sh")],
+        cwd=work,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    configured = subprocess.run(
+        ["git", "config", "--get", "core.hooksPath"],
+        cwd=work,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert configured == ".githooks", f"core.hooksPath is {configured!r}"
+
+
+def test_the_installer_refuses_where_there_is_no_hook(tmp_path):
+    """Better to say so than to point git at an empty directory."""
+    work = tmp_path / "repo"
+    work.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+
+    result = subprocess.run(
+        ["bash", os.path.join(REPO_ROOT, "scripts/install_hooks.sh")],
+        cwd=work,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "nothing to install" in result.stdout + result.stderr

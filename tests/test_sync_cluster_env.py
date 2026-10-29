@@ -6,6 +6,7 @@ script, so nothing else in the suite would notice if it broke.
 """
 
 import os
+import re
 import shutil
 import subprocess
 
@@ -13,6 +14,16 @@ import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(REPO_ROOT, "scripts", "sync_cluster_env.sh")
+
+
+def _declares_requires_pixi(text):
+    """An active bound, not the word in a comment.
+
+    The script strips the bound with an anchored `grep -v '^requires-pixi'`, so a
+    comment that mentions it survives -- correctly, since a comment binds nothing. The
+    invariant is that the cluster manifest carries no *assignment*.
+    """
+    return any(re.match(r"\s*requires-pixi\s*=", line) for line in text.splitlines())
 
 
 def _fake_pixi_home(tmp_path, *, differing: bool):
@@ -133,12 +144,12 @@ def test_apply_strips_requires_pixi_from_the_target_manifest(tmp_path):
     assert result.returncode == 0, result.stderr
 
     written = (target / "pixi.toml").read_text()
-    assert "requires-pixi" not in written, (
+    assert not _declares_requires_pixi(written), (
         "requires-pixi was copied into the cluster PIXI_HOME, which would stop that "
         "machine's pixi installing the environment"
     )
     # and the repo's own manifest still has it
-    assert "requires-pixi" in open(os.path.join(REPO_ROOT, "pixi.toml")).read()
+    assert _declares_requires_pixi(open(os.path.join(REPO_ROOT, "pixi.toml")).read())
 
 
 def test_apply_survives_a_filesystem_that_refuses_cp_p(tmp_path):
@@ -192,6 +203,6 @@ def test_apply_survives_a_filesystem_that_refuses_cp_p(tmp_path):
     assert (target / "pixi.lock").read_text() == open(
         os.path.join(REPO_ROOT, "pixi.lock")
     ).read()
-    assert "requires-pixi" not in (target / "pixi.toml").read_text()
+    assert not _declares_requires_pixi((target / "pixi.toml").read_text())
     assert list(target.glob("pixi.lock.bak-*")), "no backup of the replaced lock"
     assert list(target.glob("pixi.toml.bak-*")), "no backup of the replaced manifest"

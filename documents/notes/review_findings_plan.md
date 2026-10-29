@@ -567,3 +567,50 @@ ssh lem '~/.pixi/bin/pixi self-update --version 0.83.0'
 #   - update test_the_lock_constraint_is_stated_consistently, which pins all three
 #     together and will fail if only some of them move
 ```
+
+## The hook could not be installed by the people who needed it (2026-10-29)
+
+Verifying that the `requires-pixi` mitigation actually works, rather than restating that
+it does, turned up a hole in it.
+
+`.githooks/pre-commit` is the thing that stops a v7 lock being committed. It is opt-in --
+`core.hooksPath` has to be set -- and the only documented way to set it was the pixi task
+`install_hooks`. But `requires-pixi` refuses **every** pixi command in the repo, that task
+among them:
+
+```
+$ pixi run install_hooks
+Error: this project requires pixi '>=0.60,<0.77', but you have pixi 0.81.0
+```
+
+The hook exists to catch a lock that a too-new pixi rewrote. The people who need it are
+the people running a too-new pixi. They were exactly the people who could not install it.
+
+`scripts/install_hooks.sh` now does the job with plain git and no pixi, and the task calls
+that script so the old habit still works where pixi is in range. Three tests: the
+installer never invokes pixi (mutation-tested by putting `pixi run` back into it), it
+sets `core.hooksPath` when run against a throwaway repo, and it refuses where there is no
+hook rather than pointing git at an empty directory.
+
+Found by running the documented command instead of reading it -- the same way the entropy
+`cp -p` failure and the helios wrong-binary reading came out.
+
+### And one more, from mutation-testing that test
+
+Tightening `test_sync_cluster_env.py` to look for an *assignment* rather than the bare
+string "requires-pixi" (my new comment in `pixi.toml` contains the word, which the old
+check read as a failure) made the test stricter than the script it guards. Indenting the
+bound then exposed a real gap:
+
+```toml
+  requires-pixi = ">=0.60,<0.77"    # TOML allows this
+```
+
+`sync_cluster_env.sh` stripped it with `grep -v '^requires-pixi'`, anchored at column
+zero, so an indented bound survived and would be copied into a cluster `PIXI_HOME` --
+the one thing that strip exists to prevent, and it would leave entropy's pixi 0.77 unable
+to install the environment. Now `grep -vE '^[[:space:]]*requires-pixi'`.
+
+Minor, and only reachable if someone reformats the manifest. Worth having, and worth
+noting how it was found: by making a mutation that *should* have failed the test and
+asking why it did not.

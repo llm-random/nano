@@ -86,7 +86,10 @@ copy "$REPO_ROOT/pixi.lock" "$TARGET/pixi.lock"
 # pixi managing its own environment. entropy runs pixi 0.77, which the bound excludes --
 # copying it verbatim would make this very script unusable there.
 [[ -f "$TARGET/pixi.toml" ]] && copy "$TARGET/pixi.toml" "$TARGET/pixi.toml.bak-$ts"
-grep -v '^requires-pixi' "$REPO_ROOT/pixi.toml" > "$TARGET/pixi.toml"
+# -E with a leading-whitespace class, not a bare '^requires-pixi': TOML allows an
+# indented key, and an anchored match would miss it and carry the bound across, which
+# is the one thing this strip exists to prevent. Found by mutation-testing the test.
+grep -vE '^[[:space:]]*requires-pixi' "$REPO_ROOT/pixi.toml" > "$TARGET/pixi.toml"
 echo "copied (previous files kept as *.bak-$ts)"
 
 cd "$TARGET"
