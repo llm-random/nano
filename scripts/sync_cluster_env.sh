@@ -65,16 +65,27 @@ if [[ "$APPLY" != "--apply" ]]; then
     exit 0
 fi
 
+# `cp -p` where the filesystem allows it, plain `cp` where it does not. Preserving the
+# timestamp on a backup is a nicety -- it says when the file it replaced was written --
+# but -p also tries to preserve ownership, and a filesystem that refuses (NFS with
+# root_squash, and entropy's own /tmp) makes cp exit 1 after copying the content. Under
+# `set -e` that aborts the sync half done, with the lock already replaced and the
+# manifest not. Found by running this branch's suite on entropy, where
+# tests/test_sync_cluster_env.py failed on exactly that.
+copy() {
+    cp -p "$1" "$2" 2>/dev/null || cp "$1" "$2"
+}
+
 ts="$(date +%Y%m%d-%H%M%S)"
-[[ -f "$TARGET/pixi.lock" ]] && cp -p "$TARGET/pixi.lock" "$TARGET/pixi.lock.bak-$ts"
-cp -p "$REPO_ROOT/pixi.lock" "$TARGET/pixi.lock"
+[[ -f "$TARGET/pixi.lock" ]] && copy "$TARGET/pixi.lock" "$TARGET/pixi.lock.bak-$ts"
+copy "$REPO_ROOT/pixi.lock" "$TARGET/pixi.lock"
 
 # The manifest goes over without requires-pixi. That bound exists to stop a too-new pixi
 # rewriting the *repo's* lock to a format the clusters cannot read; a cluster's own
 # PIXI_HOME is a different thing, and carrying the bound there would stop that machine's
 # pixi managing its own environment. entropy runs pixi 0.77, which the bound excludes --
 # copying it verbatim would make this very script unusable there.
-[[ -f "$TARGET/pixi.toml" ]] && cp -p "$TARGET/pixi.toml" "$TARGET/pixi.toml.bak-$ts"
+[[ -f "$TARGET/pixi.toml" ]] && copy "$TARGET/pixi.toml" "$TARGET/pixi.toml.bak-$ts"
 grep -v '^requires-pixi' "$REPO_ROOT/pixi.toml" > "$TARGET/pixi.toml"
 echo "copied (previous files kept as *.bak-$ts)"
 

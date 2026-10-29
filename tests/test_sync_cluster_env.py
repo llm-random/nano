@@ -139,3 +139,59 @@ def test_apply_strips_requires_pixi_from_the_target_manifest(tmp_path):
     )
     # and the repo's own manifest still has it
     assert "requires-pixi" in open(os.path.join(REPO_ROOT, "pixi.toml")).read()
+
+
+def test_apply_survives_a_filesystem_that_refuses_cp_p(tmp_path):
+    """`cp -p` exits 1 on a filesystem that will not preserve ownership.
+
+    The script runs under `set -euo pipefail`, so a failing cp aborts it -- and it
+    aborts *between* the two copies, leaving the lock replaced and the manifest not,
+    which is the one state the backups exist to avoid.
+
+    This is not hypothetical: entropy's own /tmp refuses it, and this branch's suite
+    failed there with "preserving permissions ... Operation not supported" while passing
+    on a workstation. NFS with root_squash does the same, and that is what a cluster
+    PIXI_HOME often sits on.
+
+    Simulated with a `cp` on PATH that rejects -p the way those filesystems do: it
+    copies the content, complains, and exits 1.
+    """
+    target = _fake_pixi_home(tmp_path, differing=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+
+    (bin_dir / "pixi").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "pixi").chmod(0o755)
+
+    # Copies, then fails -- exactly what cp does when only the chown is refused.
+    (bin_dir / "cp").write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "-p" ]; then\n'
+        "  shift\n"
+        '  /bin/cp "$@"\n'
+        '  echo "cp: preserving permissions for $2: Operation not supported" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        'exec /bin/cp "$@"\n'
+    )
+    (bin_dir / "cp").chmod(0o755)
+
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+    result = subprocess.run(
+        ["bash", SCRIPT, str(target), "--apply"],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        env=env,
+    )
+    assert (
+        result.returncode == 0
+    ), f"the sync aborted on a filesystem that refuses cp -p:\n{result.stderr}"
+
+    # Both halves landed, not just the first.
+    assert (target / "pixi.lock").read_text() == open(
+        os.path.join(REPO_ROOT, "pixi.lock")
+    ).read()
+    assert "requires-pixi" not in (target / "pixi.toml").read_text()
+    assert list(target.glob("pixi.lock.bak-*")), "no backup of the replaced lock"
+    assert list(target.glob("pixi.toml.bak-*")), "no backup of the replaced manifest"
