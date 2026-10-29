@@ -63,3 +63,44 @@ def test_no_argument_is_rejected(monkeypatch):
     result = _run()
     assert result.returncode != 0
     assert "usage:" in result.stderr
+
+
+def test_apply_copies_backs_up_and_reinstalls(tmp_path):
+    """The --apply path, with pixi stubbed out.
+
+    Only the dry run had coverage, because --apply ends in `pixi install --frozen`,
+    which would mean a real multi-gigabyte install. A stub on PATH records the call
+    instead, so the copy, the backup and the install invocation are all checked without
+    touching any environment -- and in particular without applying this to a shared
+    cluster PIXI_HOME, which is a decision for whoever owns it.
+    """
+    target = _fake_pixi_home(tmp_path, differing=True)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "pixi_called.txt"
+    stub = bin_dir / "pixi"
+    stub.write_text(f'#!/bin/sh\necho "$@" > "{marker}"\n')
+    stub.chmod(0o755)
+
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+    result = subprocess.run(
+        ["bash", SCRIPT, str(target), "--apply"],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    repo_lock = open(os.path.join(REPO_ROOT, "pixi.lock")).read()
+    assert (
+        target / "pixi.lock"
+    ).read_text() == repo_lock, "the lock was not copied over"
+    backups = list(target.glob("pixi.lock.bak-*"))
+    assert backups, "no backup of the replaced lock was kept"
+    assert marker.exists(), "pixi install was never invoked"
+    assert "--frozen" in marker.read_text(), (
+        "pixi install ran without --frozen, so it would re-solve and rewrite the lock "
+        "to a format the clusters cannot read"
+    )
