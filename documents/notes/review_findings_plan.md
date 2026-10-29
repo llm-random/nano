@@ -219,3 +219,60 @@ suite runs after every step and the commit is gated on `PYTEST_RC=0`.
 7. R4 -- dead skip loop (cleanup, last so the diff is readable)
 
 Then: full suite, `black --check`, config-load sweep over every config, and a push.
+
+---
+
+# Execution record
+
+Done 2026-10-29, in the order above, each committed separately with the full suite
+green before the commit. Suite went 115 -> 134 tests.
+
+| Commit | Finding | What landed |
+|--------|---------|-------------|
+| `e95d7069` | R7 | `git rm '=0.60,'` and this plan |
+| `9b09e612` | R1, R4 | str normalisation in `__attrs_post_init__`; 37 configs to `null`; skip loop deleted |
+| `23523ef5` | R6 | `eval_dataloader: null` on the finalize pass |
+| `295bc3fb` | R2 | eval `sequence_length` tracks `${common.sequence_length}` |
+| `976114ba` | R5 | `holdout_rows` written out and overridable; actionable error |
+| `12f8991b` | R3 | cap before stride; two guards; weighted all-reduced `final_ce` |
+| `e357a30b` | — | local end-to-end smoketest for the whole path |
+
+## Deviations from the plan
+
+**R4 moved from last to alongside R1.** The R1 normalisation made the skip loop
+unreachable (`eval_iterator` is `None` by the time the loop is reached), so leaving it
+for later would have meant committing code that could not run, and its test
+`test_resuming_with_eval_enabled_still_skips_the_eval_stream` asserted behaviour the R1
+commit had already removed. Done together; the test now asserts the opposite.
+
+**R1 was wider than the review said.** The review found 5 affected configs by reading
+the diff. `grep -rn 'eval_dataloader:\s*None\s*$' configs/` finds **37** -- every PC run
+config in the repo. That changed the fix: a code-side normalisation covering all of them
+became the primary fix, with the config rewrite as hygiene behind it.
+
+**R3's `num_workers` claim was wrong in the review, and the bug was real anyway.** The
+review said workers *duplicate* the data. They do not: `to_iterable_dataset` shards by
+DataLoader worker, verified empirically (64 rows over 2 workers gives 64 unique rows,
+not 128). Each worker still applies its own cap, so the multiplication is real; the
+mechanism is not duplication.
+
+**A mistake made during R3, and the test added for it.** A new test reused the name of
+an existing one (`test_final_eval_is_a_no_op_without_an_eval_dataloader`), which in
+Python silently replaces it -- the older test stopped running, the count dropped by one,
+and the suite stayed green. A duplicate `_RecordingLogger` helper went in the same way.
+Both fixed, and `test_no_test_name_is_defined_twice_in_a_file` now fails on it.
+
+**A speculative change was reverted.** R3 first wrapped the eval loop in try/finally to
+restore the model's training mode afterwards. Nothing needs that -- `final_eval` runs at
+the end of `train()` with only the save after it -- and it contradicted the existing
+`test_final_eval_puts_the_model_in_eval_mode`. Dropped, keeping the diff on the finding.
+
+## What is still not covered
+
+The two end-to-end tests skip in CI, which runs with `HF_HUB_OFFLINE=1` and without the
+untracked local `data` copy. They are a local gate. Every `@needs_local_data` test on
+this branch has the same limit. Closing it needs a tracked fixture dataset and a
+vendored tokenizer.
+
+This matters, because it is the same gap that let all seven findings through: the suite
+has 134 tests and, in CI, not one of them runs `main.py`.
