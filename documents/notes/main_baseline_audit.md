@@ -1145,11 +1145,17 @@ a cluster leg in the gate rather than trusting CI alone.
    runs `transformers 5.12.1` against a manifest pinning `==4.56.2`. Check with
    `scripts/sync_cluster_env.sh <PIXI_HOME>` (dry run) and apply it only after confirming
    who else uses that environment.
-5. **Decide what happens to `configs/mastest/` before branching.** 50 configs, 252 KB,
+5. **Decide what happens to `configs/mastest/` before branching.** 51 files, 252 KB,
    matched by `.gitignore:194 *mastest*`, 47 of them already broken. They are gitignored
    on purpose, so nothing is wrong — but nothing carries them to the new project either,
    and the failure mode is someone assuming they came along. Commit the ones that matter
    deliberately, or accept losing them.
+
+   Do **not** anchor that ignore pattern while tidying. It looks like the unanchored
+   `slicegpt/` rule this repo already fixed, but it is not the same: `*mastest*` also
+   covers **25 root-level scratch files** (`mastestt.ipynb`, `mastest_nips_ds.ipynb`,
+   `mastest_pc_vs_hpr_speedup.png` …), and anchoring it to `/configs/mastest/` would fill
+   `git status` with them.
 6. **Know what the tag does and does not cover.** Tier 4 and the four-rank Tier 3
    evidence rest on lem alone; entropy contributes the suite and a CPU smoketest; lem
    cannot run the suite at all for want of pytest. The per-cluster table in section 1 is
