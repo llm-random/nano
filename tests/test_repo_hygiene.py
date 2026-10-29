@@ -619,3 +619,25 @@ def test_no_config_writes_a_bare_none():
         "YAML reads a bare `None` as the string 'None'; write `null`:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_both_fineweb_dataloaders_hold_out_the_same_rows():
+    """The two slices are defined by one number; if they disagree they overlap.
+
+    `holdout: train` keeps rows [0, total - holdout_rows) and `holdout: eval` takes
+    [total - holdout_rows, total). They are disjoint only because both compute the same
+    cut. Making holdout_rows an overridable key means someone can now override one and
+    not the other, which puts eval rows back into training silently -- the exact thing
+    the holdout was added to stop.
+    """
+    with open(os.path.join(REPO_ROOT, "configs/_dataset/fineweb.yaml")) as handle:
+        doc = yaml.safe_load(handle) or {}
+    trainer = doc.get("trainer") or {}
+    rows = {}
+    for which in ("train_dataloader", "eval_dataloader"):
+        dataset = ((trainer.get(which) or {}).get("dataset")) or {}
+        assert "holdout_rows" in dataset, f"{which} does not set holdout_rows"
+        rows[which] = dataset["holdout_rows"]
+    assert (
+        rows["train_dataloader"] == rows["eval_dataloader"]
+    ), f"holdout_rows disagree: {rows}; the slices would overlap"

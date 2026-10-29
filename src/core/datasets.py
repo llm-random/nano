@@ -253,7 +253,11 @@ class FineWebEduDataset(AbstractDataset):
         if self.holdout_rows >= total:
             raise ValueError(
                 f"holdout_rows {self.holdout_rows} leaves no training rows in a "
-                f"dataset of {total}"
+                f"dataset of {total}. The default is sized for the full fineweb "
+                f"(1.27e9 rows); on a sampled or local copy, override it on both "
+                f"dataloaders -- they must agree or the slices stop being disjoint: "
+                f"trainer.train_dataloader.dataset.holdout_rows=N "
+                f"trainer.eval_dataloader.dataset.holdout_rows=N"
             )
         cut = total - self.holdout_rows
 
