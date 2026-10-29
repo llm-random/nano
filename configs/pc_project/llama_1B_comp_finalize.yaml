@@ -24,8 +24,14 @@ trainer:
   _target_: src.projected_compression.trainer.PCFinalizeTrainer
   gradient_accumulation_steps: 1
   n_steps: 0
-  
-  learning_rate: 20 # not used 
+
+  # This pass finalizes a checkpoint; it trains nothing. final_eval runs after the last
+  # step whatever n_steps is, so without this it would read the c4 dataset the defaults
+  # list marks "not used - loads slower" -- paying that load to score a model that did
+  # no training.
+  eval_dataloader: null
+
+  learning_rate: 20 # not used
 
   checkpoint:
     load:
