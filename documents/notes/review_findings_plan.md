@@ -523,3 +523,47 @@ inode quota on one and a 20G space quota on the other, do not apply.
 
 The reasoning is now a comment in `configs/_cluster/entropy.yaml`. Nothing was changed
 about where entropy's cemetery goes; only why it goes there is now recorded.
+
+## The entropy upgrade is not actually required (2026-10-29)
+
+I had been reporting two blockers to lifting `requires-pixi`. There is one.
+
+The bound exists to stop a v7 lock landing in the repo while some cluster cannot read
+v7. Which clusters cannot?
+
+| Cluster | pixi | v7 lock? |
+|---------|------|----------|
+| helios | 0.83.0 | reads and writes it |
+| entropy | 0.77.0 | **reads and writes it** |
+| lem | 0.63.2 | **cannot** -- treats it as missing and silently re-solves |
+
+entropy's own pixi settles its row. On the repo's v6 lock it prints:
+
+```
+WARN the lock file is up-to-date but uses an older format (v6),
+     run `pixi lock` to upgrade to v7 for improved reproducibility
+```
+
+A pixi that recommends v7 is a pixi that handles v7. 0.77.0 is excluded by the bound
+because it *writes* v7, which mattered only while a cluster could not read it.
+
+**So the entropy upgrade -- the item blocked by the permission classifier, the one I
+could not do -- is a nice-to-have, not a prerequisite.** Once lem is at 0.83.0, all three
+clusters handle v7 and the bound can go, entropy untouched at 0.77.0.
+
+That leaves exactly one thing between here and a clean baseline on this front:
+
+**Free space in lem's `$HOME`.** The stale cemetery described above is larger than the
+overage on its own, nothing has written to it since early May, and lem has been using
+the lustre cemetery instead ever since. Then:
+
+```bash
+ssh lem '~/.pixi/bin/pixi self-update --version 0.83.0'
+#   rollback if needed: copy back from <project lustre>/$USER/pixi_backup/
+# then, as one repo change:
+#   - widen or drop requires-pixi in pixi.toml
+#   - drop test_pixi_lock_stays_at_version_6 in tests/test_repo_hygiene.py
+#   - drop the matching check in .githooks/pre-commit
+#   - update test_the_lock_constraint_is_stated_consistently, which pins all three
+#     together and will fail if only some of them move
+```
