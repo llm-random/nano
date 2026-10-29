@@ -473,11 +473,19 @@ with `Disk quota exceeded`.
 and it is not SSH: it blocks anything that writes to home on lem, which includes
 checkpoints and logs for any run configured to land there.
 
-The largest single consumer is the experiment cemetery, which is prunable; the rest is
-tooling caches and a virtualenv. Exact figures were reported to the account owner
-directly rather than written down here -- a shared repo is not the place for an
-inventory of someone's home directory. Clearing it is the owner's call, so nothing was
-touched.
+**This was already known, and I presented it as a discovery.** `configs/_cluster/lem.yaml`
+says, in a comment written earlier in this very branch: *"$HOME on lem is a 20G-quota NFS
+export and is currently over it"*. The condition is documented; what is new today is only
+that it also blocks `pixi self-update`, and the next paragraph.
+
+The largest single consumer is the experiment cemetery in `$HOME` -- and it is **dead
+weight**. lem has redirected the cemetery to project lustre since that config comment was
+written; the live cemetery there has entries from late October, while the one in `$HOME`
+stops in early May. It is residue from before the redirect, not data anything still
+writes to. Moving or removing it would clear the quota outright.
+
+Clearing it is the account owner's call, so nothing was touched. Exact figures went to
+them directly rather than into a shared repo.
 
 **The 0.63.2 binary is backed up and ready** under the project lustre area at
 `<project>/$USER/pixi_backup/pixi.bak-20261029-142010` (verified: runs, reports 0.63.2).
@@ -496,3 +504,22 @@ lem is the item that actually binds the v6 pin. entropy at 0.77.0 already writes
 is held off by `requires-pixi` rather than by the lock format; lem at 0.63.2 is the
 version that would re-solve a v7 lock without saying so, which is what the pin exists
 to prevent.
+
+
+## entropy's cemetery: why it is the odd one out, written down
+
+Chasing lem's quota turned up a trap next door. helios and lem both set
+`cluster_cemetery_dir` to project storage and both explain why. entropy sets nothing and
+explained nothing, so harmonising it looks like tidying.
+
+It would break submission. entropy's `$PROJECT_HOME_PATH` is `/storage_nvme_4`, which is
+mounted on **h100a and nowhere else** -- checked by running on a100a and asusgpu1, both of
+which report no `/storage_nvme_4` and both of which see `$HOME`. A cemetery clone under it
+would fail on every partition but h100.
+
+`$HOME` on entropy is NFS, visible from all nodes, 11T with ~8T free and no tight quota --
+which is what the cemetery actually needs. The reasons helios and lem move it away, an
+inode quota on one and a 20G space quota on the other, do not apply.
+
+The reasoning is now a comment in `configs/_cluster/entropy.yaml`. Nothing was changed
+about where entropy's cemetery goes; only why it goes there is now recorded.
