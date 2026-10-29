@@ -1089,7 +1089,18 @@ the suite has to run without touching a shared env,
 `python -m venv --system-site-packages` layered over it, with pytest installed into the venv
 alone, is additive and isolated — that is what the entropy run does.
 
-`scripts/sync_cluster_env.sh` makes the deployment step one command rather than folklore.
+`scripts/sync_cluster_env.sh` makes the deployment step one command rather than folklore,
+**and it has now been run for real.** Job 30739 applied it on entropy against a `PIXI_HOME`
+created for the purpose rather than the shared one: `APPLY_RC=0`, the lock stayed at **v6**,
+and the resulting environment reports `pytest 8.4.2 | transformers 4.56.2` — pytest present
+where the shared env has none, and transformers at the version the manifest pins instead of
+5.12.1. The lock fix reaches a cluster environment; what is left is a decision about the
+shared one, not a missing capability.
+
+That run also proved the `requires-pixi` strip was load-bearing rather than tidy: entropy
+runs pixi **0.77**, which the repo's bound excludes, so without stripping that line the
+apply would have refused outright. A fix for one issue would have disabled the fix for
+another, on the cluster that needed it most.
 Dry-run against entropy's real `PIXI_HOME` (job 30716, exit 0, nothing changed) it reports:
 both locks at **v6**, but `pixi.toml` and `pixi.lock` both differ, and the cluster lock
 carries **0** pytest entries against the repo's **1**. That is the drift, measured. `--apply`
