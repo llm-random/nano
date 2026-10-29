@@ -104,3 +104,38 @@ def test_apply_copies_backs_up_and_reinstalls(tmp_path):
         "pixi install ran without --frozen, so it would re-solve and rewrite the lock "
         "to a format the clusters cannot read"
     )
+
+
+def test_apply_strips_requires_pixi_from_the_target_manifest(tmp_path):
+    """The pixi bound must not travel into a cluster's own PIXI_HOME.
+
+    requires-pixi stops a too-new pixi rewriting the *repo's* lock to a format helios
+    cannot read. A cluster's PIXI_HOME is its own project, and carrying the bound there
+    would stop that machine's pixi managing its own environment -- entropy runs pixi
+    0.77, which the bound excludes, so a verbatim copy would make this script unusable
+    on the very cluster that needs it most.
+    """
+    target = _fake_pixi_home(tmp_path, differing=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "pixi"
+    stub.write_text("#!/bin/sh\nexit 0\n")
+    stub.chmod(0o755)
+
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+    result = subprocess.run(
+        ["bash", SCRIPT, str(target), "--apply"],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+
+    written = (target / "pixi.toml").read_text()
+    assert "requires-pixi" not in written, (
+        "requires-pixi was copied into the cluster PIXI_HOME, which would stop that "
+        "machine's pixi installing the environment"
+    )
+    # and the repo's own manifest still has it
+    assert "requires-pixi" in open(os.path.join(REPO_ROOT, "pixi.toml")).read()

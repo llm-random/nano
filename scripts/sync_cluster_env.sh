@@ -66,10 +66,16 @@ if [[ "$APPLY" != "--apply" ]]; then
 fi
 
 ts="$(date +%Y%m%d-%H%M%S)"
-for f in pixi.toml pixi.lock; do
-    [[ -f "$TARGET/$f" ]] && cp -p "$TARGET/$f" "$TARGET/$f.bak-$ts"
-    cp -p "$REPO_ROOT/$f" "$TARGET/$f"
-done
+[[ -f "$TARGET/pixi.lock" ]] && cp -p "$TARGET/pixi.lock" "$TARGET/pixi.lock.bak-$ts"
+cp -p "$REPO_ROOT/pixi.lock" "$TARGET/pixi.lock"
+
+# The manifest goes over without requires-pixi. That bound exists to stop a too-new pixi
+# rewriting the *repo's* lock to a format the clusters cannot read; a cluster's own
+# PIXI_HOME is a different thing, and carrying the bound there would stop that machine's
+# pixi managing its own environment. entropy runs pixi 0.77, which the bound excludes --
+# copying it verbatim would make this very script unusable there.
+[[ -f "$TARGET/pixi.toml" ]] && cp -p "$TARGET/pixi.toml" "$TARGET/pixi.toml.bak-$ts"
+grep -v '^requires-pixi' "$REPO_ROOT/pixi.toml" > "$TARGET/pixi.toml"
 echo "copied (previous files kept as *.bak-$ts)"
 
 cd "$TARGET"
