@@ -331,3 +331,34 @@ entropy pixi 0.77.0 (permission classifier refuses to replace `j321m`'s binary),
 pixi 0.63.2 (`ui.wcss.pl` refusing SSH), and the `requires-pixi` bound that correctly
 depends on both. Entropy's pixi still warns `the lock file ... uses an older format
 (v6)` on every invocation, which is the bound doing its job.
+
+## The 18 skips, closed (2026-10-29)
+
+The first entropy suite run passed 133 and **skipped 18** -- every `@needs_local_data`
+test, because the checkout there had no `data`/`data_eval` and the job's `HF_HOME` had
+no GPT-2 tokenizer (only the Llama models). Skipped tests are not evidence, so the
+cluster run was weaker than it looked.
+
+Both are small. `data` and `data_eval` are 644 KB each, and `models--gpt2` is 2.8 MB.
+Staged into `~/mas_a100_stage` and re-run:
+
+| Job | Result |
+|-----|--------|
+| 30844 | **133 passed, 0 skipped**, `SUITE_RC=0` |
+| 30845 | the end-to-end subset alone: **8 passed, 0 skipped** |
+
+That second one matters most: `test_a_fineweb_run_reaches_final_ce_over_exactly_the_fixed_set`
+and `test_a_run_with_eval_switched_off_still_finishes` drive the real `main.py`, and they
+now have cluster coverage rather than only a workstation's.
+
+They still skip in CI, which has neither the data nor the tokenizer. Making them run
+there needs a tracked fixture dataset and a vendored tokenizer -- a larger change than
+this branch should carry, and now the only remaining gap in their coverage.
+
+To reproduce the staging:
+
+```bash
+rsync -azL ~/.cache/huggingface/hub/models--gpt2 entropy_j:<stage>/hf_cache/hub/
+rsync -azL data data_eval entropy_j:<stage>/nano/
+# then point the job's HF_HOME at <stage>/hf_cache
+```

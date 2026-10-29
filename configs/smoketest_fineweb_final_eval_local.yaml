@@ -13,9 +13,9 @@
 # This runs the real main.py against the real dataset classes, which is what it takes
 # to see them. It needs no GPU and no cluster -- 2 steps on a tiny model, a few seconds
 # on CPU -- but it does need the local `data` copy that scripts/prepare_test_dataset.py
-# writes, and the GPT-2 tokenizer from the hub. CI runs offline with neither, so
-# tests/test_core_framework.py skips this there; it is a gate for working locally, not
-# a CI gate.
+# writes, and the GPT-2 tokenizer. Wherever both are present it runs: on a workstation,
+# and on a cluster once they are staged (about 3 MB of rsync; done on entropy, job
+# 30845). CI has neither and skips it.
 #
 #   python scripts/prepare_test_dataset.py   # once, if data/ is missing
 #   python main.py --config-path configs \

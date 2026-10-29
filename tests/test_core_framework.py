@@ -608,10 +608,16 @@ def test_an_uncapped_stream_is_fine_with_workers_and_sharding(monkeypatch):
 # place. Each unit test covered its own piece and passed. Running the thing is what
 # catches that, and it costs a couple of seconds on CPU.
 #
-# These skip in CI, which runs offline without the local dataset or the GPT-2
-# tokenizer, the same as every other @needs_local_data test here. They are a gate for
-# working locally. Closing that gap would mean a tracked fixture dataset and a vendored
-# tokenizer, which is a larger change than this branch should carry.
+# They need two things that are not in the repo: the local `data`/`data_eval` copies
+# that scripts/prepare_test_dataset.py writes, and the GPT-2 tokenizer. Where both are
+# present they run; where either is missing they skip, as every @needs_local_data test
+# here does. CI has neither, so they skip there.
+#
+# Staging both onto a cluster is a `rsync` of about 3 MB and makes them run -- verified
+# on entropy h100a (job 30845, 8 passed, 0 skipped), with `data`/`data_eval` copied into
+# the checkout and models--gpt2 into that job's HF_HOME. Making them run in CI as well
+# would mean a tracked fixture dataset and a vendored tokenizer, which is more than this
+# branch should carry.
 
 
 @needs_local_data
