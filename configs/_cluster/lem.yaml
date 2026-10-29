@@ -46,6 +46,14 @@ infrastructure:
     - 'export XDG_DATA_HOME="$USER_HOME_PATH/data"'
     - 'export XDG_CACHE_HOME="$USER_HOME_PATH/cache"'
     - 'export XDG_STATE_HOME="$USER_HOME_PATH/state"'
+    # Named explicitly, like helios does, rather than left to XDG_CACHE_HOME. $HOME here
+    # is a 20G-quota NFS export, and the package cache is the kind of thing that grows
+    # without anyone watching -- there was already 97M of ~/.cache/rattler on lem when
+    # this was added. Whether rattler would have honoured XDG_CACHE_HOME inside the job
+    # is not the point: anything run on the login node does not see these exports at all,
+    # and the default is $HOME.
+    - 'export RATTLER_CACHE_DIR="$XDG_CACHE_HOME/rattler"'
+    - 'export PIXI_CACHE_DIR="$XDG_CACHE_HOME/pixi"'
 
     # activate pixi
     - 'cd "$PIXI_HOME"'

@@ -644,3 +644,31 @@ storage; helios and lem already do that.
 Unrecognised failures are still reported, with the exit status and the remote's own
 words rather than swallowed. Five tests, including one that the disk-full branch does
 not catch an ordinary error.
+
+## lem: keeping bulk directories out of `$HOME` (2026-10-29)
+
+Asked to make lem's experiment and cemetery directories land on lustre rather than the
+20G-quota home. Most of it was already done -- `cluster_cemetery_dir`, `PIXI_HOME`,
+`HF_HOME`, `HF_HUB_CACHE`, `HF_DATASETS_CACHE`, `HF_MODULES_CACHE` and all three XDG
+directories already point at `$USER_HOME_PATH` on lustre, and the shipped checkpoint
+paths are lustre too.
+
+One was not: the **pixi package cache**. helios names `RATTLER_CACHE_DIR` and
+`PIXI_CACHE_DIR` explicitly; lem set only `XDG_CACHE_HOME` and had accumulated 97M of
+`~/.cache/rattler` anyway. Setting `XDG_CACHE_HOME` in the job script does nothing for
+anything run on the login node, where the default is `$HOME`. lem now names both, as
+helios does.
+
+Two tests, because this is the kind of thing that drifts back:
+
+- `test_no_cluster_points_a_bulk_directory_at_home` -- no cluster config may point any
+  of ten bulk directories at `$HOME` or `~`.
+- `test_every_cluster_redirects_the_pixi_cache` -- setting `XDG_CACHE_HOME` is not
+  enough; the two pixi cache variables have to be named. Mutation-tested by removing
+  lem's.
+
+entropy is in a named exemption list with the reason written out rather than silently
+skipped: its home is 11T with no tight quota, and the obvious target
+(`$XDG_CACHE_HOME`, under `/storage_nvme_4`) is mounted on h100a and nowhere else, so
+pointing a cache there would be wrong on every other partition. That needs a decision
+about entropy's storage layout, not a guess from here.

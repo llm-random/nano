@@ -725,3 +725,84 @@ def test_the_lock_constraint_is_stated_consistently():
         f"pixi.lock is {lock_version!r}, but the bound and the hook pin "
         f"v{PINNED_LOCK_VERSION}"
     )
+
+
+# Variables that name a directory something will fill up over time. A cluster with a
+# small home quota cannot afford any of them pointing there, and the default for every
+# one of them is under $HOME.
+BULK_DIRECTORY_VARS = (
+    "HF_HOME",
+    "HF_HUB_CACHE",
+    "HF_DATASETS_CACHE",
+    "HF_MODULES_CACHE",
+    "PIXI_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "RATTLER_CACHE_DIR",
+    "PIXI_CACHE_DIR",
+)
+
+
+def test_no_cluster_points_a_bulk_directory_at_home():
+    """Caches and environments belong on project storage, not in $HOME.
+
+    lem's $HOME is a 20G-quota NFS export. When it filled, every write failed: `git
+    clone` of the experiment, `pixi self-update`, and anything a run tried to save. The
+    cemetery was already redirected; what had not been was the package cache.
+
+    This only checks what a config *states*. A variable left unset still defaults under
+    $HOME, which is why test_every_cluster_redirects_the_pixi_cache exists below.
+    """
+    offenders = []
+    for path in _tracked("configs/_cluster"):
+        if not path.endswith(".yaml"):
+            continue
+        text = open(os.path.join(REPO_ROOT, path)).read()
+        for var in BULK_DIRECTORY_VARS:
+            for match in re.finditer(rf"export {var}=(\S+)", text):
+                value = match.group(1).strip("\"'")
+                if value.startswith("$HOME") or value.startswith("~"):
+                    offenders.append(f"{path}: {var}={value}")
+    assert not offenders, "a bulk directory points at $HOME:\n  " + "\n  ".join(
+        offenders
+    )
+
+
+# Clusters that do not redirect the pixi cache, and why not yet. Shrink this; never add
+# to it.
+#
+# entropy: its $HOME is 11T with ~8T free and no tight quota, so nothing is at risk
+# today. The obvious target, $XDG_CACHE_HOME, is under $PROJECT_HOME_PATH =
+# /storage_nvme_4, which is mounted on h100a and nowhere else -- verified by running on
+# a100a and asusgpu1. Pointing a cache there would be wrong on every other partition.
+# Choosing the right per-partition location is a decision about entropy's storage
+# layout, not something to guess at from here.
+KNOWN_PIXI_CACHE_GAPS = {
+    "configs/_cluster/entropy.yaml",
+    "configs/_cluster/entropy_a100.yaml",
+}
+
+
+def test_every_cluster_redirects_the_pixi_cache():
+    """Setting XDG_CACHE_HOME is not enough on its own.
+
+    helios named RATTLER_CACHE_DIR and PIXI_CACHE_DIR explicitly; lem set only
+    XDG_CACHE_HOME and still accumulated 97M of ~/.cache/rattler. Anything run on a
+    login node never sees the job script's exports at all, and the default is $HOME.
+    """
+    missing = []
+    for path in _tracked("configs/_cluster"):
+        if not path.endswith(".yaml") or path.endswith("local.yaml"):
+            continue
+        text = open(os.path.join(REPO_ROOT, path)).read()
+        if "PIXI_HOME" not in text:
+            continue  # not a cluster that runs pixi
+        if path in KNOWN_PIXI_CACHE_GAPS:
+            continue
+        for var in ("RATTLER_CACHE_DIR", "PIXI_CACHE_DIR"):
+            if f"export {var}=" not in text:
+                missing.append(f"{path}: {var} not set")
+    assert not missing, "a pixi cache is left at its $HOME default:\n  " + "\n  ".join(
+        missing
+    )
