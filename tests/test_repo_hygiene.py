@@ -188,6 +188,68 @@ def test_every_runnable_config_composes_and_resolves():
     )
 
 
+def test_no_dataloader_outruns_the_models_sequence_length():
+    """Both dataloaders must feed the length the model was built for.
+
+    The model is built once, from common.sequence_length, and LlamaRoPE sizes its
+    sin/cos buffers from it and only ever *slices* them (src/core/llama.py). Hand it a
+    longer batch and the slice silently returns fewer rows than the input has, and the
+    broadcast raises `The size of tensor a (2047) must match the size of tensor b
+    (1024)`.
+
+    The fineweb eval dataloader pinned sequence_length: 2048, to keep final_ce
+    comparable between runs that train at different lengths. The intent was right and
+    the mechanism impossible: a model built for 1024 cannot score 2048 tokens. Every
+    fineweb run below 2048 would have hit this -- including this branch's own
+    smoketest_fineweb_holdout_helios, which runs at 1024 with eval on at interval 4.
+
+    Checked on composed configs rather than raw YAML, because a dataset config may
+    legitimately pin a literal (local_dummy pins 16 on both dataloaders) as long as the
+    configs that use it set common.sequence_length to match.
+    """
+    warnings.filterwarnings("ignore")
+    from hydra import compose, initialize_config_dir
+    from omegaconf import OmegaConf
+
+    import resolver  # noqa: F401
+    from grid_generator.generate_configs import create_grid_config
+
+    offenders = []
+    for path in _runnable_configs():
+        directory, filename = os.path.split(path)
+        try:
+            with initialize_config_dir(
+                version_base=None,
+                config_dir=os.path.join(REPO_ROOT, directory),
+            ):
+                cfg = compose(config_name=filename[:-5])
+            grid = create_grid_config(cfg)
+            resolved = OmegaConf.to_container(
+                OmegaConf.create(grid[0][0]), resolve=True, throw_on_missing=False
+            )
+        except Exception:  # noqa: BLE001
+            continue  # composition failures are test_every_runnable_config's business
+
+        trainer = resolved.get("trainer") or {}
+        model_length = (resolved.get("common") or {}).get("sequence_length")
+        if not isinstance(model_length, int):
+            continue
+        for which in ("train_dataloader", "eval_dataloader"):
+            loader = trainer.get(which)
+            if not isinstance(loader, dict):
+                continue
+            dataset = loader.get("dataset")
+            if not isinstance(dataset, dict):
+                continue
+            length = dataset.get("sequence_length")
+            if isinstance(length, int) and length > model_length:
+                offenders.append(
+                    f"{path}: {which} feeds {length} tokens to a model built for "
+                    f"{model_length}"
+                )
+    assert not offenders, "dataloader outruns the model:\n  " + "\n  ".join(offenders)
+
+
 # --------------------------------------------------------------------------------------
 # environment
 

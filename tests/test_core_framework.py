@@ -442,3 +442,27 @@ def test_the_eval_set_is_the_same_samples_every_time(monkeypatch):
     first = _holdout_stream(5, "eval", monkeypatch, max_samples=5)
     second = _holdout_stream(5, "eval", monkeypatch, max_samples=5)
     assert first == second, "the eval set changed between evaluations"
+
+
+# ---------------------------------------------------------------------------
+# A dataloader may not hand the model a longer sequence than it was built for.
+
+
+def test_rope_cannot_score_a_longer_sequence_than_it_was_built_for():
+    """LlamaRoPE slices its buffers; it never extends them.
+
+    __init__ builds sin/cos with `length` rows from the model's seq_len, and forward
+    takes `self.cos[: x.shape[-2], :]`. Ask for more rows than exist and the slice
+    returns every row it has -- silently the wrong shape -- and the broadcast fails.
+
+    This is why the fineweb eval dataloader cannot pin its own sequence_length. Pinning
+    2048 while a run trains at 1024 put exactly this error between the last training
+    step and the final checkpoint.
+    """
+    from src.core.llama import LlamaRoPE
+
+    rope = LlamaRoPE(dhead=8, length=16)
+    rope(torch.zeros(1, 2, 16, 8))  # at the built length: fine
+
+    with pytest.raises(RuntimeError, match="must match"):
+        rope(torch.zeros(1, 2, 32, 8))
