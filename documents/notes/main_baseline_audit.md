@@ -1010,7 +1010,8 @@ What is set up there:
 
 | job | what | result |
 |---|---|---|
-| **30703** | full test suite, CPU | **`SUITE_RC=0`** — passes against `transformers 5.12.1`, where `pixi.toml` pins `==4.56.2` |
+| **30703** | full test suite, CPU, via a venv layered over the shared env | **`SUITE_RC=0`** — passes against `transformers 5.12.1`, where `pixi.toml` pins `==4.56.2` |
+| **30740** | the same suite through an env **built from this repo's lock** (job 30739's sync) | **`SUITE_RC=0`** at `pytest 8.4.2 / torch 2.7.1+cu128 / transformers 4.56.2`. The gate running on a cluster through the project's own environment manager, rather than a workaround, is what F16 originally blocked |
 | **30711** | 1-GPU PC smoketest, CPU, 20k-row fineweb slice | **`SMOKE_RC=0`** — loss 21.71 → 16.27 over 4 steps, peak RSS **6.29 GB** |
 | ~~30700/30706/30707~~ | earlier attempts | cancelled or OOM — see below |
 | 30689 | the same on a real GPU | still queued; estimated start 2026-10-29 14:00 |
