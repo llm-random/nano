@@ -294,6 +294,26 @@ only inside the repo — which is exactly where the damage happened. Running cod
 pixi still works by bypassing it, as `documents/issues.md` already advised:
 `./.pixi/envs/default/bin/python run_exp.py ...`.
 
+**What a v7 lock actually does on helios, measured.** The finding said helios "cannot
+read" v7, which sounds like a loud failure. It is not. Feeding a v7 lock to pixi 0.67.1:
+
+```
+⚠ Lock-file version 7 is newer than supported
+help: Maximum supported version: 6 (pixi v0.67.1)
+      The lock-file will be treated as missing and regenerated.
+```
+
+It does not stop. It **discards the lock and re-solves**, so the cluster quietly builds an
+environment the lock never described — the pinned versions are gone and nothing says so.
+That is the harm the v6 pin prevents, and it is why `requires-pixi` is not cosmetic: a
+silent re-solve on a cluster is exactly the class of problem this audit keeps finding, where
+the loud part is fine and the part you depend on is wrong.
+
+Removing the hazard at its root means upgrading pixi on lem and helios, which is cluster
+infrastructure rather than anything a repository can do. What the repository can do is stop
+a v7 lock ever reaching them, which the bound, the Tier 0 test and the pre-commit hook now
+do between them.
+
 I had twice called this infrastructure and out of scope. It was neither.
 
 **F16 — the committed lock did not satisfy the manifest. FIXED.** `pixi.toml` declared
