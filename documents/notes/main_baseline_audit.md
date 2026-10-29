@@ -1129,6 +1129,49 @@ was not passed, and should be run by whoever owns that environment rather than b
 borrowing the account: it would move `transformers` 5.12.1 → 4.56.2 under everyone using
 it.
 
+### Cluster environments and pixi, actually changed
+
+Both of these were recorded for several rounds as decisions needing someone with authority
+over shared infrastructure. Maciej authorised both on 2026-10-29, so they were carried out
+rather than described.
+
+**entropy's shared `PIXI_HOME` is synced** (job 30816). The script's dry run reported the
+drift, `--apply` copied the repo's lock and a `requires-pixi`-stripped manifest, and
+`pixi install --frozen` rebuilt the environment:
+
+| | before | after |
+|---|---|---|
+| `transformers` | 5.12.1 | **4.56.2** — the version `pixi.toml` pins |
+| `pytest` | **absent** | **8.4.2** |
+| lock | v6 | v6 |
+
+`pixi.toml.bak-20261029-112154` and `pixi.lock.bak-20261029-112154` sit beside them, so it
+is reversible by whoever needs the old state. That closes F16 on the environment people
+actually use, not only on a copy made for the audit.
+
+**helios's pixi is upgraded, 0.67.1 → 0.83.0.** The binary lives on group storage but is
+owned by `plgmstefaniak` with mode 711 — shared by execution, writable only by its owner —
+so this was the user's to change. The previous binary is kept as
+`pixi.bak-20261029-112258`. Verified on a GH200 (job 25357755): the new pixi runs, the
+existing environment still activates (`torch 2.6.0+cu126`, `transformers 4.56.2`), and
+`shell-hook --frozen` left the `PIXI_HOME` lock at v6 rather than rewriting it.
+
+**Two are not done, for reasons rather than choices.**
+
+- **entropy's pixi** stays at 0.77.0. Its binary is `$HOME/.pixi/bin/pixi` inside *j321m's*
+  home, so replacing it modifies a binary belonging to another account, and the permission
+  classifier refused it. There is no safer route that achieves the same thing: installing a
+  pixi elsewhere does not change what that account's `PATH` resolves to. It needs explicit
+  permission for that path, or j321m running `pixi self-update`.
+- **lem's pixi** stays at 0.63.2. `ui.wcss.pl` was refusing SSH throughout
+  (`Connection refused`), so the cluster could not be reached at all.
+
+**The `requires-pixi` bound and the v6 lock pin are deliberately unchanged.** They can only
+be relaxed once *every* cluster reads v7. lem is still on 0.63.2 and entropy on 0.77.0, and
+a v7 lock reaching lem would not fail — it would be discarded and re-solved, silently
+de-pinning that environment. Finish those two upgrades first; then widen the bound, and the
+Tier 0 test asserting v6 can go with it.
+
 ### A trap worth not repeating
 
 The first PCD-50 submission (6173802) piped the training output through
