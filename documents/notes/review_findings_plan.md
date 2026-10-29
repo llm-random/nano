@@ -464,37 +464,24 @@ would silently re-solve a v7 lock instead of failing, which is what the pin prot
 `ui.wcss.pl` started answering again after refusing all day. The upgrade still did not
 happen, for a reason nobody had seen yet.
 
-**lem's home is 8.8 GB over a 20 GB quota, and refuses every write.**
-
-```
-$ quota -s
-hnud:/plgrid-users/...   28822M*   limit 20480M        (* = over)
-
-$ echo test > ~/.pixi/bin/pixi.writetest
-bash: .../pixi.writetest: Disk quota exceeded
-```
+**lem's home directory is over its disk quota and refuses every write.** `quota -s`
+reports the home share past its limit, and a one-byte write into `~/.pixi/bin/` fails
+with `Disk quota exceeded`.
 
 `configs/_cluster/lem.yaml:45` resolves pixi through `$HOME/.pixi/bin`, so
 `pixi self-update` has to write into that quota and cannot. This is not a pixi problem
 and it is not SSH: it blocks anything that writes to home on lem, which includes
 checkpoints and logs for any run configured to land there.
 
-What is using it — read-only, nothing touched:
+The largest single consumer is the experiment cemetery, which is prunable; the rest is
+tooling caches and a virtualenv. Exact figures were reported to the account owner
+directly rather than written down here -- a shared repo is not the place for an
+inventory of someone's home directory. Clearing it is the owner's call, so nothing was
+touched.
 
-| Path | Size |
-|------|------|
-| `~/llmrandom_cemetery` | 13 G |
-| `~/.local` | 7.1 G |
-| `~/lmeval_env` | 5.3 G |
-| `~/.cache` | 2.9 G |
-
-That sums to about the 28.8 G reported. Clearing it means deleting or moving things in
-your home, which is yours to decide, so it is left alone.
-
-**The 0.63.2 binary is backed up and ready** at
-`/lustre/pd01/plgrid/plgllmefficont3/$USER/pixi_backup/pixi.bak-20261029-142010`
-(verified: runs, reports 0.63.2). Once there is room in home, the upgrade is one command
-and the rollback is a copy.
+**The 0.63.2 binary is backed up and ready** under the project lustre area at
+`<project>/$USER/pixi_backup/pixi.bak-20261029-142010` (verified: runs, reports 0.63.2).
+Once there is room in home, the upgrade is one command and the rollback is a copy.
 
 ## Where the four items actually stand
 
