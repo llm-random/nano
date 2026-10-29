@@ -598,3 +598,108 @@ def test_an_uncapped_stream_is_fine_with_workers_and_sharding(monkeypatch):
         torch.utils.data, "get_worker_info", lambda: TwoWorkers(), raising=True
     )
     dataset._check_the_cap_can_be_honoured()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# The whole path, through the real main.py.
+#
+# Every finding in the review of PR #199 lived between the pieces: a config value the
+# trainer reads, a sequence length the model is built from, a cap applied in the wrong
+# place. Each unit test covered its own piece and passed. Running the thing is what
+# catches that, and it costs a couple of seconds on CPU.
+#
+# These skip in CI, which runs offline without the local dataset or the GPT-2
+# tokenizer, the same as every other @needs_local_data test here. They are a gate for
+# working locally. Closing that gap would mean a tracked fixture dataset and a vendored
+# tokenizer, which is a larger change than this branch should carry.
+
+
+@needs_local_data
+def test_a_fineweb_run_reaches_final_ce_over_exactly_the_fixed_set():
+    """Run configs/smoketest_fineweb_final_eval_local.yaml and read the log.
+
+    `final_ce over 8 samples` is the assertion. 8 is max_samples; anything that
+    multiplies it -- a cap applied per rank, or per DataLoader worker -- shows up here
+    as a different number rather than as a plausible loss.
+    """
+    import subprocess
+    import sys
+
+    env = dict(
+        os.environ,
+        WORLD_SIZE="1",
+        RANK="0",
+        LOCAL_RANK="0",
+        MASTER_ADDR="127.0.0.1",
+        MASTER_PORT="29599",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "main.py",
+            "--config-path",
+            "configs",
+            "--config-name",
+            "smoketest_fineweb_final_eval_local",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    log = result.stdout + result.stderr
+    assert result.returncode == 0, f"the run failed:\n{log[-3000:]}"
+    assert (
+        "holdout='train': 200 of 300 rows" in log
+    ), f"train holdout wrong:\n{log[-2000:]}"
+    assert (
+        "holdout='eval': 100 of 300 rows" in log
+    ), f"eval holdout wrong:\n{log[-2000:]}"
+    assert (
+        "final_ce over 8 samples" in log
+    ), f"final_ce did not cover exactly max_samples=8 samples:\n{log[-2000:]}"
+
+
+@needs_local_data
+def test_a_run_with_eval_switched_off_still_finishes():
+    """`eval_dataloader: None`, as 37 shipped configs write it, straight through main.py.
+
+    This is the blocker: the string "None" passed every guard, final_eval iterated its
+    characters, and the run died on `'N'.to(device)` after the last step and before the
+    final checkpoint. Nothing in the suite drove a trainer from a config that switches
+    eval off, so nothing saw it.
+    """
+    import subprocess
+    import sys
+
+    env = dict(
+        os.environ,
+        WORLD_SIZE="1",
+        RANK="0",
+        LOCAL_RANK="0",
+        MASTER_ADDR="127.0.0.1",
+        MASTER_PORT="29598",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "main.py",
+            "--config-path",
+            "configs",
+            "--config-name",
+            "smoketest_fineweb_final_eval_local",
+            "~trainer.eval_dataloader",
+            "+trainer.eval_dataloader=None",
+            "trainer.eval_interval=0",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    log = result.stdout + result.stderr
+    assert result.returncode == 0, f"the run failed:\n{log[-3000:]}"
+    assert "skipping the final eval" in log, f"final_eval did not skip:\n{log[-2000:]}"
+    assert "has no attribute 'to'" not in log

@@ -1,0 +1,69 @@
+# The fineweb holdout and final_ce, end to end, on the 300-row local `data` copy.
+#
+# Every one of the seven findings in the review of PR #199 was in this path, and the
+# unit tests caught none of them, because each exercises one piece in isolation:
+#
+#   - `eval_dataloader: None` is the string "None" -- no test drove a trainer from a
+#     YAML config that switches eval off.
+#   - the eval dataloader pinned sequence_length: 2048 while the model was built for
+#     common.sequence_length -- no test composed a config and ran the model on it.
+#   - max_samples was applied per rank and per worker -- the test ran at world_size 1,
+#     num_workers 0, where all three numbers coincide.
+#
+# This runs the real main.py against the real dataset classes, which is what it takes
+# to see them. It needs no GPU and no cluster -- 2 steps on a tiny model, a few seconds
+# on CPU -- but it does need the local `data` copy that scripts/prepare_test_dataset.py
+# writes, and the GPT-2 tokenizer from the hub. CI runs offline with neither, so
+# tests/test_core_framework.py skips this there; it is a gate for working locally, not
+# a CI gate.
+#
+#   python scripts/prepare_test_dataset.py   # once, if data/ is missing
+#   python main.py --config-path configs \
+#     --config-name smoketest_fineweb_final_eval_local
+#
+# Expect a `final_ce over 8 samples` line. 8, not 8 * anything.
+defaults:
+  - _cluster@_here_: local
+  - _model@_here_: tiny
+  - _trainer@_here_: llama
+  - _dataset@_here_: fineweb
+  - _checkpoints@_here_: none
+  - _misc@_here_: default
+
+common:
+  sequence_length: 16
+  batch_size: 2
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 2
+  learning_rate: 1e-3
+  eval_interval: 1
+  n_eval_steps: 2
+
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+      # `data` holds 300 rows, not fineweb's 1.27 billion, so the holdout has to be
+      # scaled to it. Both dataloaders must carry the same number or the slices stop
+      # being disjoint.
+      holdout_rows: 100
+
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt2_tokenize_fn
+      holdout_rows: 100
+      # Small enough to read in a second, and not a round number, so a cap applied
+      # twice somewhere would be obvious in the log line rather than plausible.
+      max_samples: 8
+
+infrastructure:
+  metric_logger:
+    type: stdout
+    name: smoketest_fineweb_final_eval_local
+    tags:
+      - smoketest
+      - fineweb
+      - local
