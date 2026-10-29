@@ -276,3 +276,58 @@ vendored tokenizer.
 
 This matters, because it is the same gap that let all seven findings through: the suite
 has 134 tests and, in CI, not one of them runs `main.py`.
+
+---
+
+# Cluster verification (entropy, 2026-10-29)
+
+Run against `ebfe9d6c` from `~/mas_a100_stage/nano` as `j321m`.
+
+| Job | What | Result |
+|-----|------|--------|
+| 30842 | full suite, h100a, shared `PIXI_HOME` | **`SUITE_RC=0`** — 133 passed, 18 skipped (`needs_local_data`/network) |
+| 30836 | `final_ce`, **1 GPU**, A100 | `final_ce over 64 samples: 12.375` |
+| 30837 | `final_ce`, **2 GPUs**, A100 | `final_ce over 64 samples: 12.375` on **both ranks** |
+| 30839 | same, **pre-fix code**, 2 GPUs (control) | `final_ce over **128** samples` |
+| 30840 | real PC smoketest, A100, `eval_dataloader: null` | 20 steps, `No eval dataloader; skipping the final eval.`, `rc=0` |
+
+## What this settles
+
+**R3 is proven on real hardware, and the fix is load-bearing.** 30836 and 30837 give the
+same number over the same 64 samples at one and two GPUs, and both ranks report the
+global figure, so the all-reduce works. 30839 puts the old cap-after-stride ordering
+back on the same node and the same data and reads **128** samples — exactly
+`max_samples * world_size`.
+
+The control is worth reading carefully: the *loss value* is 12.375 in all three runs,
+because the model is untrained and scores a near-uniform loss on any sample. Only the
+*count* betrays the bug. On a trained model the extra samples move the number, and
+nothing in the log says why. That is what made this worth catching with a test rather
+than by eye.
+
+**R1 is proven on the real PC path.** 30840 is the shipped PC smoketest, which carries
+`eval_dataloader: null` where it used to carry the string. It reaches
+`No eval dataloader; skipping the final eval.` and exits 0 — the exact point where the
+pre-fix code raised `'str' object has no attribute 'to'`, after training and before the
+checkpoint.
+
+## A bug this found that the review did not
+
+The first suite run on entropy (30835) failed two `test_sync_cluster_env.py` tests with
+`cp: preserving permissions ... Operation not supported`. Not a test artefact: entropy's
+`/tmp` refuses `cp -p`, which exits 1 *after* copying the content, and
+`scripts/sync_cluster_env.sh` runs under `set -euo pipefail`. It aborted between the
+lock copy and the manifest copy — the lock replaced, the manifest not, which is the one
+state the backups exist to prevent. NFS with root_squash behaves the same way, and a
+cluster `PIXI_HOME` often sits on exactly that.
+
+Fixed in `ebfe9d6c` with a fallback to plain `cp`, and a regression test that puts a
+`cp` on PATH behaving the way those filesystems do. Found only by running the suite on
+a cluster; it passes on a workstation.
+
+## Still open, unchanged and external
+
+entropy pixi 0.77.0 (permission classifier refuses to replace `j321m`'s binary), lem
+pixi 0.63.2 (`ui.wcss.pl` refusing SSH), and the `requires-pixi` bound that correctly
+depends on both. Entropy's pixi still warns `the lock file ... uses an older format
+(v6)` on every invocation, which is the bound doing its job.
