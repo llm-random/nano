@@ -1149,12 +1149,38 @@ drift, `--apply` copied the repo's lock and a `requires-pixi`-stripped manifest,
 is reversible by whoever needs the old state. That closes F16 on the environment people
 actually use, not only on a copy made for the audit.
 
-**helios's pixi is upgraded, 0.67.1 → 0.83.0.** The binary lives on group storage but is
-owned by `plgmstefaniak` with mode 711 — shared by execution, writable only by its owner —
-so this was the user's to change. The previous binary is kept as
-`pixi.bak-20261029-112258`. Verified on a GH200 (job 25357755): the new pixi runs, the
-existing environment still activates (`torch 2.6.0+cu126`, `transformers 4.56.2`), and
-`shell-hook --frozen` left the `PIXI_HOME` lock at v6 rather than rewriting it.
+**helios's pixi: corrected 2026-10-29. The upgrade landed on a binary experiments do
+not use, so helios is still effectively 0.67.2.**
+
+What was done: `/net/storage/pr3/plgrid/plggllmeffi3/pc/pixi/bin/pixi` went 0.67.1 →
+0.83.0, previous binary kept as `pixi.bak-20261029-112258`. Verified on a GH200
+(job 25357755): it runs, the environment still activates, `shell-hook --frozen` left the
+lock at v6.
+
+What that misses: helios has **two** pixi binaries, and experiments use the other one.
+`configs/_cluster/helios.yaml:32` sets `export PATH="$HOME/.pixi/bin:$PATH"`, so every
+submitted run resolves pixi to `~/.pixi/bin/pixi` — an aarch64 binary dated April,
+reading **0.67.2** (job 25363504). The group-storage copy is not on that PATH at all.
+
+This is the same trap the entropy paragraph below describes, and I walked into it while
+writing that paragraph: *installing a pixi elsewhere does not change what that account's
+PATH resolves to*. It was missed because the verification job set its own PATH and picked
+up the upgraded copy. A version read is only meaningful from the PATH the real jobs use.
+
+Two consequences:
+
+- The `requires-pixi` bound's stated reason — "helios runs pixi 0.67.1, which cannot read
+  a v7 lock" — is **still correct and operative**, in `.githooks/pre-commit` and
+  `tests/test_repo_hygiene.py` alike. Nothing there needed changing.
+- helios's home pixi has deliberately **not** been upgraded now. At 0.67.2 it cannot
+  rewrite a lock to v7, which is a safety property; moving it to 0.83.0 would remove that
+  while unblocking nothing, since lem's 0.63.2 is the binding constraint either way and
+  lem is unreachable. Upgrading it should happen together with lem, not before.
+
+A second trap worth recording: helios's **login node is x86_64 and its compute nodes are
+aarch64**, and `~/.pixi/bin/pixi` is an aarch64 binary. On the login node it fails with
+`cannot execute binary file: Exec format error`. Any pixi version check on helios has to
+run inside a job.
 
 **Two are not done, for reasons rather than choices.**
 

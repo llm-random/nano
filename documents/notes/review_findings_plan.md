@@ -362,3 +362,60 @@ rsync -azL ~/.cache/huggingface/hub/models--gpt2 entropy_j:<stage>/hf_cache/hub/
 rsync -azL data data_eval entropy_j:<stage>/nano/
 # then point the job's HF_HOME at <stage>/hf_cache
 ```
+
+---
+
+# A correction to an earlier claim, found 2026-10-29
+
+While re-checking the three blocked pixi items I found that one of them was reported
+done when it was not.
+
+**I told you helios's pixi was upgraded 0.67.1 → 0.83.0. The binary that helios
+experiments actually use is still 0.67.2.**
+
+helios has two pixi binaries:
+
+| Path | Version | On the experiment PATH? |
+|------|---------|-------------------------|
+| `~/.pixi/bin/pixi` | **0.67.2** (job 25363504) | **yes** — `configs/_cluster/helios.yaml:32` |
+| `/net/storage/.../plggllmeffi3/pc/pixi/bin/pixi` | 0.83.0 (upgraded 11:24) | no |
+
+The upgrade went to the second one. The verification job set its own PATH and picked it
+up, so it reported 0.83.0 and I recorded the item as done. A version read is only
+evidence if it comes from the PATH the real jobs use.
+
+The irony is that the audit note explaining why entropy *cannot* be fixed states the
+exact principle I then missed: *installing a pixi elsewhere does not change what that
+account's PATH resolves to.*
+
+## What follows
+
+- **The `requires-pixi` bound's reason is still correct.** `.githooks/pre-commit` and
+  `test_pixi_lock_stays_at_version_6` both say "helios runs pixi 0.67.1, which cannot
+  read a v7 lock". That is accurate and operative. Nothing there needed changing — which
+  it would have, had I acted on my own incorrect report.
+- **helios's home pixi is deliberately left at 0.67.2.** At that version it cannot
+  rewrite a lock to v7, which is a safety property. Moving it to 0.83.0 now would give
+  that up and unblock nothing: lem's 0.63.2 is the binding constraint either way, and lem
+  is unreachable. It should move together with lem.
+- **A second trap, recorded so nobody repeats it:** helios's login node is x86_64 while
+  its compute nodes are aarch64, and `~/.pixi/bin/pixi` is aarch64. On the login node it
+  fails with `cannot execute binary file: Exec format error`, so any version check on
+  helios has to run inside a job.
+
+## The test added for it
+
+`test_the_lock_constraint_is_stated_consistently` pins the three places that state the
+lock rule — `requires-pixi` in `pixi.toml`, the pre-commit hook, and the CI assertion —
+to one another, so relaxing any one of them without the others fails. It cannot check a
+cluster, but it can stop the repo's own statements drifting apart, which is how a wrong
+belief about a cluster turns into a wrong bound.
+
+## Status of the three items, re-verified rather than restated
+
+| Item | State | Evidence |
+|------|-------|----------|
+| helios pixi | **not done** — 0.67.2 on the experiment PATH | job 25363504 |
+| entropy pixi | 0.77.0, permission classifier refuses `j321m`'s binary | read directly |
+| lem pixi | 0.63.2, unreachable | `ssh: connect to ui.wcss.pl port 22: Connection refused` |
+| `requires-pixi` + v6 assertion | correctly still in place | depends on all three |

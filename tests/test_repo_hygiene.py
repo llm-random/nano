@@ -675,3 +675,53 @@ def test_no_test_name_is_defined_twice_in_a_file():
     assert not offenders, "shadowed definitions in test files:\n  " + "\n  ".join(
         offenders
     )
+
+
+# The lock-format constraint is stated in three places, and they have to agree:
+#
+#   pixi.toml          requires-pixi, which refuses a pixi new enough to rewrite the lock
+#   .githooks/pre-commit   refuses to commit a lock that is not the pinned version
+#   test_pixi_lock_stays_at_version_6   the same check in CI
+#
+# LOWEST_V7_PIXI is the lowest pixi that bumps the lock format. Measured, not guessed:
+# 0.63.2 and 0.67.x leave a lock at v6, 0.77.0 and 0.81.0 rewrite it to v7. entropy runs
+# 0.77.0 and warns "the lock file ... uses an older format (v6)" on every invocation.
+PINNED_LOCK_VERSION = 6
+LOWEST_V7_PIXI = (0, 77)
+
+
+def test_the_lock_constraint_is_stated_consistently():
+    """Three places enforce one rule; a change to any one of them must move all three.
+
+    They drifted apart once already in a quieter way: the bound's comment named helios
+    as the reason, and helios looked upgraded while the binary its experiments actually
+    use was untouched. A version read from the wrong PATH is not evidence, and neither
+    is a bound whose three statements disagree.
+    """
+    manifest = open(os.path.join(REPO_ROOT, "pixi.toml")).read()
+    match = re.search(r'requires-pixi\s*=\s*"([^"]+)"', manifest)
+    assert match, "pixi.toml no longer declares requires-pixi"
+    bound = match.group(1)
+
+    upper = re.search(r"<\s*(\d+)\.(\d+)", bound)
+    assert upper, (
+        f"requires-pixi {bound!r} has no upper bound; a pixi that rewrites the lock to "
+        f"v{PINNED_LOCK_VERSION + 1} would be allowed to run here"
+    )
+    assert (int(upper.group(1)), int(upper.group(2))) <= LOWEST_V7_PIXI, (
+        f"requires-pixi {bound!r} admits pixi {upper.group(1)}.{upper.group(2)}, which "
+        f"is at or past {LOWEST_V7_PIXI[0]}.{LOWEST_V7_PIXI[1]} -- the lowest version "
+        f"that rewrites the lock to v{PINNED_LOCK_VERSION + 1}"
+    )
+
+    hook = open(os.path.join(REPO_ROOT, ".githooks/pre-commit")).read()
+    assert f"version: {PINNED_LOCK_VERSION}" in hook, (
+        f"the pre-commit hook does not pin the lock to v{PINNED_LOCK_VERSION}; it and "
+        f"this file would then disagree about what may be committed"
+    )
+
+    lock_version = open(os.path.join(REPO_ROOT, "pixi.lock")).readline().strip()
+    assert lock_version == f"version: {PINNED_LOCK_VERSION}", (
+        f"pixi.lock is {lock_version!r}, but the bound and the hook pin "
+        f"v{PINNED_LOCK_VERSION}"
+    )
