@@ -614,3 +614,33 @@ to install the environment. Now `grep -vE '^[[:space:]]*requires-pixi'`.
 Minor, and only reachable if someone reformats the manifest. Worth having, and worth
 noting how it was found: by making a mutation that *should* have failed the test and
 asking why it did not.
+
+## `exit 128` now says what went wrong (2026-10-29)
+
+`configs/_cluster/lem.yaml` carries this aside, written earlier in this branch:
+
+> the `_misc/default.yaml` value of `~/llmrandom_cemetery` makes every `git clone` fail
+> with "Disk quota exceeded" (`run_exp.py` only surfaces it as UnexpectedExit, exit 128)
+
+A comment like that is a sign the failure cost somebody an afternoon. It cost one again
+today: lem's home being over quota showed up first as a `cp` that would not write, and
+only became obvious after going looking for it.
+
+fabric raises `UnexpectedExit` carrying the exit status and nothing else, so the quota
+message sits in the remote stderr and is never shown. `run_remote()` now wraps the two
+remote commands that touch the cemetery -- the `mkdir -p` and the `git clone` -- and
+turns a recognised failure into a sentence. Against the real stderr from lem:
+
+```
+Cloning the experiment failed on lem: the remote filesystem is out of space or over
+its disk quota.
+  command: git clone --depth 1 -b exp ... ~/llmrandom_cemetery/exp
+  remote says: mkdir: cannot create directory '...': Disk quota exceeded
+Check the quota there (`quota -s`, `df -h`). If this is the cemetery directory,
+infrastructure.cluster_cemetery_dir in the cluster config redirects it to project
+storage; helios and lem already do that.
+```
+
+Unrecognised failures are still reported, with the exit status and the remote's own
+words rather than swallowed. Five tests, including one that the disk-full branch does
+not catch an ordinary error.

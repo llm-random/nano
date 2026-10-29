@@ -22,6 +22,44 @@ import resolver
 
 logger = logging.getLogger(__name__)
 
+# Remote failures that are worth naming rather than leaving as an exit code.
+_REMOTE_DISK_FULL = re.compile(
+    r"quota exceeded|No space left on device|Disk quota", re.IGNORECASE
+)
+
+
+def run_remote(connection, command, what):
+    """Run a remote command, and say what went wrong when it is something known.
+
+    fabric raises UnexpectedExit with the exit status and nothing else, so a cluster
+    home that is over its disk quota surfaces as `exit 128` from `git clone` with the
+    quota message buried in the remote stderr. configs/_cluster/lem.yaml carries a
+    comment about exactly that, which is a sign it cost somebody an afternoon.
+
+    It is a one-line diagnosis once you can see it, so show it.
+    """
+    result = connection.run(command, warn=True)
+    if not result.failed:
+        return result
+
+    output = (result.stdout or "") + (result.stderr or "")
+    if _REMOTE_DISK_FULL.search(output):
+        raise RuntimeError(
+            f"{what} failed on {connection.host}: the remote filesystem is out of "
+            f"space or over its disk quota.\n"
+            f"  command: {command}\n"
+            f"  remote says: {output.strip().splitlines()[-1] if output.strip() else '(nothing)'}\n"
+            f"Check the quota there (`quota -s`, `df -h`). If this is the cemetery "
+            f"directory, infrastructure.cluster_cemetery_dir in the cluster config "
+            f"redirects it to project storage; helios and lem already do that."
+        )
+    raise RuntimeError(
+        f"{what} failed on {connection.host} with exit {result.exited}.\n"
+        f"  command: {command}\n"
+        f"  remote says: {output.strip() or '(nothing)'}"
+    )
+
+
 _SSH_HOSTS_TO_PASSPHRASES = {}
 
 
@@ -250,7 +288,11 @@ def submit_experiment(
             host=cfg.infrastructure.server, inline_ssh_env=True
         ) as connection:
             cemetery_dir = cfg.infrastructure.cemetery_experiments_dir
-            connection.run(f"mkdir -p {cemetery_dir}")
+            run_remote(
+                connection,
+                f"mkdir -p {cemetery_dir}",
+                f"Creating the cemetery directory {cemetery_dir}",
+            )
 
             if "WANDB_API_KEY" in os.environ:
                 connection.config["run"]["env"]["WANDB_API_KEY"] = os.environ[
@@ -259,8 +301,10 @@ def submit_experiment(
 
             experiment_dir = f"{cemetery_dir}/{experiment_branch_name}"
             if connection.run(f"test -d {experiment_dir}", warn=True).failed:
-                connection.run(
-                    f"git clone --depth 1 -b {experiment_branch_name} {cfg.infrastructure.git.remote_url} {experiment_dir}"
+                run_remote(
+                    connection,
+                    f"git clone --depth 1 -b {experiment_branch_name} {cfg.infrastructure.git.remote_url} {experiment_dir}",
+                    f"Cloning the experiment into {experiment_dir}",
                 )
             else:
                 print(f"Experiment {experiment_branch_name} already exists. Skipping.")
