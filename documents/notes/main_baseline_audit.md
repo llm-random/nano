@@ -41,7 +41,7 @@ it.** The tiers are not uniformly distributed:
 | | helios (GH200) | lem (H100) | entropy (h100a) |
 |---|---|---|---|
 | test suite | yes | **no** — no pytest in the env | yes, via a layered venv |
-| PC smoketest | yes, GPU | yes, GPU, real 1B mem-eff | yes, **CPU only** |
+| PC smoketest | yes, GPU | yes, GPU, real 1B mem-eff | yes, **GPU** (A100, job 30738) |
 | Tier 3 distributed | 1 and 2 ranks, resume | **4 ranks**, production trainer | **no** |
 | Tier 4 numerical | — | **full 4096-step PCD-50** | **no** |
 | `pc_finalize` / PC→HF | `pc_finalize` end to end | PC→HF end to end | — |
@@ -1038,21 +1038,22 @@ all, and 60 GB would not backfill, while 28 GB with a sliced dataset ran immedia
 exercises `FineWebEduDataset`, `_load_dataset`, the holdout, `split_dataset_by_node`, the
 sample packer, `init_compression` and the training loop identically.
 
-**The GPU variant could not run inside this audit, and the constraint is hard.** Measured
-rather than assumed: `scontrol show node h100a` reports all 8 GPUs allocated, and the
-soonest-ending GPU job on that node has **1 day 11 hours** remaining, several of the queue
-held by `QOSMaxGRESPerUser` against the shared cap. No GPU frees on entropy for roughly 35
-hours, so this was never going to happen during the audit no matter how the job was sized —
-unlike the CPU work, where sizing was the whole battle (120 GB could not schedule, 60 GB
-would not backfill, 28 GB ran at once).
+**The GPU half ran too, on a100a rather than h100a.** `h100a` is the only node mounting
+`/storage_nvme_4`, and its 8 GPUs were booked out for another ~34 hours, several of the
+queue held by `QOSMaxGRESPerUser` against the shared cap. I treated that as the end of it
+for several rounds. It was not: **`/home` is NFS and visible from every node**, including
+`a100a`, which had 4 free GPUs the whole time. Staging the environment there routes around
+the mount.
 
-A corrected job is queued as **30713** rather than left to fail: the original (30689) was
-written before two things were learned, and would have run the suite against an env with no
-pytest and the smoketest against the full 1.27-billion-row fineweb at 64 GB, which is what
-OOM'd. 30713 uses the layered venv and the sliced dataset, so it produces a real result
-whenever a GPU frees. Its log lands at `~j321m/mas_gpu_30713.out`.
+| job | what | result |
+|---|---|---|
+| 30722 / **30730** | stage 7.9 GB env + repo + sliced dataset to `/home` | 30722 hit its 25-minute limit at 7.3 of 7.6 GB; 30730 finished it with `rsync` (37m14s — NFS and many small files). **Relocated interpreter imports torch**, which was the real risk: conda-style envs bake absolute prefixes in |
+| 30735 | GPU smoketest, first attempt | **`cuda: True`, A100 80GB** — then failed on the gated `meta-llama/Llama-3.1-8B` tokenizer, whose cache is on `/storage_nvme_4` and invisible from a100a |
+| 30736 / **30737** | stage the tokenizer | 30736 copied nothing: `$DST/hub` did not exist and rsync will not create nested parents, and extension filters miss an HF cache's hash-named blobs behind symlinks. 30737 used `-L` and `--max-size=100M`, keeping the 8B weights out: **`tokenizer OK, vocab 128256`** |
+| **30738** | **GPU smoketest** | **`SMOKE_RC=0`** — 20 steps on an **NVIDIA A100 80GB**, loss descending to **9.25**, against the ~9.5–9.6 the same tiny model reaches on helios and lem |
 
-**This is a resource limit rather than a pending task.** `h100a` is the only node mounting `/storage_nvme_4` — the env, the
+So all three clusters ran the PC smoketest on a real GPU. What entropy still does not carry
+is a distributed or numerical-reproduction run; see the per-cluster table in section 1. `h100a` is the only node mounting `/storage_nvme_4` — the env, the
 fineweb copy and the checkout all live there — and its 8 GPUs were fully allocated to other
 users' multi-day jobs throughout, several of them held by `QOSMaxGRESPerUser` against the
 shared cap. `a100a` had free GPUs but mounts `/storage_nvme_1` instead, with no env, no
