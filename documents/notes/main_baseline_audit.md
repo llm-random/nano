@@ -1172,10 +1172,22 @@ Two consequences:
 - The `requires-pixi` bound's stated reason — "helios runs pixi 0.67.1, which cannot read
   a v7 lock" — is **still correct and operative**, in `.githooks/pre-commit` and
   `tests/test_repo_hygiene.py` alike. Nothing there needed changing.
-- helios's home pixi has deliberately **not** been upgraded now. At 0.67.2 it cannot
-  rewrite a lock to v7, which is a safety property; moving it to 0.83.0 would remove that
-  while unblocking nothing, since lem's 0.63.2 is the binding constraint either way and
-  lem is unreachable. Upgrading it should happen together with lem, not before.
+- helios's home pixi **is** now upgraded, 0.83.0, done properly and verified from the
+  config's own activation sequence (job 25364846): `command -v pixi` resolves to
+  `/net/home/plgrid/plgmstefaniak/.pixi/bin/pixi`, which reports 0.83.0; the environment
+  still activates (`torch 2.6.0+cu126`, `transformers 4.56.2`); and the `PIXI_HOME` lock
+  was still `version: 6` afterwards. Previous binary kept as `pixi.bak-20261029-141142`.
+
+  No download: the 0.83.0 aarch64 binary already existed at the group-storage path, so
+  the swap was a copy of a binary already proven to run on a GH200, which is a much
+  smaller risk than a `self-update` over the network.
+
+  I had argued for leaving it at 0.67.2 as a safety margin. That was re-deciding
+  something already settled -- "upgrade pixi on the clusters" was the answer given -- and
+  the margin is not needed anyway: `requires-pixi` makes pixi 0.83 refuse to operate on
+  *this repo's* manifest at all, and `shell-hook` at 0.83.0 only warns about a v6 lock
+  rather than rewriting it (seen in that job's log). The rewrite risk is on
+  `pixi run`/`pixi install` without `--frozen`, which the bound already blocks.
 
 A second trap worth recording: helios's **login node is x86_64 and its compute nodes are
 aarch64**, and `~/.pixi/bin/pixi` is an aarch64 binary. On the login node it fails with

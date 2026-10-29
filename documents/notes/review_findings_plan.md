@@ -419,3 +419,42 @@ belief about a cluster turns into a wrong bound.
 | entropy pixi | 0.77.0, permission classifier refuses `j321m`'s binary | read directly |
 | lem pixi | 0.63.2, unreachable | `ssh: connect to ui.wcss.pl port 22: Connection refused` |
 | `requires-pixi` + v6 assertion | correctly still in place | depends on all three |
+
+## helios: done properly, 2026-10-29 14:11
+
+`~/.pixi/bin/pixi` — the binary `configs/_cluster/helios.yaml:32` puts on the PATH — is
+now **0.83.0**. Previous kept as `pixi.bak-20261029-141142`.
+
+Done by copying the 0.83.0 aarch64 binary that already sat at the group-storage path
+rather than running `self-update` over the network: it was already proven to run on a
+GH200, so the swap carried no download and no new unknown.
+
+Verified in job 25364846 by reproducing the config's own activation sequence rather than
+a PATH of my own — which is the mistake that produced the wrong answer the first time:
+
+```
+resolved pixi: /net/home/plgrid/plgmstefaniak/.pixi/bin/pixi
+version: pixi 0.83.0
+PIXI_HOME lock BEFORE: version: 6
+shell-hook OK
+env OK: 2.6.0+cu126 | 4.56.2
+PIXI_HOME lock AFTER:  version: 6
+```
+
+Worth noting from that log: at 0.83.0 `pixi shell-hook` **warns** about a v6 lock and
+leaves it alone. The v7 rewrite comes from `pixi run`/`pixi install` without `--frozen`,
+which `requires-pixi` already refuses on this repo. So the upgrade did not cost the
+safety margin I had worried about.
+
+### Remaining
+
+| Item | State |
+|------|-------|
+| helios pixi | **done** — 0.83.0 on the experiment PATH (25364846) |
+| entropy pixi | 0.77.0 — binary belongs to `j321m`; permission classifier refuses, and I am not routing around it |
+| lem pixi | 0.63.2 — `ui.wcss.pl` refusing SSH all day |
+| `requires-pixi` + v6 assertion | stays until lem moves; lem's 0.63.2 cannot read a v7 lock |
+
+lem is the one that actually binds. entropy at 0.77.0 already writes v7, so it is bound
+by `requires-pixi` rather than by the lock version; lem at 0.63.2 is the version that
+would silently re-solve a v7 lock instead of failing, which is what the pin protects.
