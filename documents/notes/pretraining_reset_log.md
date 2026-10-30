@@ -252,3 +252,6 @@ One line per event; details live in the stage plan documents, not here.
   bf16-quantized on the GPU path. h4 peak memory 45.17 GiB at micro 64 — no
   activation checkpointing in this trainer (PARKED: AC knob would trade compute
   for much larger micro-batches; relevant to MFU at h16+).
+- **2026-10-30 (E2 PASS)** h12 probe: micro 8/16/32 -> 16.0/29.2/55.5 GiB, chosen
+  ga=16 (micro 32). Measurement (wandb 2xyxl874): 227k tokens/s, **MFU 25.2%**,
+  step-time cv 0.7%, token accounting exact, all criteria green.
