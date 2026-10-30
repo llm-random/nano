@@ -199,3 +199,5 @@ One line per event; details live in the stage plan documents, not here.
 - **2026-10-30 16:00** Maciej reviewed and **accepted stage 2 as-is**. Parked
   defaults stand (RoPE 10000/no-scaling, vocab 50304, RMSNorm + init scale 1,
   h16/h24 allowlisted, mla/mamba2/gated_deltanet/ame stubbed for stage 3).
+- **2026-10-30 16:20** Maciej confirmed the skipped pause was fine — the stage-2
+  process record is closed; nothing outstanding from it.
