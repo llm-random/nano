@@ -64,10 +64,10 @@ its real win is kv-cache memory at inference, not training speed.
 3. **Same bug one layer up** — `get_dataloader` used `os.environ[...]`, bare
    KeyError. (`855b00c`)
 4. **Throughput stub test probed CUDA on GPU nodes** — my own new test; found by
-   the first entropy suite run. (`a83d48f8` era)
+   the first entropy suite run. (`ff673c4e`)
 5. **Checkpoint-artifact test assumed the CPU shape** — a CUDA node writes the
    world-size-1 model as a dcp shard (`__0_0.distcp`), which resumes perfectly;
-   the test now accepts both forms. (`393d200`)
+   the test now accepts both forms. (`393d2000`)
 6. **First-loss criterion mis-calibrated** — fresh-model CE at seq 2048 is
    ~ln(V)+0.4 on any device (proved by CPU control); band recalibrated with the
    calibration written down. (`ad85c17e`)
