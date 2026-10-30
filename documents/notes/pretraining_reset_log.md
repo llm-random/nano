@@ -297,3 +297,8 @@ One line per event; details live in the stage plan documents, not here.
   5.7/6.0/6.9× slower than bf16, a near-constant 44–46 TFLOP/s = 66–68% of the
   FP32 vector peak and ~9% of the tf32 peak (TF32 off by default). bf16 is the
   measured default. Entropy queue empty, wandb key removed, all runs accounted for.
+- **2026-10-30 (dtype matrix truly complete)** tf32 cells added at all sizes
+  (wandb 42rph6xn / t2qhpdsf / igtr237s): 90.9k / 52.1k / 30.0k tokens/s —
+  100-119 TFLOP/s, 20-24% of the tf32 peak; hierarchy at h16 bf16:tf32:fp32 =
+  6.0:2.5:1. Non-bf16 probe reuse is a reasoned, logged deviation (plan
+  amendment). STAGE 3 CLOSED, full matrix on record.
