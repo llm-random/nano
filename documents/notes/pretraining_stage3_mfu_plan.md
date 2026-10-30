@@ -121,3 +121,20 @@ Every job: `gres=gpu:1`, submitted via `run_exp.py`, one at a time, ~5–10 min 
 - Dataloader tokenization throughput at 1M tokens/step is the most likely MFU
   ceiling and is explicitly isolatable (E3's dummy-data rerun).
 - Queue time on the shared quota is the schedule risk; jobs are short and sequential.
+
+## Amendments during execution
+
+- **2026-10-30 (token accounting)**: `processed_tokens` counts tokens the model
+  consumes — `batch × (width − 1)` = 512 × 2047 = **1,048,064** per step — not the
+  raw 512 × 2048 the plan stated. The criterion becomes
+  `processed_tokens = step × 1,048,064`, exact. MFU is unaffected: tokens/s and
+  FLOPs/token both use the consumed-token basis (seq 2047), so the ratio is
+  consistent. Whether the *spec* should count raw or consumed tokens is parked
+  for Maciej; the audit reports both.
+- **2026-10-30 (submission)**: direct sbatch from the pinned ~/nano-mfu clone
+  instead of run_exp.py (entropy :22 block; compute nodes cannot reach GitHub at
+  all — pulls happen on the login node). Provenance: the job logs the clone's
+  commit; wandb logs the config.
+- **2026-10-30 (dtype)**: no autocast knob — FSDP2's hard-coded
+  MixedPrecisionPolicy (bf16 compute / fp32 reduce) is the production path and is
+  what the audit measures. fp32 comparison runs dropped.
