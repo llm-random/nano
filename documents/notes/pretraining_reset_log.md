@@ -137,3 +137,9 @@ One line per event; details live in the stage plan documents, not here.
   data_eval moved there and copied back here (this branch's test fixtures —
   slow e2e suite re-verified green, 3 passed). Full manifest kept at the move
   time; nothing was deleted, only renamed or copied.
+- **2026-10-30 16:40** Stage-2 goal received. Plan written and committed:
+  documents/notes/pretraining_stage2_plan.md (CI triggers → H-balanced lineage →
+  GPT-NeoX tokenizer → attention registry → layer-pattern mixing → docs).
+  **Paused for plan review before execution.** Known tension flagged in the plan:
+  concept doc pins vocab_size 50257 (GPT-2's count) but the NeoX tokenizer is
+  larger — resolved by measurement in Phase B.
