@@ -1,5 +1,9 @@
 # Nano
 
+A framework for pretraining transformer language models. Experiments are Hydra
+configs; runs go through `main.py` locally or `run_exp.py` on a SLURM cluster.
+(The projected-compression project this repo previously carried lives on `main`.)
+
 ## Setup
 
 ### Local
@@ -52,14 +56,3 @@ trainer:
 # FAQ
 1. Why state of model, optim, scheduler is separated from other state parameters?
 - We want to start metric_logger ASAP, loading model's distributed checkpoint forces us to create model before loading weights.
-
-2. How to load llama weights?
-Set following fields in a config:
-```yaml
-trainer:
-  checkpoint:
-   load:
-    type: huggingface
-    path: "meta-llama/Llama-3.2-1B"
-  n_steps: 0
-```

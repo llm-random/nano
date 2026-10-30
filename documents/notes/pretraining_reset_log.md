@@ -93,3 +93,24 @@ One line per event; details live in the stage plan documents, not here.
 - **2026-10-30 15:05** PC paper artifacts (evals/ 111 files, benchmarks/,
   influences_figs/) and personal scratch (configs/_mas/) removed; stale _mas/_eval
   mentions tidied in hygiene test and expand_config docstring. Gate: 120 passed.
+- **2026-10-30 15:15** Docs pass: removed PC notes (no_p, pc_time, slicegpt,
+  table1_runs, merge_to_main, review_findings_plan, remaining_issues_plan,
+  pc_notebooks, no_p notebook) and issues.md (a PC-era audit record; its live
+  rules survive as the hygiene tests — full record stays on main). Kept concepts/
+  (h-balanced = stage-2 spec, sam-model, glossary), long-context-attention,
+  main_baseline_audit, cluster notes, h_balanced scripts. documents/README index
+  updated; repo README now describes the pretraining framework, HF-load FAQ gone.
+
+## For Maciej (decisions parked during execution)
+
+1. **issues.md deleted wholesale** — a few rows had forward-looking value (the
+   GPU-count/data-sharding semantics, the pixi-lock policy history, the lem
+   data-symlink caveat, the .gitignore anchoring lesson). If you want any carried
+   onto this branch, say which and I'll write them into a fresh, short note.
+2. **glossary.md still defines HP/HPD/PC/PCD etc.** — left as-is since concepts/
+   is cheap and durable; happy to prune it to pretraining-only vocabulary.
+3. **`llm_random_weight_init`** keeps its historical name in code and configs;
+   renaming (e.g. `scaled_trunc_normal_init`) would touch base_model/tiny configs
+   — deferred since stage 2 replaces those configs anyway.
+4. **pixi.toml still carries now-unused deps** (lm_eval at least) — untouched by
+   design; removing them means a lock re-solve with pixi ≤0.67.

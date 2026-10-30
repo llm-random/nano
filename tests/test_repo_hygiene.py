@@ -121,7 +121,7 @@ def test_every_runnable_config_composes_and_resolves():
     Invocation matters: the repo uses `--config-path configs/<dir>` with a bare config
     name. Composing as `--config-name <dir>/<name>` instead nests the whole tree under
     the directory name and breaks absolute interpolations, so this must mirror the real
-    call (documents/notes/merge_to_main.md).
+    call (documents/notes/merge_to_main.md on main).
 
     `???` is left alone -- a mandatory value supplied at submit time is not a defect --
     but it must not hide a broken interpolation behind it, which is why this resolves

@@ -5,7 +5,7 @@ branch and checks it out. It restored in a `finally`, which covers exceptions an
 exit but *not* a signal: the default SIGTERM handler kills the process outright, so a
 cancelled or preempted submission left the repo on the experiment branch with the user's
 own branch unrestored. That is a bad failure for a tool people run from their working
-checkout, and it is recorded in documents/issues.md.
+checkout; documents/issues.md on main records it.
 """
 
 import signal

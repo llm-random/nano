@@ -1,6 +1,6 @@
 # documents/
 
-Written reference for the Projected Compression (PC) work in this repo — for human researchers,
+Written reference for the pretraining framework in this repo — for human researchers,
 for people seeing the framework for the first time, and for AI agents that need to look up a
 concept instead of re-deriving it from the code.
 
@@ -14,7 +14,6 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | `concepts/` | Definitions: what a term means, how a thing is constructed, what it implies. Should stay true for months. | long-lived |
 | `notes/` | Task notebooks: a concrete investigation, its plan, its results, its open items. Dated, append-only. | per-task |
 | `scripts/` | Small runnable companions to the docs: parameter/FLOP calculators, figure notebooks. Importable, no side effects on import. | long-lived |
-| [issues.md](issues.md) | Known problems in the code and configs themselves -- what breaks, how it was found, current status. Cluster and environment trouble goes in `notes/` instead. | until fixed |
 
 ### concepts/
 
@@ -36,12 +35,11 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | Doc | Topic |
 |---|---|
 | [long-context-attention.md](notes/long-context-attention.md) | How deployed 200k+ models avoid all-to-all attention: 8 published methods, their quality evidence, and the attention-cost retention `c(L)` each implies for our FLOP charts |
-| [no_p.md](notes/no_p.md) | No-P ablation (W_b-only, frozen projections) for Table 2(b); PCD reproduction and monitoring protocol |
-| [pc_time.md](notes/pc_time.md) | PC vs HP training-time overhead vs batch size (paper Fig. 2) |
-| [slicegpt.md](notes/slicegpt.md) | SliceGPT baseline: port, hybrid SliceGPT+FFN-pruning design, one-shot results |
-| [table1_runs.md](notes/table1_runs.md) | Hardware and wall-clock time behind the Table 1 cells |
 | [claude-code-machine-setup.md](notes/claude-code-machine-setup.md) | Replicating the Claude Code setup (settings, skills, agent memory) on a new machine via the `claude-sync` repo |
 | [cluster_fixes_lem_helios.md](notes/cluster_fixes_lem_helios.md) | lem and helios blockers: $HOME quota, HF cache permissions, PIXI_HOME -- diagnosis and fix plan |
+| [main_baseline_audit.md](notes/main_baseline_audit.md) | The audit that made main a clean branch point: test tiers, trainer contracts, config fixes |
+| [pretraining_reset_log.md](notes/pretraining_reset_log.md) | Running log of the pretraining-branch reset: what was removed, kept, put aside |
+| [pretraining_stage1_removal_plan.md](notes/pretraining_stage1_removal_plan.md) | Stage-1 removal plan (compression/distillation/legacy), phases and gates |
 
 ## Conventions for writing here
 
