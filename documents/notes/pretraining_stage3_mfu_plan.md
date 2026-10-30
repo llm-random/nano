@@ -145,3 +145,13 @@ Every job: `gres=gpu:1`, submitted via `run_exp.py`, one at a time, ~5–10 min 
   field; the FSDP2 path is bf16 by construction). fp32 MFU is reported against
   BOTH bases: the plan's tf32 tensor-core peak (495e12, H100 SXM) and the FP32
   vector peak (67e12) — the measured ~46 TFLOP/s shows TF32 is off by default.
+- **2026-10-30 (tf32 cells + non-bf16 probes)**: "fp32/tf32" is measured as two
+  separate cells — fp32 (TF32 off, PyTorch's default) and tf32 (TF32 forced on via
+  torch.backends flags in a wrapper; fp32 storage either way) — at all three sizes.
+  DEVIATION, reasoned: the non-bf16 cells reuse conservative micro-batches derived
+  from the bf16 probes (halved; fp32/tf32 tensors are twice bf16's activation
+  bytes) instead of running their own probe jobs. The measured peaks prove the
+  headroom (h16-fp32: 40.8 GiB of 80), and a larger micro could only *improve*
+  numbers whose verdict (bf16 ≫ fp32) is already decided at 5.7–6.9×; spending
+  three more probe jobs of shared GPU time to refine a rejected configuration
+  serves nothing.
