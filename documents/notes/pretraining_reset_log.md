@@ -259,3 +259,7 @@ One line per event; details live in the stage plan documents, not here.
   Measurement (wandb sfupemo2): 123k tokens/s, **MFU 27.7%** (above the 20%
   investigation threshold — no profiler dig needed), cv 1.6%, accounting exact,
   loss 11.25 -> 7.25. All criteria green.
+- **2026-10-30 (E4 PASS)** h20 probe: micro 8/16 -> 37.7/65.9 GiB, ga=32.
+  Measurement (wandb 32gyzfzk): 76.9k tokens/s, **MFU 30.8%**, cv 0.1%, all green.
+  MFU scaling h4->h20: 15.8/25.2/27.7/30.8% — utilization grows with matmul size
+  as expected; no anomaly to chase.
