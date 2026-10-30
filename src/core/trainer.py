@@ -19,6 +19,7 @@ from src.core.checkpointing import (
     step_checkpoint_path,
 )
 from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
+from src.core.mfu import model_flops_per_token, peak_flops_bf16
 from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,17 @@ class Trainer:
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
 
+        # MFU accounting (src/core/mfu.py). Wall time between successive
+        # log_metrics calls covers one full iteration (optimizer step, data
+        # fetch, forward+backward), just shifted by half a step -- fine for the
+        # steady-state windows the audit averages over. Filled lazily: the
+        # sequence length is only known once the first batch arrives.
+        self._prev_log_time = None
+        self._prev_log_tokens = None
+        self._flops_per_token = None
+        self._peak_flops = None
+        self._seq_len_for_flops = None
+
     @property
     def _should_evaluate(self) -> bool:
         return (
@@ -148,6 +160,9 @@ class Trainer:
             self.metric_logger.set_step(step)
             self.metric_logger.set_tokens(self.processed_tokens)
             self.model.train()
+            # The model sees batch width - 1 tokens (the shift for next-token
+            # targets); that is the sequence length the FLOPs count must use.
+            self._seq_len_for_flops = batch.shape[-1] - 1
             loss_metrics = self.calculate_loss(batch)
 
             grad_norm = self.clip_gradient()
@@ -165,6 +180,11 @@ class Trainer:
                 self.eval()
 
             self.metric_logger.flush()
+
+        if torch.cuda.is_available():
+            peak_gib = torch.cuda.max_memory_allocated(self.device) / 2**30
+            self.metric_logger.log("train/max_memory_gib", peak_gib)
+            logger.info(f"Peak CUDA memory: {peak_gib:.2f} GiB")
 
         self.final_eval()
 
@@ -385,8 +405,44 @@ class Trainer:
             self.metric_logger, loss_metrics.reported_loss.item()
         )
         self.time_diff_averaged_100.log(self.metric_logger, time.time())
+        self._log_throughput()
 
         self.metric_logger.flush_accumulated_metrics()
+
+    def _log_throughput(self):
+        """step_time, tokens/s and (on a known GPU) MFU, once per step.
+
+        Pure observation: reads clocks and counters, touches no tensor, so a run
+        with and without it is bit-identical. The first step logs nothing -- there
+        is no previous timestamp to diff against.
+        """
+        now = time.time()
+        if self._prev_log_time is not None:
+            step_time = now - self._prev_log_time
+            tokens = self.processed_tokens - self._prev_log_tokens
+            if step_time > 0 and tokens > 0:
+                tokens_per_s = tokens / step_time
+                self.metric_logger.log("train/step_time", step_time)
+                self.metric_logger.log("train/tokens_per_s", tokens_per_s)
+                if self._flops_per_token is None and torch.cuda.is_available():
+                    self._flops_per_token = model_flops_per_token(
+                        self.model, self._seq_len_for_flops
+                    )
+                    device_name = torch.cuda.get_device_name(self.device)
+                    self._peak_flops = peak_flops_bf16(device_name)
+                    logger.info(
+                        f"MFU accounting: {device_name}, "
+                        f"{self._flops_per_token / 1e9:.3f} GFLOPs/token at "
+                        f"seq_len {self._seq_len_for_flops}, peak "
+                        f"{self._peak_flops and self._peak_flops / 1e12} TFLOP/s"
+                    )
+                if self._flops_per_token and self._peak_flops:
+                    self.metric_logger.log(
+                        "train/mfu",
+                        tokens_per_s * self._flops_per_token / self._peak_flops,
+                    )
+        self._prev_log_time = now
+        self._prev_log_tokens = self.processed_tokens
 
     def _validate_save_type(self):
         """Reject a checkpoint save.type this trainer cannot write, before training starts.

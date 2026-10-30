@@ -216,3 +216,8 @@ One line per event; details live in the stage plan documents, not here.
   runs go through it — so no autocast knob is added; the audit logs the actual
   dtype and MFU is measured on the production (bf16) path only. fp32 comparison
   runs dropped (halves the job count); say the word to add them back.
+- **2026-10-30 16:10** Phase 1 done: src/core/mfu.py (measured matmul params — all
+  2-D weights minus embedding — PaLM 6P + 12·s·datt·L scores, bf16 peak table with
+  None for unknown GPUs) + trainer logs train/step_time, tokens_per_s, mfu,
+  max_memory_gib; first logged loss must be ln(50304)±0.15 (e2e test). Gate: 168
+  CI tests + 3 e2e, both seeded runs bit-identical, throughput lines present.

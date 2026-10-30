@@ -99,6 +99,15 @@ def test_training_loop_reports_a_loss_for_every_step(tmp_path):
     assert len(losses) >= N_STEPS, f"expected >= {N_STEPS} losses, got {len(losses)}"
     assert all(value == value for value in losses), "loss went NaN"
     assert all(value > 0 for value in losses), "loss is not positive"
+    # A fresh model's first loss must be ~ln(vocab_size): wrong init, a vocab
+    # mismatch or a head-wiring bug all land here before any GPU time is spent.
+    import math
+
+    expected = math.log(50304)
+    assert abs(losses[0] - expected) < 0.15, (
+        f"first loss {losses[0]:.3f} is far from ln(50304)={expected:.3f}; "
+        "suspect init, vocab or head wiring"
+    )
 
 
 RESUME_STEPS = 20
