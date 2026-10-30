@@ -171,3 +171,9 @@ One line per event; details live in the stage plan documents, not here.
   h16/h24 allowlisted until their first experiment configs. Gate: 141 passed, both
   seeded runs BIT-IDENTICAL to the Phase B+C baseline. No new deps; MLA stayed a
   stub (parked: real impls are stage 3).
+- **2026-10-30 15:25** Phase E done: resolve_layer_types + "mix" key — every_2nd /
+  every_4th / all / explicit 0-based list, convention (i+1)%N==0 so layer 0 is
+  never silently replaced; bad patterns are named config errors. Tested: a
+  gqa+mqa mixed H4 trains end-to-end on CPU; an ame-on-every-4th config composes
+  and instantiates, failing exactly at the stub's forward. Gate: 153 passed,
+  default config still bit-identical to the Phase B+C baseline.

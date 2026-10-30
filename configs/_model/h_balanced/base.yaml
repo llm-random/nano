@@ -18,9 +18,10 @@ common:
   # The concept doc said 50257, which is GPT-2's count -- measured 2026-10-30.
   vocab_size: 50304
   sequence_length: ???
-  # Which attention each layer runs (src/core/attention.py). "type" names the
-  # registered type used everywhere; per-layer mixing arrives with the pattern
-  # work in stage 2 phase E.
+  # Which attention each layer runs (src/core/attention.py). "type" is the
+  # registered type for the whole stack; an optional "mix" swaps a subset:
+  #   attention: {type: gqa, mix: {type: ame, layers: every_4th}}
+  # layers: every_2nd | every_4th | all | an explicit 0-based index list.
   attention:
     type: gqa
 
