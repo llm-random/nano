@@ -52,7 +52,9 @@ def main():
     def series(key, rows_):
         return [r[key] for r in rows_ if key in r]
 
-    losses_all = [by_step[s]["train/loss"] for s in sorted(by_step) if "train/loss" in by_step[s]]
+    losses_all = [
+        by_step[s]["train/loss"] for s in sorted(by_step) if "train/loss" in by_step[s]
+    ]
     step_times = series("train/step_time", window)
     tps = series("train/tokens_per_s", window)
     mfu = series("train/mfu", window)
@@ -66,8 +68,10 @@ def main():
     if step_times:
         mean_t = statistics.mean(step_times)
         std_t = statistics.stdev(step_times) if len(step_times) > 1 else 0.0
-        print(f"step time (steps {lo}-{hi}): {mean_t:.3f}s ± {std_t:.3f} "
-              f"(cv {100*std_t/mean_t:.1f}%)")
+        print(
+            f"step time (steps {lo}-{hi}): {mean_t:.3f}s ± {std_t:.3f} "
+            f"(cv {100*std_t/mean_t:.1f}%)"
+        )
     mem = [r["train/max_memory_gib"] for r in rows if "train/max_memory_gib" in r]
     if mem:
         print(f"peak memory: {mem[-1]:.2f} GiB")
@@ -77,8 +81,13 @@ def main():
     if losses_all:
         first, last = losses_all[0], losses_all[-1]
         expected = math.log(50304)
-        verdicts.append(("first loss ~ ln(50304)", abs(first - expected) < 0.15,
-                         f"{first:.4f} vs {expected:.4f}"))
+        verdicts.append(
+            (
+                "first loss ~ ln(50304)",
+                abs(first - expected) < 0.15,
+                f"{first:.4f} vs {expected:.4f}",
+            )
+        )
         verdicts.append(("loss decreased", last < first, f"{first:.4f} -> {last:.4f}"))
         verdicts.append(("loss finite", all(l == l for l in losses_all), ""))
     if step_times and len(step_times) > 1:
@@ -92,8 +101,10 @@ def main():
         # count is batch_size * (sequence_length - 1) ... unless the config packs
         # to sequence_length and the spec counts raw tokens; report both.
         expected_raw = (last_step + 1) * args.tokens_per_step
-        print(f"tokens at step {last_step}: {tokens_logged:,} "
-              f"(raw-spec expectation {expected_raw:,})")
+        print(
+            f"tokens at step {last_step}: {tokens_logged:,} "
+            f"(raw-spec expectation {expected_raw:,})"
+        )
     for name, ok, detail in verdicts:
         print(f"  [{'PASS' if ok else 'FAIL'}] {name}  {detail}")
 

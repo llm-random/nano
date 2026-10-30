@@ -12,6 +12,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
+from conftest import free_port
 from grid_generator.generate_configs import create_grid_config
 from src.core.schedulers import get_cosine_scheduler_with_warmup
 from src.core.utils import solve_config_lr
@@ -637,7 +638,7 @@ def test_a_fineweb_run_reaches_final_ce_over_exactly_the_fixed_set():
         RANK="0",
         LOCAL_RANK="0",
         MASTER_ADDR="127.0.0.1",
-        MASTER_PORT="29599",
+        MASTER_PORT=str(free_port()),
     )
     result = subprocess.run(
         [
@@ -685,7 +686,7 @@ def test_a_run_with_eval_switched_off_still_finishes():
         RANK="0",
         LOCAL_RANK="0",
         MASTER_ADDR="127.0.0.1",
-        MASTER_PORT="29598",
+        MASTER_PORT=str(free_port()),
     )
     result = subprocess.run(
         [

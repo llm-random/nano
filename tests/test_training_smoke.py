@@ -39,6 +39,16 @@ N_STEPS = 12
 
 def _run(tmp_path, save_type, n_steps=N_STEPS, name="ckpt", extra=()):
     save_path = str(tmp_path / name)
+    from conftest import free_port
+
+    environment = {
+        **os.environ,
+        # own rendezvous port per subprocess: the parent pytest process may have
+        # leaked a MASTER_PORT into the environment, and on a shared GPU node a
+        # fixed port collides across runs
+        "MASTER_ADDR": "127.0.0.1",
+        "MASTER_PORT": str(free_port()),
+    }
     result = subprocess.run(
         [
             sys.executable,
@@ -56,6 +66,7 @@ def _run(tmp_path, save_type, n_steps=N_STEPS, name="ckpt", extra=()):
             *extra,
         ],
         cwd=REPO_ROOT,
+        env=environment,
         capture_output=True,
         text=True,
         timeout=900,

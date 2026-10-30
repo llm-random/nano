@@ -43,10 +43,12 @@ def _mesh_device():
 @pytest.fixture(scope="module")
 def cpu_process_group():
     """A single-rank process group, so fully_shard has a mesh to shard over."""
+    from conftest import free_port
+
     already = dist.is_initialized()
     if not already:
         os.environ.setdefault("MASTER_ADDR", "localhost")
-        os.environ.setdefault("MASTER_PORT", "29591")
+        os.environ["MASTER_PORT"] = str(free_port())
         backend = "nccl" if _mesh_device() == "cuda" else "gloo"
         if backend == "nccl":
             torch.cuda.set_device(0)
