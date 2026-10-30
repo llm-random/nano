@@ -72,3 +72,7 @@ One line per event; details live in the stage plan documents, not here.
   `distill_loss` LossMetrics field. Dense gated FF inlined into base_model.yaml;
   ff_layer special case dropped from the hygiene glob. Gate: pytest green, both
   seeded runs bit-identical.
+- **2026-10-30 14:35** llm-random legacy removed: conversion_from_llmrandom.py and
+  the `llm-random` checkpoint branch in main.py. Kept: llm_random_weight_init (a
+  plain init fn, only the name is historical), the cemetery infra, and the wandb
+  project name in _misc. Gate: 122 passed.

@@ -3,7 +3,6 @@ import hydra
 import yaml
 from src.core.utils import solve_config_lr
 from src.core.distributed_training import setup_distributed_training
-from src.core.conversion_from_llmrandom import load_llmrandom_checkpoint
 from src.core.llama import copy_llama_model_weights_from_HF
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
@@ -277,11 +276,6 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
 
     if cfg.trainer.checkpoint.load.type == "huggingface":
         copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
-        model, optimizer, scheduler = get_model_optimizer_scheduler(
-            cfg, model, learning_rate
-        )
-    elif cfg.trainer.checkpoint.load.type == "llm-random":
-        load_llmrandom_checkpoint(cfg.trainer.checkpoint.load, model)
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
