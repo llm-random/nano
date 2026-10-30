@@ -231,3 +231,13 @@ One line per event; details live in the stage plan documents, not here.
   (cuda.is_available() true → get_device_name on a fake CPU device) — fixed,
   pushed; full failure list of the remaining tests pending (first job's pytest
   output was tail-truncated by my own script — second run keeps the full log).
+- **2026-10-30 (P0.4/P0.5 triage)** The entropy suite runs surfaced three real
+  defects, each fixed forward with a regression test: (1) hardcoded rendezvous
+  ports collided on the shared h100a — 18 tests failed that pass on any laptop;
+  conftest.free_port now asks the OS (a83d48f8). (2) AbstractDataset did
+  int(os.environ.get("WORLD_SIZE")) → TypeError naming nothing when the launcher
+  env is absent; defaults to 1/0 now (393d200). (3) test-side: a CUDA node saves
+  the world-size-1 model as a dcp shard (__0_0.distcp), not a plain file — it
+  RESUMES correctly (resume test green on entropy); the artifact-shape test now
+  accepts both. PARKED: should 1-GPU runs save a plain torch file instead of a
+  dcp shard (nicer for export)? Suite after fixes: 170/171 → expected green.
