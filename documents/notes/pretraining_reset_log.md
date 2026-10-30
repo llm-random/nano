@@ -292,3 +292,8 @@ One line per event; details live in the stage plan documents, not here.
   now the measured choice, not a dropped comparison. Every bug row in the audit doc
   carries its exact fix commit (ff673c4e and 393d2000 filled in). The earlier
   "fp32 dropped" deviation is superseded.
+- **2026-10-30 (dtype matrix complete, STAGE 3 FINAL)** fp32 controls at all three
+  sizes (wandb wp0vzux5 / cle0ktz3 / kzruq6zo): 40.1k / 20.6k / 11.1k tokens/s —
+  5.7/6.0/6.9× slower than bf16, a near-constant 44–46 TFLOP/s = 66–68% of the
+  FP32 vector peak and ~9% of the tf32 peak (TF32 off by default). bf16 is the
+  measured default. Entropy queue empty, wandb key removed, all runs accounted for.

@@ -19,7 +19,9 @@ MFU window = steps 10–29. wandb project:
 | h16 mha | 371.4M | 2.322 | 16×32 | 123,950 | 29.1% | 8.456s (0.1%) | — | [2f6nfosg](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2f6nfosg) |
 | h16 mqa | 339.9M | 2.133 | 16×32 | 133,322 | 28.8% | 7.863s (1.5%) | — | [2fp8a1w7](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2fp8a1w7) |
 | h16 gqa+mqa every_2nd | 347.3M | 2.177 | 16×32 | 127,991 | 28.2% | 8.191s (1.6%) | — | [alj69rdy](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/alj69rdy) |
+| h12 **fp32** (no FSDP policy) | 183.4M | 1.095 | 8×64 | 40,066 | 4.4%* | 26.158s (0.1%) | — | [wp0vzux5](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/wp0vzux5) |
 | h16 **fp32** (no FSDP policy) | 354.6M | 2.221 | 8×64 | 20,636 | 4.6%* | 50.788s (0.0%) | 40.8 GiB | [cle0ktz3](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/cle0ktz3) |
+| h20 **fp32** (no FSDP policy) | 620.2M | 3.97 | 4×128 | 11,128 | 4.5%* | 94.181s (0.0%) | — | [kzruq6zo](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/kzruq6zo) |
 
 Conventions: FLOPs/token = `6·P + 12·s·datt·L` measured from the live model (PaLM,
 no causal discount); peak = 989 TFLOP/s dense bf16; micro-batches from per-model OOM
@@ -27,15 +29,16 @@ probes (largest that fits). MFU grows with model size as utilization should —
 **no efficiency anomaly found**; the 20%-on-H100 investigation tripwire never fired.
 Readings: mqa buys h16 +8% tokens/s; ~28–31% without torch.compile or activation
 checkpointing is a healthy baseline, and both are the obvious future levers.
-The fp32 controls (`trainer.distributed=null`, plain module) are ~**6× slower**
-than the FSDP2-bf16 production path. *Starred MFU is against the bf16 peak for
-column comparability; the proper bases for h16-fp32's 45.8 TFLOP/s achieved are
-**9.3% of the plan's tf32 tensor-core peak (495e12)** — proving TF32 is off by
-default (PyTorch ships `allow_tf32=False`) — and **68% of the FP32 vector peak
-(67e12)**, i.e. the plain path is compute-bound at fp32-vector rates. Verdict of
-the dtype comparison: bf16 stays the default, now by measurement. h16-fp32's
-first loss, 11.2198 un-quantized, also pins the CPU-fp32 control (11.2235) to
-three decimals.
+The fp32 controls (`trainer.distributed=null`, plain module) are **5.7–6.9×
+slower** than the FSDP2-bf16 production path, achieving a near-constant
+**43.9/45.8/44.2 TFLOP/s at h12/h16/h20**. *Starred MFU is against the bf16 peak
+for column comparability; the proper bases for that ~45 TFLOP/s are **~9% of the
+plan's tf32 tensor-core peak (495e12)** — proving TF32 is off by default
+(PyTorch ships `allow_tf32=False`) — and **66–68% of the FP32 vector peak
+(67e12)**: the plain path is compute-bound at fp32-vector rates, uniformly across
+sizes. Verdict of the dtype comparison: bf16 stays the default, now by
+measurement. The fp32 runs' un-quantized first losses (11.20–11.22) also pin the
+CPU-fp32 control (11.2235).
 
 ### The E7 ordering tripwire, resolved with evidence
 
