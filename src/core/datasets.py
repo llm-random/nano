@@ -370,7 +370,9 @@ def get_dataloader(
     num_workers: int,
     collate_fn: Callable = collate_wrapper,
 ):
-    world_size = int(os.environ["WORLD_SIZE"])
+    # Same default as AbstractDataset: a dataloader built outside a launcher
+    # (probe, notebook) is a single process.
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
     batch_size_per_device = total_batch_size // world_size
     logger.debug(f"Batch size per device: {batch_size_per_device}")
     logger.debug(f"Total: {total_batch_size}")

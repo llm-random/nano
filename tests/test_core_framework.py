@@ -736,3 +736,10 @@ def test_a_dataset_builds_without_launcher_env(monkeypatch):
         shuffle=False,
     )
     assert dataset.world_size == 1 and dataset.rank == 0
+
+    # ... and the same for the dataloader builder, which read the variable with
+    # os.environ[] and died one layer above the dataset's fix.
+    from src.core.datasets import get_dataloader
+
+    loader = get_dataloader(dataset, total_batch_size=4, num_workers=0)
+    assert loader.batch_size == 4

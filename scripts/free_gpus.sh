@@ -44,6 +44,10 @@ host_for() {
     esac
 }
 
+# Colour only for a terminal: this gets piped into files and greps often enough that
+# bare escape codes in the output would be a nuisance.
+if [ -t 1 ]; then BOLD=$'\033[1m'; RESET=$'\033[0m'; else BOLD=""; RESET=""; fi
+
 CLUSTERS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -84,6 +88,9 @@ function gtype(tres, gres,   n, a, i, k, m, b) {
     for (i = 1; i <= m; i++)
         if (b[i] ~ /^gpu:/) {
             split(b[i], k, ":")
+            # gpu:4(S:0-3) is untyped with socket info, gpu:a100:8(S:0-1) is typed;
+            # drop the "(S:..." tail before deciding which of the two this is.
+            sub(/\(.*/, "", k[2])
             if (k[2] !~ /^[0-9]+$/) return k[2]
         }
     return "-"
@@ -114,6 +121,7 @@ squeue -h -u "$USER" -t RUNNING -o '%D|%b' 2>/dev/null | awk -F'|' '
     { g = 0; if (match($2, /[0-9]+$/)) g = substr($2, RSTART) + 0; n += $1 * g }
     END { printf "SELF|%d\n", n + 0 }'
 squeue -h -u "$USER" -t PENDING -o '%i' 2>/dev/null | awk 'END { printf "PEND|%d\n", NR + 0 }'
+echo "USER|$USER"
 REMOTE_EOF
 
 TMP=$(mktemp -d)
@@ -135,7 +143,7 @@ render() {   # $1 = cluster name
     host=$(host_for "$c")
     rc=$(cat "$TMP/$c.rc" 2>/dev/null || echo 255)
 
-    printf '\n\033[1m%s\033[0m (%s)\n' "$c" "$host"
+    printf '\n%s%s%s (%s)\n' "$BOLD" "$c" "$RESET" "$host"
     if [ "$rc" -ne 0 ] || ! [ -s "$TMP/$c.out" ]; then
         local why
         case "$rc" in
@@ -176,10 +184,14 @@ render() {   # $1 = cluster name
             }' "$TMP/$c.out" | sort -t'|' -k1,1 -k2,2 | cut -d'|' -f2-
     fi
 
-    local mine pend
+    # Named by remote login, not called "yours": entropy's j321m is shared, so these
+    # jobs may well be someone else's -- but they still consume the same QoS cap.
+    local mine pend who
     mine=$(awk -F'|' '$1 == "SELF" { print $2 }' "$TMP/$c.out")
     pend=$(awk -F'|' '$1 == "PEND" { print $2 }' "$TMP/$c.out")
-    printf '  yours: %s GPUs running, %s jobs pending\n' "${mine:-?}" "${pend:-?}"
+    who=$(awk -F'|' '$1 == "USER" { print $2 }' "$TMP/$c.out")
+    printf '  %s holds: %s GPUs running, %s jobs pending\n' \
+           "${who:-login}" "${mine:-?}" "${pend:-?}"
 }
 
 for c in "${CLUSTERS[@]}"; do render "$c"; done
