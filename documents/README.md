@@ -41,6 +41,9 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | [main_baseline_audit.md](notes/main_baseline_audit.md) | The audit that made main a clean branch point: test tiers, trainer contracts, config fixes |
 | [pretraining_reset_log.md](notes/pretraining_reset_log.md) | Running log of the pretraining-branch reset: what was removed, kept, put aside |
 | [pretraining_stage1_removal_plan.md](notes/pretraining_stage1_removal_plan.md) | Stage-1 removal plan (compression/distillation/legacy), phases and gates |
+| [pretraining_stage2_plan.md](notes/pretraining_stage2_plan.md) | Stage-2 plan: H-balanced lineage, NeoX tokenizer, attention registry, pattern mixing |
+| [pretraining_stage3_mfu_plan.md](notes/pretraining_stage3_mfu_plan.md) | Stage-3 plan: backbone audit and MFU measurement on entropy, with amendments |
+| [backbone_mfu_audit.md](notes/backbone_mfu_audit.md) | Stage-3 results: the MFU table (h4-h20 + attention variants), correctness checks, bugs fixed |
 
 ## Conventions for writing here
 

@@ -3,8 +3,19 @@
 #
 #   scripts/free_gpus.sh                    # all three, per-partition summary
 #   scripts/free_gpus.sh lem helios         # only these
+#   scripts/free_gpus.sh -1                 # ALL CLUSTERS IN ONE TABLE, free first
+#   scripts/free_gpus.sh -a                 # every partition, no filtering
 #   scripts/free_gpus.sh -n entropy         # per-node detail
 #   ENTROPY_HOST=entropy scripts/free_gpus.sh entropy    # override the ssh alias
+#
+# By default only the partitions worth submitting a nano job to are shown:
+#   entropy  all but `common` -- Titan V/X and 2080 Ti, where the pixi torch build has no
+#            sm_70/sm_52 kernels and /storage_nvme_* is not even mounted
+#   lem      plgrid-lem-gpu-h100 only, not the 4-GPU lem-gpu-interactive queue
+#   helios   8k3-gpu-gh200 and plgrid-gpu-gh200 only
+# The whole-cluster TOTAL row is dropped with them, since it would still be counting the
+# hidden partitions. Pass -a/--all for every GPU partition and the totals; override a
+# cluster's rule with ENTROPY_FILTER / LEM_FILTER / HELIOS_FILTER ("keep|re" or "drop|re").
 #
 # Free is computed per node as CfgTRES minus AllocTRES, not from sinfo node states: a
 # MIXED node has some GPUs free and sinfo will not tell you how many, while a node that
@@ -13,22 +24,26 @@
 #
 # A node in more than one partition is counted in each partition's row (same convention
 # as sinfo), so partition rows can sum to more than the cluster's physical GPU count.
-# The TOTAL line counts every node once.
+# The TOTAL line counts every node once. In -1 the double counting is collapsed instead:
+# partitions holding exactly the same nodes become one row, named after the plgrid-*
+# alias (the one a grant actually submits to) with +N for the other names.
 #
 # FREE is an upper bound on what you can actually get:
 #   * entropy's QoS caps GPUs per account and that account is shared with everyone else
 #     on it, so a job can pend with QOSMaxGRESPerUser while a node sits half idle;
 #   * a job can pend on RAM while GPUs are free (entropy defaults to 90G per GPU).
-# The "yours" line reports what you are already holding against that cap. Before
-# submitting, probe the real start time with:  sbatch --test-only ... --wrap=true
+# The "<login> holds:" line reports what is already held against that cap -- named by
+# remote login, because entropy's j321m is shared and some of it may be other people's.
+# Before submitting, probe the real start time with:  sbatch --test-only ... --wrap=true
 set -uo pipefail
 
 CLUSTERS_DEFAULT=(entropy lem helios)
 TIMEOUT="${TIMEOUT:-60}"
 MODE=summary
+ALL=0
 
-usage() {
-    sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+usage() {   # the header comment is the help text, however long it grows
+    awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
     exit "${1:-0}"
 }
 
@@ -44,6 +59,34 @@ host_for() {
     esac
 }
 
+# Which partitions are worth showing, per cluster: "keep|<re>" shows only partitions
+# matching <re>, "drop|<re>" shows all but those. See the header for the reasoning.
+filter_for() {
+    case "$1" in
+        entropy) echo "${ENTROPY_FILTER:-drop|^common$}" ;;
+        lem)     echo "${LEM_FILTER:-drop|^lem-gpu-interactive$}" ;;
+        helios)  echo "${HELIOS_FILTER:-keep|^(8k3-gpu-gh200|plgrid-gpu-gh200)$}" ;;
+        *)       echo "keep|." ;;
+    esac
+}
+
+# Writes the node rows to render for one cluster. Filtering here rather than on the
+# remote side keeps -a a re-render instead of a second round of ssh.
+apply_filter() {   # $1 = cluster
+    local rule mode re want
+    rule=$(filter_for "$1"); mode=${rule%%|*}; re=${rule#*|}
+    if [ "$ALL" = 1 ]; then
+        grep '^NODE|' "$TMP/$1.out" > "$TMP/$1.rows" 2>/dev/null
+        return
+    fi
+    # keep-mode keeps the partitions that match, drop-mode keeps the ones that do not
+    [ "$mode" = keep ] && want=1 || want=0
+    # NODE|partition|type|... -- partition is $2 here; it is $3 only in the one-table
+    # pass, where every line carries a cluster prefix.
+    awk -F'|' -v want="$want" -v re="$re" \
+        '$1 == "NODE" && (($2 ~ re) == want)' "$TMP/$1.out" > "$TMP/$1.rows"
+}
+
 # Colour only for a terminal: this gets piped into files and greps often enough that
 # bare escape codes in the output would be a nuisance.
 if [ -t 1 ]; then BOLD=$'\033[1m'; RESET=$'\033[0m'; else BOLD=""; RESET=""; fi
@@ -52,6 +95,8 @@ CLUSTERS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         -n|--nodes)   MODE=nodes ;;
+        -1|--one-table) MODE=one ;;
+        -a|--all)     ALL=1 ;;
         -t|--timeout) shift; TIMEOUT="${1:?-t needs seconds}" ;;
         -h|--help)    usage 0 ;;
         -*)           echo "unknown option: $1" >&2; usage 2 ;;
@@ -138,33 +183,52 @@ for c in "${CLUSTERS[@]}"; do
 done
 wait
 
+ok_cluster() {   # $1 = cluster -- did the query come back with usable output?
+    local rc
+    rc=$(cat "$TMP/$1.rc" 2>/dev/null || echo 255)
+    [ "$rc" -eq 0 ] && [ -s "$TMP/$1.out" ]
+}
+
+fail_reason() {   # $1 = cluster
+    local rc
+    rc=$(cat "$TMP/$1.rc" 2>/dev/null || echo 255)
+    case "$rc" in
+        0)   echo "no output" ;;
+        124) echo "timed out after ${TIMEOUT}s" ;;
+        255) echo "ssh failed: $(head -1 "$TMP/$1.err" 2>/dev/null)" ;;
+        3)   echo "no slurm on the login node" ;;
+        *)   echo "exit $rc: $(head -1 "$TMP/$1.err" 2>/dev/null)" ;;
+    esac
+}
+
+holds_line() {   # $1 = cluster, $2 = indent
+    local mine pend who
+    mine=$(awk -F'|' '$1 == "SELF" { print $2 }' "$TMP/$1.out")
+    pend=$(awk -F'|' '$1 == "PEND" { print $2 }' "$TMP/$1.out")
+    who=$(awk -F'|' '$1 == "USER" { print $2 }' "$TMP/$1.out")
+    printf '%s%s holds: %s GPUs running, %s jobs pending\n' \
+           "$2" "${who:-login}" "${mine:-?}" "${pend:-?}"
+}
+
 render() {   # $1 = cluster name
-    local c="$1" host rc
+    local c="$1" host
     host=$(host_for "$c")
-    rc=$(cat "$TMP/$c.rc" 2>/dev/null || echo 255)
 
     printf '\n%s%s%s (%s)\n' "$BOLD" "$c" "$RESET" "$host"
-    if [ "$rc" -ne 0 ] || ! [ -s "$TMP/$c.out" ]; then
-        local why
-        case "$rc" in
-            124) why="timed out after ${TIMEOUT}s" ;;
-            255) why="ssh failed: $(head -1 "$TMP/$c.err" 2>/dev/null)" ;;
-            3)   why="no slurm on the login node" ;;
-            *)   why="exit $rc: $(head -1 "$TMP/$c.err" 2>/dev/null)" ;;
-        esac
-        printf '  unreachable -- %s\n' "${why:-no output}"
+    if ! ok_cluster "$c"; then
+        printf '  unreachable -- %s\n' "$(fail_reason "$c")"
         return
     fi
 
     if [ "$MODE" = nodes ]; then
         awk -F'|' '
             $1 == "NODE" { printf "  %-22s %-10s %5d %6d %6d  %s\n", $9, $3, $6, $5, $4, $8 }
-        ' "$TMP/$c.out" | sort -u -k1,1 | \
+        ' "$TMP/$c.rows" | sort -u -k1,1 | \
             { printf '  %-22s %-10s %5s %6s %6s  %s\n' NODE TYPE FREE ALLOC TOTAL STATE; cat; }
     else
         printf '  %-26s %-10s %5s %6s %6s %5s  %s\n' \
                PARTITION TYPE FREE ALLOC TOTAL DOWN NODES
-        awk -F'|' '
+        awk -F'|' -v all="$ALL" '
             $1 == "NODE" {
                 k = $2 "|" $3
                 tot[k] += $4; alc[k] += $5; fre[k] += $6; dwn[k] += $7; nod[k]++
@@ -179,21 +243,89 @@ render() {   # $1 = cluster name
                            99999999 - fre[k], p[1], p[2], fre[k], alc[k], tot[k], dwn[k],
                            hasfree[k] + 0, nod[k]
                 }
-                printf "999999999|  %-26s %-10s %5d %6d %6d %5d\n",
-                       "TOTAL (nodes counted once)", "", cfre, calc, ctot, cdwn
-            }' "$TMP/$c.out" | sort -t'|' -k1,1 -k2,2 | cut -d'|' -f2-
+                # Only under -a: with partitions hidden this would be totalling
+                # GPUs that are not on screen.
+                if (all)
+                    printf "999999999|  %-26s %-10s %5d %6d %6d %5d\n",
+                           "TOTAL (nodes counted once)", "", cfre, calc, ctot, cdwn
+            }' "$TMP/$c.rows" | sort -t'|' -k1,1 -k2,2 | cut -d'|' -f2-
     fi
+
+    # A filter that silently hides every partition looks identical to a cluster with
+    # no GPUs at all; say which it is.
+    [ -s "$TMP/$c.rows" ] || printf '  no partition matched %s -- run with -a\n' \
+                                    "$(filter_for "$c")"
 
     # Named by remote login, not called "yours": entropy's j321m is shared, so these
     # jobs may well be someone else's -- but they still consume the same QoS cap.
-    local mine pend who
-    mine=$(awk -F'|' '$1 == "SELF" { print $2 }' "$TMP/$c.out")
-    pend=$(awk -F'|' '$1 == "PEND" { print $2 }' "$TMP/$c.out")
-    who=$(awk -F'|' '$1 == "USER" { print $2 }' "$TMP/$c.out")
-    printf '  %s holds: %s GPUs running, %s jobs pending\n' \
-           "${who:-login}" "${mine:-?}" "${pend:-?}"
+    holds_line "$c" "  "
 }
 
-for c in "${CLUSTERS[@]}"; do render "$c"; done
+render_one_table() {
+    local c
+    : > "$TMP/combined"
+    for c in "${CLUSTERS[@]}"; do
+        ok_cluster "$c" && awk -v c="$c" '{ print c "|" $0 }' "$TMP/$c.rows" >> "$TMP/combined"
+    done
+
+    printf '\n%s%-8s %-26s %-11s %5s %6s %6s %5s  %s%s\n' \
+           "$BOLD" CLUSTER PARTITION TYPE FREE ALLOC TOTAL DOWN NODES "$RESET"
+    awk -F'|' -v all="$ALL" '
+        # cluster|NODE|partition|type|total|alloc|free|down|state|node
+        $2 == "NODE" {
+            k = $1 "|" $3 "|" $4
+            TOT[k] += $5; ALC[k] += $6; FRE[k] += $7; DWN[k] += $8; NODES[k]++
+            if ($7 > 0) WITHFREE[k]++
+            CL[k] = $1; PART[k] = $3; TYPE[k] = $4
+            # Node names accumulate in scontrol order, so two partitions over the same
+            # nodes build an identical string -- that string is the collapse key.
+            SET[k] = SET[k] "," $10
+            if (!(($1 "|" $10) in seen)) {
+                seen[$1 "|" $10] = 1
+                cfre[$1] += $7; calc[$1] += $6; ctot[$1] += $5; cdwn[$1] += $8
+            }
+        }
+        END {
+            for (k in TOT) {
+                sig = CL[k] "|" TYPE[k] "|" SET[k]
+                if (sig in keep) { NAMES[sig] = NAMES[sig] "," PART[k]; continue }
+                keep[sig] = k; NAMES[sig] = PART[k]
+            }
+            for (sig in keep) {
+                k = keep[sig]
+                n = split(NAMES[sig], nm, ",")
+                disp = nm[1]
+                for (i = 1; i <= n; i++) if (nm[i] ~ /^plgrid/) { disp = nm[i]; break }
+                if (n > 1) disp = disp " +" (n - 1)
+                printf "%09d|%-8s %-26s %-11s %5d %6d %6d %5d  %d/%d\n",
+                       99999999 - FRE[k], CL[k], disp, TYPE[k], FRE[k], ALC[k],
+                       TOT[k], DWN[k], WITHFREE[k] + 0, NODES[k]
+            }
+            if (all)
+                for (c in ctot)
+                    printf "999999999|%-8s %-26s %-11s %5d %6d %6d %5d\n",
+                           c, "-- whole cluster --", "", cfre[c], calc[c], ctot[c], cdwn[c]
+        }' "$TMP/combined" | sort -t'|' -k1,1 -k2,2 | cut -d'|' -f2-
+
+    echo
+    for c in "${CLUSTERS[@]}"; do
+        if ok_cluster "$c"; then
+            printf '  %-8s ' "$c"; holds_line "$c" ""
+        else
+            printf '  %-8s unreachable -- %s\n' "$c" "$(fail_reason "$c")"
+        fi
+    done
+}
+
+for c in "${CLUSTERS[@]}"; do
+    ok_cluster "$c" && apply_filter "$c"
+done
+
+if [ "$MODE" = one ]; then
+    render_one_table
+else
+    for c in "${CLUSTERS[@]}"; do render "$c"; done
+fi
+[ "$ALL" = 1 ] || printf '\nShowing submit-worthy partitions only (-a for all).\n'
 printf '\nFREE is an upper bound: QoS caps (shared account on entropy) and RAM can still
 hold a job in the queue. Probe before submitting: sbatch --test-only ... --wrap=true\n'

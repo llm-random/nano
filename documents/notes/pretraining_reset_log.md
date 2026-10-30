@@ -271,3 +271,8 @@ One line per event; details live in the stage plan documents, not here.
   run starts at step 16 and matches the uninterrupted run with max loss delta
   0.0 over 14 overlapping steps — bit-identical through the dcp sharded
   checkpoint, exceeding the "no spike" criterion. Scratch checkpoint removed.
+- **2026-10-30 (E7 PASS, STAGE 3 CLOSED)** Registry on GPU: mha 124.0k t/s /
+  29.1% MFU, mqa 133.3k / 28.8%, mixed every_2nd 128.0k / 28.2% — ordering
+  coherent (mqa fastest; gqa==mha wall-clock since kv width is ~0.3% of FLOPs at
+  h16; mixed in between), all criteria green. Results note written:
+  documents/notes/backbone_mfu_audit.md (table + wandb links + bugs + parked).
