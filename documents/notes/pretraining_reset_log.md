@@ -65,3 +65,10 @@ One line per event; details live in the stage plan documents, not here.
   Orphan list now empty. Gate: 122 passed, both seeded runs bit-identical, black ok.
   NOTE configs/mastest/ was never tracked (untracked scratch in the main checkout) —
   the plan's "personal scratch" item shrinks to configs/_mas/ + _checkpoints/mas/.
+- **2026-10-30 14:25** MoE removed (src/core/moe.py, ff_layer group, small_moe,
+  moe_example_run) AND the MoE weave in src/core/trainer.py (aux-loss fields,
+  _has_moe_modules, both aux-loss helpers, extra logging) plus two Phase-B
+  leftovers found by grep: the `distillation` teacher block in main.py and the
+  `distill_loss` LossMetrics field. Dense gated FF inlined into base_model.yaml;
+  ff_layer special case dropped from the hygiene glob. Gate: pytest green, both
+  seeded runs bit-identical.

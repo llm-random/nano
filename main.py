@@ -331,36 +331,13 @@ def run(cfg: OmegaConf, metric_logger=None):
 
         trainer = instantiate(cfg.trainer)
 
-        if "distillation" in cfg:
-            if cfg.distillation.load.type == "huggingface":
-                teacher_model = instantiate(
-                    cfg.distillation.teacher_model, _convert_="all"
-                ).to(get_device())
-                copy_llama_model_weights_from_HF(
-                    teacher_model, cfg.distillation.load.path
-                )
-                teacher_model = setup_distributed_training(
-                    teacher_model, cfg.trainer.teacher_distributed
-                )
-            elif cfg.distillation.load.type == "pc_memeff_base":
-                teacher_model = model.source_model
-
-            trainer(
-                teacher_model=teacher_model,
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                training_state=training_state,
-                metric_logger=metric_logger,
-            ).train()
-        else:
-            trainer(
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                training_state=training_state,
-                metric_logger=metric_logger,
-            ).train()
+        trainer(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            training_state=training_state,
+            metric_logger=metric_logger,
+        ).train()
 
         # TODO
         # finetuning

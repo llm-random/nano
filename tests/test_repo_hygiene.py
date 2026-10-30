@@ -110,19 +110,9 @@ def test_no_duplicate_yaml_keys():
 def _runnable_configs():
     """Top-level experiment configs: the ones a human passes to --config-name.
 
-    Component groups live in underscore-prefixed directories, plus configs/ff_layer,
-    which predates that convention.
-
-    The special case is deliberate, not an oversight waiting to be tidied. Renaming the
-    directory to _ff_layer would remove this line, but model configs reference the group
-    by path, so the rename touches every referencing config and collides with any
-    in-flight branch that touches one. One line and this comment is the cheaper trade.
+    Component groups live in underscore-prefixed directories.
     """
-    return [
-        path
-        for path in _tracked("configs/*/*.yaml")
-        if "/_" not in path and not path.startswith("configs/ff_layer/")
-    ]
+    return [path for path in _tracked("configs/*/*.yaml") if "/_" not in path]
 
 
 def test_every_runnable_config_composes_and_resolves():
