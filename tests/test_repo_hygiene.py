@@ -28,7 +28,7 @@ def _tracked(*patterns):
         text=True,
         check=True,
     ).stdout.split()
-    return [f for f in out if "product_keys" not in f]
+    return out
 
 
 # --------------------------------------------------------------------------------------
@@ -63,30 +63,6 @@ def test_entry_point_imports(module):
 
 # --------------------------------------------------------------------------------------
 # layering
-
-
-def test_core_does_not_depend_on_projected_compression():
-    """src/core must stay usable by a project that has nothing to do with PC.
-
-    src/core/trainer.py used to import finalize_projection_weights, advertise a
-    "pc_finalize" save type and carry save_pc_finalized_checkpoint(). That moved to
-    src.projected_compression.trainer.PCFinalizeTrainer. Core may be imported *by* PC,
-    never the other way round.
-    """
-    offenders = []
-    for path in _tracked("src/core/*.py", "src/core/**/*.py"):
-        text = open(os.path.join(REPO_ROOT, path)).read()
-        for needle in ("projected_compression", "slicegpt", "pc_finalize"):
-            if needle in text:
-                lines = [
-                    f"{path}:{n}: {line.strip()}"
-                    for n, line in enumerate(text.splitlines(), 1)
-                    if needle in line
-                ]
-                offenders.extend(lines)
-    assert (
-        not offenders
-    ), "src/core must not depend on projected-compression:\n  " + "\n  ".join(offenders)
 
 
 # --------------------------------------------------------------------------------------
@@ -504,16 +480,9 @@ def test_no_requires_pixi_bound_is_reintroduced_without_a_reason():
     )
 
 
-KNOWN_ORPHAN_MODEL_CONFIGS = {
-    # documents/issues.md recorded one orphan. Running the check found five: the entry
-    # was written from a spot inspection rather than a search.
-    "configs/_model/llama_3_8_pc.yaml",
-    "configs/_model/llama_3_1_pc.yaml",
-    "configs/_model/llama/projected_tiny.yaml",
-    "configs/_model/llama/projected_mem_eff_tiny.yaml",
-    "configs/_model/llama/small.yaml",
-    "configs/_model/smollm/projected_tiny.yaml",
-}
+# Every known orphan was removed with the projected-compression project; new ones
+# are defects.
+KNOWN_ORPHAN_MODEL_CONFIGS: set = set()
 
 
 def test_no_new_orphan_model_configs():

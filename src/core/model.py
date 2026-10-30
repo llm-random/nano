@@ -47,18 +47,12 @@ class Linear(nn.Linear):
 
 
 class Residual(nn.Module):
-    def __init__(self, norm, layer, log_name, shortcut_dim: Optional[int] = None):
+    def __init__(self, norm, layer, log_name):
         super(Residual, self).__init__()
         self.norm = norm
         self.layer = layer
         self.metric_logger = None
         self.log_name = log_name
-        # SliceGPT baseline: residual connections carry an extra linear map
-        # (Q_{l-1}^T Q_l, sliced). None for a standard transformer.
-        if shortcut_dim is not None:
-            self.shortcut_Q = nn.Parameter(torch.eye(shortcut_dim))
-        else:
-            self.register_parameter("shortcut_Q", None)
 
     def set_metric_logger(self, metric_logger):
         self.metric_logger = metric_logger
@@ -66,8 +60,6 @@ class Residual(nn.Module):
     def forward(self, x):
         normalized = self.norm(x)
         out = self.layer(normalized)
-        if self.shortcut_Q is not None:
-            x = x @ self.shortcut_Q.to(x.dtype)
         if self.metric_logger is not None:
             self.metric_logger.accumulate_metrics(
                 layer_name=f"{self.log_name}",
@@ -310,7 +302,6 @@ class TransformerBlock(nn.Module):
         norm_fn,
         attention_fn,
         ff_layer_fn,
-        shortcut_dim: Optional[int] = None,
     ):
         super().__init__()
         self.log_name = f"block[{block_id}]"
@@ -319,13 +310,11 @@ class TransformerBlock(nn.Module):
             norm=norm_fn(),
             layer=attention_fn(),
             log_name=f"{self.log_name}/residual_attention",
-            shortcut_dim=shortcut_dim,
         )
         self.ff_layer = Residual(
             norm=norm_fn(),
             layer=ff_layer_fn(),
             log_name=f"{self.log_name}/residual_feedforward",
-            shortcut_dim=shortcut_dim,
         )
 
     def forward(self, x):

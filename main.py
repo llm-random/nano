@@ -2,7 +2,6 @@ import os
 import hydra
 import yaml
 from src.core.utils import solve_config_lr
-from src.core.conversion_from_finalized_pc import load_finalized_pc_checkpoint
 from src.core.distributed_training import setup_distributed_training
 from src.core.conversion_from_llmrandom import load_llmrandom_checkpoint
 from src.core.llama import copy_llama_model_weights_from_HF
@@ -283,18 +282,6 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         )
     elif cfg.trainer.checkpoint.load.type == "llm-random":
         load_llmrandom_checkpoint(cfg.trainer.checkpoint.load, model)
-        model, optimizer, scheduler = get_model_optimizer_scheduler(
-            cfg, model, learning_rate
-        )
-    elif cfg.trainer.checkpoint.load.type == "sliced_nano":
-        # SliceGPT baseline: plain state dict produced by src.projected_compression.slicegpt.run_slicing
-        state_dict = torch.load(cfg.trainer.checkpoint.load.path, map_location="cpu")
-        model.load_state_dict(state_dict, strict=True)
-        model, optimizer, scheduler = get_model_optimizer_scheduler(
-            cfg, model, learning_rate
-        )
-    elif cfg.trainer.checkpoint.load.type == "finalized_pc":
-        load_finalized_pc_checkpoint(model, cfg.trainer.checkpoint.load)
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )

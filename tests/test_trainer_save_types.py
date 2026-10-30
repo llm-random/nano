@@ -1,9 +1,9 @@
 """Tier 1: the checkpoint save-type contract between core and its subclasses.
 
-See documents/notes/main_baseline_audit.md. src/core/trainer.py used to hard-code the
-projected-compression save type; it now declares only its own and lets subclasses widen
-SUPPORTED_SAVE_TYPES and override save_final_checkpoint. These tests pin that contract
-down, so the layering cannot quietly come undone.
+See documents/notes/main_baseline_audit.md. src/core/trainer.py declares only the save
+types it can write itself and lets subclasses widen SUPPORTED_SAVE_TYPES and override
+save_final_checkpoint. These tests pin that contract down, so the layering cannot
+quietly come undone.
 
 The validation matters beyond tidiness: a save type the trainer cannot write is rejected
 before training starts rather than after, which on a multi-hour job is the difference
@@ -15,8 +15,6 @@ import torch
 from omegaconf import OmegaConf
 
 from src.core.trainer import Trainer
-from src.core.trainer_distillation import TrainerDistillation
-from src.projected_compression.trainer import PCFinalizeTrainer, PCTrainer
 
 
 def _validator(trainer_cls, save_type):
@@ -46,42 +44,29 @@ def test_core_trainer_accepts_its_own_save_types(save_type):
     "save_type", ["pc_finalize", "hf_only", "nano_and_hf", "nonsense"]
 )
 def test_core_trainer_rejects_save_types_it_cannot_write(save_type):
-    """Including pc_finalize: that is a projected-compression concern now."""
+    """Including the types removed trainers used to accept: a stale config that still
+    names one must fail before training starts, not after."""
     with pytest.raises(ValueError, match="save.type"):
         _validator(Trainer, save_type)._validate_save_type()
 
 
-def test_pc_finalize_trainer_accepts_pc_finalize():
-    _validator(PCFinalizeTrainer, "pc_finalize")._validate_save_type()
+def test_a_subclass_can_widen_the_supported_set():
+    """The contract a future trainer subclass relies on: declaring an extra save type
+    on the class is all it takes for validation to accept it, and doing so must not
+    drop the types core supports."""
 
+    class WideningTrainer(Trainer):
+        SUPPORTED_SAVE_TYPES = Trainer.SUPPORTED_SAVE_TYPES + ("bespoke",)
 
-@pytest.mark.parametrize("save_type", ["hf_only", "nano_and_hf"])
-def test_pc_trainer_accepts_the_hf_save_types(save_type):
-    _validator(PCTrainer, save_type)._validate_save_type()
-
-
-def test_subclasses_only_widen_the_supported_set():
-    """A subclass may add save types; it must never drop one core supports."""
-    for subclass in (TrainerDistillation, PCTrainer, PCFinalizeTrainer):
-        missing = set(Trainer.SUPPORTED_SAVE_TYPES) - set(subclass.SUPPORTED_SAVE_TYPES)
-        assert not missing, f"{subclass.__name__} dropped {sorted(missing)}"
-
-
-def test_pc_finalize_is_written_only_at_the_end():
-    """Finalization merges the projections into the weights in place, so running it on
-    a periodic checkpoint interval would corrupt the run rather than save it."""
-    assert "pc_finalize" in PCFinalizeTrainer.FINAL_ONLY_SAVE_TYPES
-    assert "pc_finalize" not in Trainer.FINAL_ONLY_SAVE_TYPES
-    assert set(Trainer.FINAL_ONLY_SAVE_TYPES) <= set(Trainer.SUPPORTED_SAVE_TYPES)
-    assert set(PCFinalizeTrainer.FINAL_ONLY_SAVE_TYPES) <= set(
-        PCFinalizeTrainer.SUPPORTED_SAVE_TYPES
+    _validator(WideningTrainer, "bespoke")._validate_save_type()
+    missing = set(Trainer.SUPPORTED_SAVE_TYPES) - set(
+        WideningTrainer.SUPPORTED_SAVE_TYPES
     )
+    assert not missing, f"WideningTrainer dropped {sorted(missing)}"
 
 
-def test_core_trainer_has_no_projected_compression_attributes():
-    """The method that used to live here moved to PCFinalizeTrainer."""
-    assert not hasattr(Trainer, "save_pc_finalized_checkpoint")
-    assert hasattr(PCFinalizeTrainer, "save_pc_finalized_checkpoint")
+def test_final_only_types_are_a_subset_of_supported():
+    assert set(Trainer.FINAL_ONLY_SAVE_TYPES) <= set(Trainer.SUPPORTED_SAVE_TYPES)
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +198,8 @@ def test_ordinary_steps_are_unchanged(step):
 # The final eval.
 #
 # Scores the held-out set once when training ends and logs it as final_ce. It
-# has to run before the final checkpoint: pc_finalize merges the projections and
-# sets parameters to None off rank 0, so after saving there is no model left.
+# has to run before the final checkpoint: a final-only save type is allowed to
+# consume the model in place, so after saving there may be no model left.
 
 
 class _RecordingLogger:
@@ -294,11 +279,11 @@ def test_final_eval_puts_the_model_in_eval_mode():
 def test_train_runs_the_final_eval_before_saving():
     """Order matters, and nothing else in the suite would notice if it changed.
 
-    PCFinalizeTrainer's final save merges the projections and sets the parameters to
-    None off rank 0, so a final eval placed after it would score a model that no longer
-    exists. This reads the source rather than driving a full training run, because the
-    guarantee is about call order, not about what either call computes. (Naming that
-    here is fine: this is a test, not src/core, which must stay PC-free.)
+    A final-only save type is allowed to consume the model in place (the removed
+    pc_finalize save did exactly that), so a final eval placed after the save would
+    score a model that no longer exists. This reads the source rather than driving a
+    full training run, because the guarantee is about call order, not about what
+    either call computes.
     """
     import inspect
 

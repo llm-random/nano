@@ -55,3 +55,13 @@ One line per event; details live in the stage plan documents, not here.
   (smollm/, llmrandom/, mastest/old/) and configs orphaned by pc_project deletion
   must go in the SAME commit as the package, or composition/orphan tests break —
   C.1/C.3/C.4/C.6 collapse into the Phase-B sweep.
+- **2026-10-30 14:05** Phase B done (one sweep commit): removed projected_compression
+  (incl. pruning, mem_eff, SliceGPT) and product_keys packages, distillation
+  (core trainer + 3 _trainer configs), all PC/PK/smollm/llmrandom configs, smoke/,
+  3 slicegpt scripts, 3 PC test files; main.py lost the sliced_nano/finalized_pc
+  branches; Residual/TransformerBlock lost the SliceGPT shortcut_Q; exp.yaml (the
+  main.py default config) rewritten to tiny+fineweb, fresh init. test_distributed
+  kept its 2 generic tests; save-types contract re-pinned on a stub subclass.
+  Orphan list now empty. Gate: 122 passed, both seeded runs bit-identical, black ok.
+  NOTE configs/mastest/ was never tracked (untracked scratch in the main checkout) —
+  the plan's "personal scratch" item shrinks to configs/_mas/ + _checkpoints/mas/.
