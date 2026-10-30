@@ -306,9 +306,11 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.log_name = f"block[{block_id}]"
 
+        # attention_fn takes the block id so the attention type can vary per
+        # layer (see src.core.attention.build_attention and the mix patterns).
         self.attention_layer = Residual(
             norm=norm_fn(),
-            layer=attention_fn(),
+            layer=attention_fn(block_id),
             log_name=f"{self.log_name}/residual_attention",
         )
         self.ff_layer = Residual(

@@ -18,6 +18,11 @@ common:
   # The concept doc said 50257, which is GPT-2's count -- measured 2026-10-30.
   vocab_size: 50304
   sequence_length: ???
+  # Which attention each layer runs (src/core/attention.py). "type" names the
+  # registered type used everywhere; per-layer mixing arrives with the pattern
+  # work in stage 2 phase E.
+  attention:
+    type: gqa
 
 
 model:
@@ -44,47 +49,18 @@ model:
         normalized_shape: ${common.dmodel}
 
       attention_fn:
-        _target_: src.core.model.RoPEAttention
+        _target_: src.core.attention.build_attention
         _partial_: true
+        attention: ${common.attention}
+        n_blocks: ${common.n_blocks}
         dmodel: ${common.dmodel}
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
-        q_proj_fn:
-          _target_: src.core.model.Linear
-          _partial_: true
-          in_features: ${common.dmodel}
-          out_features: ${eval:'${common.dhead} * ${model.encoder.block_fn.attention_fn.q_heads}'}
-          partial_init_fn:
-            _target_: src.core.model.llm_random_weight_init
-            _partial_: true
-            scale: 1
-
-        k_proj_fn:
-          _target_: src.core.model.Linear
-          _partial_: true
-          in_features: ${common.dmodel}
-          out_features: ${eval:'${common.dhead} * ${model.encoder.block_fn.attention_fn.kv_heads}'}
-          partial_init_fn:
-            _target_: src.core.model.llm_random_weight_init
-            _partial_: true
-            scale: 1
-
-        v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
-
-        o_proj_fn:
-          _target_: src.core.model.Linear
-          _partial_: true
-          in_features: ${eval:'${common.dhead} * ${model.encoder.block_fn.attention_fn.q_heads}'}
-          out_features: ${common.dmodel}
-          partial_init_fn:
-            _target_: src.core.model.llm_random_weight_init
-            _partial_: true
-            scale: 1
-
         # llm-random lineage: base 10000, no llama frequency scaling.
         rope_base: 10000
         rope_scale_freqs: false
+        init_scale: 1
 
       ff_layer_fn:
         _target_: src.core.model.GatedFeedForward

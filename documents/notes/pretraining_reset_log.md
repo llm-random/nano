@@ -163,3 +163,11 @@ One line per event; details live in the stage plan documents, not here.
   step19 train/loss 10.97402572631836; fineweb smoketest (pins gpt2 on purpose —
   offline) final_ce 11.041799545288086, unchanged from pre-switch as expected.
   Gate: 126 passed, black clean, CI green.
+- **2026-10-30 15:10** Phase D done: src/core/attention.py registry (mha/mqa/gqa
+  real — all RoPEAttention with different kv counts; mla/mamba2/gated_deltanet/ame
+  constructable interfaces that raise at forward). TransformerBlock now passes
+  block_id to attention_fn; base.yaml routes attention through the registry via
+  common.attention.type. Orphan tripwire tuned: plain `base` counts as a fragment;
+  h16/h24 allowlisted until their first experiment configs. Gate: 141 passed, both
+  seeded runs BIT-IDENTICAL to the Phase B+C baseline. No new deps; MLA stayed a
+  stub (parked: real impls are stage 3).

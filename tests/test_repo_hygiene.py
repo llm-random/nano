@@ -467,9 +467,13 @@ def test_no_requires_pixi_bound_is_reintroduced_without_a_reason():
     )
 
 
-# Every known orphan was removed with the projected-compression project; new ones
-# are defects.
-KNOWN_ORPHAN_MODEL_CONFIGS: set = set()
+# The H-balanced lineage ships ahead of its first experiment configs: h16/h24 are
+# the sizes stage-3 runs will compose. Remove each from this list when a config
+# references it; anything else showing up here is a defect.
+KNOWN_ORPHAN_MODEL_CONFIGS: set = {
+    "configs/_model/h_balanced/h16.yaml",
+    "configs/_model/h_balanced/h24.yaml",
+}
 
 
 def test_no_new_orphan_model_configs():
@@ -483,7 +487,7 @@ def test_no_new_orphan_model_configs():
     orphans = set()
     for path in _tracked("configs/_model/**/*.yaml", "configs/_model/*.yaml"):
         stem = os.path.basename(path)[:-5]
-        if stem.startswith("base_") or stem == "default":
+        if stem.startswith("base_") or stem in ("base", "default"):
             continue  # base fragments are pulled in by defaults lists, not by name
         if stem not in referenced:
             orphans.add(path)
