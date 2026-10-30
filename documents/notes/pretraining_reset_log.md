@@ -76,3 +76,12 @@ One line per event; details live in the stage plan documents, not here.
   the `llm-random` checkpoint branch in main.py. Kept: llm_random_weight_init (a
   plain init fn, only the name is historical), the cemetery infra, and the wandb
   project name in _misc. Gate: 122 passed.
+- **2026-10-30 14:50** HF<->nano conversion removed: converter fns in core/llama.py
+  (LlamaRoPE/LlamaAttention/repeat_kv kept for the attention-switching work),
+  conversion_to_hf.py, save type `huggingface` (core now writes only `nano`;
+  FINAL_ONLY empty), the HF load branch and the dead hf_only/nano_and_hf path logic
+  in main.py, the stale type tuple in checkpointing, configs/_checkpoints/mas/,
+  scripts/create_tiny_llama.py (pushed a tiny HF llama to the pc-project org;
+  no users left). tiny_local/tiny_remote(_wandb) now save `nano`. Gate: 122 passed,
+  seeded runs bit-identical. Fresh-init + nano save/resume is the only checkpoint
+  flow left, which is the intended end state for this branch.

@@ -3,7 +3,6 @@ import hydra
 import yaml
 from src.core.utils import solve_config_lr
 from src.core.distributed_training import setup_distributed_training
-from src.core.llama import copy_llama_model_weights_from_HF
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
 import resolver as _  # I should be able to ignore this line by linter, but ~ things like # ignore did not work
@@ -47,15 +46,8 @@ def _build_save_path(cfg):
         # exist and that someone will eventually go looking for.
         return CHECKPOINTING_DISABLED
     base = get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)
-    save_type = cfg.trainer.checkpoint.save.type
     n_steps = cfg.trainer.n_steps
-    if n_steps is not None and save_type in ("hf_only", "nano_and_hf"):
-        return f"{base}/step_{n_steps - 1}/hf"
-    elif save_type == "huggingface":
-        # save_to_llama_3_hf() writes straight to get_full_checkpoint_path() with no
-        # step_N level (see Trainer.train), so this must not add one.
-        return base
-    elif n_steps is not None:
+    if n_steps is not None:
         return f"{base}/step_{n_steps - 1}"
     return base
 
@@ -274,12 +266,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
         if isinstance(module, Residual):
             module.set_metric_logger(metric_logger)
 
-    if cfg.trainer.checkpoint.load.type == "huggingface":
-        copy_llama_model_weights_from_HF(model, cfg.trainer.checkpoint.load.path)
-        model, optimizer, scheduler = get_model_optimizer_scheduler(
-            cfg, model, learning_rate
-        )
-    elif cfg.trainer.checkpoint.load.type == "nano":
+    if cfg.trainer.checkpoint.load.type == "nano":
         # TODO! if you want to apply function on loaded model it does NOT work now, it applies function on newly inintialized model than it loads model weights
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate

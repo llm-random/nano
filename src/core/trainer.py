@@ -9,7 +9,6 @@ from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from src.core.conversion_to_hf import save_to_llama_3_hf
 import torch.distributed.checkpoint as dcp
 import logging
 
@@ -52,11 +51,11 @@ class Trainer:
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
     # anything outside it is rejected before training starts.
-    SUPPORTED_SAVE_TYPES = ("nano", "huggingface")
+    SUPPORTED_SAVE_TYPES = ("nano",)
 
     # Of those, the ones written once when training ends rather than on the periodic
     # interval. Subclasses that add such a type widen this too.
-    FINAL_ONLY_SAVE_TYPES = ("huggingface",)
+    FINAL_ONLY_SAVE_TYPES = ()
 
     def __attrs_post_init__(self):
         self._validate_save_type()
@@ -256,28 +255,8 @@ class Trainer:
         Subclasses that widen SUPPORTED_SAVE_TYPES override this to handle the type they
         added, and defer to super() for the rest.
         """
-        if self.checkpoint.save.type in ("nano", "hf_only", "nano_and_hf"):
+        if self.checkpoint.save.type == "nano":
             self.save_checkpoint()
-        elif self.checkpoint.save.type == "huggingface":
-            # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
-            model_state_dict = self.model.state_dict()
-            full_state = cast_state_dict_to_tensors(model_state_dict)
-
-            if os.environ["RANK"] == "0":
-                dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = (
-                    self.model.encoder.get_model_dimensions()
-                )
-
-                save_to_llama_3_hf(  # dev fixed values
-                    full_state,
-                    save_dir=get_full_checkpoint_path(self.checkpoint.save.path),
-                    dmodel=dmodel,
-                    dff=dff,
-                    n_att_heads=n_att_heads,
-                    n_kvatt_heads=n_kvatt_heads,
-                    head_dim=head_dim,
-                    nlayers=nlayers,
-                )
         else:
             raise ValueError(
                 f"No final-checkpoint writer for save.type="

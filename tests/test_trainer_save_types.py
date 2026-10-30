@@ -35,13 +35,12 @@ def _validator(trainer_cls, save_type):
     return stub
 
 
-@pytest.mark.parametrize("save_type", ["nano", "huggingface"])
-def test_core_trainer_accepts_its_own_save_types(save_type):
-    _validator(Trainer, save_type)._validate_save_type()
+def test_core_trainer_accepts_its_own_save_type():
+    _validator(Trainer, "nano")._validate_save_type()
 
 
 @pytest.mark.parametrize(
-    "save_type", ["pc_finalize", "hf_only", "nano_and_hf", "nonsense"]
+    "save_type", ["pc_finalize", "hf_only", "nano_and_hf", "huggingface", "nonsense"]
 )
 def test_core_trainer_rejects_save_types_it_cannot_write(save_type):
     """Including the types removed trainers used to accept: a stale config that still

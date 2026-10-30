@@ -87,12 +87,6 @@ def get_full_checkpoint_path(path):
 def load_training_state(load_config):
     training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
 
-    if load_config.type in ("huggingface", "llm-random", "sliced_nano"):
-        logger.info(
-            f"Checkpoint type: '{load_config.type}'. Starting training from step 0."
-        )
-        return training_start_config
-
     if load_config.training_state_filename == None:
         logger.info("No training_state_filename. Starting training from step 0.")
         return training_start_config

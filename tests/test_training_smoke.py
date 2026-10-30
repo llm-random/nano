@@ -88,14 +88,6 @@ def test_local_training_writes_a_nano_checkpoint(tmp_path):
     ), f"no training state, so the run could not be resumed: {written}"
 
 
-def test_local_training_writes_a_huggingface_checkpoint(tmp_path):
-    """The save.type the refactor of Trainer.save_final_checkpoint touched."""
-    save_path, _ = _run(tmp_path, "huggingface")
-    written = set(os.listdir(save_path))
-    for expected in ("config.json", "model.safetensors"):
-        assert expected in written, f"{expected} missing from {sorted(written)}"
-
-
 def test_training_loop_reports_a_loss_for_every_step(tmp_path):
     """A silent loop that trains nothing would still exit 0 and save a checkpoint."""
     _, output = _run(tmp_path, "nano")
