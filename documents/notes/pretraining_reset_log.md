@@ -263,3 +263,7 @@ One line per event; details live in the stage plan documents, not here.
   Measurement (wandb 32gyzfzk): 76.9k tokens/s, **MFU 30.8%**, cv 0.1%, all green.
   MFU scaling h4->h20: 15.8/25.2/27.7/30.8% — utilization grows with matmul size
   as expected; no anomaly to chase.
+- **2026-10-30 (E5 PASS)** h16 eval path on GPU at seq 2048 (wandb 7y2zup9q):
+  periodic eval fired exactly at steps 10 (8.125) and 20 (7.25); final_ce over
+  exactly the configured 8192 holdout samples: 7.107. Eval < train trajectory
+  consistent, cap honoured, rc=0.
