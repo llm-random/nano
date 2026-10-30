@@ -201,3 +201,8 @@ One line per event; details live in the stage plan documents, not here.
   h16/h24 allowlisted, mla/mamba2/gated_deltanet/ame stubbed for stage 3).
 - **2026-10-30 16:20** Maciej confirmed the skipped pause was fine — the stage-2
   process record is closed; nothing outstanding from it.
+- **2026-10-30 (see plan)** Stage 3 REDEFINED by Maciej: not attention
+  implementations (now stage 4), but a backbone audit — single-GPU real trainings
+  on entropy, h12/h16/h20, seq 2048, 512-seq batches (1,048,576 tokens/step), MFU
+  measured into a new wandb project. Plan written:
+  documents/notes/pretraining_stage3_mfu_plan.md. Awaiting green light.
