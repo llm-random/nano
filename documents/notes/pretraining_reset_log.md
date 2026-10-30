@@ -241,3 +241,14 @@ One line per event; details live in the stage plan documents, not here.
   RESUMES correctly (resume test green on entropy); the artifact-shape test now
   accepts both. PARKED: should 1-GPU runs save a plain torch file instead of a
   dcp shard (nicer for export)? Suite after fixes: 170/171 → expected green.
+- **2026-10-30 (E1 PASS)** E1 h4 pipeline smoke green end to end on H100 SXM
+  (wandb ideas_cv/nano-mfu-audit/7dabc7pw): 1.24M tokens/s, MFU 15.8% (tiny model,
+  no threshold applies), step-time cv 1.0%, token accounting exact
+  (30 x 1,048,064), loss 11.25 -> 9.06. The "first loss ~ ln(V) ± 0.15" criterion
+  was mis-calibrated for seq 2048: a CPU fp32 control at the same shape gives
+  11.2235 (~ln(V)+0.4, attention/logit stats at long seq), and the GPU's 11.25 is
+  one bf16 ulp from it — criterion widened to ±0.5 with the calibration recorded.
+  Also learned: wandb logger prefixes metrics (steps/, tokens/); logged losses are
+  bf16-quantized on the GPU path. h4 peak memory 45.17 GiB at micro 64 — no
+  activation checkpointing in this trainer (PARKED: AC knob would trade compute
+  for much larger micro-batches; relevant to MFU at h16+).
