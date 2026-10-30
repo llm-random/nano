@@ -127,3 +127,13 @@ One line per event; details live in the stage plan documents, not here.
   120 CI tests + 3 slow e2e green, seeded tiny_local and fineweb smoketest
   bit-identical to the pre-reset baseline, black clean. Only checkpoint flow:
   fresh init + nano save/resume. Pushed to origin/pretraining.
+- **2026-10-30 16:05** Local-file separation done. /home/maciej/code/pc_nano is now
+  the PC project's home: a full clone on main@e894422f (origin=GitHub https,
+  cemetery remote restored) plus ALL 2,454 local files moved in by atomic rename
+  (mastest* 28G, outputs, pc_paper and slicegpt nested repos, .neptune, caches) —
+  verified: 0 modified tracked files there, 0 stray untracked left here.
+  Deliberate exceptions, all lossless: .pixi stays here only (path-bound env;
+  run `pixi install` in pc_nano); .claude/.vscode copied to both; data/ +
+  data_eval moved there and copied back here (this branch's test fixtures —
+  slow e2e suite re-verified green, 3 passed). Full manifest kept at the move
+  time; nothing was deleted, only renamed or copied.
