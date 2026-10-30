@@ -70,8 +70,12 @@ class AbstractDataset(IterableDataset):
         max_samples: Optional[int] = None,
     ):
         self.max_samples = max_samples
-        self.world_size = int(os.environ.get("WORLD_SIZE"))
-        self.rank = int(os.environ.get("RANK"))
+        # Default to a single process when the launcher has not set the env --
+        # int(os.environ.get(...)) of a missing var is int(None), a TypeError
+        # that names neither the variable nor the fix. Found by the stage-3
+        # entropy preflight probe, which builds a dataloader outside main.py.
+        self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        self.rank = int(os.environ.get("RANK", "0"))
         self.rng = random.Random(seed)
         self.sequence_length = sequence_length
         self.tokenize_fn = tokenize_fn

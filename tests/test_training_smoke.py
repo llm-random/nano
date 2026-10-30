@@ -93,7 +93,15 @@ def test_local_training_writes_a_nano_checkpoint(tmp_path):
     step_dir = os.path.join(save_path, f"step_{N_STEPS - 1}")
     assert os.path.isdir(step_dir), f"no step_{N_STEPS - 1} directory under {save_path}"
     written = os.listdir(step_dir)
-    assert any("model" in name for name in written), f"no model checkpoint: {written}"
+    # On CPU the model lands as a plain torch.save file; on a CUDA node the
+    # model is FSDP2-wrapped even at world size 1, so it lands as a dcp shard
+    # (__0_0.distcp + .metadata). Both resume correctly -- the resume test
+    # proves that -- so both artifact shapes pass here.
+    plain = any("model" in name for name in written)
+    sharded = any(name.endswith(".distcp") for name in written) and (
+        ".metadata" in written
+    )
+    assert plain or sharded, f"no model checkpoint in either form: {written}"
     assert any(
         "training_state" in name for name in written
     ), f"no training state, so the run could not be resumed: {written}"

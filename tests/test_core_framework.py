@@ -710,3 +710,29 @@ def test_a_run_with_eval_switched_off_still_finishes():
     assert result.returncode == 0, f"the run failed:\n{log[-3000:]}"
     assert "skipping the final eval" in log, f"final_eval did not skip:\n{log[-2000:]}"
     assert "has no attribute 'to'" not in log
+
+
+def test_a_dataset_builds_without_launcher_env(monkeypatch):
+    """A dataloader outside main.py (a probe, a notebook) must not need WORLD_SIZE.
+
+    int(os.environ.get("WORLD_SIZE")) of a missing variable raised
+    TypeError("int() argument must be ... not 'NoneType'"), naming neither the
+    variable nor the fix. Found by the stage-3 entropy preflight."""
+    from src.core.datasets import AbstractDataset
+
+    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    monkeypatch.delenv("RANK", raising=False)
+
+    class Probe(AbstractDataset):
+        def __iter__(self):  # pragma: no cover - never iterated
+            return iter(())
+
+    dataset = Probe(
+        sequence_length=8,
+        tokenize_fn=None,
+        path="unused",
+        split="train",
+        seed=0,
+        shuffle=False,
+    )
+    assert dataset.world_size == 1 and dataset.rank == 0
