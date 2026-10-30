@@ -323,10 +323,6 @@ def run(cfg: OmegaConf, metric_logger=None):
         # TODO
         # finetuning
 
-    evaluator = instantiate(cfg.evaluator)
-    if evaluator is not None:
-        evaluator(metric_logger=metric_logger).eval()
-
     cleanup()
 
 

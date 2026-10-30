@@ -29,6 +29,3 @@ infrastructure:
       - local
       - tiny
 
-# evaluator:
-#   limit: 1
-#   device: cpu

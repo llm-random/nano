@@ -47,12 +47,12 @@ def test_every_src_module_imports():
     assert not failures, "modules that do not import:\n  " + "\n  ".join(failures)
 
 
-# The entry points people actually invoke. src/ was covered above, but run_exp.py,
-# run_eval.py and main.py are not under src/ and were import-checked by nothing -- a
-# broken one would have been invisible here and shown up only when somebody tried to
-# submit a job. Found when a test importing run_exp failed in CI for want of fabric,
-# which no CI dependency list had ever needed.
-ENTRY_POINTS = ("main", "run_exp", "run_eval", "evaluate_hf_models", "resolver")
+# The entry points people actually invoke. src/ was covered above, but run_exp.py
+# and main.py are not under src/ and were import-checked by nothing -- a broken one
+# would have been invisible here and shown up only when somebody tried to submit a
+# job. Found when a test importing run_exp failed in CI for want of fabric, which
+# no CI dependency list had ever needed.
+ENTRY_POINTS = ("main", "run_exp", "resolver")
 
 
 @pytest.mark.parametrize("module", ENTRY_POINTS)

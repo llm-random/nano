@@ -85,3 +85,8 @@ One line per event; details live in the stage plan documents, not here.
   no users left). tiny_local/tiny_remote(_wandb) now save `nano`. Gate: 122 passed,
   seeded runs bit-identical. Fresh-init + nano save/resume is the only checkpoint
   flow left, which is the intended end state for this branch.
+- **2026-10-30 14:58** Downstream eval harness removed (run_eval.py,
+  evaluate_hf_models.py, src/core/eval.py, configs/_eval, evaluator keys in
+  tiny_* and _misc, generate_eval_sbatch_script, ENTRY_POINTS trimmed). A new
+  eval harness gets written from scratch later; lm_eval stays in pixi deps until
+  the deferred lock re-solve. Gate: 120 passed.

@@ -39,5 +39,3 @@ infrastructure:
     gres: gpu:1
     job-name: ${infrastructure.metric_logger.name}
 
-evaluator:
-  limit: 10

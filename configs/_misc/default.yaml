@@ -37,4 +37,3 @@ trainer:
       training_state_filename: null # not tested
       only_weights: true # false not tested
 
-evaluator: null
