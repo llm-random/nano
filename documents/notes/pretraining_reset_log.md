@@ -41,3 +41,17 @@ One line per event; details live in the stage plan documents, not here.
 - **2026-10-30 13:02** Green light received as /goal. Override vs plan: **no cluster
   GPU runs in stage 1** (entropy smoke skipped); local CPU checks only. Decisions I'd
   otherwise ask about get logged under "For Maciej" below and batched at the end.
+- **2026-10-30 13:20** Phase 0 baseline: 145 tests pass (CI filter; 6 deselected),
+  seeded tiny_local(20 steps) step19 loss 12.162640571594238, fineweb smoketest
+  final_ce 12.290434122085571.
+- **2026-10-30 13:35** Phase A done: live transformer moved PC→core verbatim;
+  `ProjectedLlamaFeedForward` renamed `GatedFeedForward` (only deviation; body and
+  init order untouched). PC model.py is now a re-export shim. Gate passed: 145
+  tests, both seeded runs **bit-identical**. Side effect to know: main.py's
+  `isinstance(module, Residual)` metric-logger hookup used to compare against the
+  dead core class and never matched; it matches now, so residual update-norm
+  logging actually engages (logging only, loss unaffected — verified by the gate).
+- **2026-10-30 13:35** Ordering fix vs plan: configs targeting the PC package
+  (smollm/, llmrandom/, mastest/old/) and configs orphaned by pc_project deletion
+  must go in the SAME commit as the package, or composition/orphan tests break —
+  C.1/C.3/C.4/C.6 collapse into the Phase-B sweep.

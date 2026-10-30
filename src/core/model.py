@@ -1,26 +1,18 @@
-from collections import OrderedDict
 from functools import partial
 import math
 import os
+import torch
 import torch.nn as nn
 from typing import Callable, Optional
-import torch
 import torch.nn.functional as F
 import torch.distributed as dist
 from torch.nn.attention import SDPBackend
-from torch.nn.init import trunc_normal_
-from torch import zeros
+from torch.nn.init import trunc_normal_ as trunc_normal_
 from torch.nn import (
     LayerNorm as LayerNorm,
 )  # used by FSDP, but it keeps getting removed during file formatting
 
-from torch.nn.modules.normalization import RMSNorm as RMSNorm, LayerNorm as LayerNorm
-from torchtune.modules.position_embeddings import (
-    RotaryPositionalEmbeddings as RotaryPositionalEmbeddings,
-)
-import logging
-
-logger = logging.getLogger(__name__)
+from torch.nn.modules.normalization import RMSNorm as RMSNorm
 
 
 def llm_random_weight_init(fan_in, scale):
@@ -30,18 +22,43 @@ def llm_random_weight_init(fan_in, scale):
     return partial(trunc_normal_, mean=0.0, std=std, a=low, b=high)
 
 
-# linear takes partial function which returns init_fn upon giving fan_in as an input, but sometimes it does not depend on fan_in
-dummy_weight_init = lambda _: trunc_normal_
-dummy_zeros = lambda _: zeros
+class TransformerEmbedding(nn.Embedding):
+    def __init__(
+        self, vocab_size: int, dmodel: int, init_fn: Optional[Callable], **kwargs
+    ):
+        self.init_fn = init_fn
+        super().__init__(vocab_size, dmodel, **kwargs)
+
+    def reset_parameters(self):
+        if hasattr(self, "init_fn") and self.init_fn is not None:
+            with torch.no_grad():
+                self.init_fn(self.weight)
+        else:
+            super().reset_parameters()
+
+
+class Linear(nn.Linear):
+    def __init__(self, *args, partial_init_fn, **kwargs):
+        if "bias" not in kwargs:
+            kwargs["bias"] = False
+        super().__init__(*args, **kwargs)
+        init_fn = partial_init_fn(self.in_features)
+        init_fn(self.weight)
 
 
 class Residual(nn.Module):
-    def __init__(self, norm, layer, log_name):
+    def __init__(self, norm, layer, log_name, shortcut_dim: Optional[int] = None):
         super(Residual, self).__init__()
         self.norm = norm
         self.layer = layer
         self.metric_logger = None
         self.log_name = log_name
+        # SliceGPT baseline: residual connections carry an extra linear map
+        # (Q_{l-1}^T Q_l, sliced). None for a standard transformer.
+        if shortcut_dim is not None:
+            self.shortcut_Q = nn.Parameter(torch.eye(shortcut_dim))
+        else:
+            self.register_parameter("shortcut_Q", None)
 
     def set_metric_logger(self, metric_logger):
         self.metric_logger = metric_logger
@@ -49,6 +66,8 @@ class Residual(nn.Module):
     def forward(self, x):
         normalized = self.norm(x)
         out = self.layer(normalized)
+        if self.shortcut_Q is not None:
+            x = x @ self.shortcut_Q.to(x.dtype)
         if self.metric_logger is not None:
             self.metric_logger.accumulate_metrics(
                 layer_name=f"{self.log_name}",
@@ -119,194 +138,6 @@ class Residual(nn.Module):
             }
 
 
-class PositionalEmbedding(nn.Module):
-    def __init__(
-        self,
-        max_length,
-        embedding_dim,
-        init_type: str,
-        init_scale: float,
-    ):
-        super(PositionalEmbedding, self).__init__()
-        self.layer = nn.Embedding(max_length, embedding_dim)
-        default_weight = self.layer.weight.data
-        self.layer.weight.data = get_init_weight(
-            shape=default_weight.shape,
-            fan_in=1,
-            init_type=init_type,
-            scale=init_scale,
-            dtype=default_weight.dtype,
-        )
-        # TODO(jaszczur): add initialization as positional encoding
-
-    def forward(self, x):
-        positions = torch.arange(0, x.shape[-1], device=x.device)
-        positions = positions * torch.ones_like(x)
-        embeddings = self.layer(positions)
-        return embeddings
-
-
-class TransformerEmbedding(nn.Module):
-    def __init__(self, vocab_size: int, dmodel: int, init_fn: Optional[Callable]):
-        super().__init__()
-        weight = torch.empty(vocab_size, dmodel, dtype=torch.float32)
-        init_fn(weight)
-        self.embedding = nn.Embedding(vocab_size, dmodel, _weight=weight)
-
-    def forward(self, x):
-        return self.embedding(x)
-
-
-class TransformerBlock(nn.Module):
-    def __init__(
-        self,
-        block_id,
-        norm_fn,
-        attention_fn,
-        ff_layer_fn,
-    ):
-        super().__init__()
-        self.log_name = f"block[{block_id}]"
-
-        self.attention_layer = Residual(
-            norm=norm_fn(),
-            layer=attention_fn(),
-            log_name=f"{self.log_name}/residual_attention",
-        )
-        self.ff_layer = Residual(
-            norm=norm_fn(),
-            layer=ff_layer_fn(),
-            log_name=f"{self.log_name}/residual_feedforward",
-        )
-
-    def forward(self, x):
-        x = self.attention_layer(x)
-        x = self.ff_layer(x)
-        return x
-
-
-class TransformerTower(nn.Module):
-    def get_model_dimensions(self):
-        # Works only for llama3 transforermer architecture
-        ff_layer = self.blocks[0].ff_layer.layer
-        if getattr(ff_layer, "is_moe", False):
-            dmodel = ff_layer.dmodel
-            dff = ff_layer.dff
-        else:
-            dmodel = ff_layer.ff_pre_act.weight.shape[1]
-            dff = ff_layer.ff_pre_act.weight.shape[0]
-        datt = self.blocks[0].attention_layer.layer.q_proj.weight.shape[0]
-        n_att_heads = self.blocks[0].attention_layer.layer.q_heads
-        n_kvatt_heads = self.blocks[0].attention_layer.layer.kv_heads
-        nlayers = len(self.blocks)
-
-        head_dim = datt / n_att_heads
-
-        return dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers
-
-    def __init__(
-        self,
-        block_fn: Callable[[int], nn.Module],
-        n_blocks: int,
-    ):
-        super().__init__()
-        self.blocks = nn.ModuleList([block_fn(i) for i in range(n_blocks)])
-
-    def forward(self, x):
-        for block in self.blocks:
-            x = block(x)
-        return x
-
-
-class TransformerHead(nn.Module):
-    def __init__(self, linear_fn: Callable, norm_fn: Callable):
-        super().__init__()
-        self.norm = norm_fn()
-        self.linear = linear_fn()
-
-    def forward(self, x):
-        x = self.norm(x)
-        x = self.linear(x)
-        return x
-
-
-class Aggregate(nn.Module):
-    def __init__(
-        self,
-        function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-        *layers: nn.Module,
-    ):
-        super(Aggregate, self).__init__()
-        self.function = function
-        self.layers = nn.ModuleList(layers)
-        assert len(self.layers) > 0, "Aggregate must have at least one layer"
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        result = self.layers[0](x)
-        for layer in self.layers[1:]:
-            result = self.function(result, layer(x))
-        return result
-
-
-class Linear(nn.Linear):
-    def __init__(self, *args, partial_init_fn, **kwargs):
-        if "bias" not in kwargs:
-            kwargs["bias"] = False
-        super().__init__(*args, **kwargs)
-        init_fn = partial_init_fn(self.in_features)
-        init_fn(self.weight)
-
-
-class LLM(nn.Module):
-    def __init__(
-        self,
-        embedding: nn.Module,
-        encoder: nn.Module,
-        head: nn.Module,
-    ):
-        super().__init__()
-        self.embedding = embedding
-        self.encoder = encoder
-        self.head = head
-
-    def forward(self, *args, **kwargs):
-        x = self.embedding(*args, **kwargs)
-        x = self.encoder(x)
-        x = self.head(x)
-        return x
-
-
-class MLP(nn.Module):
-    def __init__(self, ff_pre_act_fn, ff_post_act_fn):
-        super().__init__()
-        self.relu = nn.ReLU()
-        self.ff_pre_act = ff_pre_act_fn()
-        self.ff_post_act = ff_post_act_fn()
-
-    def forward(self, x):
-        x = self.ff_pre_act(x)
-        x = self.relu(x)
-        x = self.ff_post_act(x)
-        return x
-
-
-class SwiGLU(nn.Module):
-    def __init__(self, dmodel, dff, linear_fn):
-        super().__init__()
-        self.ff_pre_act = linear_fn(dmodel, dff)
-        self.gate = linear_fn(dmodel, dff)
-        self.silu = nn.SiLU()
-        self.ff_post_act = linear_fn(dff, dmodel)
-
-    def forward(self, x):
-        gated = self.gate(x)
-        gated = self.silu(gated)
-        x = self.ff_pre_act(x)
-        x = x * gated
-        x = self.ff_post_act(x)
-        return x
-
-
 class RoPE(nn.Module):
     """
     This code is mostly taken from HF for Llama #TODO (add url)
@@ -316,12 +147,26 @@ class RoPE(nn.Module):
     """
 
     # features are paired x_i, x_{i + d_head/2}
-    def __init__(self, dhead, length, base, apply_freq_scaling):
+    def __init__(
+        self,
+        dhead,
+        length,
+        base,
+        apply_freq_scaling,
+        factor,
+        low_freq_factor,
+        high_freq_factor,
+        original_max_position_embeddings,
+    ):
         super().__init__()
         self.dhead = dhead
         self.length = length
         self.base = base
         self.apply_freq_scaling = apply_freq_scaling
+        self.factor = factor
+        self.low_freq_factor = low_freq_factor
+        self.high_freq_factor = high_freq_factor
+        self.original_max_position_embeddings = original_max_position_embeddings
         self.register_freqs()
 
     def register_freqs(self):
@@ -340,11 +185,11 @@ class RoPE(nn.Module):
             "cos", torch.cos(angle_per_token).repeat(1, 2), persistent=False
         )
 
-    def scale_freqs(self, freqs, factor=32):
-        # factor = `8` in the original implementation according to HuggingFace
-        low_freq_factor = 1  # `1` in the original implementation
-        high_freq_factor = 4  # `4` in the original implementation
-        old_context_len = 8192  # `8192` in the original implementation
+    def scale_freqs(self, freqs):
+        factor = self.factor
+        low_freq_factor = self.low_freq_factor
+        high_freq_factor = self.high_freq_factor
+        old_context_len = self.original_max_position_embeddings
 
         low_freq_wavelen = old_context_len / low_freq_factor
         high_freq_wavelen = old_context_len / high_freq_factor
@@ -385,6 +230,10 @@ class RoPEAttention(nn.Module):
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
+        factor=32,
+        low_freq_factor=1,
+        high_freq_factor=4,
+        original_max_position_embeddings=8192,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -403,6 +252,10 @@ class RoPEAttention(nn.Module):
             length=seq_len,
             base=rope_base,
             apply_freq_scaling=rope_scale_freqs,
+            factor=factor,
+            low_freq_factor=low_freq_factor,
+            high_freq_factor=high_freq_factor,
+            original_max_position_embeddings=original_max_position_embeddings,
         )
 
     def forward(self, x):
@@ -418,6 +271,8 @@ class RoPEAttention(nn.Module):
 
         v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
 
+        # Imported lazily: src.core.llama imports AttentionMechanism from this
+        # module, so a top-level import here would be circular.
         from src.core.llama import repeat_kv
 
         k = repeat_kv(k, self.q_heads // self.kv_heads)
@@ -429,6 +284,113 @@ class RoPEAttention(nn.Module):
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
 
         return output
+
+
+class GatedFeedForward(nn.Module):
+    def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn):
+        super().__init__()
+        self.silu = nn.SiLU()
+        self.ff_pre_act = ff_pre_act_fn()
+        self.ff_post_act = ff_post_act_fn()
+        self.gate = gate_fn()
+
+    def forward(self, x):
+        gated = self.gate(x)
+        gated = self.silu(gated)
+        x = self.ff_pre_act(x)
+        x = x * gated
+        x = self.ff_post_act(x)
+        return x
+
+
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        block_id,
+        norm_fn,
+        attention_fn,
+        ff_layer_fn,
+        shortcut_dim: Optional[int] = None,
+    ):
+        super().__init__()
+        self.log_name = f"block[{block_id}]"
+
+        self.attention_layer = Residual(
+            norm=norm_fn(),
+            layer=attention_fn(),
+            log_name=f"{self.log_name}/residual_attention",
+            shortcut_dim=shortcut_dim,
+        )
+        self.ff_layer = Residual(
+            norm=norm_fn(),
+            layer=ff_layer_fn(),
+            log_name=f"{self.log_name}/residual_feedforward",
+            shortcut_dim=shortcut_dim,
+        )
+
+    def forward(self, x):
+        x = self.attention_layer(x)
+        x = self.ff_layer(x)
+        return x
+
+
+class TransformerEncoder(nn.Module):
+    def get_model_dimensions(self):
+        # Works only for llama3 transforermer architecture
+        dmodel = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[1]
+        dff = self.blocks[0].ff_layer.layer.ff_pre_act.weight.shape[0]
+        datt = self.blocks[0].attention_layer.layer.q_proj.weight.shape[0]
+        n_att_heads = self.blocks[0].attention_layer.layer.q_heads
+        n_kvatt_heads = self.blocks[0].attention_layer.layer.kv_heads
+        nlayers = len(self.blocks)
+
+        head_dim = datt / n_att_heads
+
+        return dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers
+
+    def __init__(
+        self,
+        block_fn: Callable[[int], nn.Module],
+        n_blocks: int,
+    ):
+        super().__init__()
+        self.blocks = nn.ModuleList([block_fn(i) for i in range(n_blocks)])
+
+    def forward(self, x):
+        for block in self.blocks:
+            x = block(x)
+        return x
+
+
+class TransformerHead(nn.Module):
+    def __init__(self, linear_fn: Callable, norm_fn: Callable):
+        super().__init__()
+        self.norm = norm_fn()
+        self.linear = linear_fn()
+
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.linear(x)
+        return x
+
+
+class LLM(nn.Module):
+    def __init__(
+        self,
+        embedding: nn.Module,
+        encoder: nn.Module,
+        head: nn.Module,
+    ):
+        super().__init__()
+        self.embedding = embedding
+        self.encoder = encoder
+        self.head = head
+
+    def forward(self, *args, **kwargs):
+        x = self.embedding(*args, **kwargs)
+        x = self.encoder(x)
+        x = self.head(x)
+        return x
 
 
 def attention_mechanism(
@@ -452,7 +414,6 @@ def attention_mechanism(
 
 class AttentionMechanism(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
-        # raise Exception("Not supported AttentionMechanism - use pc version")
         super().__init__(*args, **kwargs)
 
     def forward(
@@ -468,37 +429,3 @@ class AttentionMechanism(nn.Module):
             value=value,
             causal=causal,
         )
-
-
-def init_kaiming_uniform(shape, fan_in, scale, dtype=torch.float32):
-    range_ = scale * (3 / fan_in) ** 0.5
-    return torch.zeros(shape, dtype=dtype).uniform_(-range_, range_)
-
-
-def init_truncated_normal(shape, fan_in, scale, dtype=torch.float32):
-    std = (scale / fan_in) ** 0.5
-    low = -2 * scale
-    high = 2 * scale
-    t = torch.zeros(shape, dtype=dtype)
-    return trunc_normal_(t, mean=0.0, std=std, a=low, b=high)
-
-
-def init_truncated_normal_fixed(shape, fan_in, scale, dtype=torch.float32):
-    std = scale * (1 / fan_in) ** 0.5
-    low = -2 * std
-    high = 2 * std
-    t = torch.zeros(shape, dtype=dtype)
-    return trunc_normal_(t, mean=0.0, std=std, a=low, b=high)
-
-
-def get_init_weight(shape, fan_in, init_type: str, scale, dtype=torch.float32):
-    init_types = {
-        "kaiming_uniform": init_kaiming_uniform,
-        "truncated_normal": init_truncated_normal,
-        "truncated_normal_fixed": init_truncated_normal_fixed,
-    }
-
-    if init_type not in init_types:
-        raise ValueError(f"Unknown init_type: {init_type}")
-
-    return init_types[init_type](shape=shape, fan_in=fan_in, scale=scale, dtype=dtype)
