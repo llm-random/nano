@@ -221,3 +221,13 @@ One line per event; details live in the stage plan documents, not here.
   None for unknown GPUs) + trainer logs train/step_time, tokens_per_s, mfu,
   max_memory_gib; first logged loss must be ln(50304)±0.15 (e2e test). Gate: 168
   CI tests + 3 e2e, both seeded runs bit-identical, throughput lines present.
+- **2026-10-30 16:40** Entropy preflight: NeoX tokenizer staged into
+  /storage_nvme_4/nano/hf_cache and verified offline (len 50277) — P0.3 done.
+  DEVIATION: audit jobs submit as direct sbatch from a pinned clone (~/nano-mfu)
+  with the cluster env block + wandb key read from a 0600 file, instead of
+  run_exp.py — entropy's blocked :22 makes run_exp need manual surgery per job
+  anyway; provenance = clone commit (logged per job) + wandb config. First suite
+  run on entropy found a GPU-node-only bug in my new throughput stub test
+  (cuda.is_available() true → get_device_name on a fake CPU device) — fixed,
+  pushed; full failure list of the remaining tests pending (first job's pytest
+  output was tail-truncated by my own script — second run keeps the full log).
