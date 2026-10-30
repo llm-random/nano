@@ -255,3 +255,7 @@ One line per event; details live in the stage plan documents, not here.
 - **2026-10-30 (E2 PASS)** h12 probe: micro 8/16/32 -> 16.0/29.2/55.5 GiB, chosen
   ga=16 (micro 32). Measurement (wandb 2xyxl874): 227k tokens/s, **MFU 25.2%**,
   step-time cv 0.7%, token accounting exact, all criteria green.
+- **2026-10-30 (E3 PASS)** h16 probe: micro 16 -> 44.9 GiB, micro 32 OOM; ga=32.
+  Measurement (wandb sfupemo2): 123k tokens/s, **MFU 27.7%** (above the 20%
+  investigation threshold — no profiler dig needed), cv 1.6%, accounting exact,
+  loss 11.25 -> 7.25. All criteria green.
