@@ -38,7 +38,16 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
+CHECKPOINTING_DISABLED = "<checkpointing disabled>"
+
+
 def _build_save_path(cfg):
+    if cfg.trainer.checkpoint.save.path is None:
+        # Checkpointing is off -- _should_save_final_checkpoint guards on exactly this,
+        # so nothing is written. Interpolating a path anyway produced
+        # "None/<jobid>/<task>/step_N" in the run record: a directory that does not
+        # exist and that someone will eventually go looking for.
+        return CHECKPOINTING_DISABLED
     base = get_full_checkpoint_path(cfg.trainer.checkpoint.save.path)
     save_type = cfg.trainer.checkpoint.save.type
     n_steps = cfg.trainer.n_steps
@@ -244,6 +253,12 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                     "learning_rate": learning_rate,
                     "exp_lr": exp_lr,
                     "full_save_checkpoints_path": _build_save_path(cfg),
+                    # The training data is sharded per rank, so a run is reproducible
+                    # at a fixed (seed, world_size) and not across world sizes -- two
+                    # runs of the same config on different GPU counts train on
+                    # different data. The seed is already in the config; this puts the
+                    # other half of the pair in the run record beside it.
+                    "world_size": int(os.environ.get("WORLD_SIZE", 1)),
                 }
             )
 

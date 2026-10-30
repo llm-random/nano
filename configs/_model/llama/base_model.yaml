@@ -1,5 +1,9 @@
 defaults:
-  - /ff_layer@model.encoder.block_fn.ff_layer_fn: dense
+  # Relative, not /ff_layer: an absolute group reference resolves from the search-path
+  # root, so it only worked when main.py was invoked with --config-path configs. The
+  # documented per-directory invocation (--config-path configs/pc_project) could not
+  # find it. Relative resolves from this file either way.
+  - ../../ff_layer@model.encoder.block_fn.ff_layer_fn: dense
   - _self_
 
 common:

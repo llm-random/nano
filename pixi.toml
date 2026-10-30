@@ -5,8 +5,25 @@ name = "nano"
 platforms = ["linux-64", "linux-aarch64", "osx-arm64"]   # drop osx-64 (Intel Mac)
 version = "0.1.0"
 
+# No requires-pixi any more. It existed because lem ran pixi 0.63.2 and helios 0.67.x,
+# neither of which can read a v7 lock: a `pixi run` on a modern pixi rewrote pixi.lock
+# to v7 and the cluster then silently re-solved the environment. Both are on 0.83.0 as
+# of 2026-10-29, and entropy's 0.77.0 reads and writes v7 too, so no cluster is left
+# that the format can break -- and a bound that refuses every modern pixi, including
+# `pixi run install_hooks`, costs more than it now buys.
+#
+# What replaces it is narrower and aimed at the real damage: pixi.lock is pinned to a
+# declared version by .githooks/pre-commit and by test_pixi_lock_stays_at_the_pinned_version.
+# The danger was never the format number, it was the *re-solve* that comes with the
+# rewrite -- +6234/-6089 lines, pinned versions gone, nothing saying so. Moving the lock
+# to v7 is a deliberate change: bump PINNED_LOCK_VERSION, regenerate, and verify the
+# environment on each cluster before merging.
+
 [tasks]
-install_hooks = "git config --local core.hooksPath .githooks"
+# Kept for habit, but it cannot run on a pixi that requires-pixi excludes -- which is
+# every pixi that would rewrite the lock, i.e. exactly the ones the hook protects
+# against. Run scripts/install_hooks.sh directly instead; it needs no pixi.
+install_hooks = "bash scripts/install_hooks.sh"
 
 [dependencies]
 python = "==3.12.3"

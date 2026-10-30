@@ -15,17 +15,49 @@ trainer:
       use_new_sampling_method: true
       shuffle: true
       world_size_independent: false
+      # fineweb ships only a train directory, so eval used to score the training data.
+      # The holdout reserves a fixed tail of rows for eval and keeps the rest here; both
+      # slices come from the same row count, so they cannot overlap. 262144 rows is a
+      # generous margin over the ~14k needed for 16.8M tokens at this corpus's document
+      # length, and still only 0.02% of the 1.27 billion rows.
+      #
+      # holdout_rows is written out rather than left to the Python default so that it is
+      # a key Hydra can override: a sampled or local copy of fineweb has far fewer than
+      # 262144 rows, and without the key here `holdout_rows=N` has nothing to override.
+      # Both dataloaders must carry the same number or the slices stop being disjoint.
+      holdout: train
+      holdout_rows: 262144
     num_workers: 2
 
   eval_dataloader:
     dataset:
       _target_: src.core.datasets.FineWebEduDataset
-      sequence_length: ${common.sequence_length}
       tokenize_fn: ???
       path: ${cluster_switch.eval_path_fineweb}
       split: train
       seed: 123
       use_new_sampling_method: true
       shuffle: true
-      world_size_independent: false
-    num_workers: 2
+      # True for eval, per AbstractDataset's contract: otherwise each rank evaluates on
+      # a different slice and the number depends on the GPU count.
+      world_size_independent: true
+      holdout: eval
+      holdout_rows: 262144
+      # A fixed eval set: the same max_samples samples, in the same order, every time it
+      # is measured. At this project's standard sequence_length of 2048 that is
+      # 8192 x 2048 = 16,777,216 tokens.
+      #
+      # sequence_length tracks common rather than pinning 2048, because it cannot do
+      # otherwise: LlamaRoPE sizes its sin/cos buffers from the model's seq_len and
+      # forward() slices them (src/core/llama.py), so feeding a model built for 1024 a
+      # 2048-token batch fails outright. A run at a shorter length gets a
+      # proportionally smaller eval set, and its final_ce is comparable to other runs
+      # at that length.
+      sequence_length: ${common.sequence_length}
+      max_samples: 8192
+    # 0, not 2. to_iterable_dataset shards by DataLoader worker, so each worker runs
+    # __iter__ and applies max_samples to its own shard -- two workers read 16384
+    # samples, not 8192. The dataset raises rather than let that pass silently.
+    # Reading a fixed 8192 samples once at the end of a run does not need worker
+    # parallelism.
+    num_workers: 0

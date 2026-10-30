@@ -5,6 +5,7 @@ import torch.distributed as dist
 from typing import Optional, Union
 from src.core.checkpointing import step_checkpoint_path
 from src.core.trainer import Trainer
+from src.core.utils import cast_state_dict_to_tensors
 from src.projected_compression.mem_eff import get_global_grad_norm
 from attr import define
 import torch.distributed.checkpoint as dcp
@@ -64,7 +65,7 @@ class PCTrainer(Trainer):
 
     def train(self):
         for step, batch in zip(
-            range(self.start_step, self.n_steps), self.train_dataloader
+            range(self.start_step, self.n_steps), self._batches_from_start_step()
         ):
 
             self.step = step
@@ -233,3 +234,54 @@ class PCTrainer(Trainer):
             tokenizer = AutoTokenizer.from_pretrained(self.original_llama_path)
             tokenizer.save_pretrained(save_path)
             logger.info(f"Saved HF checkpoint at step {self.step} to '{save_path}'")
+
+
+@define(slots=False)
+class PCFinalizeTrainer(Trainer):
+    """Plain Trainer plus the `pc_finalize` save type.
+
+    Finalizing merges the projections into the weights (Wc = P1^T W P2^T) and writes a
+    standard, smaller checkpoint. It is a projected-compression concern, so it lives here
+    rather than in src.core.trainer, which must stay usable by non-PC projects.
+
+    Used with n_steps: 0 -- it loads a PC checkpoint, finalizes, and saves. See
+    configs/pc_project/llama_1B_comp_finalize.yaml.
+    """
+
+    SUPPORTED_SAVE_TYPES = Trainer.SUPPORTED_SAVE_TYPES + ("pc_finalize",)
+    # Finalization merges the projections in place, so it cannot run mid-training: it
+    # would corrupt the run. Written once, when training ends.
+    FINAL_ONLY_SAVE_TYPES = Trainer.FINAL_ONLY_SAVE_TYPES + ("pc_finalize",)
+
+    def save_final_checkpoint(self):
+        if self.checkpoint.save.type == "pc_finalize":
+            self.save_pc_finalized_checkpoint()
+        else:
+            super().save_final_checkpoint()
+
+    def save_pc_finalized_checkpoint(self):
+        # Imported here, not at module scope: compression imports main, and pulling main
+        # in at import time would make this module's import order matter.
+        from src.projected_compression.compression import finalize_projection_weights
+
+        with torch.no_grad():
+            finalize_projection_weights(self.model)
+            model_state_dict = cast_state_dict_to_tensors(self.model.state_dict())
+
+        if os.environ["RANK"] == "0":
+            checkpoint_folder = step_checkpoint_path(
+                self.checkpoint.save.path, self.step
+            )
+            os.makedirs(checkpoint_folder, exist_ok=True)
+            checkpoint_path = (
+                f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
+            )
+            state_to_save = {
+                "model": model_state_dict,
+                "optim": None,
+                "scheduler": None,
+            }
+            torch.save(state_to_save, checkpoint_path)
+            logger.info(
+                f"Saved non-sharded Finalized PC model checkpoint in '{checkpoint_path}'"
+            )

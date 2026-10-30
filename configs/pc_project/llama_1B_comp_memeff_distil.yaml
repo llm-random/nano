@@ -38,7 +38,7 @@ trainer:
     fsdp2: null
     
   eval_interval: 1000000 # PC_memeff does not work in eval inference mode
-  eval_dataloader: None
+  eval_dataloader: null
 
   checkpoint: #only way to save PC_memeff model
     save:

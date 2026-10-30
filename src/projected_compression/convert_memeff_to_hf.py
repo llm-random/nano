@@ -8,7 +8,6 @@ from torch.distributed.checkpoint.state_dict import (
     get_model_state_dict,
     StateDictOptions,
 )
-from hydra.utils import instantiate
 
 
 def load_pc_state_dict_to_llama(state_dict, original_llama):
@@ -82,11 +81,12 @@ def load_pc_state_dict_to_llama(state_dict, original_llama):
 
 def convert_pc_to_hf(cfg, metric_logger):
     if metric_logger is None:
+        # Matches main.py and initialization.py: pass the config node itself. Running
+        # it through instantiate(_convert_="all") yields a plain dict, which
+        # get_metric_logger then cannot read with attribute access.
         metric_logger = get_metric_logger(
-            metric_logger_config=instantiate(
-                cfg.infrastructure.metric_logger, _convert_="all"
-            ),
-            neptune_run_id=None,
+            metric_logger_config=cfg.infrastructure.metric_logger,
+            full_config=cfg,
         )
 
     model = create_model(

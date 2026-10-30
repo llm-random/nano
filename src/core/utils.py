@@ -52,6 +52,10 @@ def solve_config_lr(
         ret_lr = config_lr
         ret_exp_lr = -1 * math.log(config_lr) / math.log(2)
     if config_lr >= 1.0:
+        # By convention a config learning_rate of n means 2**-n, so n *is* the exponent.
+        # This used to read `ret_exp_lr = ret_exp_lr`, leaving it None on this branch --
+        # which is the branch every config using the convention takes, so wandb recorded
+        # exp_lr: None for those runs.
         ret_lr = 2**-config_lr
-        ret_exp_lr = ret_exp_lr
+        ret_exp_lr = config_lr
     return ret_lr, ret_exp_lr

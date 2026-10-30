@@ -9,7 +9,7 @@ import os
 import tempfile
 
 import torch
-from hydra import compose, initialize
+from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
 
 import resolver  # noqa: F401  (registers custom OmegaConf resolvers, e.g. `eval`)
@@ -39,8 +39,16 @@ def _tiny_overrides(dmodel=TINY["dmodel"], dff=TINY["dff"]):
     return [f"common.{k}={v}" for k, v in t.items()]
 
 
+# hydra's initialize() resolves config_path relative to the calling file, which pinned
+# this module to the repo root. initialize_config_dir takes an absolute path instead, so
+# the file can live wherever the tests live.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def _compose(config_dir, config_name, overrides=()):
-    with initialize(version_base=None, config_path=config_dir):
+    with initialize_config_dir(
+        version_base=None, config_dir=os.path.join(REPO_ROOT, config_dir)
+    ):
         return compose(config_name=config_name, overrides=list(overrides))
 
 

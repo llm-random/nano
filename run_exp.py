@@ -2,6 +2,7 @@
 import datetime
 import logging
 import os
+import signal
 import re
 import time
 from git import Repo
@@ -20,6 +21,44 @@ from main import dump_grid_configs, run
 import resolver
 
 logger = logging.getLogger(__name__)
+
+# Remote failures that are worth naming rather than leaving as an exit code.
+_REMOTE_DISK_FULL = re.compile(
+    r"quota exceeded|No space left on device|Disk quota", re.IGNORECASE
+)
+
+
+def run_remote(connection, command, what):
+    """Run a remote command, and say what went wrong when it is something known.
+
+    fabric raises UnexpectedExit with the exit status and nothing else, so a cluster
+    home that is over its disk quota surfaces as `exit 128` from `git clone` with the
+    quota message buried in the remote stderr. configs/_cluster/lem.yaml carries a
+    comment about exactly that, which is a sign it cost somebody an afternoon.
+
+    It is a one-line diagnosis once you can see it, so show it.
+    """
+    result = connection.run(command, warn=True)
+    if not result.failed:
+        return result
+
+    output = (result.stdout or "") + (result.stderr or "")
+    if _REMOTE_DISK_FULL.search(output):
+        raise RuntimeError(
+            f"{what} failed on {connection.host}: the remote filesystem is out of "
+            f"space or over its disk quota.\n"
+            f"  command: {command}\n"
+            f"  remote says: {output.strip().splitlines()[-1] if output.strip() else '(nothing)'}\n"
+            f"Check the quota there (`quota -s`, `df -h`). If this is the cemetery "
+            f"directory, infrastructure.cluster_cemetery_dir in the cluster config "
+            f"redirects it to project storage; helios and lem already do that."
+        )
+    raise RuntimeError(
+        f"{what} failed on {connection.host} with exit {result.exited}.\n"
+        f"  command: {command}\n"
+        f"  remote says: {output.strip() or '(nothing)'}"
+    )
+
 
 _SSH_HOSTS_TO_PASSPHRASES = {}
 
@@ -57,6 +96,55 @@ def reset_to_original_repo_state(
     print("Successfully restored working tree to the original state!")
 
 
+@contextmanager
+def restoring_repo_state(
+    repo: Repo,
+    original_branch: str,
+    original_branch_commit_hash: str,
+    versioning_branch: str,
+):
+    """Restore the working tree on the way out, including on SIGTERM and SIGINT.
+
+    A `finally` only runs when Python unwinds. The default SIGTERM handler kills the
+    process outright, so a cancelled or preempted submission left the repo standing on
+    the experiment branch with the original branch unrestored -- which is how
+    `run_exp.py leaves the branch broken if killed` got into documents/issues.md.
+
+    The handler restores, puts the previous handler back and re-raises the signal, so
+    the process still dies the way the caller asked it to.
+    """
+    restored = False
+
+    def _restore():
+        nonlocal restored
+        if restored:
+            return
+        restored = True
+        reset_to_original_repo_state(
+            repo, original_branch, original_branch_commit_hash, versioning_branch
+        )
+
+    previous = {}
+
+    def _handler(signum, _frame):
+        _restore()
+        signal.signal(signum, previous.get(signum, signal.SIG_DFL))
+        os.kill(os.getpid(), signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            previous[sig] = signal.signal(sig, _handler)
+        except ValueError:
+            # signal() only works on the main thread; leave the finally as the guard.
+            pass
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+        _restore()
+
+
 def version_code(
     remote_url: str,
     experiment_config_path: Optional[str] = None,
@@ -84,14 +172,12 @@ def version_code(
             # ignore if file is not tracked / doesn't exist
             pass
 
-    try:
+    with restoring_repo_state(
+        repo, original_branch, original_branch_commit_hash, experiment_branch_name
+    ):
         commit_pending_changes(repo)
         repo.git.checkout(b=experiment_branch_name)
         repo.git.push(remote_url, experiment_branch_name)
-    finally:
-        reset_to_original_repo_state(
-            repo, original_branch, original_branch_commit_hash, experiment_branch_name
-        )
 
     return experiment_branch_name
 
@@ -202,7 +288,11 @@ def submit_experiment(
             host=cfg.infrastructure.server, inline_ssh_env=True
         ) as connection:
             cemetery_dir = cfg.infrastructure.cemetery_experiments_dir
-            connection.run(f"mkdir -p {cemetery_dir}")
+            run_remote(
+                connection,
+                f"mkdir -p {cemetery_dir}",
+                f"Creating the cemetery directory {cemetery_dir}",
+            )
 
             if "WANDB_API_KEY" in os.environ:
                 connection.config["run"]["env"]["WANDB_API_KEY"] = os.environ[
@@ -211,8 +301,10 @@ def submit_experiment(
 
             experiment_dir = f"{cemetery_dir}/{experiment_branch_name}"
             if connection.run(f"test -d {experiment_dir}", warn=True).failed:
-                connection.run(
-                    f"git clone --depth 1 -b {experiment_branch_name} {cfg.infrastructure.git.remote_url} {experiment_dir}"
+                run_remote(
+                    connection,
+                    f"git clone --depth 1 -b {experiment_branch_name} {cfg.infrastructure.git.remote_url} {experiment_dir}",
+                    f"Cloning the experiment into {experiment_dir}",
                 )
             else:
                 print(f"Experiment {experiment_branch_name} already exists. Skipping.")

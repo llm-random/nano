@@ -21,7 +21,7 @@ trainer:
   learning_rate: 1e-3
   scheduler:
     warmup_steps: 2
-  eval_dataloader: None
+  eval_dataloader: null
   eval_interval: 0
 
 # llama_tiny_compressor has no real importances file; init_compression requires one.

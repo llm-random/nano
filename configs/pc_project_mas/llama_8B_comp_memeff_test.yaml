@@ -64,7 +64,7 @@ trainer: #switch
   distributed:
     fsdp2: null
     
-  eval_dataloader: None
+  eval_dataloader: null
   eval_interval: 0
 
   # Path to the original HuggingFace LLaMA 3 8B model directory.

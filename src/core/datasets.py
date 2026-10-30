@@ -120,7 +120,9 @@ class AbstractDataset(IterableDataset):
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
         world_size_independent: bool = False,
+        max_samples: Optional[int] = None,
     ):
+        self.max_samples = max_samples
         self.world_size = int(os.environ.get("WORLD_SIZE"))
         self.rank = int(os.environ.get("RANK"))
         self.rng = random.Random(seed)
@@ -167,13 +169,60 @@ class AbstractDataset(IterableDataset):
                     buffer, document_lengths = [], []
 
     def __iter__(self):
+        """Restart the stream.
+
+        Reseeding here is what makes a fresh iterator replay from the beginning, which
+        the resume path depends on. `max_samples` caps the stream, turning an otherwise
+        endless packer into a fixed, finite set -- an eval set has to be the *same*
+        samples every time it is measured, or the number moves for reasons that have
+        nothing to do with the model.
+
+        The cap goes on before the per-rank stride, not after. After the stride each
+        rank yields `max_samples` samples out of its own substream, so the set the job
+        actually scores is `max_samples * world_size` and changes with the GPU count --
+        which is the dependence the eval set exists to remove. Capping first and
+        striding second makes the union across ranks exactly `max_samples`, the same
+        samples at any world size.
+        """
+        self._check_the_cap_can_be_honoured()
         self.rng.seed(self.seed)
+        stream = self.sample_packer()
+        if self.max_samples is not None:
+            stream = itertools.islice(stream, self.max_samples)
         if self.world_size_independent:
-            return itertools.islice(
-                self.sample_packer(), self.rank, None, self.world_size
+            stream = itertools.islice(stream, self.rank, None, self.world_size)
+        return stream
+
+    def _check_the_cap_can_be_honoured(self):
+        """`max_samples` is a budget for the whole job, and two settings silently break
+        that. Both are a multiplication, not an error, so they would show up only as an
+        eval number that moved when the launch did.
+        """
+        if self.max_samples is None:
+            return
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None and worker_info.num_workers > 1:
+            # to_iterable_dataset shards by worker, so workers do not duplicate rows --
+            # but each one runs this __iter__ and applies its own cap, so the job reads
+            # max_samples * num_workers. A fixed eval set needs num_workers: 0.
+            raise ValueError(
+                f"max_samples={self.max_samples} with num_workers="
+                f"{worker_info.num_workers}: each worker applies the cap to its own "
+                f"shard, so the set read is {self.max_samples * worker_info.num_workers}"
+                f", not {self.max_samples}. Set num_workers: 0 on this dataloader."
             )
-        else:
-            return self.sample_packer()
+
+        if not self.world_size_independent and self.world_size > 1:
+            # split_dataset_by_node already gave this rank a disjoint shard, so there is
+            # no shared stream to cap -- every rank would take max_samples from a
+            # different slice.
+            raise ValueError(
+                f"max_samples={self.max_samples} needs world_size_independent=True; "
+                f"with False each of the {self.world_size} ranks is handed a different "
+                f"shard and caps that, so the set read is "
+                f"{self.max_samples * self.world_size}, not {self.max_samples}."
+            )
 
 
 class FineWebEduDataset(AbstractDataset):
@@ -191,7 +240,28 @@ class FineWebEduDataset(AbstractDataset):
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
         world_size_independent: bool = False,
+        max_samples: Optional[int] = None,
+        holdout: Optional[str] = None,
+        holdout_rows: int = 262144,
     ):
+        """holdout carves a disjoint evaluation slice out of a single directory.
+
+        fineweb ships only a `train` directory -- no validation split was ever
+        downloaded -- so eval was pointed at the training data and scored the batches
+        the model was training on. There is no second directory to point at, but there
+        is no need for one: the last `holdout_fraction` of the rows can be reserved.
+        Pass holdout="train" to take everything before the cut and holdout="eval" to
+        take everything after it. Both are computed from the same row count, so the two
+        are disjoint by construction.
+
+        The reserve is a fixed number of rows rather than a fraction, so the eval set
+        does not grow with the corpus: an eval number is only comparable across runs if
+        it is measured on the same data, and a fraction of a changing dataset is not.
+
+        holdout=None uses every row, for callers that genuinely want the whole dataset.
+        """
+        self.holdout = holdout
+        self.holdout_rows = holdout_rows
         super().__init__(
             sequence_length,
             tokenize_fn,
@@ -201,8 +271,40 @@ class FineWebEduDataset(AbstractDataset):
             use_new_sampling_method,
             shuffle,
             world_size_independent,
+            max_samples,
         )
         self._load_dataset(path, seed, tokenize_fn, shuffle)
+
+    def _holdout_split(self, hf_dataset):
+        if self.holdout is None:
+            return hf_dataset
+        if self.holdout not in ("train", "eval"):
+            raise ValueError(
+                f"holdout must be None, 'train' or 'eval', got {self.holdout!r}"
+            )
+        if self.holdout_rows < 1:
+            raise ValueError(f"holdout_rows must be >= 1, got {self.holdout_rows}")
+
+        total = len(hf_dataset)
+        if self.holdout_rows >= total:
+            raise ValueError(
+                f"holdout_rows {self.holdout_rows} leaves no training rows in a "
+                f"dataset of {total}. The default is sized for the full fineweb "
+                f"(1.27e9 rows); on a sampled or local copy, override it on both "
+                f"dataloaders -- they must agree or the slices stop being disjoint: "
+                f"trainer.train_dataloader.dataset.holdout_rows=N "
+                f"trainer.eval_dataloader.dataset.holdout_rows=N"
+            )
+        cut = total - self.holdout_rows
+
+        if self.holdout == "train":
+            selected = hf_dataset.select(range(cut))
+        else:
+            selected = hf_dataset.select(range(cut, total))
+        logger.info(
+            f"holdout='{self.holdout}': {len(selected)} of {total} rows (cut at {cut})"
+        )
+        return selected
 
     def _load_dataset(self, path, seed, tokenize_fn, shuffle: bool):
         if path is None:
@@ -210,7 +312,10 @@ class FineWebEduDataset(AbstractDataset):
         else:
             logger.debug(f"Loading dataset from path '{path}'")
             hf_dataset = load_from_disk(path)
-            hf_dataset = hf_dataset.to_iterable_dataset(num_shards=self.NUM_SHARDS)
+            hf_dataset = self._holdout_split(hf_dataset)
+            hf_dataset = hf_dataset.to_iterable_dataset(
+                num_shards=min(self.NUM_SHARDS, len(hf_dataset))
+            )
 
         if not self.world_size_independent:
             hf_dataset = split_dataset_by_node(
@@ -253,6 +358,7 @@ class C4Dataset(AbstractDataset):
         use_new_sampling_method: bool = True,
         shuffle: bool = True,
         world_size_independent: bool = False,
+        max_samples: Optional[int] = None,
     ):
         super().__init__(
             sequence_length,
@@ -263,6 +369,7 @@ class C4Dataset(AbstractDataset):
             use_new_sampling_method,
             shuffle,
             world_size_independent,
+            max_samples,
         )
         self._load_dataset(path, split, seed, tokenize_fn, shuffle)
 

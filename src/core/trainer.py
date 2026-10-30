@@ -1,3 +1,4 @@
+import itertools
 import os
 import time
 from attr import define
@@ -8,7 +9,6 @@ from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from src.projected_compression.compression import finalize_projection_weights
 from src.core.conversion_to_hf import save_to_llama_3_hf
 import torch.distributed.checkpoint as dcp
 import logging
@@ -53,9 +53,13 @@ class Trainer:
     weight_decay: float
     distributed: Optional[dict]
 
-    # Checkpoint save types this trainer can actually write. The projected-compression
-    # trainers widen this; anything outside it is rejected before training starts.
-    SUPPORTED_SAVE_TYPES = ("nano", "huggingface", "pc_finalize")
+    # Checkpoint save types this trainer can actually write. Subclasses widen this;
+    # anything outside it is rejected before training starts.
+    SUPPORTED_SAVE_TYPES = ("nano", "huggingface")
+
+    # Of those, the ones written once when training ends rather than on the periodic
+    # interval. Subclasses that add such a type widen this too.
+    FINAL_ONLY_SAVE_TYPES = ("huggingface",)
 
     def __attrs_post_init__(self):
         self._validate_save_type()
@@ -66,19 +70,27 @@ class Trainer:
             getattr(module, "is_moe", False) for module in self.model.modules()
         )
 
-        if self.eval_dataloader is not None and hasattr(
-            self.eval_dataloader, "__iter__"
-        ):
-            self.eval_iterator = iter(self.eval_dataloader)
-        self.step = self.start_step - 1
-
-        if self.start_step > 0:
-            n_skip_eval_batches = (
-                (self.start_step - 1) // self.eval_interval * self.n_eval_steps
+        # A bare `None` in YAML is the *string* "None" -- YAML's null is `null` or `~`.
+        # 37 shipped configs switch eval off with `eval_dataloader: None`, so without
+        # this the attribute arrives as a str, which is not None and does have
+        # __iter__, and so passes for a dataloader until something calls .to() on one
+        # of its characters. Normalise once, here, so every later check is `is None`.
+        if isinstance(self.eval_dataloader, str):
+            logger.info(
+                f"eval_dataloader is the string {self.eval_dataloader!r}, which YAML "
+                "produces for a bare `None`; treating it as no eval dataloader."
             )
-            logger.debug(f"Skipping {n_skip_eval_batches} eval batches")
-            for _ in range(n_skip_eval_batches):
-                next(self.eval_iterator)
+            self.eval_dataloader = None
+
+        # Not built here. Resuming used to wind this forward by
+        # (start_step - 1) // eval_interval * n_eval_steps batches, because one iterator
+        # was carried across the whole run and a resumed run had to land where it left
+        # off. eval() now restarts the stream on every call -- that restart is what makes
+        # the eval set the same samples every time -- so a wound-forward iterator would
+        # be discarded unread, after pulling ~10k batches through the tokenizer on a long
+        # resume. Do not add the skip back without first removing that restart.
+        self.eval_iterator = None
+        self.step = self.start_step - 1
 
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
         if self._has_moe_modules:
@@ -114,9 +126,32 @@ class Trainer:
             and self.checkpoint.save.path is not None
         )
 
+    def _batches_from_start_step(self):
+        """Training batches, fast-forwarded past the steps a previous run already took.
+
+        The datasets are deterministic iterables that reseed in __iter__ (see
+        AbstractDataset), and train() consumes exactly one batch per step. A resumed run
+        therefore gets a *fresh* iterator starting at batch 0 and re-trains on data it
+        has already seen, while the step counter carries on from the checkpoint.
+
+        That fails quietly in the worst way: the loss after a resume comes out lower,
+        not higher, because the model is being shown examples it already learned.
+
+        Skipping start_step batches reproduces the sequence an uninterrupted run would
+        have seen. It costs one pass over the skipped batches, which is the price of a
+        dataset that cannot seek.
+        """
+        if not self.start_step:
+            return self.train_dataloader
+        logger.info(
+            f"Resuming at step {self.start_step}: skipping that many batches so the run "
+            "does not repeat data it has already trained on."
+        )
+        return itertools.islice(self.train_dataloader, self.start_step, None)
+
     def train(self):
         for step, batch in zip(
-            range(self.start_step, self.n_steps), self.train_dataloader
+            range(self.start_step, self.n_steps), self._batches_from_start_step()
         ):
             self.step = step
             self.metric_logger.set_step(step)
@@ -140,31 +175,122 @@ class Trainer:
 
             self.metric_logger.flush()
 
+        self.final_eval()
+
         if self._should_save_final_checkpoint:
-            if self.checkpoint.save.type in ("nano", "hf_only", "nano_and_hf"):
-                self.save_checkpoint()
-            elif self.checkpoint.save.type == "huggingface":
-                # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
-                model_state_dict = self.model.state_dict()
-                full_state = cast_state_dict_to_tensors(model_state_dict)
+            self.save_final_checkpoint()
 
-                if os.environ["RANK"] == "0":
-                    dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = (
-                        self.model.encoder.get_model_dimensions()
-                    )
+    def final_eval(self):
+        """Score the held-out set once, after training, and log it as `final_ce`.
 
-                    save_to_llama_3_hf(  # dev fixed values
-                        full_state,
-                        save_dir=get_full_checkpoint_path(self.checkpoint.save.path),
-                        dmodel=dmodel,
-                        dff=dff,
-                        n_att_heads=n_att_heads,
-                        n_kvatt_heads=n_kvatt_heads,
-                        head_dim=head_dim,
-                        nlayers=nlayers,
-                    )
-            elif self.checkpoint.save.type == "pc_finalize":
-                self.save_pc_finalized_checkpoint()
+        The periodic eval reads `n_eval_steps` batches so it stays cheap enough to run
+        during training. This one reads the whole held-out set, which
+        `_dataset/fineweb.yaml` pins to 8192 samples of 2048 tokens -- the same samples
+        for every run, so the number is comparable across them.
+
+        It runs before the final checkpoint on purpose. A subclass's final save may
+        consume the model -- rewriting its parameters, or dropping them off rank 0 --
+        so a score taken afterwards would be of whatever the save left behind.
+        """
+        if self.eval_dataloader is None:
+            logger.info("No eval dataloader; skipping the final eval.")
+            return
+
+        dataset = getattr(self.eval_dataloader, "dataset", None)
+        max_samples = getattr(dataset, "max_samples", None)
+        batches = iter(self.eval_dataloader)
+        if max_samples is None:
+            # An uncapped eval stream never ends, so read the periodic eval's budget
+            # rather than hang. Set max_samples on the eval dataset for a fixed set.
+            logger.warning(
+                "Eval dataset has no max_samples, so the stream is endless; "
+                f"final_ce will cover {self.n_eval_steps} batches instead of a fixed set."
+            )
+            batches = itertools.islice(batches, self.n_eval_steps)
+
+        self.model.eval()
+        # Accumulate a weighted sum and a count rather than a list of batch means. The
+        # last batch of a fixed-size set is usually short, and with world_size_independent
+        # the ranks get within one sample of each other but not exactly the same number,
+        # so a mean of means is weighted wrong on both counts.
+        loss_sum = torch.zeros((), device=self.device, dtype=torch.float64)
+        n_samples = torch.zeros((), device=self.device, dtype=torch.float64)
+        skipped = 0
+        with torch.no_grad():
+            for batch in batches:
+                size = batch.shape[0]
+                if size % self.gradient_accumulation_steps:
+                    # calculate_loss splits the batch into gradient_accumulation_steps
+                    # chunks and divides each chunk's loss by that same number. On a
+                    # batch too short to fill every chunk it produces fewer chunks and
+                    # still divides by the full count, so the loss comes back
+                    # proportionally too low. Skipping the stub is better than folding a
+                    # known-wrong number into final_ce; with max_samples a multiple of
+                    # the batch size, which the shipped config is, there is no stub.
+                    skipped += size
+                    continue
+                batch = batch.to(self.device)
+                loss_metrics = self.calculate_loss(batch)
+                loss_sum += loss_metrics.reported_loss.detach().double() * size
+                n_samples += size
+                self.metric_logger.flush_accumulated_metrics()
+
+        # One reduction, after the loop. Reducing inside it would deadlock the moment
+        # two ranks got a different number of batches, which a fixed-size set split
+        # across ranks can easily produce.
+        if dist.is_initialized():
+            dist.all_reduce(loss_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(n_samples, op=dist.ReduceOp.SUM)
+
+        if n_samples.item() == 0:
+            logger.warning("Final eval produced no batches; not logging final_ce.")
+            return
+
+        if skipped:
+            logger.warning(
+                f"Final eval skipped {skipped} samples in batches too short to fill "
+                f"gradient_accumulation_steps={self.gradient_accumulation_steps}; set "
+                f"max_samples to a multiple of the batch size to score all of them."
+            )
+
+        final_ce = (loss_sum / n_samples).item()
+        logger.info(f"final_ce over {int(n_samples.item())} samples: {final_ce}")
+        self.metric_logger.log("final_ce", final_ce)
+        self.metric_logger.flush()
+
+    def save_final_checkpoint(self):
+        """Write the checkpoint that is produced once, when training ends.
+
+        Subclasses that widen SUPPORTED_SAVE_TYPES override this to handle the type they
+        added, and defer to super() for the rest.
+        """
+        if self.checkpoint.save.type in ("nano", "hf_only", "nano_and_hf"):
+            self.save_checkpoint()
+        elif self.checkpoint.save.type == "huggingface":
+            # self.model.unshard() # alternative that might not work for a very large > 1gpu memory models
+            model_state_dict = self.model.state_dict()
+            full_state = cast_state_dict_to_tensors(model_state_dict)
+
+            if os.environ["RANK"] == "0":
+                dmodel, dff, n_att_heads, n_kvatt_heads, head_dim, nlayers = (
+                    self.model.encoder.get_model_dimensions()
+                )
+
+                save_to_llama_3_hf(  # dev fixed values
+                    full_state,
+                    save_dir=get_full_checkpoint_path(self.checkpoint.save.path),
+                    dmodel=dmodel,
+                    dff=dff,
+                    n_att_heads=n_att_heads,
+                    n_kvatt_heads=n_kvatt_heads,
+                    head_dim=head_dim,
+                    nlayers=nlayers,
+                )
+        else:
+            raise ValueError(
+                f"No final-checkpoint writer for save.type="
+                f"'{self.checkpoint.save.type}' in {type(self).__name__}."
+            )
 
     def _preprocess_input(self, batch):  # TODO test it
         input_ids = batch[:, :-1].contiguous()
@@ -281,6 +407,13 @@ class Trainer:
         self.metric_logger.set_step(None)  # disables heavy logging
         losses = []
         eval_fingerprint = []
+        # Restart the eval stream every time. The iterator used to be created once and
+        # carried forward, so each evaluation scored whatever came next rather than the
+        # same held-out samples -- eval loss then moved between evaluations partly
+        # because the data moved, which is not what an eval number is for. The dataset
+        # reseeds in __iter__, so a fresh iterator replays the same samples in the same
+        # order.
+        self.eval_iterator = iter(self.eval_dataloader)
         with torch.no_grad():
             for _ in range(self.n_eval_steps):
                 batch = next(self.eval_iterator)
@@ -365,34 +498,23 @@ class Trainer:
         if save_type is None or save_type in self.SUPPORTED_SAVE_TYPES:
             return
 
-        if save_type in ("hf_only", "nano_and_hf"):
-            raise NotImplementedError(
-                f"save.type='{save_type}' is implemented only by the projected-compression "
-                "trainers (src.projected_compression.trainer.PCTrainer and "
-                "trainer_distillation.PCDistillationTrainer), which override "
-                "save_checkpoint(). For a plain Trainer use save.type='nano', or "
-                "'huggingface' to export through src.core.conversion_to_hf."
-            )
-
         raise ValueError(
             f"Unknown checkpoint save.type='{save_type}'. {type(self).__name__} supports: "
             f"{', '.join(self.SUPPORTED_SAVE_TYPES)}."
         )
 
     def save_checkpoint(self):
-        save_type = self.checkpoint.save.type  # "nano" | "huggingface" | "pc_finalize"
+        save_type = self.checkpoint.save.type  # see SUPPORTED_SAVE_TYPES
         checkpoint_folder = step_checkpoint_path(self.checkpoint.save.path, self.step)
 
         # Fail before writing anything rather than part-writing a checkpoint.
         self._validate_save_type()
 
-        if save_type in ("huggingface", "pc_finalize"):
+        if save_type in self.FINAL_ONLY_SAVE_TYPES:
             # These are written once, when training ends, by train(). Reaching here means
             # periodic checkpointing was switched on for them, which used to write the
             # training state and no model at all -- a checkpoint interval that silently
-            # produced nothing. pc_finalize additionally cannot run mid-training:
-            # finalize_projection_weights() merges the projections into the weights in
-            # place and would corrupt the run.
+            # produced nothing.
             raise NotImplementedError(
                 f"Periodic checkpointing is not implemented for save.type='{save_type}', "
                 "which is written once when training ends. Set "
@@ -433,27 +555,4 @@ class Trainer:
                 step=self.step,
                 processed_tokens=self.processed_tokens,
                 metric_logger=self.metric_logger,
-            )
-
-    def save_pc_finalized_checkpoint(self):
-        with torch.no_grad():
-            finalize_projection_weights(self.model)
-            model_state_dict = cast_state_dict_to_tensors(self.model.state_dict())
-
-        if os.environ["RANK"] == "0":
-            checkpoint_folder = step_checkpoint_path(
-                self.checkpoint.save.path, self.step
-            )
-            os.makedirs(checkpoint_folder, exist_ok=True)
-            checkpoint_path = (
-                f"{checkpoint_folder}/{self.checkpoint.save.model_checkpoint_filename}"
-            )
-            state_to_save = {
-                "model": model_state_dict,
-                "optim": None,
-                "scheduler": None,
-            }
-            torch.save(state_to_save, checkpoint_path)
-            logger.info(
-                f"Saved non-sharded Finalized PC model checkpoint in '{checkpoint_path}'"
             )

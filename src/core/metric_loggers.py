@@ -157,6 +157,13 @@ def get_metric_logger(
 ):
     _metric_logger = None
 
+    # Callers reach this from several places, and one of them used to hand over a plain
+    # dict (instantiate(..., _convert_="all")), which attribute access cannot read --
+    # it killed both mem-eff -> HF conversion configs. Both forms describe the same
+    # config, so normalise rather than making every caller remember which it holds.
+    if isinstance(metric_logger_config, dict):
+        metric_logger_config = OmegaConf.create(metric_logger_config)
+
     if metric_logger_config.type == "wandb":
         wandb_run_id = None if metric_logger_config.new_wandb_job else tracker_run_id
         rank = int(os.environ.get("RANK", 0))

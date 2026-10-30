@@ -39,8 +39,18 @@ class TrainingState(Stateful):
 
 
 def step_checkpoint_path(path, step):
+    """The folder a checkpoint for `step` is written to.
+
+    `Trainer.step` starts at `start_step - 1`, so it is -1 before the first step runs.
+    A run with `n_steps: 0` -- which is how a finalize or conversion pass is configured
+    -- never advances it, and `_should_save_final_checkpoint` is satisfied at
+    `step >= n_steps - 1`, so the checkpoint was written to a folder literally named
+    `step_-1`. Nothing downstream parses that, but it is a negative index leaking into
+    a path, and it is what an operator has to go looking for after a finalize run.
+    Such a pass has completed no steps, so it is step 0.
+    """
     full_config_path = get_full_checkpoint_path(path)
-    return f"{full_config_path}/step_{step}"
+    return f"{full_config_path}/step_{max(step, 0)}"
 
 
 def save_training_state(
@@ -60,7 +70,7 @@ def save_training_state(
     )
 
     logger.info(
-        f"Saved training state in '{save_config.path}/{save_config.training_state_filename}'"
+        f"Saved training state in '{path}/{save_config.training_state_filename}'"
     )
 
 

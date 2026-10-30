@@ -10,6 +10,11 @@ import torch
 import pytest
 from src.projected_compression.convert_memeff_to_hf import load_pc_state_dict_to_llama
 
+# AutoConfig.from_pretrained reaches the hub for meta-llama/*, which is gated. It
+# resolves from the local cache on a workstation or cluster, but a bare CI runner
+# has neither the cache nor a token, so this module is deselected there.
+pytestmark = pytest.mark.network
+
 
 def _make_state_dict(dmodel, dff, n_layers, q_heads, kv_heads, head_dim, vocab_size):
     sd = {

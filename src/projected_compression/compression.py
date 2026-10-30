@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 
-from main import get_device
-
 
 def get_nested_attr(module, attr_path):
     attrs = attr_path.split(".")
@@ -90,10 +88,21 @@ def calculate_dimension_importances(model: nn.Module, topk_dmodel, topk_dff):
 
 
 def initialize_projection_weights(
-    model: nn.Module, dmodel_top_indices, dff_top_indices
+    model: nn.Module, dmodel_top_indices, dff_top_indices, factory_kwargs=None
 ):
-    model.head.linear.init_projections(dmodel_top_indices, None)
-    model.embedding.init_projection(dmodel_top_indices)
+    # Build the projections where the model already is. They used to be created with no
+    # device at all, i.e. always on CPU, while init_compression put the top-k indices on
+    # whatever get_device() returned. On a machine with a GPU that is cuda, so indexing
+    # a CPU tensor with cuda indices raised "indices should be either on cpu or on the
+    # same device as the indexed tensor" and this whole path could not run.
+    if factory_kwargs is None:
+        reference = next(model.parameters())
+        factory_kwargs = {"device": reference.device, "dtype": reference.dtype}
+
+    model.head.linear.init_projections(
+        dmodel_top_indices, None, factory_kwargs=factory_kwargs
+    )
+    model.embedding.init_projection(dmodel_top_indices, **factory_kwargs)
 
     cloned_data = model.head.norm.weight.data.clone()
     model.head.norm.weight = torch.nn.Parameter(cloned_data[dmodel_top_indices])
@@ -116,7 +125,7 @@ def initialize_projection_weights(
 
         for layer_name, in_topk_indices, out_topk_indices in layers_to_init_projections:
             get_nested_attr(block, layer_name).init_projections(
-                in_topk_indices, out_topk_indices
+                in_topk_indices, out_topk_indices, factory_kwargs=factory_kwargs
             )
 
         cloned_data = block.attention_layer.norm.weight.data.clone()
@@ -139,7 +148,9 @@ def init_compression(
     for param in model.parameters():
         param.requires_grad = False
 
-    device = get_device()
+    # Follow the model rather than get_device(): apply_functions runs after main.py has
+    # already placed the model, and a mismatch here is what broke this path on GPU.
+    device = next(model.parameters()).device
 
     dimensions_importances = torch.load(dimensions_importances_path)
     dmodel_importances = dimensions_importances["dmodel_importances"]

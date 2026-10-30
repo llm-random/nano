@@ -10,7 +10,6 @@ defaults:
 common:
   sequence_length: 512
   batch_size: 512
-  batch_size: 16
 
 
 trainer:

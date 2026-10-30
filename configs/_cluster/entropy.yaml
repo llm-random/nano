@@ -1,6 +1,18 @@
 infrastructure:
   server: entropy
   max_concurrent_jobs: null
+
+  # No cluster_cemetery_dir here, deliberately: entropy's cemetery belongs in $HOME.
+  #
+  # helios and lem both redirect it to project storage, so harmonising entropy to match
+  # looks like tidying. It would break submission. $PROJECT_HOME_PATH is
+  # /storage_nvme_4, which is mounted on h100a and nowhere else -- checked on a100a and
+  # asusgpu1, both of which report no /storage_nvme_4 and both of which see $HOME. A
+  # cemetery clone under it would fail on every partition except h100.
+  #
+  # $HOME is NFS and visible from all nodes, 11T with ~8T free and no tight quota, which
+  # is exactly what the cemetery needs. The reasons helios and lem move it away -- an
+  # inode quota there, a 20G space quota there -- do not apply here.
   slurm:
     cpus_per_gpu: 14
     gres: ???

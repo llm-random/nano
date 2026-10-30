@@ -15,6 +15,7 @@ common:
   n_blocks: 4
   vocab_size: 128256
   sequence_length: 128
+  batch_size: 16
 
 
 trainer:
