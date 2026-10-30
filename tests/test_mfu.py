@@ -118,10 +118,13 @@ def test_the_first_step_logs_no_throughput():
 
 
 def test_tokens_per_second_is_the_token_delta_over_the_time_delta(monkeypatch):
+    """Runs identically on a CPU box and a GPU node: the lazy FLOPs lookup is
+    forced off so the stub never reaches get_device_name with its fake device."""
     import src.core.trainer as trainer_module
 
     clock = iter([100.0, 102.0])
     monkeypatch.setattr(trainer_module.time, "time", lambda: next(clock))
+    monkeypatch.setattr(trainer_module.torch.cuda, "is_available", lambda: False)
     stub = _throughput_stub()
     stub._log_throughput()
     stub.processed_tokens = 1_048_576
@@ -129,7 +132,7 @@ def test_tokens_per_second_is_the_token_delta_over_the_time_delta(monkeypatch):
     logged = stub.metric_logger.logged
     assert logged["train/step_time"] == pytest.approx(2.0)
     assert logged["train/tokens_per_s"] == pytest.approx(1_048_576 / 2.0)
-    # on CPU there is no device to look up, so no mfu -- and no crash
+    # with no CUDA device there is nothing to look up, so no mfu -- and no crash
     assert "train/mfu" not in logged
 
 
