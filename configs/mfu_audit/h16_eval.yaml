@@ -1,0 +1,36 @@
+# Stage-3 audit E5: h16 with the eval path ON -- periodic eval at steps 10 and
+# 20, and the final_ce pass over the fixed fineweb holdout. First GPU exercise of
+# the stage-1 final_eval rewrite at real sequence length. Not an MFU measurement.
+defaults:
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12
+  gradient_accumulation_steps: 32 # from the E3 probe
+  eval_interval: 10
+  n_eval_steps: 2
+  scheduler:
+    warmup_steps: 10
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:1
+    job-name: mfu_h16_eval
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-mfu-audit
+    name: mfu_h16_eval_s2048_b512
+    tags:
+      - mfu_audit
+      - h16
