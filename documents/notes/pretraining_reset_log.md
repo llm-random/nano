@@ -90,3 +90,6 @@ One line per event; details live in the stage plan documents, not here.
   tiny_* and _misc, generate_eval_sbatch_script, ENTRY_POINTS trimmed). A new
   eval harness gets written from scratch later; lm_eval stays in pixi deps until
   the deferred lock re-solve. Gate: 120 passed.
+- **2026-10-30 15:05** PC paper artifacts (evals/ 111 files, benchmarks/,
+  influences_figs/) and personal scratch (configs/_mas/) removed; stale _mas/_eval
+  mentions tidied in hygiene test and expand_config docstring. Gate: 120 passed.

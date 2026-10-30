@@ -252,7 +252,6 @@ KNOWN_USER_SPECIFIC = {
 USER_SPECIFIC_PATTERNS = ("j321m", "crewtool", "m1kush", "ggwozdz", "mstefaniak")
 
 # Framework component groups: inherited by every experiment, so they must stay neutral.
-# configs/_mas is a personal overlay and is deliberately not one of these.
 FRAMEWORK_CONFIG_GROUPS = (
     "_cluster",
     "_model",
@@ -260,7 +259,6 @@ FRAMEWORK_CONFIG_GROUPS = (
     "_dataset",
     "_checkpoints",
     "_misc",
-    "_eval",
 )
 
 
@@ -268,9 +266,8 @@ def test_no_new_account_names_in_shared_config():
     """Shared config keys per-user paths on $USER, never on an account name.
 
     Scoped to the framework component groups -- the config every project inherits.
-    configs/_mas is deliberately excluded: it is a personal overlay directory whose
-    whole purpose is per-account paths. Experiment configs naming one researcher's
-    scratch path are a different matter and are not covered here either.
+    Experiment configs naming one researcher's scratch path are a different matter
+    and are not covered here.
     """
     offenders = []
     for path in _tracked(

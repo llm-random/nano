@@ -13,11 +13,11 @@ test, a single-GPU repro) is to expand it first, which is what this does.
 
 Usage:
 
-    python scripts/expand_config.py --config-path configs/pc_project_mas \\
-        --config-name llama_1B_prune -o /tmp/prune.yaml \\
+    python scripts/expand_config.py --config-path configs \\
+        --config-name tiny_remote -o /tmp/tiny.yaml \\
         trainer.n_steps=6 infrastructure.metric_logger.type=stdout
 
-    python main.py --config-path=/tmp --config-name=prune
+    python main.py --config-path=/tmp --config-name=tiny
 
 `--grid-index` picks which grid point to emit when the config expands to several
 (default 0). `--list` prints how many there are and exits.
