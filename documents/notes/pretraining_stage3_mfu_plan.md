@@ -138,3 +138,10 @@ Every job: `gres=gpu:1`, submitted via `run_exp.py`, one at a time, ~5–10 min 
 - **2026-10-30 (dtype)**: no autocast knob — FSDP2's hard-coded
   MixedPrecisionPolicy (bf16 compute / fp32 reduce) is the production path and is
   what the audit measures. fp32 comparison runs dropped.
+- **2026-10-30 (dtype matrix, final form)**: the per-model "fp32/tf32 and bf16"
+  measurements are satisfied by fp32 control runs at all three sizes (h12/h16/h20)
+  with `trainer.distributed=null` — a plain fp32 module, which also stands in for
+  Phase 1.3's autocast knob (the toggle exists as an override rather than a config
+  field; the FSDP2 path is bf16 by construction). fp32 MFU is reported against
+  BOTH bases: the plan's tf32 tensor-core peak (495e12, H100 SXM) and the FP32
+  vector peak (67e12) — the measured ~46 TFLOP/s shows TF32 is off by default.

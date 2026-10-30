@@ -27,12 +27,15 @@ probes (largest that fits). MFU grows with model size as utilization should —
 **no efficiency anomaly found**; the 20%-on-H100 investigation tripwire never fired.
 Readings: mqa buys h16 +8% tokens/s; ~28–31% without torch.compile or activation
 checkpointing is a healthy baseline, and both are the obvious future levers.
-The fp32 control (`trainer.distributed=null`, plain module) is **6.0× slower**
-than the FSDP2-bf16 production path; *its 4.6% is against the bf16 peak — against
-the true fp32 peak (~67 TFLOP/s) it runs ~68%, i.e. compute-bound at fp32 rates
-with TF32 off. Verdict of the dtype comparison the plan asked for: bf16 stays the
-default, now by measurement rather than by default. Its first loss, 11.2198
-un-quantized, also pins the CPU-fp32 control (11.2235) to three decimals.
+The fp32 controls (`trainer.distributed=null`, plain module) are ~**6× slower**
+than the FSDP2-bf16 production path. *Starred MFU is against the bf16 peak for
+column comparability; the proper bases for h16-fp32's 45.8 TFLOP/s achieved are
+**9.3% of the plan's tf32 tensor-core peak (495e12)** — proving TF32 is off by
+default (PyTorch ships `allow_tf32=False`) — and **68% of the FP32 vector peak
+(67e12)**, i.e. the plain path is compute-bound at fp32-vector rates. Verdict of
+the dtype comparison: bf16 stays the default, now by measurement. h16-fp32's
+first loss, 11.2198 un-quantized, also pins the CPU-fp32 control (11.2235) to
+three decimals.
 
 ### The E7 ordering tripwire, resolved with evidence
 
