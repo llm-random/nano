@@ -26,10 +26,10 @@ trainer:
   train_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.core.datasets.llama_tokenize_fn
+        _target_: src.core.datasets.gpt_neox_tokenize_fn
       
 
   eval_dataloader:
     dataset:
       tokenize_fn:
-        _target_: src.core.datasets.llama_tokenize_fn
+        _target_: src.core.datasets.gpt_neox_tokenize_fn

@@ -2,7 +2,7 @@ defaults:
   - _misc@_here_: default
   - _dataset@_here_: fineweb
   - _cluster@_here_: entropy
-  - _model@_here_: tiny
+  - _model/h_balanced@_here_: h4
   - _trainer@_here_: llama
 
   - _checkpoints@_here_: none

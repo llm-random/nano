@@ -24,7 +24,7 @@
 # Expect a `final_ce over 8 samples` line. 8, not 8 * anything.
 defaults:
   - _cluster@_here_: local
-  - _model@_here_: tiny
+  - _model/h_balanced@_here_: h4
   - _trainer@_here_: llama
   - _dataset@_here_: fineweb
   - _checkpoints@_here_: none

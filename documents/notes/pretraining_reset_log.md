@@ -149,3 +149,17 @@ One line per event; details live in the stage plan documents, not here.
   A->F now. The two flagged calls (RoPE 10000/no-scaling; vocab padded if NeoX
   measures >50257) proceed as planned defaults — each is a one-line change if Maciej
   prefers otherwise.
+- **2026-10-30 14:50** Phase A verified on GitHub: both workflows ran green on the
+  branch (run 41063021206/312).
+- **2026-10-30 14:55** Phases B+C landed as ONE commit (deviation, logged why): the
+  H family's vocab_size 50304 and the tokenizer switch are inseparable — with the
+  old meta-llama tokenizer (128256 ids) tiny_local crashed with an embedding
+  IndexError the moment the vocab shrank. NeoX measured len 50277 / max id 50276 →
+  padded 50304; concept doc's 50257 to be corrected in Phase F. RoPE set to
+  10000/no-scaling (flagged). configs/_model is now only h_balanced/{base,h4,h16,
+  h24}; orphaned llama/tiny.yaml caught by the hygiene test and removed.
+  llama_tokenize_fn deleted (gated repo); gpt2_tokenize_fn stays for the offline
+  smoketest + direct tests. Phase B+C baseline: tiny_local(H4+NeoX, 20 steps)
+  step19 train/loss 10.97402572631836; fineweb smoketest (pins gpt2 on purpose —
+  offline) final_ce 11.041799545288086, unchanged from pre-switch as expected.
+  Gate: 126 passed, black clean, CI green.

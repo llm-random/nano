@@ -1,0 +1,7 @@
+# H=24: the def_800-class model: 1003.8M params, 849.4M non-embedding.
+defaults:
+  - base
+  - _self_
+
+common:
+  h: 24

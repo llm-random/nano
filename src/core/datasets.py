@@ -35,14 +35,18 @@ def gpt2_tokenize_fn():
     return tokenize_function
 
 
-def llama_tokenize_fn():
-    tokenizer = AutoTokenizer.from_pretrained(
-        "meta-llama/Llama-3.1-8B", add_bos_token=True, add_eos_token=True, legacy=False
-    )
+def gpt_neox_tokenize_fn():
+    """GPT-NeoX tokenizer (EleutherAI/gpt-neox-20b): ~50k vocab, ungated repo.
+
+    len(tokenizer) is 50277 (max id 50276); model configs pad the embedding to
+    50304, the next multiple of 128. See configs/_model/h_balanced/base.yaml.
+    """
+    tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neox-20b")
 
     def tokenize_function(examples):
+        texts = [text + tokenizer.eos_token for text in examples["text"]]
         batch_encodings = tokenizer(
-            examples["text"],
+            texts,
             truncation=False,
             max_length=int(1e10),
         )

@@ -1,0 +1,7 @@
+# H=16: the def_300-class model: 354.6M params, 251.7M non-embedding.
+defaults:
+  - base
+  - _self_
+
+common:
+  h: 16

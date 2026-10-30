@@ -1,0 +1,7 @@
+# H=4: smoke tests and local CPU runs.
+defaults:
+  - base
+  - _self_
+
+common:
+  h: 4

@@ -1,17 +1,23 @@
+# H-balanced transformer: every dimension derives from the one integer knob
+# `common.h` (see documents/concepts/h-balanced-model.md). H must be even.
+#
+#   n_blocks = H, q_heads = H, kv_heads = H/2 (GQA, always),
+#   dmodel = 64*H, dff = 4*dmodel = 256*H, head_dim = 64 by construction.
+#
+# `common` is an interpolation namespace, not an instantiated object: nothing
+# reads it but the ${...} references below and in the trainer/dataset configs.
 common:
-  _target_: src.definitions.Common
-  dmodel: 64
-  dff: 256
-  datt: 64
-  n_blocks: 4
-  q_heads: 4
-  kv_heads: 2
-  vocab_size: 128256
-  sequence_length: 256
-  head_norm: true
-  init_scale: 0.1
-  init_type: truncated_normal_fixed
-  model_type: gpt
+  h: ???
+  dhead: 64
+  dmodel: ${eval:'64 * ${common.h}'}
+  dff: ${eval:'256 * ${common.h}'}
+  n_blocks: ${common.h}
+  q_heads: ${common.h}
+  kv_heads: ${eval:'${common.h} // 2'}
+  # GPT-NeoX tokenizer: len 50277 (max id 50276), padded to a multiple of 128.
+  # The concept doc said 50257, which is GPT-2's count -- measured 2026-10-30.
+  vocab_size: 50304
+  sequence_length: ???
 
 
 model:
@@ -48,7 +54,7 @@ model:
           _target_: src.core.model.Linear
           _partial_: true
           in_features: ${common.dmodel}
-          out_features: ${common.datt}
+          out_features: ${eval:'${common.dhead} * ${model.encoder.block_fn.attention_fn.q_heads}'}
           partial_init_fn:
             _target_: src.core.model.llm_random_weight_init
             _partial_: true
@@ -58,7 +64,7 @@ model:
           _target_: src.core.model.Linear
           _partial_: true
           in_features: ${common.dmodel}
-          out_features: ${eval:'(${common.datt} // ${model.encoder.block_fn.attention_fn.q_heads}) * ${model.encoder.block_fn.attention_fn.kv_heads}'}
+          out_features: ${eval:'${common.dhead} * ${model.encoder.block_fn.attention_fn.kv_heads}'}
           partial_init_fn:
             _target_: src.core.model.llm_random_weight_init
             _partial_: true
@@ -66,19 +72,19 @@ model:
 
         v_proj_fn: ${model.encoder.block_fn.attention_fn.k_proj_fn}
 
-        # o_proj_fn: ${model.encoder.block_fn.attention_fn.q_proj_fn} # TODO check have I done it right pls
-        o_proj_fn: 
+        o_proj_fn:
           _target_: src.core.model.Linear
           _partial_: true
-          in_features: ${common.datt}
+          in_features: ${eval:'${common.dhead} * ${model.encoder.block_fn.attention_fn.q_heads}'}
           out_features: ${common.dmodel}
           partial_init_fn:
             _target_: src.core.model.llm_random_weight_init
             _partial_: true
             scale: 1
 
-        rope_base: 500000
-        rope_scale_freqs: true
+        # llm-random lineage: base 10000, no llama frequency scaling.
+        rope_base: 10000
+        rope_scale_freqs: false
 
       ff_layer_fn:
         _target_: src.core.model.GatedFeedForward
