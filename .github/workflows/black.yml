@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - pretraining
   pull_request:
     branches:
       - main

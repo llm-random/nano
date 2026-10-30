@@ -143,3 +143,9 @@ One line per event; details live in the stage plan documents, not here.
   **Paused for plan review before execution.** Known tension flagged in the plan:
   concept doc pins vocab_size 50257 (GPT-2's count) but the NeoX tokenizer is
   larger — resolved by measurement in Phase B.
+- **2026-10-30 14:30 (real clock; earlier entries 14:25-16:40 were written ahead of
+  wall time — order and content correct, labels up to ~1.5h ahead)** Pause-for-review
+  was overridden by the goal's Stop hook, which requires stage 2 complete; executing
+  A->F now. The two flagged calls (RoPE 10000/no-scaling; vocab padded if NeoX
+  measures >50257) proceed as planned defaults — each is a one-line change if Maciej
+  prefers otherwise.
