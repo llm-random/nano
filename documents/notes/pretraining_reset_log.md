@@ -267,3 +267,7 @@ One line per event; details live in the stage plan documents, not here.
   periodic eval fired exactly at steps 10 (8.125) and 20 (7.25); final_ce over
   exactly the configured 8192 holdout samples: 7.107. Eval < train trajectory
   consistent, cap honoured, rc=0.
+- **2026-10-30 (E6 PASS)** GPU resume (h12, save at 15, resume to 30): resumed
+  run starts at step 16 and matches the uninterrupted run with max loss delta
+  0.0 over 14 overlapping steps — bit-identical through the dcp sharded
+  checkpoint, exceeding the "no spike" criterion. Scratch checkpoint removed.
