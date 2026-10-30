@@ -114,3 +114,12 @@ One line per event; details live in the stage plan documents, not here.
    — deferred since stage 2 replaces those configs anyway.
 4. **pixi.toml still carries now-unused deps** (lm_eval at least) — untouched by
    design; removing them means a lock re-solve with pixi ≤0.67.
+- **2026-10-30 15:30** Final sweep: dead smollm tokenizer fns dropped from
+  datasets.py; the /slicegpt/ ignore rule removed (*mastest* and pc_paper/ rules
+  kept — they shield untracked local scratch in the main checkout). Remaining
+  "PC/llmrandom" strings are deliberate: historical notes, cemetery infra paths,
+  the __llmrandom_cluster_config resolver name, llm_random_weight_init.
+- **2026-10-30 15:30** STAGE 1 CLOSED. Final state: 74 tracked files (from 236),
+  120 CI tests + 3 slow e2e green, seeded tiny_local and fineweb smoketest
+  bit-identical to the pre-reset baseline, black clean. Only checkpoint flow:
+  fresh init + nano save/resume. Pushed to origin/pretraining.
