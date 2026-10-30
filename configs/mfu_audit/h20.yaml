@@ -1,0 +1,38 @@
+# Stage-3 backbone/MFU audit (documents/notes/pretraining_stage3_mfu_plan.md):
+# 30 steps of h20 on one entropy H100, 512 sequences x 2048 tokens per step
+# (1,048,576 tokens). Eval and checkpointing are off so nothing but the training
+# loop sits inside the timing window; gradient_accumulation_steps starts safe and
+# the micro-batch probe overrides it per model.
+defaults:
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12
+  gradient_accumulation_steps: 64 # micro-batch 8 x 2048; the probe tunes this
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:1
+    job-name: mfu_h20
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-mfu-audit
+    name: mfu_h20_s2048_b512
+    tags:
+      - mfu_audit
+      - h20

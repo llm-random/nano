@@ -206,3 +206,13 @@ One line per event; details live in the stage plan documents, not here.
   on entropy, h12/h16/h20, seq 2048, 512-seq batches (1,048,576 tokens/step), MFU
   measured into a new wandb project. Plan written:
   documents/notes/pretraining_stage3_mfu_plan.md. Awaiting green light.
+- **2026-10-30 15:50** Stage-3 execution started (green light via /goal). P0.1+P0.2
+  done: h12/h20 instance configs (exact param tests extended to 12/20),
+  configs/mfu_audit/{h12,h16,h20}.yaml (entropy h100, seq 2048, batch 512, 30
+  steps, warmup 10, lr 2^-12, ga 64 start, eval+checkpointing off, wandb project
+  nano-mfu-audit). h16 left the orphan allowlist (mfu_audit references it).
+  DEVIATION from plan 1.3: the FSDP2 path hard-codes bf16 compute
+  (MixedPrecisionPolicy param_dtype=bfloat16, reduce fp32) and single-GPU cluster
+  runs go through it — so no autocast knob is added; the audit logs the actual
+  dtype and MFU is measured on the production (bf16) path only. fp32 comparison
+  runs dropped (halves the job count); say the word to add them back.

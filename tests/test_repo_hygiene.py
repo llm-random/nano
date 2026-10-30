@@ -471,7 +471,6 @@ def test_no_requires_pixi_bound_is_reintroduced_without_a_reason():
 # the sizes stage-3 runs will compose. Remove each from this list when a config
 # references it; anything else showing up here is a defect.
 KNOWN_ORPHAN_MODEL_CONFIGS: set = {
-    "configs/_model/h_balanced/h16.yaml",
     "configs/_model/h_balanced/h24.yaml",
 }
 

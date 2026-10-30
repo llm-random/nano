@@ -1,0 +1,7 @@
+# H=12: 183.4M params, 106.2M non-embedding.
+defaults:
+  - base
+  - _self_
+
+common:
+  h: 12

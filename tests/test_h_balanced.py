@@ -31,7 +31,7 @@ def _h_model(h):
         return instantiate(cfg.model, _convert_="all")
 
 
-@pytest.mark.parametrize("h", [4, 16, 24])
+@pytest.mark.parametrize("h", [4, 12, 16, 20, 24])
 def test_every_dimension_follows_the_knob(h):
     model = _h_model(h)
     dmodel = 64 * h
@@ -58,7 +58,7 @@ def test_every_dimension_follows_the_knob(h):
     assert head.linear.weight.shape == (VOCAB, dmodel), "embedding and head are untied"
 
 
-@pytest.mark.parametrize("h", [4, 16, 24])
+@pytest.mark.parametrize("h", [4, 12, 16, 20, 24])
 def test_the_closed_form_parameter_count_is_exact(h):
     """non-embedding = 15*d^2 per layer = 61440*H^3; emb+head = 2*V*64H; plus the
     RMSNorm weights (two per block and one in the head, each dmodel wide), which
