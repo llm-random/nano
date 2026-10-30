@@ -276,3 +276,12 @@ One line per event; details live in the stage plan documents, not here.
   coherent (mqa fastest; gqa==mha wall-clock since kv width is ~0.3% of FLOPs at
   h16; mixed in between), all criteria green. Results note written:
   documents/notes/backbone_mfu_audit.md (table + wandb links + bugs + parked).
+- **2026-10-30 (post-review)** Two gaps in the record closed. (1) E7 tripwire ran
+  explicitly: gqa < mha by 0.47% tokens/s triggered the kv-wiring check; the runs'
+  live-model-measured GFLOPs/token (gqa 2.221 / mha 2.322 / mqa 2.133 / mixed
+  2.177, from the job logs) match the correct-width closed forms to three digits,
+  mixed landing exactly on the gqa/mqa midpoint — wiring proven correct, inversion
+  is sub-noise wall-clock. Audit table's mha/mqa/mixed params+GFLOPs corrected to
+  these measured values (my first entries were eyeballed). (2) DEVIATION, reason
+  now recorded: E6 resume ran on h12 instead of the plan's h16 — the resume path
+  has no size-dependent branch and h12 halves a double-training job's GPU time.

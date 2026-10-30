@@ -16,18 +16,29 @@ MFU window = steps 10–29. wandb project:
 | h12 | 183.4M | 1.095 | 32×16 | 227,158 | **25.2%** | 4.614s (0.7%) | 55.5 GiB | [2xyxl874](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2xyxl874) |
 | h16 | 354.6M | 2.22 | 16×32 | 123,367 | **27.7%** | 8.498s (1.6%) | 44.9 GiB | [sfupemo2](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/sfupemo2) |
 | h20 | 620.2M | 3.97 | 16×32 | 76,858 | **30.8%** | 13.636s (0.1%) | 65.9 GiB | [32gyzfzk](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/32gyzfzk) |
-| h16 mha | 358.8M | 2.27 | 16×32 | 123,950 | 29.1% | 8.456s (0.1%) | — | [2f6nfosg](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2f6nfosg) |
-| h16 mqa | 350.9M | 2.17 | 16×32 | 133,322 | 28.8% | 7.863s (1.5%) | — | [2fp8a1w7](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2fp8a1w7) |
-| h16 gqa+mqa every_2nd | — | — | 16×32 | 127,991 | 28.2% | 8.191s (1.6%) | — | [alj69rdy](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/alj69rdy) |
+| h16 mha | 371.4M | 2.322 | 16×32 | 123,950 | 29.1% | 8.456s (0.1%) | — | [2f6nfosg](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2f6nfosg) |
+| h16 mqa | 339.9M | 2.133 | 16×32 | 133,322 | 28.8% | 7.863s (1.5%) | — | [2fp8a1w7](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2fp8a1w7) |
+| h16 gqa+mqa every_2nd | 347.3M | 2.177 | 16×32 | 127,991 | 28.2% | 8.191s (1.6%) | — | [alj69rdy](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/alj69rdy) |
 
 Conventions: FLOPs/token = `6·P + 12·s·datt·L` measured from the live model (PaLM,
 no causal discount); peak = 989 TFLOP/s dense bf16; micro-batches from per-model OOM
 probes (largest that fits). MFU grows with model size as utilization should —
 **no efficiency anomaly found**; the 20%-on-H100 investigation tripwire never fired.
-Readings: mqa buys h16 +8% tokens/s; gqa vs mha is wall-clock identical here (kv
-width is ~0.3% of FLOPs at this size — gqa's win is kv-cache memory at inference,
-not training speed). ~28–31% without torch.compile or activation checkpointing is a
-healthy baseline; both are the obvious future levers.
+Readings: mqa buys h16 +8% tokens/s; ~28–31% without torch.compile or activation
+checkpointing is a healthy baseline, and both are the obvious future levers.
+
+### The E7 ordering tripwire, resolved with evidence
+
+The plan expected `mqa ≥ gqa ≥ mha` in tokens/s and named the kv wiring suspect on
+a violation. Measured: gqa 123,367 < mha 123,950 — a 0.47% inversion, so the check
+was run. The GFLOPs/token each run measured **from its own live parameters** are
+gqa 2.221, mha 2.322, mqa 2.133, mixed 2.177 — matching the closed forms for
+*correct* kv widths to three digits (mha carries exactly +2·8·64·1024 k/v rows per
+layer, mqa exactly the fewer, and the mixed stack is exactly the gqa/mqa midpoint,
+eight layers each). The wiring is therefore proven right on the cluster; the
+inversion is wall-clock noise (0.47%, inside the windows' cv — gqa's was the
+noisiest at 1.6%), reflecting that gqa's kv saving is ~0.3% of FLOPs at this size:
+its real win is kv-cache memory at inference, not training speed.
 
 ## Correctness results (the "does everything still work" half)
 
@@ -39,7 +50,7 @@ healthy baseline; both are the obvious future levers.
 | First loss of a fresh model | 11.19–11.25 ≈ CPU-fp32 control 11.2235 (≈ln V + 0.4 at seq 2048; GPU is one bf16 ulp away) |
 | Token accounting | exact: 30 × 1,048,064 on every run |
 | Periodic eval + final_ce at seq 2048 (E5) | fired at steps 10/20 (8.125→7.25); final_ce over **exactly** 8192 holdout samples: 7.107 ([7y2zup9q](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/7y2zup9q)) |
-| Resume through a dcp checkpoint on GPU (E6) | **bit-identical**: max loss delta 0.0 over 14 overlapping steps |
+| Resume through a dcp checkpoint on GPU (E6) | **bit-identical**: max loss delta 0.0 over 14 overlapping steps. Run on h12, not the plan's h16 (deviation): the save/resume path has no model-size-dependent branch, and h12 halves the two-training job's GPU time |
 | Pattern-mixed stack under a real optimizer | gqa+mqa every_2nd trains; loss 11.25→7.19 |
 
 ## Bugs found and fixed (each with a regression test)
