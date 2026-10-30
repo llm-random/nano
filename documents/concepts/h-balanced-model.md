@@ -19,7 +19,7 @@ An *H-balanced* transformer is a model whose whole architecture is derived from 
 | head dim | `dmodel / q_heads = 64` | constant by construction |
 | FF hidden | `dff = 4 · dmodel = 256 · H` | |
 | attention inner width | `datt = dmodel` | the attention stack is as wide as the residual |
-| tokenizer | GPT-NeoX, ≈50k vocab | `vocab_size: 50257` in this repo's configs |
+| tokenizer | GPT-NeoX, ≈50k vocab | len 50277 (max id 50276); `vocab_size: 50304` in configs, padded to a multiple of 128. An earlier revision said 50257, which is GPT-2's count — corrected 2026-10-30 after measuring. |
 
 So `H` fixes depth, width, head count and FF width at once. Nothing is tuned per size: a model is
 named by its `H`, and every dimension follows. `head_dim = 64` is a consequence of
@@ -78,32 +78,37 @@ Q/K projections see [sam-model.md](sam-model.md).
 
 ## Instances in this repo
 
-| Config | H | dmodel | layers | heads | dff | vocab |
-|---|---:|---:|---:|---:|---:|---:|
-| [configs/_model/llmrandom/def_300.yaml](../../configs/_model/llmrandom/def_300.yaml) | 16 | 1024 | 16 | 16 | 4096 | 50257 |
-| [configs/_model/llmrandom/def_800.yaml](../../configs/_model/llmrandom/def_800.yaml) | 24 | 1536 | 24 | 24 | 6144 | 50257 |
+The family lives in [configs/_model/h_balanced/](../../configs/_model/h_balanced/):
+`base.yaml` derives every dimension from `common.h` by interpolation, and an instance
+file is three lines. Shipped sizes:
 
-Two caveats on those two, both predating the current convention: they set `kv_heads = q_heads`
-(no GQA) and they instantiate `FeedForward`, the ungated two-matrix
-FF — which is where the `def_NNN` names come from (304.3M and 833.9M as written, against 354.6M and
-1003.8M for the canonical GQA + gated model). Everything else matches the rule. Quote the table
-above for new models, and recompute if you reuse `def_300`/`def_800` unchanged.
+| Config | H | dmodel | layers | q_heads | kv_heads | dff | params |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| [h4.yaml](../../configs/_model/h_balanced/h4.yaml) | 4 | 256 | 4 | 4 | 2 | 1024 | 29.7M |
+| [h16.yaml](../../configs/_model/h_balanced/h16.yaml) | 16 | 1024 | 16 | 16 | 8 | 4096 | 354.6M |
+| [h24.yaml](../../configs/_model/h_balanced/h24.yaml) | 24 | 1536 | 24 | 24 | 12 | 6144 | 1003.8M |
 
-Their other settings (shared by both, and the defaults to copy for a new size):
-
-- `src.core.model.LayerNorm`, `bias: false`, eps 1e-5 (the Llama configs use `RMSNorm` instead)
-- `RoPEAttention`, `rope_base: 10000`, `rope_scale_freqs: false`
-- `sequence_length: 512`, `head_norm: true`, untied head (`head.linear` is a separate parameter)
-- `init_type: truncated_normal_fixed`, `init_scale: 0.1`, `llm_random_weight_init`
+h16 and h24 are the def_300- and def_800-class sizes (the old `llmrandom/def_*` configs,
+which predated the GQA and gated-FF rules, were removed with the PC project). Family
+defaults, as shipped: gated FF (`GatedFeedForward`), `RMSNorm` (eps 1e-5, the stage-1
+stack's norm — the llm-random instances used `LayerNorm`), `RoPEAttention` with
+`rope_base: 10000`, `rope_scale_freqs: false`, untied head, `llm_random_weight_init`
+scale 1. Attention is selected per layer through the registry — see
+[attention-switching.md](attention-switching.md); the default is `gqa` everywhere.
+`tests/test_h_balanced.py` pins the dimension rules and the exact parameter count.
 
 ## Defining a new one
 
-1. Pick `H` (even). Read `dmodel = 64H`, `dff = 256H`, `n_blocks = H`, `q_heads = H`,
-   `kv_heads = H/2`, `datt = dmodel`.
-2. Copy `configs/_model/llmrandom/def_300.yaml` to `configs/_model/llmrandom/def_<params>.yaml`
-   and set the six `common:` fields. Nothing below `common:` needs to change — every dimension in
-   the model tree is an interpolation of those fields, including the k/v output width, which is
-   computed as `kv_heads · (datt // q_heads)`. Swap `FeedForward` for `LlamaFeedForward` and add
-   the `gate_fn` block (copy it from [llama_3_1.yaml](../../configs/_model/llama_3_1.yaml)) so the
-   FF is gated.
-3. Check the parameter count against the table before launching anything.
+Pick an even `H` and write a three-line instance file next to the others:
+
+```yaml
+defaults:
+  - base
+  - _self_
+
+common:
+  h: 32
+```
+
+Everything else is derived. (`tests/test_repo_hygiene.py` flags a size no experiment
+references, so wire it into a run config or add it to the known list.)

@@ -21,6 +21,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 |---|---|
 | [glossary.md](concepts/glossary.md) | Core vocabulary: HP / HPD / PC / PCD, compression-ratio convention, model dimensions, token budgets, LR convention |
 | [h-balanced-model.md](concepts/h-balanced-model.md) | The *H-balanced* transformer family: one knob `H` fixes depth, width, heads and `dff` |
+| [attention-switching.md](concepts/attention-switching.md) | The attention-type registry: gqa/mha/mqa real, mla/mamba2/gated_deltanet/AME as interfaces, and the per-layer mixing patterns |
 | [sam-model.md](concepts/sam-model.md) | *SAM* (stateless memory attention): the same backbone without the Q and K projections and with no attention cost, plus *SAMm*, its parameter-matched variant (`dff = 4.5·dmodel`) |
 
 ### scripts/

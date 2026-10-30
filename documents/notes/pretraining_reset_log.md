@@ -177,3 +177,15 @@ One line per event; details live in the stage plan documents, not here.
   gqa+mqa mixed H4 trains end-to-end on CPU; an ame-on-every-4th config composes
   and instantiates, failing exactly at the stub's forward. Gate: 153 passed,
   default config still bit-identical to the Phase B+C baseline.
+- **2026-10-30 15:40** Phase F done: h-balanced concept doc updated (vocab 50304
+  measured + corrected; instances table now the h_balanced family; stale def_*
+  how-to replaced — the parameter check is a test now), new
+  concepts/attention-switching.md, docs index updated. STAGE 2 CLOSED. Final:
+  153 CI tests + 3 slow e2e green, black clean, CI green on branch. For Maciej,
+  stage-2 additions to the parked list: (6) RoPE 10000/no-scaling chosen for the
+  H family; (7) vocab_size 50304 (padded NeoX) replacing the doc's 50257;
+  (8) the H family keeps RMSNorm + llm_random_weight_init scale 1 (the stage-1
+  stack's defaults) where the old llm-random instances used LayerNorm +
+  truncated_normal_fixed 0.1; (9) h16/h24 are allowlisted orphans until their
+  first experiment configs; (10) MLA stayed a stub (no CPU reference yet) —
+  real implementations of mla/mamba2/gated_deltanet/ame are stage 3.
