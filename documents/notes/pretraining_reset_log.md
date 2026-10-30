@@ -285,3 +285,10 @@ One line per event; details live in the stage plan documents, not here.
   these measured values (my first entries were eyeballed). (2) DEVIATION, reason
   now recorded: E6 resume ran on h12 instead of the plan's h16 — the resume path
   has no size-dependent branch and h12 halves a double-training job's GPU time.
+- **2026-10-30 (literal-completion pass)** The review's remaining gaps closed with
+  runs, not prose: E6 re-run on h16 per the plan's letter (job 31210: bit-identical
+  again, max delta 0.0); the fp32 comparison reinstated (wandb cle0ktz3): 20,636
+  tokens/s vs bf16's 123,367 — 6.0× slower, ~68% of the true fp32 peak, so bf16 is
+  now the measured choice, not a dropped comparison. Every bug row in the audit doc
+  carries its exact fix commit (ff673c4e and 393d2000 filled in). The earlier
+  "fp32 dropped" deviation is superseded.

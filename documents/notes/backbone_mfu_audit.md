@@ -19,6 +19,7 @@ MFU window = steps 10–29. wandb project:
 | h16 mha | 371.4M | 2.322 | 16×32 | 123,950 | 29.1% | 8.456s (0.1%) | — | [2f6nfosg](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2f6nfosg) |
 | h16 mqa | 339.9M | 2.133 | 16×32 | 133,322 | 28.8% | 7.863s (1.5%) | — | [2fp8a1w7](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2fp8a1w7) |
 | h16 gqa+mqa every_2nd | 347.3M | 2.177 | 16×32 | 127,991 | 28.2% | 8.191s (1.6%) | — | [alj69rdy](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/alj69rdy) |
+| h16 **fp32** (no FSDP policy) | 354.6M | 2.221 | 8×64 | 20,636 | 4.6%* | 50.788s (0.0%) | 40.8 GiB | [cle0ktz3](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/cle0ktz3) |
 
 Conventions: FLOPs/token = `6·P + 12·s·datt·L` measured from the live model (PaLM,
 no causal discount); peak = 989 TFLOP/s dense bf16; micro-batches from per-model OOM
@@ -26,6 +27,12 @@ probes (largest that fits). MFU grows with model size as utilization should —
 **no efficiency anomaly found**; the 20%-on-H100 investigation tripwire never fired.
 Readings: mqa buys h16 +8% tokens/s; ~28–31% without torch.compile or activation
 checkpointing is a healthy baseline, and both are the obvious future levers.
+The fp32 control (`trainer.distributed=null`, plain module) is **6.0× slower**
+than the FSDP2-bf16 production path; *its 4.6% is against the bf16 peak — against
+the true fp32 peak (~67 TFLOP/s) it runs ~68%, i.e. compute-bound at fp32 rates
+with TF32 off. Verdict of the dtype comparison the plan asked for: bf16 stays the
+default, now by measurement rather than by default. Its first loss, 11.2198
+un-quantized, also pins the CPU-fp32 control (11.2235) to three decimals.
 
 ### The E7 ordering tripwire, resolved with evidence
 
@@ -50,7 +57,7 @@ its real win is kv-cache memory at inference, not training speed.
 | First loss of a fresh model | 11.19–11.25 ≈ CPU-fp32 control 11.2235 (≈ln V + 0.4 at seq 2048; GPU is one bf16 ulp away) |
 | Token accounting | exact: 30 × 1,048,064 on every run |
 | Periodic eval + final_ce at seq 2048 (E5) | fired at steps 10/20 (8.125→7.25); final_ce over **exactly** 8192 holdout samples: 7.107 ([7y2zup9q](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/7y2zup9q)) |
-| Resume through a dcp checkpoint on GPU (E6) | **bit-identical**: max loss delta 0.0 over 14 overlapping steps. Run on h12, not the plan's h16 (deviation): the save/resume path has no model-size-dependent branch, and h12 halves the two-training job's GPU time |
+| Resume through a dcp checkpoint on GPU (E6) | **bit-identical**: max loss delta 0.0 over 14 overlapping steps — measured on h12 first (reasoned deviation) and then **re-run on the plan's h16 with the same result** (job 31210) |
 | Pattern-mixed stack under a real optimizer | gqa+mqa every_2nd trains; loss 11.25→7.19 |
 
 ## Bugs found and fixed (each with a regression test)
@@ -90,6 +97,4 @@ sanity in the e2e tests, and `scripts/mfu_window.py` (wandb run → this table's
    (512×2047); decide if the spec should count raw 512×2048 instead.
 4. **World-size-1 checkpoints are dcp shards** — fine for resume (proven), awkward
    for export; decide whether 1-GPU runs should write a plain file.
-5. **fp32 comparison runs** were dropped (bf16 via FSDP2 is the only production
-   path); say the word if a fp32 baseline matters.
-6. **wandb project name** `nano-mfu-audit` — rename if wanted.
+5. **wandb project name** `nano-mfu-audit` — rename if wanted.
