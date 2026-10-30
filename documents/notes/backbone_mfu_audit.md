@@ -22,6 +22,9 @@ MFU window = steps 10–29. wandb project:
 | h12 **fp32** (no FSDP policy) | 183.4M | 1.095 | 8×64 | 40,066 | 4.4%* | 26.158s (0.1%) | — | [wp0vzux5](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/wp0vzux5) |
 | h16 **fp32** (no FSDP policy) | 354.6M | 2.221 | 8×64 | 20,636 | 4.6%* | 50.788s (0.0%) | 40.8 GiB | [cle0ktz3](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/cle0ktz3) |
 | h20 **fp32** (no FSDP policy) | 620.2M | 3.97 | 4×128 | 11,128 | 4.5%* | 94.181s (0.0%) | — | [kzruq6zo](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/kzruq6zo) |
+| h12 **tf32** | 183.4M | 1.095 | 8×64 | 90,930 | 10.1%* | 11.526s (0.1%) | — | [42rph6xn](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/42rph6xn) |
+| h16 **tf32** | 354.6M | 2.221 | 8×64 | 52,131 | 11.7%* | 20.105s (0.1%) | — | [t2qhpdsf](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/t2qhpdsf) |
+| h20 **tf32** | 620.2M | 3.97 | 4×128 | 30,013 | 12.0%* | 34.920s (0.1%) | — | [igtr237s](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/igtr237s) |
 
 Conventions: FLOPs/token = `6·P + 12·s·datt·L` measured from the live model (PaLM,
 no causal discount); peak = 989 TFLOP/s dense bf16; micro-batches from per-model OOM
@@ -36,9 +39,14 @@ for column comparability; the proper bases for that ~45 TFLOP/s are **~9% of the
 plan's tf32 tensor-core peak (495e12)** — proving TF32 is off by default
 (PyTorch ships `allow_tf32=False`) — and **66–68% of the FP32 vector peak
 (67e12)**: the plain path is compute-bound at fp32-vector rates, uniformly across
-sizes. Verdict of the dtype comparison: bf16 stays the default, now by
-measurement. The fp32 runs' un-quantized first losses (11.20–11.22) also pin the
-CPU-fp32 control (11.2235).
+sizes. The tf32 cells (same fp32 storage, tensor-core matmuls via the
+torch.backends flags) sit cleanly between: at h16 the hierarchy is
+**bf16 : tf32 : fp32 = 123.4k : 52.1k : 20.6k tokens/s (6.0 : 2.5 : 1)**, tf32
+achieving 100–119 TFLOP/s = 20–24% of its 495e12 peak, with first losses
+identical to fp32's (storage unchanged). Verdict of the dtype comparison: bf16
+stays the default, now by measurement over the full {fp32, tf32, bf16} ×
+{h12, h16, h20} matrix. The fp32/tf32 runs' un-quantized first losses
+(11.20–11.22) also pin the CPU-fp32 control (11.2235).
 
 ### The E7 ordering tripwire, resolved with evidence
 
