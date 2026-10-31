@@ -195,3 +195,22 @@ def test_a_stubbed_type_mixes_in_but_fails_only_at_forward():
     assert names == ["RoPEAttention"] * 3 + ["AMEAttention"]
     with pytest.raises(NotImplementedError, match="registered interface"):
         model(torch.randint(0, 50304, (1, 16)))
+
+
+def test_enable_gqa_matches_materialized_repeat_kv():
+    """V2 of the MFU ablation swapped repeat_kv materialization for SDPA's
+    native enable_gqa. Same math, different kernel path -- equivalence is
+    checked at tolerance, not bitwise."""
+    from src.core.llama import repeat_kv
+    from src.core.model import attention_mechanism
+
+    torch.manual_seed(0)
+    q = torch.randn(2, 8, 16, 64)
+    k = torch.randn(2, 2, 16, 64)
+    v = torch.randn(2, 2, 16, 64)
+
+    reference = attention_mechanism(
+        query=q, key=repeat_kv(k, 4), value=repeat_kv(v, 4), causal=True
+    )
+    native = attention_mechanism(query=q, key=k, value=v, causal=True, enable_gqa=True)
+    torch.testing.assert_close(native, reference, rtol=1e-5, atol=1e-6)
