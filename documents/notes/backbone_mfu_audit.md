@@ -48,6 +48,37 @@ stays the default, now by measurement over the full {fp32, tf32, bf16} ×
 {h12, h16, h20} matrix. The fp32/tf32 runs' un-quantized first losses
 (11.20–11.22) also pin the CPU-fp32 control (11.2235).
 
+### Ablation follow-up (2026-10-31): the blocker was torch.compile
+
+The six-variant ablation ([mfu_ablation_plan.md](mfu_ablation_plan.md), one
+branch per candidate fix, each measured against this table's baselines on the
+same H100) decomposed the gap to nanoGPT-class MFU. Before/after, bf16 FSDP2
+path, same 30-step protocol:
+
+| model | eager (this audit) | + torch.compile (`mfu-abl/stack`) | gain |
+|---|---:|---:|---:|
+| h12 | 227,158 tok/s / 25.2% | 269,352 / **29.8%** ([urnucb40](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/urnucb40)) | +18.6% |
+| h16 | 123,367 / 27.7% | 147,922 / **33.2%** ([ykipu3dy](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/ykipu3dy)) | +18.3%* |
+| h20 | 76,858 / 30.8% | 90,538 / **36.3%** ([24uvodtr](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/24uvodtr)) | +17.8% |
+
+*vs the fresh B0 re-run (125,052 / 28.1%, [7ms4eafl](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/7ms4eafl)).
+Reference: nanoGPT itself (124M, seq 1024, compiled) measures **37.9%** on this
+same H100 (its printed "120%" is on the A100 basis) — the remaining gap is
+1–5 points at 3–5× its model size and 2× its sequence length.
+
+Everything else measured innocent or negative: fused AdamW + foreach clipping
++0.1/+0.0% (noise); RoPE cast hygiene −0.9/+0.3% (noise); async H2D copies
+−0.6/+0.3% (noise); a run on instantly-generated random tokens +0.3% — the
+whole input pipeline, on-the-fly NeoX tokenization included, costs ~nothing at
+these sizes. The nanoGPT-style plain-module+autocast path is **slower** than
+FSDP2-bf16 at world size 1 (−4.9% h16, −7.2% h20 where micro 16 OOMs), so
+FSDP2 is exonerated too. enable_gqa (native-GQA SDPA) is +2.4/+3.2% in eager
+but reproducibly −1.6% under compile, so it stayed out of the stack. One bug
+found and fixed on the way: block-level compile guards on Residual's per-block
+log_name string, hits dynamo's recompile_limit and silently drops half the
+blocks to eager — the knob compiles RoPEAttention+GatedFeedForward instead
+(`8e2d5f6b`).
+
 ### The E7 ordering tripwire, resolved with evidence
 
 The plan expected `mqa ≥ gqa ≥ mha` in tokens/s and named the kv wiring suspect on

@@ -7,7 +7,12 @@ current code version, run a training with each, and compare to the baseline** �
 so the result is a per-fix MFU delta that names the actual blocker, not a stack
 where the first change takes credit for the rest.
 
-**Status: PLAN — awaiting green light.**
+**Status: EXECUTED 2026-10-31.** Verdict: **torch.compile was the blocker**
+(+18% at every size once a guard bug was fixed); the data path, FSDP2 overhead,
+optimizer and RoPE casts were all measured innocent. Final matrix with the
+winners' stack (= V1 compile only): **h12 29.8%, h16 33.2%, h20 36.3%** vs
+25.2/27.7/30.8% before. nanoGPT itself, compiled, measures **37.9%** on this
+same H100 (124M, seq 1024), so the gap to it is now 1–5 points, not 10–17.
 
 ## Method
 
@@ -71,8 +76,14 @@ lands, with the wandb link.
 | B0 h16 (stage 3) | 123,367 | 27.7% | — | 16×32 | 44.9 GiB | [sfupemo2](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/sfupemo2) |
 | B0 h20 (stage 3) | 76,858 | 30.8% | — | 16×32 | 65.9 GiB | [32gyzfzk](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/32gyzfzk) |
 | B0 h16 re-run | 125,052 | 28.1% | +1.4% vs stage 3 (noise) | 16×32 | 44.9 GiB | [7ms4eafl](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/7ms4eafl) |
-| V1 compile h16 | | | | | | |
-| V1 compile h20 | | | | | | |
+| V1 compile h16 | 147,922 | 33.2% | **+18.3%** | 16×32 | | [ykipu3dy](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/ykipu3dy) |
+| V1 compile h20 | 90,538 | 36.3% | **+17.8%** | 16×32 | | [24uvodtr](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/24uvodtr) |
+
+V1 footnote: the first compile attempt measured −0.2% ([sw7h19j9](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/sw7h19j9))
+— a real bug, not a result: block-level compile guards on Residual's per-block
+`log_name` string, dynamo's recompile_limit (8) silently dropped half the blocks
+to eager. Fixed on the branch (`8e2d5f6b`): compile RoPEAttention+GatedFeedForward,
+Residual stays eager, zero recompile warnings after.
 | V2 enable_gqa h16 | 128,107 | 28.8% | **+2.4%** | 16×32 | | [uesc9qee](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/uesc9qee) |
 | V2 enable_gqa h20 | 79,324 | 31.8% | **+3.2%** | 16×32 | | [jcdm0yeq](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/jcdm0yeq) |
 | V3 fused optim h16 | 125,186 | 28.1% | +0.1% (noise) | 16×32 | | [jfmkoi13](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/jfmkoi13) |
@@ -83,8 +94,17 @@ lands, with the wandb link.
 | V5 plain bf16 h20 | 71,323 | 28.6% | **−7.2%** (micro 16 OOMs on this path; measured at 8×64) | 8×64 | | [84utp13j](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/84utp13j) |
 | V6 data path h16 | 124,270 | 27.9% | −0.6% (noise) | 16×32 | | [l106ifci](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/l106ifci) |
 | V6 data path h20 | 77,082 | 30.9% | +0.3% (noise) | 16×32 | | [2e8m9tv2](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2e8m9tv2) |
-| V6c dummy-data B0 h16 | | | | | | |
-| nanoGPT ref (124M s1024) | | | n/a | | | |
+| V6c dummy-data B0 h16 | 125,428 | 28.2% | +0.3% (pipeline costs ~0) | 16×32 | | [b8934dp6](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/b8934dp6) |
+| nanoGPT ref (124M s1024, compiled) | 438,278 | **37.9%** (its printed 120.25% is on the A100 312e12 basis) | n/a | 12×40 | | job 31553 log (wandb off) |
+| stack V1+V2 h16 | 145,639 | 32.7% | +16.5% — **below V1 alone** | 16×32 | | [uac9scwd](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/uac9scwd) |
+| stack V1+V2 h16 repeat | 145,510 | 32.7% | reproduces the −1.6% vs V1 | 16×32 | | [e7bj6zi5](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/e7bj6zi5) |
+| **stack (final = V1) h12** | 269,352 | **29.8%** | **+18.6%** vs stage-3 h12 | 32×16 | | [urnucb40](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/urnucb40) |
+
+**Interaction found**: enable_gqa wins eager (+2.4/+3.2%) but loses under
+compile (−1.6%, measured twice): inductor codegens the compiled repeat_kv
+better than the native-GQA SDPA call. The winners' stack is therefore **V1
+only** (`mfu-abl/stack` = base + compile knob, V2 reverted with rationale in
+`aa58bf1f`); V1's own h16/h20 runs ARE the stack matrix for those sizes.
 
 ## After the ablation: stacking
 

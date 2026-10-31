@@ -348,3 +348,26 @@ One line per event; details live in the stage plan documents, not here.
   Residual stays eager, one graph for all blocks. Re-run submitted (job 31528).
 - 2026-10-31: V5 h20 first attempt FAILED (OOM, job 31509, o0e1kq2w) --
   expected memory-behaviour change, rerun at 8x64 per plan; logged not hidden.
+
+- 2026-10-31: V1 fix re-run ykipu3dy h16 147,922/33.2% (+18.3%), 24uvodtr h20
+  90,538/36.3% (+17.8%) -- compile is THE blocker. V6c dummy-data b8934dp6
+  125,428/28.2% (+0.3%): entire input pipeline costs ~0 at h16. nanoGPT ref
+  job 31553 on the same H100: 438,278 tok/s, printed 120.25% of A100 peak =
+  37.9% of H100 peak.
+- 2026-10-31: INTERACTION: stack V1+V2 h16 measured twice (uac9scwd, e7bj6zi5:
+  145.6k/145.5k, 32.7%) = reproducibly -1.6% vs V1 alone -- enable_gqa loses
+  under compile (inductor codegens compiled repeat_kv better). Stack finalized
+  as V1 only; V2 reverted on mfu-abl/stack with rationale (aa58bf1f).
+- 2026-10-31: stack h12 urnucb40 269,352/29.8% (+18.6%). Matrix complete:
+  29.8/33.2/36.3 vs 25.2/27.7/30.8 eager. backbone_mfu_audit.md updated with
+  the before/after section.
+- 2026-10-31: PARKED FOR MACIEJ (ablation): (1) merge mfu-abl/stack (compile
+  knob) into pretraining -- ready, gates green; (2) compile default on vs
+  opt-in per config; (3) V2 enable_gqa: keep for eager path or drop (compile
+  path prefers repeat_kv); (4) V3/V4/V6 merge anyway as hygiene (no measured
+  win, bit-identical or ulp-level) or leave on branches; (5) V5 autocast knob:
+  keep as dtype tool or drop (path measured slower); (6) compiled model + eval
+  shapes will trigger one extra dynamo compile per new shape -- untested, eval
+  was off in all MFU runs; (7) previous parked list (activation checkpointing
+  -- now the clear next lever on top of compile -- memmap dataset, token
+  convention, dcp shards, wandb project name) still stands.
