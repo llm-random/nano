@@ -263,15 +263,14 @@ class RoPEAttention(nn.Module):
 
         v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
 
-        # SDPA's native GQA path: the kernel grabs the right kv head per query
-        # group itself, so K/V are no longer materialized to full query width
-        # (the old repeat_kv cost bandwidth and activation memory for nothing).
+        # Imported lazily: src.core.llama imports AttentionMechanism from this
+        # module, so a top-level import here would be circular.
+        from src.core.llama import repeat_kv
+
+        k = repeat_kv(k, self.q_heads // self.kv_heads)
+        v = repeat_kv(v, self.q_heads // self.kv_heads)
         attention_output = self.attention_mechanism(
-            query=q,
-            key=k,
-            value=v,
-            causal=True,
-            enable_gqa=self.q_heads != self.kv_heads,
+            query=q, key=k, value=v, causal=True
         )
 
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
@@ -390,7 +389,6 @@ def attention_mechanism(
     key: torch.Tensor,
     value: torch.Tensor,
     causal: bool,
-    enable_gqa: bool = False,
 ):
     # https://github.com/pytorch/pytorch/blob/ce503c1b40207dab770c28cbd4568cd9e105277b/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp#L556
     with torch.nn.attention.sdpa_kernel(
@@ -402,7 +400,6 @@ def attention_mechanism(
             value=value,
             attn_mask=None,
             is_causal=causal,
-            enable_gqa=enable_gqa,
         )
 
 
@@ -416,12 +413,10 @@ class AttentionMechanism(nn.Module):
         key: torch.Tensor,
         value: torch.Tensor,
         causal: bool,
-        enable_gqa: bool = False,
     ):
         return attention_mechanism(
             query=query,
             key=key,
             value=value,
             causal=causal,
-            enable_gqa=enable_gqa,
         )
