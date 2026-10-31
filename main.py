@@ -207,6 +207,15 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             if res == False:
                 logger.info("Initialization failed, exiting...")
                 return None, None, None
+    if cfg.get("compile_blocks", False):
+        # Regional compile, torchtitan-style: each TransformerBlock compiles
+        # as its own unit, applied before fully_shard wraps it -- the pairing
+        # FSDP2 supports. Top-level key (+compile_blocks=true) rather than a
+        # trainer key, because every cfg.trainer entry is passed to Trainer's
+        # constructor.
+        for block in model.encoder.blocks:
+            block.compile()
+        logger.info(f"torch.compile applied to {len(model.encoder.blocks)} blocks")
     model = setup_distributed_training(model, cfg.trainer.distributed)
     optimizer = torch.optim.AdamW(
         model.parameters(),
