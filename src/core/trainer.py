@@ -1,6 +1,7 @@
 import itertools
 import os
 import time
+from contextlib import nullcontext
 from attr import define
 import torch
 import torch.nn.functional as F
@@ -49,6 +50,11 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
+    # The nanoGPT-style single-GPU configuration: a plain (unwrapped) module
+    # whose forward+loss run under torch.autocast(bf16) while params, grads
+    # and optimizer state stay fp32. Off by default; meant for runs with
+    # trainer.distributed=null, where there is no FSDP2 policy to supply bf16.
+    autocast_bf16: bool = False
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
     # anything outside it is rejected before training starts.
@@ -289,21 +295,27 @@ class Trainer:
 
         return input_ids, target_ids
 
+    def _forward_ctx(self):
+        if self.autocast_bf16:
+            return torch.autocast("cuda", dtype=torch.bfloat16)
+        return nullcontext()
+
     def calculate_loss(self, batch) -> LossMetrics:
         def _hack_for_python_garbage_collection(input_ids, target_ids):
             """we want to have no reference to model output while backpropagating to allow torch to free memory,
             so we wrap loss calculation in a function"""
-            predicted_ids = self.model(input_ids)
+            with self._forward_ctx():
+                predicted_ids = self.model(input_ids)
 
-            # Tensors should be on the same device for loss calculation #TODO check
-            target_ids = target_ids.to(predicted_ids.device)
+                # Tensors should be on the same device for loss calculation #TODO check
+                target_ids = target_ids.to(predicted_ids.device)
 
-            mask_loss = F.cross_entropy(
-                predicted_ids.flatten(0, -2),
-                target_ids.reshape(-1).long(),
-                reduction="none",
-            )
-            reported_loss = mask_loss.mean()
+                mask_loss = F.cross_entropy(
+                    predicted_ids.flatten(0, -2),
+                    target_ids.reshape(-1).long(),
+                    reduction="none",
+                )
+                reported_loss = mask_loss.mean()
             loss = reported_loss
             reported_loss = reported_loss / self.gradient_accumulation_steps
             loss = loss / self.gradient_accumulation_steps
