@@ -55,11 +55,15 @@ branch per candidate fix, each measured against this table's baselines on the
 same H100) decomposed the gap to nanoGPT-class MFU. Before/after, bf16 FSDP2
 path, same 30-step protocol:
 
-| model | eager (this audit) | + torch.compile (`mfu-abl/stack`) | gain |
+| model | eager (this audit) | + torch.compile (`mfu-abl/stack@aa58bf1f`) | gain |
 |---|---:|---:|---:|
 | h12 | 227,158 tok/s / 25.2% | 269,352 / **29.8%** ([urnucb40](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/urnucb40)) | +18.6% |
-| h16 | 123,367 / 27.7% | 147,922 / **33.2%** ([ykipu3dy](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/ykipu3dy)) | +18.3%* |
-| h20 | 76,858 / 30.8% | 90,538 / **36.3%** ([24uvodtr](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/24uvodtr)) | +17.8% |
+| h16 | 123,367 / 27.7% | 146,650 / **32.9%** ([897ald44](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/897ald44)) | +17.3%* |
+| h20 | 76,858 / 30.8% | 89,724 / **36.0%** ([kazkf06r](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/kazkf06r)) | +16.7% |
+
+The V1 branch's own code-identical runs agree within 0.9%
+([ykipu3dy](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/ykipu3dy) 33.2%,
+[24uvodtr](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/24uvodtr) 36.3%).
 
 *vs the fresh B0 re-run (125,052 / 28.1%, [7ms4eafl](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/7ms4eafl)).
 Reference: nanoGPT itself (124M, seq 1024, compiled) measures **37.9%** on this

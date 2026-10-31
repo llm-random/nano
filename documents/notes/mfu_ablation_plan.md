@@ -99,6 +99,12 @@ Residual stays eager, zero recompile warnings after.
 | stack V1+V2 h16 | 145,639 | 32.7% | +16.5% — **below V1 alone** | 16×32 | | [uac9scwd](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/uac9scwd) |
 | stack V1+V2 h16 repeat | 145,510 | 32.7% | reproduces the −1.6% vs V1 | 16×32 | | [e7bj6zi5](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/e7bj6zi5) |
 | **stack (final = V1) h12** | 269,352 | **29.8%** | **+18.6%** vs stage-3 h12 | 32×16 | | [urnucb40](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/urnucb40) |
+| **stack (final) h16** | 146,650 | **32.9%** | **+17.3%** | 16×32 | | [897ald44](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/897ald44) |
+| **stack (final) h20** | 89,724 | **36.0%** | **+16.7%** | 16×32 | | [kazkf06r](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/kazkf06r) |
+
+All three final-matrix rows ran on `mfu-abl/stack@aa58bf1f` itself; `git diff`
+against the V1 branch's `8e2d5f6b` is empty on every code path, and the
+measurements agree with V1's own h16/h20 runs within 0.9%.
 
 **Interaction found**: enable_gqa wins eager (+2.4/+3.2%) but loses under
 compile (−1.6%, measured twice): inductor codegens the compiled repeat_kv

@@ -371,3 +371,13 @@ One line per event; details live in the stage plan documents, not here.
   was off in all MFU runs; (7) previous parked list (activation checkpointing
   -- now the clear next lever on top of compile -- memmap dataset, token
   convention, dcp shards, wandb project name) still stands.
+
+- 2026-10-31: goal-hook catch: the final matrix h16/h20 figures had come from
+  mfu-abl/compile runs, and the stack h16 runs predated the V2 revert. Remedied
+  by running the matrix ON mfu-abl/stack@aa58bf1f: h16 897ald44 146,650/32.9%
+  (+17.3%), h20 kazkf06r 89,724/36.0% (+16.7%); h12 urnucb40 was already on
+  the final commit. git diff vs 8e2d5f6b empty on all code paths; agreement
+  with the V1 runs within 0.9%. Docs updated to cite the stack-branch runs.
+- 2026-10-31: self-inflicted: the first stack-final jobs (31575/31576) failed
+  on the wandb key I had already cleaned up; key re-staged via stdin for the
+  re-runs and removed again at the true end.
