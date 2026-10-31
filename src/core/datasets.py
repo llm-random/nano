@@ -386,3 +386,35 @@ def get_dataloader(
     )
 
     return dataloader
+
+
+class RandomTokenDataset(IterableDataset):
+    """Instantly-available input: fixed-seed random token sequences.
+
+    Measurement scaffold for the MFU ablation's V6c run -- a B0 training whose
+    input pipeline costs nothing bounds what the real pipeline (tokenization,
+    collate, copies) costs. Never for real training. Accepts and ignores the
+    fineweb dataset's config keys so a single _target_ override swaps it in.
+    """
+
+    def __init__(
+        self,
+        sequence_length,
+        vocab_size: int = 50304,
+        seed: Optional[int] = 42,
+        max_samples: Optional[int] = None,
+        **_ignored,
+    ):
+        self.sequence_length = sequence_length
+        self.vocab_size = vocab_size
+        self.seed = seed
+        self.max_samples = max_samples
+
+    def __iter__(self):
+        rng = np.random.default_rng(self.seed)
+        produced = 0
+        while self.max_samples is None or produced < self.max_samples:
+            yield rng.integers(
+                0, self.vocab_size, size=self.sequence_length, dtype=np.int64
+            )
+            produced += 1
