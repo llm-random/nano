@@ -319,3 +319,18 @@ One line per event; details live in the stage plan documents, not here.
   stage 3, saving one GPU job. Stack phase keeps h12/h16/h20 per the goal.
 - 2026-10-31: B0 h16 re-run submitted (entropy job 31481). wandb key re-staged
   via stdin and verified by an authenticated viewer query.
+
+- 2026-10-31: ablation branches built and pushed, one change each, all gated
+  (pytest CI filter + black + seeded tiny_local vs base): V3 fused-optim
+  (ba7a274e; ulp-level wobble from grad-norm reduction order, step 29 identical),
+  V2 enable-gqa (9fe88687; tolerance equivalence test added, ulp-level diffs),
+  V6 data-path (596d7cf4; bit-identical), V4 rope-hygiene (7a8e9b26;
+  bit-identical; chunk/cat kept -- restructuring would change accumulation
+  order, deviation from plan wording, that work belongs to V1), V5 plain-bf16
+  (1450907d; knob-off bit-identical), V1 compile (knob-off bit-identical;
+  top-level +compile_blocks key because every cfg.trainer entry feeds the
+  Trainer constructor).
+- 2026-10-31: B0 h16 re-run 7ms4eafl: 125,052 tok/s / 28.1% MFU -- +1.4% vs
+  stage 3, node parity confirmed; stage-3 h20 stands as h20 baseline.
+- 2026-10-31: V3 h16 jfmkoi13: 125,186 tok/s / 28.1% -- +0.1% vs B0, noise;
+  fused AdamW on DTensor params worked on cluster torch 2.7.1.
