@@ -229,6 +229,9 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         model.parameters(),
         lr=learning_rate,
         weight_decay=cfg.trainer.weight_decay,
+        # The fused kernel exists only for CUDA tensors; CPU runs keep the
+        # default path, which also keeps the seeded CPU gates bit-identical.
+        fused=torch.cuda.is_available(),
     )
     scheduler = instantiate(cfg.trainer.scheduler)(
         optimizer=optimizer, n_steps=cfg.trainer.n_steps
@@ -296,6 +299,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                 model.parameters(),
                 lr=learning_rate,
                 weight_decay=cfg.trainer.weight_decay,
+                fused=torch.cuda.is_available(),
             )
             scheduler = instantiate(cfg.trainer.scheduler)(
                 optimizer=optimizer, n_steps=cfg.trainer.n_steps

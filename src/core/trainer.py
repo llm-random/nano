@@ -376,13 +376,17 @@ class Trainer:
             else:
                 # Plain clip_grad_norm_ on FSDP2 DTensor sharded grads only computes
                 # the local shard norm without cross-rank reduction, underestimating
-                # the global norm by ~sqrt(world_size). Compute it correctly:
+                # the global norm by ~sqrt(world_size). Compute it correctly, and in
+                # a handful of multi-tensor kernels rather than one norm launch per
+                # parameter (~150 serial launches per step on an h16).
                 params = [p for p in self.model.parameters() if p.grad is not None]
-                local_norm_sq = torch.tensor(0.0, device=self.device)
-                for p in params:
-                    g = p.grad
-                    local_g = g.to_local() if hasattr(g, "to_local") else g
-                    local_norm_sq += local_g.float().norm(2.0) ** 2
+                local_grads = [
+                    p.grad.to_local() if hasattr(p.grad, "to_local") else p.grad
+                    for p in params
+                ]
+                local_norm_sq = (
+                    torch.nn.utils.get_total_norm(local_grads, 2.0).float() ** 2
+                )
                 if dist.is_initialized():
                     dist.all_reduce(local_norm_sq, op=dist.ReduceOp.SUM)
                 total_norm = local_norm_sq.sqrt()
