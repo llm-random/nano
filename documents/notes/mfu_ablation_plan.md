@@ -62,6 +62,28 @@ collate + copies) costs today, independent of the V6 implementation.
 defaults, random-token `get_batch`) on the same H100 — the true same-hardware
 reference number, killing the A100-vs-H100 apples/oranges permanently.
 
+### Which of the six are actual nanoGPT code differences
+
+Four of the six variants replicate something nanoGPT's code literally does; two
+are hygiene for components nanoGPT does not have (so they measure *our*
+architecture's own overhead, not a code gap):
+
+| # | nanoGPT's code | ours before the variant | nanoGPT feature? | measured verdict |
+|---|---|---|---|---|
+| V1 | `torch.compile(model)` on by default (whole model, one graph) | pure eager | **yes** | **real, +17–19%** |
+| V2 | plain MHA — no `repeat_kv` exists to optimize | GQA with materialized `repeat_kv` | no (our arch only) | +2–3% eager, loses under compile |
+| V3 | `AdamW(fused=True)` + single `clip_grad_norm_` call | non-fused AdamW + per-param clip loop | **yes** | noise |
+| V4 | learned position embedding, zero per-step cost | RoPE with per-forward cos/sin casts | no (our arch only) | noise |
+| V5 | raw module + `torch.amp.autocast(bf16)` | FSDP2 wrapper at world size 1 | **yes** | **negative** −5/−7% (eager); FSDP2 exonerated |
+| V6 | memmap `.bin`, pinned, `non_blocking=True`, prefetch | on-the-fly tokenization, sync `.to(device)` | **yes** | noise (V6c: whole pipeline ≈ 0) |
+
+So nanoGPT's four genuine code advantages decompose as: one real (compile), two
+worth ~0 here (fused optimizer, data path), one worse than what we had (plain
+bf16 vs FSDP2 — measured in eager; see the parity combo below for the compiled
+answer). The remaining untested slice of their code advantage is compile
+*scope*: whole-model single graph vs our per-block compile (Residual/norm glue
+stays eager because of the `log_name` guard bug).
+
 ## Execution order
 
 Cheapest-to-implement first, so results start arriving while the larger ones
@@ -147,6 +169,30 @@ the final stacked measurement keeps the full h12/h16/h20 matrix per the goal —
 three runs, once.)
 
 Acceptance target from the gap audit: **h16 ≥ 35–40% MFU** (≈350–400 TFLOP/s).
+
+## nanoGPT-parity combo: V1+V3+V5+V6 together (requested 2026-10-31)
+
+Question: if we switch on *everything nanoGPT's code does* at once — compile
+(V1) + fused AdamW/foreach clip (V3) + plain module under autocast bf16 (V5) +
+async H2D with prefetch (V6) — does our implementation match nanoGPT's 37.9%?
+This is not the winners' stack (V5 lost in eager); it is the "their exact
+recipe, our model" configuration. The open interaction it answers: V5 was only
+ever measured eager — FSDP2's pre-forward all-gathers may interact differently
+with compiled regions.
+
+- Branch: `mfu-abl/nanogpt-parity` = `mfu-abl/compile` + cherry-picks of
+  `ba7a274e` (V3), `1450907d` (V5), `596d7cf4` (V6). V2/V4 stay out (not
+  nanoGPT features).
+- Run config: `+compile_blocks=true trainer.distributed=null
+  +trainer.autocast_bf16=true`; h16 at 16×32, h20 at 8×64 (micro 16 OOMed on
+  the plain path at h20).
+- Same measurement protocol as the ablation (stage-3 configs, 30 steps,
+  single H100, `scripts/mfu_window.py`).
+
+| run | tokens/s | MFU | vs stack (V1 only) | vs nanoGPT 37.9% | wandb |
+|---|---:|---:|---:|---:|---|
+| parity h16 | | | (stack: 32.9%) | | |
+| parity h20 | | | (stack: 36.0%) | | |
 
 ## Parked for Maciej (changes deliberately NOT in the ablation)
 
