@@ -312,3 +312,10 @@ One line per event; details live in the stage plan documents, not here.
   base commit, one change each, measured with the stage-3 h16 config; B0
   re-run first; stacking phase afterwards on mfu-abl/stack.
 - Status: plan committed, awaiting green light to execute.
+
+- 2026-10-31: Maciej trimmed the ablation measurements to h16 + h20, bf16 only
+  (2 runs x 6 variants); plan amended. Decision logged: stage-3 h20 (32gyzfzk)
+  stands as the h20 baseline if the fresh h16 B0 re-run lands within noise of
+  stage 3, saving one GPU job. Stack phase keeps h12/h16/h20 per the goal.
+- 2026-10-31: B0 h16 re-run submitted (entropy job 31481). wandb key re-staged
+  via stdin and verified by an authenticated viewer query.

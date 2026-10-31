@@ -15,14 +15,19 @@ where the first change takes credit for the rest.
   branches from it: branch `mfu-abl/<name>`, built in its own worktree, carrying
   **exactly one change**. Branches are pushed (entropy pulls on the login node);
   worktrees are cleaned after, branches kept (repo policy).
-- **The measurement** is identical for every variant: `configs/mfu_audit/h16.yaml`
-  exactly as in stage 3 — one entropy H100, seq 2048, batch 512, 30 steps,
-  micro×ga = 16×32, window steps 10–29, wandb project `nano-mfu-audit`, tag
-  `mfu_ablation` + the variant name. Same seed as stage 3.
-- **Baseline (B0)**: stage-3 h16 = 123,367 tok/s, 27.7% MFU
-  ([sfupemo2](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/sfupemo2)). One
-  fresh re-run at the base commit first, to confirm node parity before any
-  deltas are read against it.
+- **The measurement** (Maciej, 2026-10-31): every variant runs **h16 and h20,
+  bf16 only** — the most efficient configuration from stage 3 — so the ablation
+  is 2 trainings × 6 improvements = 12 runs, no other sizes or dtypes. Configs
+  `configs/mfu_audit/{h16,h20}.yaml` exactly as in stage 3: one entropy H100,
+  seq 2048, batch 512, 30 steps, micro×ga = 16×32, window steps 10–29, wandb
+  project `nano-mfu-audit`, tag `mfu_ablation` + the variant name, stage-3 seed.
+- **Baseline (B0)**: stage-3 bf16 numbers — h16 = 123,367 tok/s / 27.7%
+  ([sfupemo2](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/sfupemo2)), h20 =
+  76,858 tok/s / 30.8%
+  ([32gyzfzk](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/32gyzfzk)). One
+  fresh h16 re-run at the base commit confirms node parity before any delta is
+  read; if it lands within noise of stage 3, the stage-3 h20 number stands as
+  the h20 baseline (saving one run of shared GPU time).
 - **Noise rule**: stage-3 step-time cv was ≤1.6%, so a delta under ~3% in
   tokens/s gets one repeat run before it is believed (in either direction).
 - A variant that *changes memory behaviour* (V1, V2, V5) may re-run the OOM
@@ -59,18 +64,26 @@ are built: **B0 re-run → V3 → V2 → V6(+companion) → V4 → V5 → V1 →
 reference.** One job at a time; every result appended to the table below as it
 lands, with the wandb link.
 
-## Results (filled as measured)
+## Results (filled as measured; each variant = one h16 row + one h20 row)
 
 | run | tokens/s | MFU | Δ vs B0 | micro×ga | peak mem | wandb |
 |---|---:|---:|---:|---:|---:|---|
-| B0 re-run | | | — | 16×32 | | |
-| V1 compile | | | | | | |
-| V2 enable_gqa | | | | | | |
-| V3 fused optim | | | | | | |
-| V4 RoPE hygiene | | | | | | |
-| V5 plain bf16 | | | | | | |
-| V6 data path | | | | | | |
-| V6c dummy-data B0 | | | | | | |
+| B0 h16 (stage 3) | 123,367 | 27.7% | — | 16×32 | 44.9 GiB | [sfupemo2](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/sfupemo2) |
+| B0 h20 (stage 3) | 76,858 | 30.8% | — | 16×32 | 65.9 GiB | [32gyzfzk](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/32gyzfzk) |
+| B0 h16 re-run | | | — | 16×32 | | |
+| V1 compile h16 | | | | | | |
+| V1 compile h20 | | | | | | |
+| V2 enable_gqa h16 | | | | | | |
+| V2 enable_gqa h20 | | | | | | |
+| V3 fused optim h16 | | | | | | |
+| V3 fused optim h20 | | | | | | |
+| V4 RoPE hygiene h16 | | | | | | |
+| V4 RoPE hygiene h20 | | | | | | |
+| V5 plain bf16 h16 | | | | | | |
+| V5 plain bf16 h20 | | | | | | |
+| V6 data path h16 | | | | | | |
+| V6 data path h20 | | | | | | |
+| V6c dummy-data B0 h16 | | | | | | |
 | nanoGPT ref (124M s1024) | | | n/a | | | |
 
 ## After the ablation: stacking
@@ -82,7 +95,9 @@ descending measured-delta order, re-measuring h16 after each addition (so the
 stack is also an ordered attribution), finish with the full h12/h16/h20 matrix,
 and update [backbone_mfu_audit.md](backbone_mfu_audit.md) with before/after.
 What merges back into `pretraining` is the reviewed stack, not the ablation
-branches.
+branches. (Maciej's h16+h20-only trim applies to the per-variant ablation runs;
+the final stacked measurement keeps the full h12/h16/h20 matrix per the goal —
+three runs, once.)
 
 Acceptance target from the gap audit: **h16 ≥ 35–40% MFU** (≈350–400 TFLOP/s).
 
