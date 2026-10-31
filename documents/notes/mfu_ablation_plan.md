@@ -69,6 +69,27 @@ are built: **B0 re-run → V3 → V2 → V6(+companion) → V4 → V5 → V1 →
 reference.** One job at a time; every result appended to the table below as it
 lands, with the wandb link.
 
+## The answer in one table: MFU, method × model
+
+| method | h12 | h16 | h20 |
+|---|---:|---:|---:|
+| **B0 baseline** (eager, FSDP2 bf16) | 25.2% | 28.1% | 30.8% |
+| V1 torch.compile | — | **33.2%** | **36.3%** |
+| V2 enable_gqa (native-GQA SDPA) | — | 28.8% | 31.8% |
+| V3 fused AdamW + foreach clip | — | 28.1% | 30.8% |
+| V4 RoPE cast hygiene | — | 27.8% | 30.9% |
+| V5 plain module + autocast bf16 | — | 26.7% | 28.6%¹ |
+| V6 async H2D + prefetch | — | 27.9% | 30.9% |
+| V6c baseline + free input data | — | 28.2% | — |
+| **stack (final = compile)** | **29.8%** | **32.9%** | **36.0%** |
+| nanoGPT reference (124M, seq 1024, compiled) | — | 37.9%² | — |
+
+¹ micro 8 (micro 16 OOMs on the plain path). ² on the same H100, converted to
+the 989e12 basis. Variants ran h16+h20 only (Maciej's trim); h12 has the
+baseline and the final stack. Only V1 clears the noise bar upward; V2 clears
+it in eager but reverses under compile; V5 is clearly negative; V3/V4/V6/V6c
+are noise. Per-run detail below.
+
 ## Results (filled as measured; each variant = one h16 row + one h20 row)
 
 | run | tokens/s | MFU | Δ vs B0 | micro×ga | peak mem | wandb |
