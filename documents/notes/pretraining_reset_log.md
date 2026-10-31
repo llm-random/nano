@@ -302,3 +302,13 @@ One line per event; details live in the stage plan documents, not here.
   100-119 TFLOP/s, 20-24% of the tf32 peak; hierarchy at h16 bf16:tf32:fp32 =
   6.0:2.5:1. Non-bf16 probe reuse is a reasoned, logged deviation (plan
   amendment). STAGE 3 CLOSED, full matrix on record.
+
+## 2026-10-31 — MFU ablation plan written (follow-up to the nanoGPT gap audit)
+
+- Maciej directed: implement each of the six candidate fixes in a separate tree
+  off the current code version, train each, compare to baseline — per-fix MFU
+  attribution instead of a stacked rollout.
+- Plan: documents/notes/mfu_ablation_plan.md. Branches mfu-abl/<name> off the
+  base commit, one change each, measured with the stage-3 h16 config; B0
+  re-run first; stacking phase afterwards on mfu-abl/stack.
+- Status: plan committed, awaiting green light to execute.
