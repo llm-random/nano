@@ -309,11 +309,21 @@ class Trainer:
             loss = loss / self.gradient_accumulation_steps
             return loss, reported_loss
 
+        chunks = batch.chunk(self.gradient_accumulation_steps)
+
+        def _to_device(chunk):
+            # chunk() along dim 0 of the loader's pinned, contiguous batch
+            # yields contiguous pinned views, so this copy is genuinely
+            # asynchronous -- the Python thread moves on to launch kernels
+            # instead of stalling until the copy lands. The input/target
+            # slicing then happens on the device.
+            return chunk.to(self.device, non_blocking=True)
+
         total_losses = []
         reported_losses = []
-        for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
-            input_ids, target_ids = self._preprocess_input(batch_chunk)
-            input_ids = input_ids.to(self.device)
+        in_flight = _to_device(chunks[0])
+        for i in range(len(chunks)):
+            input_ids, target_ids = self._preprocess_input(in_flight)
             if self.model.training:
                 self._update_processed_tokens(input_ids)
 
@@ -322,6 +332,10 @@ class Trainer:
             )
             if self.model.training:
                 loss.backward()
+            # The next chunk's H2D copy goes out while this chunk's kernels
+            # are still executing, not at the top of the next iteration.
+            if i + 1 < len(chunks):
+                in_flight = _to_device(chunks[i + 1])
             total_losses.append(loss.detach())
             reported_losses.append(reported_loss.detach())
 
