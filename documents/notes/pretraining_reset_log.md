@@ -381,3 +381,16 @@ One line per event; details live in the stage plan documents, not here.
 - 2026-10-31: self-inflicted: the first stack-final jobs (31575/31576) failed
   on the wandb key I had already cleaned up; key re-staged via stdin for the
   re-runs and removed again at the true end.
+- 2026-10-31: nanoGPT-parity combo (Maciej's request): branch
+  mfu-abl/nanogpt-parity = V1+V3+V5+V6 (the four variants that are literal
+  nanoGPT code features; V2/V4 are hygiene for components nanoGPT lacks --
+  mapping table added to the plan doc). Cherry-picks clean, gates green
+  (black, 151 tests, CPU smoke). Results: h16 33.6% z5klwygs (+0.7pt vs
+  stack), h20 36.4% abzl2438 (+0.4pt; first h20 at 8x64 gave 34.9% 754pxldo
+  -- micro confound, compile fits micro 16 where eager V5 OOMed). Compile
+  flips V5's sign (eager -5/-7% -> +0.4-0.7pt); V3+V5+V6 ~ +0.5pt combined,
+  under the noise bar. vs nanoGPT 37.9%: -4.3pt at h16, -1.5pt at h20 -- no
+  known code difference remains except compile scope (whole-model vs
+  per-block); the rest is architecture/workload. SSH note: `entropy`
+  (mstefaniak) now fails auth; `entropy_j` works, as the submission memory
+  says.

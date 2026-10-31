@@ -104,6 +104,7 @@ lands, with the wandb link.
 | V6 async H2D + prefetch | — | 27.9% | 30.9% |
 | V6c baseline + free input data | — | 28.2% | — |
 | **stack (final = compile)** | **29.8%** | **32.9%** | **36.0%** |
+| **parity combo V1+V3+V5+V6** (nanoGPT's full recipe) | — | **33.6%** | **36.4%** |
 | nanoGPT reference (124M, seq 1024, compiled) | — | 37.9%² | — |
 
 ¹ micro 8 (micro 16 OOMs on the plain path). ² on the same H100, converted to
@@ -191,8 +192,27 @@ with compiled regions.
 
 | run | tokens/s | MFU | vs stack (V1 only) | vs nanoGPT 37.9% | wandb |
 |---|---:|---:|---:|---:|---|
-| parity h16 | | | (stack: 32.9%) | | |
-| parity h20 | | | (stack: 36.0%) | | |
+| parity h16 (16×32) | 149,474 | **33.6%** | +0.7pt (stack: 32.9%) | −4.3pt | [z5klwygs](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/z5klwygs) |
+| parity h20 (8×64) | 87,001 | 34.9% | −1.1pt — micro-batch confound, see next row | −3.0pt | [754pxldo](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/754pxldo) |
+| parity h20 (16×32) | 90,697 | **36.4%** | +0.4pt (stack: 36.0%) | −1.5pt | [abzl2438](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/abzl2438) |
+
+Measured 2026-10-31 (jobs 31677/31678/31680). Findings:
+
+1. **Compile flips V5's sign.** Plain module + autocast(bf16), −4.9/−7.2% in
+   eager, is +0.4–0.7pt *over* the FSDP2 stack once the blocks are compiled —
+   the eager FSDP2 advantage came from its pre-cast bf16 compute path, which
+   inductor now provides anyway. Compile also cuts activation memory enough
+   that h20 fits micro 16 on the plain path (eager V5 OOMed there), which is
+   where the 8×64 row's −1.1pt comes from: halved micro, not the recipe.
+2. **V3+V5+V6 together are worth ~+0.5pt on top of compile** — consistent sign
+   at both sizes but below the ablation's 3% noise bar; individually each was
+   noise or negative. Compile remains the only change that matters.
+3. **Parity with nanoGPT: nearly, at h20.** Their full recipe on our model:
+   33.6% (h16) / 36.4% (h20) vs their 37.9% at 124M/seq 1024. The residual
+   1.5–4.3pt is architecture and workload (RoPE's uncounted elementwise work,
+   3-GEMM gated FF, GQA's smaller FLOP numerator, seq 2048's larger attention
+   share) plus compile scope (whole-model single graph vs our per-block
+   compile) — no remaining known *code* difference.
 
 ## Parked for Maciej (changes deliberately NOT in the ablation)
 
