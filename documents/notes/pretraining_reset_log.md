@@ -334,3 +334,17 @@ One line per event; details live in the stage plan documents, not here.
   stage 3, node parity confirmed; stage-3 h20 stands as h20 baseline.
 - 2026-10-31: V3 h16 jfmkoi13: 125,186 tok/s / 28.1% -- +0.1% vs B0, noise;
   fused AdamW on DTensor params worked on cluster torch 2.7.1.
+
+- 2026-10-31: results so far (vs B0 h16 125,052/28.1%, h20 76,858/30.8%):
+  V3 fused-optim +0.1%/+0.0% (noise) · V2 enable-gqa +2.4%/+3.2% (real win)
+  · V6 data-path -0.6%/+0.3% (noise) · V4 rope-hygiene -0.9%/+0.3% (noise)
+  · V5 plain-bf16 -4.9%/-7.2% -- FSDP2-at-world-size-1 is NOT a tax, it beats
+  plain+autocast; h20 micro 16 OOMed on the plain path (69 GiB torch alloc +
+  autocast cast cache), measured at 8x64 per the plan rule.
+- 2026-10-31: BUG (V1): block-level torch.compile guards on Residual's
+  per-block log_name string -> one specialization per block -> dynamo
+  recompile_limit (8) silently dropped blocks 8-15 to eager; measured -0.2%
+  (sw7h19j9). Fix forward 8e2d5f6b: compile RoPEAttention+GatedFeedForward,
+  Residual stays eager, one graph for all blocks. Re-run submitted (job 31528).
+- 2026-10-31: V5 h20 first attempt FAILED (OOM, job 31509, o0e1kq2w) --
+  expected memory-behaviour change, rerun at 8x64 per plan; logged not hidden.

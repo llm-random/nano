@@ -70,19 +70,19 @@ lands, with the wandb link.
 |---|---:|---:|---:|---:|---:|---|
 | B0 h16 (stage 3) | 123,367 | 27.7% | — | 16×32 | 44.9 GiB | [sfupemo2](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/sfupemo2) |
 | B0 h20 (stage 3) | 76,858 | 30.8% | — | 16×32 | 65.9 GiB | [32gyzfzk](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/32gyzfzk) |
-| B0 h16 re-run | | | — | 16×32 | | |
+| B0 h16 re-run | 125,052 | 28.1% | +1.4% vs stage 3 (noise) | 16×32 | 44.9 GiB | [7ms4eafl](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/7ms4eafl) |
 | V1 compile h16 | | | | | | |
 | V1 compile h20 | | | | | | |
-| V2 enable_gqa h16 | | | | | | |
-| V2 enable_gqa h20 | | | | | | |
-| V3 fused optim h16 | | | | | | |
-| V3 fused optim h20 | | | | | | |
-| V4 RoPE hygiene h16 | | | | | | |
-| V4 RoPE hygiene h20 | | | | | | |
-| V5 plain bf16 h16 | | | | | | |
-| V5 plain bf16 h20 | | | | | | |
-| V6 data path h16 | | | | | | |
-| V6 data path h20 | | | | | | |
+| V2 enable_gqa h16 | 128,107 | 28.8% | **+2.4%** | 16×32 | | [uesc9qee](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/uesc9qee) |
+| V2 enable_gqa h20 | 79,324 | 31.8% | **+3.2%** | 16×32 | | [jcdm0yeq](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/jcdm0yeq) |
+| V3 fused optim h16 | 125,186 | 28.1% | +0.1% (noise) | 16×32 | | [jfmkoi13](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/jfmkoi13) |
+| V3 fused optim h20 | 76,887 | 30.8% | +0.0% (noise) | 16×32 | | [mh77sqta](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/mh77sqta) |
+| V4 RoPE hygiene h16 | 123,976 | 27.8% | −0.9% (noise) | 16×32 | | [26sivvlj](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/26sivvlj) |
+| V4 RoPE hygiene h20 | 77,108 | 30.9% | +0.3% (noise) | 16×32 | | [615r51uv](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/615r51uv) |
+| V5 plain bf16 h16 | 118,899 | 26.7% | **−4.9%** (FSDP2 is faster, not a tax) | 16×32 | | [mzv4zbvu](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/mzv4zbvu) |
+| V5 plain bf16 h20 | 71,323 | 28.6% | **−7.2%** (micro 16 OOMs on this path; measured at 8×64) | 8×64 | | [84utp13j](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/84utp13j) |
+| V6 data path h16 | 124,270 | 27.9% | −0.6% (noise) | 16×32 | | [l106ifci](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/l106ifci) |
+| V6 data path h20 | 77,082 | 30.9% | +0.3% (noise) | 16×32 | | [2e8m9tv2](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2e8m9tv2) |
 | V6c dummy-data B0 h16 | | | | | | |
 | nanoGPT ref (124M s1024) | | | n/a | | | |
 
