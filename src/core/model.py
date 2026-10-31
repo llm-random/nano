@@ -202,10 +202,19 @@ class RoPE(nn.Module):
         return inv_freq_llama
 
     def forward(self, x):
+        # Cast the tables once, lazily, instead of launching two cast kernels
+        # per layer per micro-forward. FSDP2's MixedPrecisionPolicy casts
+        # params but not buffers, so the first bf16 forward still finds fp32
+        # tables here -- after that the cached cast makes this a pure
+        # attribute check. The cast op is the same one the old per-forward
+        # .to() ran, so the produced values are bit-identical.
+        if self.cos.device != x.device or self.cos.dtype != x.dtype:
+            self.cos = self.cos.to(x.device, dtype=x.dtype)
+            self.sin = self.sin.to(x.device, dtype=x.dtype)
         [y1, y2] = torch.chunk(x, chunks=2, dim=-1)
         x_rotated = torch.cat([-y2, y1], dim=-1)
-        cos_scaler = self.cos[: x.shape[-2], :].to(x.device, dtype=x.dtype)
-        sin_scaler = self.sin[: x.shape[-2], :].to(x.device, dtype=x.dtype)
+        cos_scaler = self.cos[: x.shape[-2], :]
+        sin_scaler = self.sin[: x.shape[-2], :]
         return x * cos_scaler + x_rotated * sin_scaler
 
 
