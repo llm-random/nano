@@ -6,6 +6,14 @@ torch.compile, flash SDPA). Our stage-3 audit
 h12/h16/h20 on an H100. This note audits karpathy/nanoGPT (model.py + train.py,
 cloned at HEAD) against our stack and decomposes the difference.
 
+> **Outcome (2026-11-01)**: every hypothesis below was implemented and
+> measured, plus size-matched nanoGPT reference runs. The consolidated record
+> — full matrix, per-hypothesis verdicts, remaining-gap decomposition — is in
+> [mfu_ablation_plan.md](mfu_ablation_plan.md), section "nanoGPT vs our
+> framework: the complete comparison record". Short version: compile was the
+> blocker (+18%); at equal workload nanoGPT still leads 45.7/47.0% vs
+> 33.6/36.4% — compile scope, vocab padding and architecture carry the rest.
+
 ## First, the denominator: we are not actually 1.5× slower
 
 MFU divides by the GPU's peak, and the peaks differ by 3.17×:

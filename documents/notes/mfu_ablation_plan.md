@@ -7,12 +7,74 @@ current code version, run a training with each, and compare to the baseline** �
 so the result is a per-fix MFU delta that names the actual blocker, not a stack
 where the first change takes credit for the rest.
 
-**Status: EXECUTED 2026-10-31.** Verdict: **torch.compile was the blocker**
-(+18% at every size once a guard bug was fixed); the data path, FSDP2 overhead,
-optimizer and RoPE casts were all measured innocent. Final matrix with the
-winners' stack (= V1 compile only): **h12 29.8%, h16 33.2%, h20 36.3%** vs
-25.2/27.7/30.8% before. nanoGPT itself, compiled, measures **37.9%** on this
-same H100 (124M, seq 1024), so the gap to it is now 1–5 points, not 10–17.
+**Status: EXECUTED 2026-10-31, extended 2026-11-01.** Verdict: **torch.compile
+was the blocker** (+18% at every size once a guard bug was fixed); the data
+path, FSDP2 overhead, optimizer and RoPE casts were all measured innocent.
+Final stack (= V1 compile only): h12 29.8%, h16 32.9%, h20 36.0%; the
+nanoGPT-parity combo adds ~0.5pt. The size-matched nanoGPT runs then showed
+the honest remaining gap is **10.6–12.1pt at equal workload** — see the
+comparison record below.
+
+## nanoGPT vs our framework: the complete comparison record (2026-11-01)
+
+Everything tested and identified so far, in one place. Hardware held fixed
+throughout: one entropy H100 SXM (h100a), bf16, MFU on the 989 TFLOP/s basis
+(nanoGPT's printed mfu is on its hard-coded A100 312e12 basis; ×312/989 to
+convert). Both frameworks count FLOPs/token the same way (6·P incl. LM head +
+12·s·d_att·L), so MFUs are comparable; tokens/s is the arbitration-free number.
+
+### 1. What was measured (the full matrix)
+
+| configuration | h16 size (~303M w/ head) | h20 size (~556M w/ head) |
+|---|---:|---:|
+| ours, eager baseline (B0: FSDP2 bf16) | 28.1% | 30.8% |
+| ours, + compile only (`mfu-abl/stack`) | 32.9% | 36.0% |
+| ours, full nanoGPT recipe (`mfu-abl/nanogpt-parity` = V1+V3+V5+V6) | **33.6%** | **36.4%** |
+| nanoGPT, size-matched (same non-emb params, seq 2048, 1.05M tok/step) | **45.7%** | **47.0%** |
+| nanoGPT, its own defaults (124M, seq 1024) | 37.9% | — |
+
+Tokens/s at matched shape: h16-size 149,474 (ours) vs 194,600 (theirs) =
+**1.30×**; h20-size 90,697 vs 113,150 = **1.25×**. Jobs 31677/31680 (ours),
+31871/31872 (theirs); per-run detail and wandb links in the results tables
+below.
+
+### 2. Code differences tested, one branch each — verdicts
+
+| hypothesis (nanoGPT does X, we didn't) | variant | verdict on our stack |
+|---|---|---|
+| whole-training `torch.compile` | V1 `mfu-abl/compile` | **the blocker: +17–19% at every size** (after fixing the per-block `log_name` guard → recompile-limit bug) |
+| fused AdamW + single clip kernel | V3 `mfu-abl/fused-optim` | noise (±0.1%) |
+| no sharding wrapper, plain autocast bf16 | V5 `mfu-abl/plain-bf16` | −5/−7% eager; **sign flips to +0.4–0.7pt under compile**, and compile frees enough memory that h20 fits micro 16 where eager OOMed |
+| memmap-style async H2D + prefetch | V6 `mfu-abl/data-path` (+V6c random-token run) | noise; the whole input pipeline costs ≈0 at these sizes |
+| (not nanoGPT features, our own hygiene) | V2 `enable_gqa`, V4 RoPE casts | V2 +2–3% eager but −1.6% under compile (reverted); V4 noise |
+
+All four genuine nanoGPT code features live together on
+`mfu-abl/nanogpt-parity` (gates green, pushed). **After it, no known
+trainer-level code difference remains untested except compile scope.**
+
+### 3. What explains the remaining 10.6–12.1pt, in testable order
+
+1. **Compile scope** — nanoGPT compiles the whole model as one inductor graph;
+   we compile attention+FF per block, leaving Residual/norm/embedding/LM-head
+   glue eager (forced by the `log_name` guard bug). Biggest testable suspect;
+   needs the Residual refactor.
+2. **Vocab padding** — their LM-head GEMM is 50304 wide (multiple of 64), ours
+   50257 (prime-ish, misaligned); the head is ~14% of FLOPs at h16. Cheap to
+   test.
+3. **Architecture (paper choices, not bugs)** — RoPE's per-layer
+   elementwise+chunk/cat work (real time, zero counted FLOPs) vs their free
+   learned-position add; 3-GEMM gated FF vs 2-GEMM MLP at equal FLOPs; GQA
+   shrinks our counted FLOP numerator.
+4. **Trainer-loop residue** — per-chunk Python, loss bookkeeping, metric
+   logging; unmeasured but bounded small by the V6c result.
+
+### 4. Exonerated along the way (measured, not guessed)
+
+FSDP2-at-world-size-1 (beats plain bf16 in eager); the tokenization/collate/
+copy pipeline (V6c: random tokens ≈ +0.3%); fused-vs-unfused optimizer; RoPE
+cast hygiene; nanoGPT's *absolute* superiority at its defaults (its 37.9% at
+124M/seq1024 is **below** our 36.4% h20 — small models underfill the H100;
+its size-matched 45.7–47.0% is the number that counts).
 
 ## Method
 
