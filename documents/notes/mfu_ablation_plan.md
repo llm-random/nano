@@ -56,15 +56,15 @@ trainer-level code difference remains untested except compile scope.**
 
 1. **Compile scope** — nanoGPT compiles the whole model as one inductor graph;
    we compile attention+FF per block, leaving Residual/norm/embedding/LM-head
-   glue eager (forced by the `log_name` guard bug). Biggest testable suspect;
-   needs the Residual refactor.
-2. **Vocab padding** — their LM-head GEMM is 50304 wide (multiple of 64), ours
-   50257 (prime-ish, misaligned); the head is ~14% of FLOPs at h16. Cheap to
-   test.
-3. **Architecture (paper choices, not bugs)** — RoPE's per-layer
-   elementwise+chunk/cat work (real time, zero counted FLOPs) vs their free
-   learned-position add; 3-GEMM gated FF vs 2-GEMM MLP at equal FLOPs; GQA
-   shrinks our counted FLOP numerator.
+   glue eager (forced by the `log_name` guard bug). **Confirmed by the
+   kernel-level profile (§4b) as the whole gap**; needs the Residual refactor.
+2. ~~**Vocab padding**~~ — measured minor (§4b): the head GEMM sits in a GEMM
+   total already *faster* than theirs; only the eager CE (230 ms) remains, as
+   part of the glue item.
+3. ~~**Architecture (paper choices)**~~ — measured off the list (§4b): our
+   GEMMs + flash attention run 713 ms/step *faster* than nanoGPT's; RoPE and
+   the gated FF live inside compiled regions whose triton total is smaller
+   than theirs.
 4. ~~**Trainer-loop residue**~~ — measured at parity by the section timers
    (§4): ≈12 ms of an 11,536 ms step. Closed.
 
@@ -105,6 +105,58 @@ elementwise work, the 3-GEMM gated FF, and the unpadded 50257 head GEMM.
 Combined with the ~4% FLOPs/token difference, this reproduces the MFU ratio
 (47.0/36.4 = 1.29) exactly. **Trainer-level suspects are closed; all
 remaining headroom is inside the compiled model graph.**
+
+### 4b. Kernel-level attribution: where the 2.3 s/step actually is (2026-11-01)
+
+Same protocol, one level deeper: `torch.profiler` (CUDA activity) wrapped
+around steps 12–13 in both frameworks (`+trainer.kernel_profile=true` on
+`mfu-abl/profile-timers`; `--kernel_profile=True` in the patched nanoGPT),
+every kernel dumped with self-time and launch count, aggregated into the same
+categories by `kprof_agg.py`. h20-size, 16×32, same H100 (jobs 31882 ours /
+31889 theirs), ms per step:
+
+| kernel category | ours | nanoGPT | Δ ours−theirs |
+|---|---:|---:|---:|
+| GEMMs (nvjet) | 4,699 | 4,899 | **−200 (ours faster)** |
+| flash attention | 1,863 | 2,375 | **−512 (ours faster)** |
+| compiled (triton: fused glue, silu/gelu, norms…) | 1,157 | 1,841 | −684 |
+| **eager elementwise (fp32 mul/add armies, casts)** | **2,878** | 108 | **+2,770** |
+| **eager norm pieces (pow/reduce/rsqrt)** | **438** | 0 | **+438** |
+| softmax/CE (eager here, compiled there) | 230 | — | +230 |
+| cat / copies / memcpy | 147 | 0.4 | +147 |
+| optimizer | 10 | 9 | 0 |
+| other | 33 | 6 | +27 |
+| **TOTAL busy** (wall: 11,536 / 9,250) | **11,454** | **9,238** | **+2,216** |
+| kernel launches per step | 86,713 | 40,934 | 2.1× |
+
+**Measured verdict — the prediction ranking was wrong, and the data names the
+weakness exactly:**
+
+1. **Our hardware-efficient work is *faster* than nanoGPT's.** GEMMs 4,699 vs
+   4,899 ms and flash attention 1,863 vs 2,375 ms — GQA and our GEMM shapes
+   execute fine; together we are **713 ms/step ahead** on the work that
+   counts. GEMM efficiency, gated-FF shape, RoPE-inside-compiled-regions and
+   the padded-vocab head GEMM are all **exonerated** (the head GEMM sits in
+   the GEMM line; our triton total is *smaller* than theirs).
+2. **The entire gap is the eager glue between our compiled regions**:
+   +2,770 ms of unfused eager elementwise (fp32 `Mul`/`Add` kernels at ~27k
+   launches/step — the pre-norm scale/rsqrt muls, residual adds, autocast
+   boundary casts `bfloat16_copy`/`_to_copy`), +438 ms of eager RMSNorm
+   pow/reduce pieces, +230 ms eager cross-entropy, +147 ms cat/copies ≈
+   **+3.6 s of glue vs their −0.7 s triton surplus that already contains all
+   of it** (their layer norms, residual adds and CE are fused rows inside
+   their compiled graph: `triton_red_fused..._native_layer_norm_backward`).
+   Note the dtype: the glue runs in **fp32** (norms and the residual stream
+   outside compiled regions), doubling its memory traffic vs bf16.
+3. Both streams are saturated (idle: 82 ms ours, 12 ms theirs of ~0.7%) — it
+   is not launch-latency stalling, it is real memory-bound kernel time.
+
+**The one lever this leaves**: widen compile scope so the glue fuses —
+whole-model compile (Residual `log_name` refactor), or minimally pull the
+norms + residual adds + CE into compiled regions. The measured ceiling of
+that fix is ~2.9 s/step ≈ the entire remaining gap to nanoGPT at equal
+workload. Vocab padding drops to a minor item; RoPE and the gated FF are off
+the list entirely.
 
 ### 5. Exonerated along the way (measured, not guessed)
 

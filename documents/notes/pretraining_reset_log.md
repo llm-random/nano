@@ -417,3 +417,18 @@ One line per event; details live in the stage plan documents, not here.
   data path, optimizer, clipping all at parity. Table + reading in the plan
   doc §4 of the comparison record. Timer overhead unmeasurable (their 9250
   with timers vs 9267 without).
+- 2026-11-01: kernel-level profile (goal follow-up, "measure, don't
+  predict"): torch.profiler CUDA dump over steps 12-13 in both frameworks
+  (kernel_profile knob, commit 102f9b5; same dump patched into nanoGPT),
+  jobs 31882/31889, aggregated by scratch kprof_agg.py. Result (ms/step,
+  ours vs theirs): GEMM 4699 vs 4899 and flash 1863 vs 2375 -- we are 713
+  FASTER on the efficient work; eager elementwise 2878 vs 108, eager norm
+  pieces 438 vs 0, eager CE 230, cat/copies 147; launches 87k vs 41k; idle
+  <1% both. My estimate ranking was wrong: vocab padding and architecture
+  (RoPE, gated FF, GQA) are exonerated; the ENTIRE gap is eager fp32 glue
+  between compiled regions (norms, residual adds, casts, CE). One lever
+  left: widen compile scope (Residual refactor / whole-model compile),
+  measured ceiling ~2.9 s/step = the whole gap. Doc: comparison record
+  section 4b; sections 3 items re-marked measured. Note: first watcher died
+  with a session restart; 31882 had completed fine, nanoGPT job submitted
+  late -- no cluster impact.
