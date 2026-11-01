@@ -123,6 +123,12 @@ class Trainer:
     # measurement-only, off by default. The one synchronize per step sits where
     # the metric logger's .item() already syncs, so step time is unaffected.
     profile_timers: bool = False
+    # Kernel-level profile: torch.profiler (CUDA activity) wrapped around
+    # steps 12-13, dumped as one `kprof_us:` line per kernel (self time,
+    # count, name) for offline aggregation into categories (gemm / attention /
+    # fused / eager elementwise / ...). The same dump format is patched into
+    # nanoGPT's train.py so the two profiles are directly comparable.
+    kernel_profile: bool = False
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
     # anything outside it is rejected before training starts.
@@ -229,10 +235,37 @@ class Trainer:
         )
         return itertools.islice(self.train_dataloader, self.start_step, None)
 
+    def _kernel_profile_tick(self, step):
+        """Open torch.profiler at step 12, close and dump it at step 14, so
+        exactly two steady-state steps (12-13) are covered, warmup and the
+        compile steps excluded. One `kprof_us:` line per kernel."""
+        if not self.kernel_profile:
+            return
+        if step == 12:
+            activities = (
+                [torch.profiler.ProfilerActivity.CUDA]
+                if torch.cuda.is_available()
+                else [torch.profiler.ProfilerActivity.CPU]
+            )
+            self._kprof = torch.profiler.profile(activities=activities)
+            self._kprof.__enter__()
+        elif step == 14 and getattr(self, "_kprof", None) is not None:
+            self._kprof.__exit__(None, None, None)
+            for ka in self._kprof.key_averages():
+                us = getattr(ka, "self_device_time_total", 0) or getattr(
+                    ka, "self_cuda_time_total", 0
+                )
+                if us > 0:
+                    logger.info(
+                        f"kprof_us: self_cuda={us:.0f} count={ka.count} name={ka.key}"
+                    )
+            self._kprof = None
+
     def train(self):
         self._timers = LoopTimers(self.profile_timers)
         batches = iter(self._batches_from_start_step())
         for step in range(self.start_step, self.n_steps):
+            self._kernel_profile_tick(step)
             step_t0 = time.perf_counter()
             # The host-side wait for the next batch (tokenizer workers,
             # collate, pinning) -- the H2D copy itself is timed as data_h2d
