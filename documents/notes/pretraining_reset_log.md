@@ -405,3 +405,15 @@ One line per event; details live in the stage plan documents, not here.
   50257 head GEMM (theirs 50304), trainer-loop Python. Plan doc finding 3
   rewritten; next testable levers noted (whole-model compile via Residual
   refactor, vocab padding). Random .bin files cleaned again; logs kept.
+- 2026-11-01: matched section timers (goal): LoopTimers (CUDA-event GPU
+  sections + host batch wait, one sync/step) added identically to our trainer
+  (branch mfu-abl/profile-timers off nanogpt-parity, +trainer.profile_timers,
+  numerics no-op: identical losses knob on/off) and nanoGPT's train.py
+  (entropy clone patched, --profile_timers=True). h20 both sides (jobs
+  31877/31878, stdout logging so no wandb key staged): forward 3641 vs 2926,
+  backward 7880 vs 6330 (both 1.24x), clip/optim/data all ~0 on both sides,
+  step 11536 vs 9250 (1.25x). fwd:bwd shape identical (2.16). Conclusion:
+  the whole 25% gap is inside the model's compiled kernels -- trainer loop,
+  data path, optimizer, clipping all at parity. Table + reading in the plan
+  doc §4 of the comparison record. Timer overhead unmeasurable (their 9250
+  with timers vs 9267 without).

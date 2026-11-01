@@ -65,10 +65,48 @@ trainer-level code difference remains untested except compile scope.**
    elementwise+chunk/cat work (real time, zero counted FLOPs) vs their free
    learned-position add; 3-GEMM gated FF vs 2-GEMM MLP at equal FLOPs; GQA
    shrinks our counted FLOP numerator.
-4. **Trainer-loop residue** — per-chunk Python, loss bookkeeping, metric
-   logging; unmeasured but bounded small by the V6c result.
+4. ~~**Trainer-loop residue**~~ — measured at parity by the section timers
+   (§4): ≈12 ms of an 11,536 ms step. Closed.
 
-### 4. Exonerated along the way (measured, not guessed)
+### 4. Where the time goes: matched per-section timers, h20 (2026-11-01)
+
+The same `LoopTimers` class (CUDA-event pairs for GPU sections, perf_counter
+for the host batch wait, one synchronize per step) was placed at identical
+points in both training loops: our `src/core/trainer.py` behind
+`+trainer.profile_timers=true` (branch `mfu-abl/profile-timers`, off
+`nanogpt-parity`; numerics no-op verified) and nanoGPT's `train.py`
+(`--profile_timers=True`, patched entropy clone). Both h20-size, seq 2048,
+16×32, same H100; means over the measurement window, ms per step (jobs
+31877 ours / 31878 theirs):
+
+| section | ours (parity h20) | nanoGPT (h20-eq) | ratio ours/theirs |
+|---|---:|---:|---:|
+| forward (32 micros) | 3,641 | 2,926 | **1.24×** |
+| backward (32 micros) | 7,880 | 6,330 | **1.24×** |
+| grad clip | 2.8 | 2.6 | 1.1× |
+| optimizer step | 8.3 | 6.6 | 1.3× (both ≈0) |
+| data: host wait | 0.2 | 56.9¹ | — (both overlapped) |
+| data: H2D stream time | 0.5 | 0.7 | — |
+| **step total (wall)** | **11,536** | **~9,250** | **1.25×** |
+
+¹ their get_batch does memmap read + stack + pin on the host inside the micro
+loop (~1.8 ms per micro); it overlaps GPU work and does not reach the step
+total. Timers added no measurable overhead on either side (their step time
+with timers, 9,250 ms, matches the untimed run's 9,267 ms).
+
+**Reading**: the entire 25% wall-clock gap lives inside the model's forward
+and backward kernels, in *exactly equal proportion* (1.244× fwd, 1.245× bwd;
+fwd:bwd shape is identical at 2.16 on both sides). Everything around the
+model — data path, clipping, optimizer, loop Python, logging — is now
+measured at parity (≈12 ms of ~11,500). So the headroom is entirely
+model-execution efficiency: per-block compile scope (eager Residual/norm/
+embedding/LM-head glue between 25 compiled regions ×2 passes), RoPE's
+elementwise work, the 3-GEMM gated FF, and the unpadded 50257 head GEMM.
+Combined with the ~4% FLOPs/token difference, this reproduces the MFU ratio
+(47.0/36.4 = 1.29) exactly. **Trainer-level suspects are closed; all
+remaining headroom is inside the compiled model graph.**
+
+### 5. Exonerated along the way (measured, not guessed)
 
 FSDP2-at-world-size-1 (beats plain bf16 in eager); the tokenization/collate/
 copy pipeline (V6c: random tokens ≈ +0.3%); fused-vs-unfused optimizer; RoPE
