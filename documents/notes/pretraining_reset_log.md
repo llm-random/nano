@@ -432,3 +432,17 @@ One line per event; details live in the stage plan documents, not here.
   section 4b; sections 3 items re-marked measured. Note: first watcher died
   with a session restart; 31882 had completed fine, nanoGPT job submitted
   late -- no cluster impact.
+- 2026-11-01: lever pulled -- whole-model compile (Maciej's go). Branch
+  mfu-abl/whole-compile (9b2186d): Residual metric logging moved into a
+  @torch.compiler.disable helper (log_name never traced; per-block wandb
+  names unchanged -- the helper still reads it, just outside dynamo), new
+  +compile_model=true knob. Gates: 151 tests, knob-off smoke bit-identical,
+  compiled smoke tracks eager to 1e-7, zero recompile warnings on H100.
+  h20 profiled run job 31905: step 11,536 -> 9,451 ms, 110,890 tok/s, MFU
+  36.4% -> 44.4%; nanoGPT same workload 9,250 ms / 47.0% -> we are 2.2%
+  behind wall-clock, from 25%. Kernel profile confirms: eager glue
+  2,878+438+147 -> 625+0.2+0.2 ms, absorbed into triton (1,737, still less
+  than their 1,841); GEMM+flash remain faster than theirs. Remaining: eager
+  CE 230 ms (in trainer, not model) + ~500 ms fp32 grad-accumulation adds,
+  <=2% each. Tables updated (headline matrix, results, comparison record
+  section 4b + lever-pulled note).
