@@ -224,6 +224,16 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         logger.info(
             f"torch.compile applied to attention+ff of {len(model.encoder.blocks)} blocks"
         )
+    if cfg.get("compile_model", False):
+        # Whole-model compile, nanoGPT-style: one inductor graph containing the
+        # blocks AND the glue between them (norms, residual adds, autocast
+        # casts), which regional compile leaves eager -- the kernel profile
+        # measured that glue at ~2.9 s/step at h20. Residual's metric logging
+        # is confined to a compiler-disabled helper, so its per-block log_name
+        # string never enters tracing (the trap that killed block-level
+        # compile). Mutually exclusive with compile_blocks by intent.
+        model.compile()
+        logger.info("torch.compile applied to the whole model")
     model = setup_distributed_training(model, cfg.trainer.distributed)
     optimizer = torch.optim.AdamW(
         model.parameters(),

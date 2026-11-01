@@ -61,16 +61,26 @@ class Residual(nn.Module):
         normalized = self.norm(x)
         out = self.layer(normalized)
         if self.metric_logger is not None:
-            self.metric_logger.accumulate_metrics(
-                layer_name=f"{self.log_name}",
-                transform_fn=Residual.intermediate_norms,
-                calculate_fn=Residual.calculate_metrics,
-                metrics={
-                    "residual_stream": x,
-                    "updates": out,
-                },
-            )
+            self._accumulate_intermediate_metrics(x, out)
         return out + x
+
+    @torch.compiler.disable
+    def _accumulate_intermediate_metrics(self, x, out):
+        # Kept out of the traced path on purpose: dynamo would otherwise guard
+        # the compiled graph on the per-block log_name string, forcing one
+        # recompile per block until the recompile_limit silently drops blocks
+        # back to eager (the original block-level-compile failure). Inside a
+        # compiler-disabled function the string is never traced; with the
+        # logger unset, the branch in forward is constant-folded away.
+        self.metric_logger.accumulate_metrics(
+            layer_name=f"{self.log_name}",
+            transform_fn=Residual.intermediate_norms,
+            calculate_fn=Residual.calculate_metrics,
+            metrics={
+                "residual_stream": x,
+                "updates": out,
+            },
+        )
 
     @staticmethod
     def intermediate_norms(residual_stream: torch.Tensor, updates: torch.Tensor):
