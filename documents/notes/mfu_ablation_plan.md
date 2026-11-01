@@ -105,7 +105,8 @@ lands, with the wandb link.
 | V6c baseline + free input data | — | 28.2% | — |
 | **stack (final = compile)** | **29.8%** | **32.9%** | **36.0%** |
 | **parity combo V1+V3+V5+V6** (nanoGPT's full recipe) | — | **33.6%** | **36.4%** |
-| nanoGPT reference (124M, seq 1024, compiled) | — | 37.9%² | — |
+| nanoGPT reference (its defaults: 124M, seq 1024) | — | 37.9%² | — |
+| **nanoGPT size-matched** (same non-emb params, seq 2048, 1.05M tok/step) | — | **45.7%**² | **47.0%**² |
 
 ¹ micro 8 (micro 16 OOMs on the plain path). ² on the same H100, converted to
 the 989e12 basis. Variants ran h16+h20 only (Maciej's trim); h12 has the
@@ -140,6 +141,8 @@ Residual stays eager, zero recompile warnings after.
 | V6 data path h20 | 77,082 | 30.9% | +0.3% (noise) | 16×32 | | [2e8m9tv2](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/2e8m9tv2) |
 | V6c dummy-data B0 h16 | 125,428 | 28.2% | +0.3% (pipeline costs ~0) | 16×32 | | [b8934dp6](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/b8934dp6) |
 | nanoGPT ref (124M s1024, compiled) | 438,278 | **37.9%** (its printed 120.25% is on the A100 312e12 basis) | n/a | 12×40 | | job 31553 log (wandb off) |
+| nanoGPT h16-eq (20L/16h/1024d=303M, s2048, compiled) | 194,600 | **45.7%** (printed 144.8%) | n/a | 16×32 | | job 31871 log (wandb off) |
+| nanoGPT h20-eq (25L/20h/1280d=556M, s2048, compiled) | 113,150 | **47.0%** (printed 149.0%) | n/a | 16×32 | | job 31872 log (wandb off) |
 | stack V1+V2 h16 | 145,639 | 32.7% | +16.5% — **below V1 alone** | 16×32 | | [uac9scwd](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/uac9scwd) |
 | stack V1+V2 h16 repeat | 145,510 | 32.7% | reproduces the −1.6% vs V1 | 16×32 | | [e7bj6zi5](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/e7bj6zi5) |
 | **stack (final = V1) h12** | 269,352 | **29.8%** | **+18.6%** vs stage-3 h12 | 32×16 | | [urnucb40](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/urnucb40) |
@@ -207,12 +210,24 @@ Measured 2026-10-31 (jobs 31677/31678/31680). Findings:
 2. **V3+V5+V6 together are worth ~+0.5pt on top of compile** — consistent sign
    at both sizes but below the ablation's 3% noise bar; individually each was
    noise or negative. Compile remains the only change that matters.
-3. **Parity with nanoGPT: nearly, at h20.** Their full recipe on our model:
-   33.6% (h16) / 36.4% (h20) vs their 37.9% at 124M/seq 1024. The residual
-   1.5–4.3pt is architecture and workload (RoPE's uncounted elementwise work,
-   3-GEMM gated FF, GQA's smaller FLOP numerator, seq 2048's larger attention
-   share) plus compile scope (whole-model single graph vs our per-block
-   compile) — no remaining known *code* difference.
+3. **Parity with nanoGPT — corrected by the size-matched runs (2026-11-01).**
+   The first conclusion ("nearly matched at h20, the rest is workload")
+   compared different workloads and was too kind to us. nanoGPT run at *our*
+   shape — same non-embedding params, seq 2048, 1.05M tokens/step, same H100
+   (jobs 31871/31872: 20L/16h/1024d → 303M and 25L/20h/1280d → 556M) — gets
+   **45.7% (h16-size) and 47.0% (h20-size)**: bigger GEMMs and longer seq
+   *raise* its MFU. At matched workload the honest gap is **12.1pt / 10.6pt**,
+   i.e. nanoGPT moves 1.30× / 1.25× more tokens per second than our parity
+   branch at equal size. With every known trainer-level code difference now
+   replicated, that gap is carried by: (a) compile scope — their whole-model
+   single graph vs our per-block compile with eager Residual/norm/embedding
+   glue; (b) architecture — RoPE's per-layer uncounted elementwise+cat work vs
+   a free position-embedding add, 3-GEMM gated FF vs 2-GEMM MLP, unpadded
+   50257 LM-head GEMM vs their 50304 (multiple of 64); (c) any remaining
+   trainer-loop overhead (per-chunk Python, loss bookkeeping). Next levers, in
+   testable order: whole-model compile (needs the Residual `log_name`
+   refactor), vocab padding to 50304, then the architecture costs which are
+   paper choices, not bugs.
 
 ## Parked for Maciej (changes deliberately NOT in the ablation)
 

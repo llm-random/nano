@@ -394,3 +394,14 @@ One line per event; details live in the stage plan documents, not here.
   per-block); the rest is architecture/workload. SSH note: `entropy`
   (mstefaniak) now fails auth; `entropy_j` works, as the submission memory
   says.
+- 2026-11-01: size-matched nanoGPT references (Maciej's catch: 124M/s1024 vs
+  h20/s2048 was not comparable). nanoGPT at our shapes, same H100, same
+  1.05M tok/step: h16-eq 20L/16h/1024d=303M -> 45.7% H100-basis (job 31871,
+  printed 144.8% A100-basis); h20-eq 25L/20h/1280d=556M -> 47.0% (job 31872,
+  printed 149.0%). Corrects the parity conclusion: bigger GEMMs RAISE
+  nanoGPT's MFU; at matched workload the real gap is 12.1pt/10.6pt (they move
+  1.30x/1.25x our tokens/s at equal size). Remaining suspects: whole-model vs
+  per-block compile scope, RoPE elementwise work, 3-GEMM gated FF, unpadded
+  50257 head GEMM (theirs 50304), trainer-loop Python. Plan doc finding 3
+  rewritten; next testable levers noted (whole-model compile via Residual
+  refactor, vocab padding). Random .bin files cleaned again; logs kept.
