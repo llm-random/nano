@@ -1,7 +1,7 @@
 import itertools
 import os
 import time
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from attr import define
 import torch
 import torch.nn.functional as F
@@ -32,6 +32,70 @@ class LossMetrics:
     reported_loss: torch.Tensor
 
 
+class LoopTimers:
+    """Section timers for one training-loop iteration, comparable across
+    frameworks (the same class is patched into nanoGPT's train.py for the
+    side-by-side profile).
+
+    GPU sections use CUDA event pairs: kernels are launched asynchronously, so
+    host timestamps around a section measure launch time, not execution; event
+    pairs measure the section's span on the stream. Host sections (the wait for
+    the next batch) use perf_counter. read() synchronizes once per step and
+    returns {section: milliseconds}. Host and GPU sections overlap in wall
+    time, so their sum can exceed the step total. Without CUDA, GPU sections
+    fall back to host timing so the CPU gate still runs.
+    """
+
+    def __init__(self, enabled: bool):
+        self.enabled = enabled
+        self._on_gpu = enabled and torch.cuda.is_available()
+        self._host = {}
+        self._pairs = []
+
+    @contextmanager
+    def gpu(self, name):
+        if not self._on_gpu:
+            with self.host(name):
+                yield
+            return
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record()
+        try:
+            yield
+        finally:
+            end.record()
+            self._pairs.append((name, start, end))
+
+    @contextmanager
+    def host(self, name):
+        if not self.enabled:
+            yield
+            return
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            self._host[name] = (
+                self._host.get(name, 0.0) + (time.perf_counter() - t0) * 1e3
+            )
+
+    def read(self):
+        """One synchronize, then {section: ms} for this step; resets state."""
+        if not self.enabled:
+            return {}
+        if self._on_gpu:
+            torch.cuda.synchronize()
+        out = {}
+        for name, start, end in self._pairs:
+            out[name] = out.get(name, 0.0) + start.elapsed_time(end)
+        for name, ms in self._host.items():
+            out[name] = out.get(name, 0.0) + ms
+        self._pairs.clear()
+        self._host.clear()
+        return out
+
+
 @define(slots=False)
 class Trainer:
     model: torch.nn.Module
@@ -55,6 +119,10 @@ class Trainer:
     # and optimizer state stay fp32. Off by default; meant for runs with
     # trainer.distributed=null, where there is no FSDP2 policy to supply bf16.
     autocast_bf16: bool = False
+    # Per-step section timers (LoopTimers) printed as a `timers_ms:` log line;
+    # measurement-only, off by default. The one synchronize per step sits where
+    # the metric logger's .item() already syncs, so step time is unaffected.
+    profile_timers: bool = False
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
     # anything outside it is rejected before training starts.
@@ -91,6 +159,9 @@ class Trainer:
         # resume. Do not add the skip back without first removing that restart.
         self.eval_iterator = None
         self.step = self.start_step - 1
+        # Disabled placeholder so calculate_loss (also called from eval) can
+        # always reference it; train() swaps in the enabled instance.
+        self._timers = LoopTimers(False)
 
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
@@ -159,9 +230,18 @@ class Trainer:
         return itertools.islice(self.train_dataloader, self.start_step, None)
 
     def train(self):
-        for step, batch in zip(
-            range(self.start_step, self.n_steps), self._batches_from_start_step()
-        ):
+        self._timers = LoopTimers(self.profile_timers)
+        batches = iter(self._batches_from_start_step())
+        for step in range(self.start_step, self.n_steps):
+            step_t0 = time.perf_counter()
+            # The host-side wait for the next batch (tokenizer workers,
+            # collate, pinning) -- the H2D copy itself is timed as data_h2d
+            # inside calculate_loss.
+            with self._timers.host("data_fetch"):
+                try:
+                    batch = next(batches)
+                except StopIteration:
+                    break
             self.step = step
             self.metric_logger.set_step(step)
             self.metric_logger.set_tokens(self.processed_tokens)
@@ -171,13 +251,35 @@ class Trainer:
             self._seq_len_for_flops = batch.shape[-1] - 1
             loss_metrics = self.calculate_loss(batch)
 
-            grad_norm = self.clip_gradient()
+            with self._timers.gpu("clip"):
+                grad_norm = self.clip_gradient()
 
-            self.log_metrics(loss_metrics, grad_norm)
+            with self._timers.host("log"):
+                self.log_metrics(loss_metrics, grad_norm)
 
-            self.optimizer.step()
-            self.optimizer.zero_grad()
+            with self._timers.gpu("optim"):
+                self.optimizer.step()
+                self.optimizer.zero_grad()
             self.scheduler.step()
+
+            if self.profile_timers:
+                sections = self._timers.read()  # synchronizes
+                step_total = (time.perf_counter() - step_t0) * 1e3
+                parts = " ".join(
+                    f"{name}={sections.get(name, 0.0):.1f}"
+                    for name in (
+                        "data_fetch",
+                        "data_h2d",
+                        "forward",
+                        "backward",
+                        "clip",
+                        "optim",
+                        "log",
+                    )
+                )
+                logger.info(
+                    f"timers_ms: step={step} {parts} step_total={step_total:.1f}"
+                )
 
             if self._should_save_checkpoint:
                 self.save_checkpoint()
@@ -329,7 +431,8 @@ class Trainer:
             # asynchronous -- the Python thread moves on to launch kernels
             # instead of stalling until the copy lands. The input/target
             # slicing then happens on the device.
-            return chunk.to(self.device, non_blocking=True)
+            with self._timers.gpu("data_h2d"):
+                return chunk.to(self.device, non_blocking=True)
 
         total_losses = []
         reported_losses = []
@@ -339,11 +442,13 @@ class Trainer:
             if self.model.training:
                 self._update_processed_tokens(input_ids)
 
-            loss, reported_loss = _hack_for_python_garbage_collection(
-                input_ids, target_ids
-            )
+            with self._timers.gpu("forward"):
+                loss, reported_loss = _hack_for_python_garbage_collection(
+                    input_ids, target_ids
+                )
             if self.model.training:
-                loss.backward()
+                with self._timers.gpu("backward"):
+                    loss.backward()
             # The next chunk's H2D copy goes out while this chunk's kernels
             # are still executing, not at the top of the next iteration.
             if i + 1 < len(chunks):
