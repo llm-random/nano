@@ -305,6 +305,27 @@ class GatedFeedForward(nn.Module):
         return x
 
 
+class GeluFeedForward(nn.Module):
+    """nanoGPT-style 2-matrix MLP: up-projection, GELU, down-projection.
+
+    The architecture-comparison counterpart of GatedFeedForward (same dff,
+    one fewer matrix, no gating) -- used by the nanoGPT-arch ablation to run
+    GPT-2's FF inside this framework (documents/notes/mfu_ablation_plan.md).
+    """
+
+    def __init__(self, ff_pre_act_fn, ff_post_act_fn):
+        super().__init__()
+        self.gelu = nn.GELU()
+        self.ff_pre_act = ff_pre_act_fn()
+        self.ff_post_act = ff_post_act_fn()
+
+    def forward(self, x):
+        x = self.ff_pre_act(x)
+        x = self.gelu(x)
+        x = self.ff_post_act(x)
+        return x
+
+
 class TransformerBlock(nn.Module):
     def __init__(
         self,
