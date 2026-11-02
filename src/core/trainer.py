@@ -129,6 +129,11 @@ class Trainer:
     # fused / eager elementwise / ...). The same dump format is patched into
     # nanoGPT's train.py so the two profiles are directly comparable.
     kernel_profile: bool = False
+    # Compile model forward + cross-entropy as ONE inductor graph (what
+    # nanoGPT gets by computing the loss inside its compiled model). Use
+    # INSTEAD of compile_model, not on top of it: the traced function already
+    # contains the model. Speedup-plan item 2.
+    compile_loss: bool = False
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
     # anything outside it is rejected before training starts.
@@ -168,6 +173,9 @@ class Trainer:
         # Disabled placeholder so calculate_loss (also called from eval) can
         # always reference it; train() swaps in the enabled instance.
         self._timers = LoopTimers(False)
+        # Resolved lazily on first use (calculate_loss): the save-type test
+        # stubs borrow this post-init without the rest of the class.
+        self._forward_loss_fn = None
 
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
@@ -435,22 +443,39 @@ class Trainer:
             return torch.autocast("cuda", dtype=torch.bfloat16)
         return nullcontext()
 
+    def _forward_loss(self, input_ids, target_ids):
+        """Model forward + cross-entropy as one function, so compile_loss can
+        trace them into a single graph. With the loss outside the compiled
+        model (nanoGPT keeps it inside), the logits -- batch x seq x vocab,
+        the largest activation there is -- cross the graph boundary every
+        micro-step and pay an eager fp32 log-softmax plus bf16<->fp32
+        boundary casts; the kernel profile measured that at ~500 ms/step at
+        h20 (mfu_ablation_plan.md section 4b)."""
+        predicted_ids = self.model(input_ids)
+
+        # Tensors should be on the same device for loss calculation #TODO check
+        target_ids = target_ids.to(predicted_ids.device)
+
+        mask_loss = F.cross_entropy(
+            predicted_ids.flatten(0, -2),
+            target_ids.reshape(-1).long(),
+            reduction="none",
+        )
+        return mask_loss.mean()
+
     def calculate_loss(self, batch) -> LossMetrics:
+        if self._forward_loss_fn is None:
+            self._forward_loss_fn = (
+                torch.compile(self._forward_loss)
+                if self.compile_loss
+                else self._forward_loss
+            )
+
         def _hack_for_python_garbage_collection(input_ids, target_ids):
             """we want to have no reference to model output while backpropagating to allow torch to free memory,
             so we wrap loss calculation in a function"""
             with self._forward_ctx():
-                predicted_ids = self.model(input_ids)
-
-                # Tensors should be on the same device for loss calculation #TODO check
-                target_ids = target_ids.to(predicted_ids.device)
-
-                mask_loss = F.cross_entropy(
-                    predicted_ids.flatten(0, -2),
-                    target_ids.reshape(-1).long(),
-                    reduction="none",
-                )
-                reported_loss = mask_loss.mean()
+                reported_loss = self._forward_loss_fn(input_ids, target_ids)
             loss = reported_loss
             reported_loss = reported_loss / self.gradient_accumulation_steps
             loss = loss / self.gradient_accumulation_steps
