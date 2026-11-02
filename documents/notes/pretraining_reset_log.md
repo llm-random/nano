@@ -472,3 +472,16 @@ One line per event; details live in the stage plan documents, not here.
   115,862 tok/s / 46.4% MFU vs nanoGPT 9,250 ms / 47.0% (their larger FLOP
   numerator) -- we pass them on wall-clock at matched workload. Cluster
   clean, branches pushed.
+- 2026-11-02: architecture ablation (Maciej: run GPT-2's shape -- GELU 2-mat
+  FF, MHA, 25 layers -- in our framework). Branch mfu-abl/nanogpt-arch
+  (9f3e742, off compiled-loss): GeluFeedForward class; MHA/depth via
+  overrides; 491M block params, accounting = 4.122 GF/token, identical to
+  nanoGPT (note: our vocab was already 50304-padded -- the earlier padding
+  'difference' never existed). Job 32064: 9,578 ms / 109,425 tok/s / 45.6%
+  -- SLOWER than our own arch (9,046 / 115,862 / 46.4%): our architecture
+  wins +5.9% tok/s at equal params in the same framework. vs nanoGPT itself
+  (9,250): +328 ms = RoPE kept (+141 triton) + grad-accum granularity
+  (+237) - faster GEMMs (-189). Comparison closed in all three directions
+  (code/workload/architecture); section 4c added. Local hiccup: session
+  restart killed the first smoke (exit 137, transient WSL memory) -- retried
+  clean. Peak 52.0 GiB.

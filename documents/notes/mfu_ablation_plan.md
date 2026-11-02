@@ -192,6 +192,45 @@ inside their compiled graph — ours lives in the trainer, not the model) and
 accumulation adds, theirs 108 ms) — the next and last small levers, worth at
 most ~2% each.
 
+### 4c. Architecture ablation: GPT-2's shape inside our framework (2026-11-02)
+
+Maciej's question: the shape differences are GELU-vs-SwiGLU, MHA-vs-GQA,
+25-vs-20 layers — so run *their* shape in *our* framework. Branch
+`mfu-abl/nanogpt-arch` (off compiled-loss) adds `GeluFeedForward` (2-matrix
+GELU MLP); MHA and depth are config overrides (`common.kv_heads=q_heads`,
+`common.n_blocks=25`). Same 491M block params; the trainer's FLOPs accounting
+lands at **4.122 GF/token — identical to nanoGPT's** (and our vocab was
+already 50304-padded, so that difference never existed). h20 workload,
+compile_loss, 16×32, job 32064:
+
+| config (same 491M, same H100) | step ms | tokens/s | MFU |
+|---|---:|---:|---:|
+| **our arch, our framework** (compiled-loss) | **9,046** | **115,862** | 46.4% |
+| GPT-2 arch, our framework (this run) | 9,578 | 109,425 | 45.6% |
+| GPT-2 arch, nanoGPT framework | 9,250 | 113,150 | 47.0% |
+
+Kernel profile of the clone vs nanoGPT itself (ms/step): GEMMs 4,711 vs
+4,899 (**ours faster at identical shapes**), flash attention 2,418 vs 2,375
+(par — confirming the earlier flash advantage was GQA, now gone), triton
+1,982 vs 1,841 (+141: RoPE's rotation work, which we kept — their learned
+positions are a free add), eager elementwise 345 vs 108 (+237:
+grad-accumulation granularity, 25 layers of many small tensors). Peak
+memory 52.0 GiB.
+
+**Readings:**
+
+1. **Our architecture is genuinely faster than GPT-2's at equal parameters
+   in the same framework**: +5.9% tokens/s (115,862 vs 109,425). GQA + fewer,
+   fatter gated-FF layers beat MHA + more, thinner GELU layers on wall-clock
+   — while scoring *lower* on MFU (46.4 vs 47.0), the bookkeeping artifact
+   §1's footnote explains: the GPT-2 shape needs ~4% more FLOPs per token.
+2. **Framework-vs-framework at matched architecture: ours is +328 ms (3.5%)
+   behind nanoGPT's**, fully accounted by what we deliberately kept (RoPE,
+   +141 in triton) and accumulation granularity (+237), offset by faster
+   GEMMs (−189). The frameworks are equivalent within those residuals.
+3. The comparison is now closed in both directions: code (parity + compile
+   scope, done), workload (size-matched, done), architecture (this run).
+
 ### 5. Exonerated along the way (measured, not guessed)
 
 FSDP2-at-world-size-1 (beats plain bf16 in eager); the tokenization/collate/
@@ -293,6 +332,7 @@ lands, with the wandb link.
 | **parity combo V1+V3+V5+V6** (nanoGPT's full recipe) | — | **33.6%** | **36.4%** |
 | **whole-model compile** (parity + `compile_model`, `log_name` refactor) | — | — | **44.4%** |
 | **compiled loss** (one graph incl. CE; beats nanoGPT wall-clock) | — | — | **46.4%** |
+| GPT-2 arch clone in our framework (MHA+GELU+25L, §4c) | — | — | 45.6% |
 | nanoGPT reference (its defaults: 124M, seq 1024) | — | 37.9%² | — |
 | **nanoGPT size-matched** (same non-emb params, seq 2048, 1.05M tok/step) | — | **45.7%**² | **47.0%**² |
 
@@ -389,6 +429,7 @@ with compiled regions.
 | whole-model compile h20 (16×32) | 110,890 | **44.4%** | +8.0pt vs parity (+22% tok/s) | −2.6pt (−2.2% wall) | job 31905 log (stdout) |
 | compiled-loss h20 (16×32) | 115,862 | **46.4%** | +4.5% tok/s vs whole-compile | **+2.2% faster wall-clock than nanoGPT** | job 32023 log (stdout) |
 | compiled-loss h20 micro 32×16 | — | OOM | 73.6 GiB used + 6.1 GiB requested; 16×32 stays | — | job 32024 log |
+| GPT-2-arch clone h20 (16×32) | 109,425 | 45.6% (4.122 GF/tok basis) | −5.9% tok/s vs our arch — our architecture is faster at equal params | +3.5% wall vs nanoGPT itself (RoPE + accum granularity) | job 32064 log (stdout) |
 
 Measured 2026-10-31 (jobs 31677/31678/31680). Findings:
 
