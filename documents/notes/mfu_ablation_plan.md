@@ -231,6 +231,18 @@ memory 52.0 GiB.
 3. The comparison is now closed in both directions: code (parity + compile
    scope, done), workload (size-matched, done), architecture (this run).
 
+**Variance (2026-11-02, jobs 32094–32098 ours / 32099–32103 nanoGPT)**: each
+side re-run 5× with the job-32064 / job-31889 commands verbatim → 6
+measurements per framework, all 12 on the same node (h100a). Uniform
+reducer: mean wall/step over steps 15–29 (post-warmup, post-profiler).
+Ours 9,627 ± 55 ms (cv 0.58%), 108.9k ± 0.6k tok/s, 45.40 ± 0.26% MFU;
+nanoGPT 9,277 ± 64 ms (cv 0.68%), 113.0k ± 0.8k tok/s, 47.11 ± 0.32% MFU.
+Framework gap at matched architecture: **+350 ± 34 ms (3.8%, ~10σ) — real**,
+and consistent with the kernel attribution (+237 grad-accum granularity,
++141 RoPE, −189 GEMMs). The uniform window reads ~0.5% slower than the
+single-run headline numbers (9,578 / 9,250, trainer's own window) —
+within-run drift, applied equally to both sides.
+
 ### 5. Exonerated along the way (measured, not guessed)
 
 FSDP2-at-world-size-1 (beats plain bf16 in eager); the tokenization/collate/
