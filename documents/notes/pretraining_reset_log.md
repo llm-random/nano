@@ -446,3 +446,20 @@ One line per event; details live in the stage plan documents, not here.
   CE 230 ms (in trainer, not model) + ~500 ms fp32 grad-accumulation adds,
   <=2% each. Tables updated (headline matrix, results, comparison record
   section 4b + lever-pulled note).
+- 2026-11-02: speedup plan executed (goal). Item 1: mfu-abl/whole-compile
+  merged into pretraining (34bf3c1); gates green (black, 169 tests, knob-off
+  smoke bit-identical pre/post merge); all knobs opt-in, FSDP2 configs keep
+  compile_blocks. Item 2: mfu-abl/compiled-loss (733f455), one change:
+  _forward_loss (model fwd + CE) compiled as one graph via
+  +trainer.compile_loss=true. Deviations fixed forward: (a) save-type test
+  stubs borrow __attrs_post_init__ -> compiled fn now resolved lazily in
+  calculate_loss; (b) knob-on CPU smoke blocked by torch 2.7 CPU-inductor
+  codegen bug (g++ conflicting declaration in generated reduction) -> knob-on
+  numerics gate moved to the H100 loss trace vs job 31905 (max |dloss|
+  0.0017 over 30 steps, pass). Result job 32023: step 9,046 ms, 115,862
+  tok/s, 46.4% MFU -- 2.2% FASTER wall-clock than nanoGPT (9,250 ms) at
+  matched workload; CE + boundary casts vanished into triton; eager residue
+  = 291 ms grad-accumulation adds. Item 3 job 32024: micro 32 x ga 16 OOMs
+  (73.6 GiB + 6.1 GiB requested) -> 16x32 stays, recorded not retried.
+  Tables updated (headline, section 1, 4b now 4 columns, results). Next:
+  300-step compiled-vs-eager overlay at h16 (numerics bookkeeping).

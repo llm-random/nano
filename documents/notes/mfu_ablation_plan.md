@@ -31,6 +31,7 @@ convert). Both frameworks count FLOPs/token the same way (6·P incl. LM head +
 | ours, + compile only (`mfu-abl/stack`) | 32.9% | 36.0% |
 | ours, full nanoGPT recipe (`mfu-abl/nanogpt-parity` = V1+V3+V5+V6) | **33.6%** | **36.4%** |
 | ours, + whole-model compile (`mfu-abl/whole-compile`, 2026-11-01) | — | **44.4%** |
+| ours, + compiled loss (`mfu-abl/compiled-loss`, 2026-11-02) | — | **46.4%** (2.2% faster wall-clock than nanoGPT) |
 | nanoGPT, size-matched (same non-emb params, seq 2048, 1.05M tok/step) | **45.7%** | **47.0%** |
 | nanoGPT, its own defaults (124M, seq 1024) | 37.9% | — |
 
@@ -116,20 +117,34 @@ every kernel dumped with self-time and launch count, aggregated into the same
 categories by `kprof_agg.py`. h20-size, 16×32, same H100 (jobs 31882 ours /
 31889 theirs), ms per step:
 
-| kernel category | ours (per-block compile) | **ours (whole-model compile)** | nanoGPT | Δ whole−nanoGPT |
+| kernel category | ours (per-block compile) | ours (whole-model compile) | **ours (+ compiled loss)** | nanoGPT |
 |---|---:|---:|---:|---:|
-| GEMMs (nvjet) | 4,699 | 4,787 | 4,899 | **−112 (ours faster)** |
-| flash attention | 1,863 | 1,950 | 2,375 | **−425 (ours faster)** |
-| compiled (triton: fused glue, silu/gelu, norms…) | 1,157 | 1,737 | 1,841 | −104 |
-| **eager elementwise (fp32 mul/add armies, casts)** | **2,878** | **625** | 108 | +517 |
+| GEMMs (nvjet) | 4,699 | 4,787 | 4,801 | 4,899 |
+| flash attention | 1,863 | 1,950 | 1,961 | 2,375 |
+| compiled (triton: fused glue, silu/gelu, norms, CE…) | 1,157 | 1,737 | 1,871 | 1,841 |
+| **eager elementwise (fp32 mul/add armies, casts)** | **2,878** | **625** | **291** | 108 |
 | **eager norm pieces (pow/reduce/rsqrt)** | **438** | 0.2 | 0 | 0 |
-| softmax/CE (eager here, compiled there) | 230 | 230 | — | +230 |
-| cat / copies / memcpy | 147 | 0.2 | 0.4 | 0 |
-| optimizer | 10 | 10 | 9 | 0 |
-| other | 33 | 8 | 6 | 0 |
-| **TOTAL busy** | **11,454** | **9,348** | **9,238** | **+110** |
-| **step total (wall)** | **11,536** | **9,451** | **9,250** | **+201 (+2.2%)** |
-| kernel launches per step | 86,713 | 60,857 | 40,934 | 1.5× |
+| softmax/CE (eager until compiled-loss) | 230 | 230 | 0 | 0 |
+| cat / copies / memcpy | 147 | 0.2 | 0.2 | 0.4 |
+| optimizer | 10 | 10 | 10 | 9 |
+| other | 33 | 8 | 8 | 6 |
+| **TOTAL busy** | **11,454** | **9,348** | **8,943** | **9,238** |
+| **step total (wall)** | **11,536** | **9,451** | **9,046** | **9,250** |
+| kernel launches per step | 86,713 | 60,857 | 60,377 | 40,934 |
+| tokens/s | 90,697 | 110,890 | **115,862** | 113,150 |
+| MFU (own FLOPs basis) | 36.4% | 44.4% | **46.4%** | 47.0% |
+
+Columns: jobs 31882 / 31905 / 32023 / 31889. The compiled-loss column
+(speedup-plan item 2, branch `mfu-abl/compiled-loss`, 2026-11-02) traces
+model forward + cross-entropy into one graph (`+trainer.compile_loss=true`):
+the CE row and its boundary casts vanish into triton exactly as attributed,
+leaving only grad-accumulation adds (291 ms) eager. **Wall-clock: 9,046 vs
+nanoGPT's 9,250 ms — we are 2.2% faster at matched workload** (+2.4%
+tokens/s); nanoGPT's MFU prints higher only because its FLOPs/token
+numerator is 4% larger (MHA + 2-GEMM MLP). Numerics gate: per-step losses
+vs job 31905 track at max |Δ| 0.0017 over 30 steps. Speedup-plan item 3
+(micro 32 × ga 16) OOMs — 73.6 GiB used + 6.1 GiB more requested (job
+32024) — so 16×32 stays; recorded, not retried.
 
 **Measured verdict — the prediction ranking was wrong, and the data names the
 weakness exactly:**
@@ -277,6 +292,7 @@ lands, with the wandb link.
 | **stack (final = compile)** | **29.8%** | **32.9%** | **36.0%** |
 | **parity combo V1+V3+V5+V6** (nanoGPT's full recipe) | — | **33.6%** | **36.4%** |
 | **whole-model compile** (parity + `compile_model`, `log_name` refactor) | — | — | **44.4%** |
+| **compiled loss** (one graph incl. CE; beats nanoGPT wall-clock) | — | — | **46.4%** |
 | nanoGPT reference (its defaults: 124M, seq 1024) | — | 37.9%² | — |
 | **nanoGPT size-matched** (same non-emb params, seq 2048, 1.05M tok/step) | — | **45.7%**² | **47.0%**² |
 
@@ -371,6 +387,8 @@ with compiled regions.
 | parity h20 (8×64) | 87,001 | 34.9% | −1.1pt — micro-batch confound, see next row | −3.0pt | [754pxldo](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/754pxldo) |
 | parity h20 (16×32) | 90,697 | **36.4%** | +0.4pt (stack: 36.0%) | −1.5pt | [abzl2438](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/abzl2438) |
 | whole-model compile h20 (16×32) | 110,890 | **44.4%** | +8.0pt vs parity (+22% tok/s) | −2.6pt (−2.2% wall) | job 31905 log (stdout) |
+| compiled-loss h20 (16×32) | 115,862 | **46.4%** | +4.5% tok/s vs whole-compile | **+2.2% faster wall-clock than nanoGPT** | job 32023 log (stdout) |
+| compiled-loss h20 micro 32×16 | — | OOM | 73.6 GiB used + 6.1 GiB requested; 16×32 stays | — | job 32024 log |
 
 Measured 2026-10-31 (jobs 31677/31678/31680). Findings:
 
