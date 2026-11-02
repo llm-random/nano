@@ -1,6 +1,7 @@
 import itertools
 import os
 import time
+from contextlib import contextmanager, nullcontext
 from attr import define
 import torch
 import torch.nn.functional as F
@@ -31,6 +32,70 @@ class LossMetrics:
     reported_loss: torch.Tensor
 
 
+class LoopTimers:
+    """Section timers for one training-loop iteration, comparable across
+    frameworks (the same class is patched into nanoGPT's train.py for the
+    side-by-side profile).
+
+    GPU sections use CUDA event pairs: kernels are launched asynchronously, so
+    host timestamps around a section measure launch time, not execution; event
+    pairs measure the section's span on the stream. Host sections (the wait for
+    the next batch) use perf_counter. read() synchronizes once per step and
+    returns {section: milliseconds}. Host and GPU sections overlap in wall
+    time, so their sum can exceed the step total. Without CUDA, GPU sections
+    fall back to host timing so the CPU gate still runs.
+    """
+
+    def __init__(self, enabled: bool):
+        self.enabled = enabled
+        self._on_gpu = enabled and torch.cuda.is_available()
+        self._host = {}
+        self._pairs = []
+
+    @contextmanager
+    def gpu(self, name):
+        if not self._on_gpu:
+            with self.host(name):
+                yield
+            return
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record()
+        try:
+            yield
+        finally:
+            end.record()
+            self._pairs.append((name, start, end))
+
+    @contextmanager
+    def host(self, name):
+        if not self.enabled:
+            yield
+            return
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            self._host[name] = (
+                self._host.get(name, 0.0) + (time.perf_counter() - t0) * 1e3
+            )
+
+    def read(self):
+        """One synchronize, then {section: ms} for this step; resets state."""
+        if not self.enabled:
+            return {}
+        if self._on_gpu:
+            torch.cuda.synchronize()
+        out = {}
+        for name, start, end in self._pairs:
+            out[name] = out.get(name, 0.0) + start.elapsed_time(end)
+        for name, ms in self._host.items():
+            out[name] = out.get(name, 0.0) + ms
+        self._pairs.clear()
+        self._host.clear()
+        return out
+
+
 @define(slots=False)
 class Trainer:
     model: torch.nn.Module
@@ -49,6 +114,21 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
+    # The nanoGPT-style single-GPU configuration: a plain (unwrapped) module
+    # whose forward+loss run under torch.autocast(bf16) while params, grads
+    # and optimizer state stay fp32. Off by default; meant for runs with
+    # trainer.distributed=null, where there is no FSDP2 policy to supply bf16.
+    autocast_bf16: bool = False
+    # Per-step section timers (LoopTimers) printed as a `timers_ms:` log line;
+    # measurement-only, off by default. The one synchronize per step sits where
+    # the metric logger's .item() already syncs, so step time is unaffected.
+    profile_timers: bool = False
+    # Kernel-level profile: torch.profiler (CUDA activity) wrapped around
+    # steps 12-13, dumped as one `kprof_us:` line per kernel (self time,
+    # count, name) for offline aggregation into categories (gemm / attention /
+    # fused / eager elementwise / ...). The same dump format is patched into
+    # nanoGPT's train.py so the two profiles are directly comparable.
+    kernel_profile: bool = False
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
     # anything outside it is rejected before training starts.
@@ -85,6 +165,9 @@ class Trainer:
         # resume. Do not add the skip back without first removing that restart.
         self.eval_iterator = None
         self.step = self.start_step - 1
+        # Disabled placeholder so calculate_loss (also called from eval) can
+        # always reference it; train() swaps in the enabled instance.
+        self._timers = LoopTimers(False)
 
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
@@ -152,10 +235,46 @@ class Trainer:
         )
         return itertools.islice(self.train_dataloader, self.start_step, None)
 
+    def _kernel_profile_tick(self, step):
+        """Open torch.profiler at step 12, close and dump it at step 14, so
+        exactly two steady-state steps (12-13) are covered, warmup and the
+        compile steps excluded. One `kprof_us:` line per kernel."""
+        if not self.kernel_profile:
+            return
+        if step == 12:
+            activities = (
+                [torch.profiler.ProfilerActivity.CUDA]
+                if torch.cuda.is_available()
+                else [torch.profiler.ProfilerActivity.CPU]
+            )
+            self._kprof = torch.profiler.profile(activities=activities)
+            self._kprof.__enter__()
+        elif step == 14 and getattr(self, "_kprof", None) is not None:
+            self._kprof.__exit__(None, None, None)
+            for ka in self._kprof.key_averages():
+                us = getattr(ka, "self_device_time_total", 0) or getattr(
+                    ka, "self_cuda_time_total", 0
+                )
+                if us > 0:
+                    logger.info(
+                        f"kprof_us: self_cuda={us:.0f} count={ka.count} name={ka.key}"
+                    )
+            self._kprof = None
+
     def train(self):
-        for step, batch in zip(
-            range(self.start_step, self.n_steps), self._batches_from_start_step()
-        ):
+        self._timers = LoopTimers(self.profile_timers)
+        batches = iter(self._batches_from_start_step())
+        for step in range(self.start_step, self.n_steps):
+            self._kernel_profile_tick(step)
+            step_t0 = time.perf_counter()
+            # The host-side wait for the next batch (tokenizer workers,
+            # collate, pinning) -- the H2D copy itself is timed as data_h2d
+            # inside calculate_loss.
+            with self._timers.host("data_fetch"):
+                try:
+                    batch = next(batches)
+                except StopIteration:
+                    break
             self.step = step
             self.metric_logger.set_step(step)
             self.metric_logger.set_tokens(self.processed_tokens)
@@ -165,13 +284,35 @@ class Trainer:
             self._seq_len_for_flops = batch.shape[-1] - 1
             loss_metrics = self.calculate_loss(batch)
 
-            grad_norm = self.clip_gradient()
+            with self._timers.gpu("clip"):
+                grad_norm = self.clip_gradient()
 
-            self.log_metrics(loss_metrics, grad_norm)
+            with self._timers.host("log"):
+                self.log_metrics(loss_metrics, grad_norm)
 
-            self.optimizer.step()
-            self.optimizer.zero_grad()
+            with self._timers.gpu("optim"):
+                self.optimizer.step()
+                self.optimizer.zero_grad()
             self.scheduler.step()
+
+            if self.profile_timers:
+                sections = self._timers.read()  # synchronizes
+                step_total = (time.perf_counter() - step_t0) * 1e3
+                parts = " ".join(
+                    f"{name}={sections.get(name, 0.0):.1f}"
+                    for name in (
+                        "data_fetch",
+                        "data_h2d",
+                        "forward",
+                        "backward",
+                        "clip",
+                        "optim",
+                        "log",
+                    )
+                )
+                logger.info(
+                    f"timers_ms: step={step} {parts} step_total={step_total:.1f}"
+                )
 
             if self._should_save_checkpoint:
                 self.save_checkpoint()
@@ -289,39 +430,62 @@ class Trainer:
 
         return input_ids, target_ids
 
+    def _forward_ctx(self):
+        if self.autocast_bf16:
+            return torch.autocast("cuda", dtype=torch.bfloat16)
+        return nullcontext()
+
     def calculate_loss(self, batch) -> LossMetrics:
         def _hack_for_python_garbage_collection(input_ids, target_ids):
             """we want to have no reference to model output while backpropagating to allow torch to free memory,
             so we wrap loss calculation in a function"""
-            predicted_ids = self.model(input_ids)
+            with self._forward_ctx():
+                predicted_ids = self.model(input_ids)
 
-            # Tensors should be on the same device for loss calculation #TODO check
-            target_ids = target_ids.to(predicted_ids.device)
+                # Tensors should be on the same device for loss calculation #TODO check
+                target_ids = target_ids.to(predicted_ids.device)
 
-            mask_loss = F.cross_entropy(
-                predicted_ids.flatten(0, -2),
-                target_ids.reshape(-1).long(),
-                reduction="none",
-            )
-            reported_loss = mask_loss.mean()
+                mask_loss = F.cross_entropy(
+                    predicted_ids.flatten(0, -2),
+                    target_ids.reshape(-1).long(),
+                    reduction="none",
+                )
+                reported_loss = mask_loss.mean()
             loss = reported_loss
             reported_loss = reported_loss / self.gradient_accumulation_steps
             loss = loss / self.gradient_accumulation_steps
             return loss, reported_loss
 
+        chunks = batch.chunk(self.gradient_accumulation_steps)
+
+        def _to_device(chunk):
+            # chunk() along dim 0 of the loader's pinned, contiguous batch
+            # yields contiguous pinned views, so this copy is genuinely
+            # asynchronous -- the Python thread moves on to launch kernels
+            # instead of stalling until the copy lands. The input/target
+            # slicing then happens on the device.
+            with self._timers.gpu("data_h2d"):
+                return chunk.to(self.device, non_blocking=True)
+
         total_losses = []
         reported_losses = []
-        for batch_chunk in batch.chunk(self.gradient_accumulation_steps):
-            input_ids, target_ids = self._preprocess_input(batch_chunk)
-            input_ids = input_ids.to(self.device)
+        in_flight = _to_device(chunks[0])
+        for i in range(len(chunks)):
+            input_ids, target_ids = self._preprocess_input(in_flight)
             if self.model.training:
                 self._update_processed_tokens(input_ids)
 
-            loss, reported_loss = _hack_for_python_garbage_collection(
-                input_ids, target_ids
-            )
+            with self._timers.gpu("forward"):
+                loss, reported_loss = _hack_for_python_garbage_collection(
+                    input_ids, target_ids
+                )
             if self.model.training:
-                loss.backward()
+                with self._timers.gpu("backward"):
+                    loss.backward()
+            # The next chunk's H2D copy goes out while this chunk's kernels
+            # are still executing, not at the top of the next iteration.
+            if i + 1 < len(chunks):
+                in_flight = _to_device(chunks[i + 1])
             total_losses.append(loss.detach())
             reported_losses.append(reported_loss.detach())
 
@@ -376,13 +540,17 @@ class Trainer:
             else:
                 # Plain clip_grad_norm_ on FSDP2 DTensor sharded grads only computes
                 # the local shard norm without cross-rank reduction, underestimating
-                # the global norm by ~sqrt(world_size). Compute it correctly:
+                # the global norm by ~sqrt(world_size). Compute it correctly, and in
+                # a handful of multi-tensor kernels rather than one norm launch per
+                # parameter (~150 serial launches per step on an h16).
                 params = [p for p in self.model.parameters() if p.grad is not None]
-                local_norm_sq = torch.tensor(0.0, device=self.device)
-                for p in params:
-                    g = p.grad
-                    local_g = g.to_local() if hasattr(g, "to_local") else g
-                    local_norm_sq += local_g.float().norm(2.0) ** 2
+                local_grads = [
+                    p.grad.to_local() if hasattr(p.grad, "to_local") else p.grad
+                    for p in params
+                ]
+                local_norm_sq = (
+                    torch.nn.utils.get_total_norm(local_grads, 2.0).float() ** 2
+                )
                 if dist.is_initialized():
                     dist.all_reduce(local_norm_sq, op=dist.ReduceOp.SUM)
                 total_norm = local_norm_sq.sqrt()

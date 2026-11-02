@@ -207,11 +207,41 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             if res == False:
                 logger.info("Initialization failed, exiting...")
                 return None, None, None
+    if cfg.get("compile_blocks", False):
+        # Regional compile, applied before fully_shard wraps the blocks -- the
+        # pairing FSDP2 supports. The compiled unit is each block's attention
+        # and feed-forward module, NOT the whole TransformerBlock: Residual's
+        # forward feeds its per-block log_name string to the metric logger, so
+        # a block-level compile guards on that string, needs one specialization
+        # per block, and dynamo's recompile_limit (8) silently dropped half an
+        # h16 to eager (measured: compile gained -0.2%). The inner modules are
+        # string-free, so one graph serves every block. Top-level key
+        # (+compile_blocks=true) rather than a trainer key, because every
+        # cfg.trainer entry is passed to Trainer's constructor.
+        for block in model.encoder.blocks:
+            block.attention_layer.layer.compile()
+            block.ff_layer.layer.compile()
+        logger.info(
+            f"torch.compile applied to attention+ff of {len(model.encoder.blocks)} blocks"
+        )
+    if cfg.get("compile_model", False):
+        # Whole-model compile, nanoGPT-style: one inductor graph containing the
+        # blocks AND the glue between them (norms, residual adds, autocast
+        # casts), which regional compile leaves eager -- the kernel profile
+        # measured that glue at ~2.9 s/step at h20. Residual's metric logging
+        # is confined to a compiler-disabled helper, so its per-block log_name
+        # string never enters tracing (the trap that killed block-level
+        # compile). Mutually exclusive with compile_blocks by intent.
+        model.compile()
+        logger.info("torch.compile applied to the whole model")
     model = setup_distributed_training(model, cfg.trainer.distributed)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=learning_rate,
         weight_decay=cfg.trainer.weight_decay,
+        # The fused kernel exists only for CUDA tensors; CPU runs keep the
+        # default path, which also keeps the seeded CPU gates bit-identical.
+        fused=torch.cuda.is_available(),
     )
     scheduler = instantiate(cfg.trainer.scheduler)(
         optimizer=optimizer, n_steps=cfg.trainer.n_steps
@@ -279,6 +309,7 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
                 model.parameters(),
                 lr=learning_rate,
                 weight_decay=cfg.trainer.weight_decay,
+                fused=torch.cuda.is_available(),
             )
             scheduler = instantiate(cfg.trainer.scheduler)(
                 optimizer=optimizer, n_steps=cfg.trainer.n_steps
