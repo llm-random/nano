@@ -75,3 +75,23 @@ finally visible in the bottom line.
 One longer overlay run (a few hundred steps, compiled vs eager, same seed)
 confirming the ~1e-7 per-step drift does not grow into a visible loss-curve
 divergence. Cheap, and it closes the numerics question for good.
+
+## Execution record (2026-11-02): all three items done
+
+1. **Merged** — `mfu-abl/whole-compile` → `pretraining` (`34bf3c17`); gates
+   green, knobs opt-in, FSDP2 configs keep `compile_blocks`.
+2. **Compiled loss** — branch `mfu-abl/compiled-loss` (`733f455`),
+   `+trainer.compile_loss=true`: h20 step 9,451 → **9,046 ms**, 115,862
+   tok/s, **46.4% MFU — 2.2% faster wall-clock than nanoGPT's 9,250 ms** at
+   matched workload (job 32023; kernel table in
+   [mfu_ablation_plan.md](mfu_ablation_plan.md) §4b, now four columns).
+3. **Micro 32** — OOMs at h20 (73.6 GiB used + 6.1 GiB requested, job
+   32024); 16×32 stays.
+
+**Numerics overlay (jobs 32025/32031)**: 300 steps at h16, compiled
+(`compile_loss`) vs eager twin, same seed, loss 11.2 → 5.17. Mean |Δloss|
+0.0074, max 0.066 (step 148, the steep mid-run region), last-50 mean 0.0036
+(0.07% of final CE), no divergence trend — benign bf16 fusion-order noise.
+**Numerics question closed; the compiled single-GPU default is safe to
+adopt.** Incidental datum from the overlay: compiled-loss at h16 runs
+~5.4 s/step ≈ 194k tok/s ≈ 43.7% MFU (vs 33.6% parity).

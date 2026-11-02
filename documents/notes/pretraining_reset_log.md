@@ -463,3 +463,12 @@ One line per event; details live in the stage plan documents, not here.
   (73.6 GiB + 6.1 GiB requested) -> 16x32 stays, recorded not retried.
   Tables updated (headline, section 1, 4b now 4 columns, results). Next:
   300-step compiled-vs-eager overlay at h16 (numerics bookkeeping).
+- 2026-11-02: numerics overlay (plan bookkeeping, jobs 32025 compiled /
+  32031 eager twin): 300 steps h16, same seed, loss 11.2 -> 5.17. Mean
+  |dloss| 0.0074, max 0.066 at step 148, last-50 mean 0.0036 (0.07% of
+  final CE), no divergence trend -- bf16 fusion-order noise, pass. Numerics
+  closed; compiled single-GPU default safe. Incidental: compiled-loss h16
+  ~5.4 s/step ~ 43.7% MFU. Goal complete: final h20 figures 9,046 ms /
+  115,862 tok/s / 46.4% MFU vs nanoGPT 9,250 ms / 47.0% (their larger FLOP
+  numerator) -- we pass them on wall-clock at matched workload. Cluster
+  clean, branches pushed.
