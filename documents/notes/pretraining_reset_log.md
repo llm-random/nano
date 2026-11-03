@@ -205,7 +205,7 @@ One line per event; details live in the stage plan documents, not here.
   implementations (now stage 4), but a backbone audit — single-GPU real trainings
   on entropy, h12/h16/h20, seq 2048, 512-seq batches (1,048,576 tokens/step), MFU
   measured into a new wandb project. Plan written:
-  documents/notes/pretraining_stage3_mfu_plan.md. Awaiting green light.
+  documents/notes/training_efficiency.md (Part 1). Awaiting green light.
 - **2026-10-30 15:50** Stage-3 execution started (green light via /goal). P0.1+P0.2
   done: h12/h20 instance configs (exact param tests extended to 12/20),
   configs/mfu_audit/{h12,h16,h20}.yaml (entropy h100, seq 2048, batch 512, 30
@@ -275,7 +275,7 @@ One line per event; details live in the stage plan documents, not here.
   29.1% MFU, mqa 133.3k / 28.8%, mixed every_2nd 128.0k / 28.2% — ordering
   coherent (mqa fastest; gqa==mha wall-clock since kv width is ~0.3% of FLOPs at
   h16; mixed in between), all criteria green. Results note written:
-  documents/notes/backbone_mfu_audit.md (table + wandb links + bugs + parked).
+  documents/notes/training_efficiency.md (Part 1: table + wandb links + bugs + parked).
 - **2026-10-30 (post-review)** Two gaps in the record closed. (1) E7 tripwire ran
   explicitly: gqa < mha by 0.47% tokens/s triggered the kv-wiring check; the runs'
   live-model-measured GFLOPs/token (gqa 2.221 / mha 2.322 / mqa 2.133 / mixed
@@ -308,7 +308,7 @@ One line per event; details live in the stage plan documents, not here.
 - Maciej directed: implement each of the six candidate fixes in a separate tree
   off the current code version, train each, compare to baseline — per-fix MFU
   attribution instead of a stacked rollout.
-- Plan: documents/notes/mfu_ablation_plan.md. Branches mfu-abl/<name> off the
+- Plan: documents/notes/training_efficiency.md (Part 3). Branches mfu-abl/<name> off the
   base commit, one change each, measured with the stage-3 h16 config; B0
   re-run first; stacking phase afterwards on mfu-abl/stack.
 - Status: plan committed, awaiting green light to execute.
@@ -359,7 +359,7 @@ One line per event; details live in the stage plan documents, not here.
   under compile (inductor codegens compiled repeat_kv better). Stack finalized
   as V1 only; V2 reverted on mfu-abl/stack with rationale (aa58bf1f).
 - 2026-10-31: stack h12 urnucb40 269,352/29.8% (+18.6%). Matrix complete:
-  29.8/33.2/36.3 vs 25.2/27.7/30.8 eager. backbone_mfu_audit.md updated with
+  29.8/33.2/36.3 vs 25.2/27.7/30.8 eager. training_efficiency.md (Part 1) updated with
   the before/after section.
 - 2026-10-31: PARKED FOR MACIEJ (ablation): (1) merge mfu-abl/stack (compile
   knob) into pretraining -- ready, gates green; (2) compile default on vs

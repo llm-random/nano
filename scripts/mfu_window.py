@@ -2,7 +2,7 @@
 
 Pulls a run's history from wandb and reports, over the steady-state window
 (steps 10-29 by default): mean tokens/s, mean MFU, step-time mean/std, peak
-memory, plus the pass criteria from documents/notes/pretraining_stage3_mfu_plan.md
+memory, plus the pass criteria from documents/notes/training_efficiency.md
 (first loss ~ ln(50304), loss decreasing, exact token accounting, step-time
 stability).
 

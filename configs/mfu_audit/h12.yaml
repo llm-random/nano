@@ -1,4 +1,4 @@
-# Stage-3 backbone/MFU audit (documents/notes/pretraining_stage3_mfu_plan.md):
+# Stage-3 backbone/MFU audit (documents/notes/training_efficiency.md):
 # 30 steps of h12 on one entropy H100, 512 sequences x 2048 tokens per step
 # (1,048,576 tokens). Eval and checkpointing are off so nothing but the training
 # loop sits inside the timing window; gradient_accumulation_steps starts safe and

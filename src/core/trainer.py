@@ -449,7 +449,7 @@ class Trainer:
         the largest activation there is -- cross the graph boundary every
         micro-step and pay an eager fp32 log-softmax plus bf16<->fp32
         boundary casts; the kernel profile measured that at ~500 ms/step at
-        h20 (mfu_ablation_plan.md section 4b)."""
+        h20 (training_efficiency.md Part 4.2)."""
         predicted_ids = self.model(input_ids)
 
         # Tensors should be on the same device for loss calculation #TODO check

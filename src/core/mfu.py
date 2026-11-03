@@ -1,6 +1,6 @@
 """Model FLOPs Utilization: how much of the GPU's peak the training loop uses.
 
-Conventions (fixed in documents/notes/pretraining_stage3_mfu_plan.md so every number
+Conventions (fixed in documents/notes/training_efficiency.md so every number
 means the same thing):
 
 - FLOPs/token (training) = 6 * P + score_flops, the PaLM convention: a matmul of P
