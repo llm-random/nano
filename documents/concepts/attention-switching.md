@@ -50,13 +50,46 @@ Convention: `every_Nth` selects the 0-based indices `i` with `(i + 1) % N == 0`
 out-of-range, duplicate or unknown patterns fail at build time with the offender
 named.
 
+## Per-type options
+
+A type may take an options block named after it, applied wherever that type is built
+-- as the base type or through `mix`:
+
+```yaml
+common:
+  attention:
+    type: ame
+    ame:
+      shift: true
+      pin_alpha: false     # the Stage-0 ablation arms
+      sink: true
+```
+
+`build_attention` checks the keys against the type's own option list and names the
+offender, so a typo in a sweep fails at build time rather than reaching the model.
+
+Only a type listed in `_TYPE_OPTIONS` takes a block — today that is `ame` alone. A block
+named after any other registered type (`{type: gqa, gqa: {...}}`, or one aimed at a
+still-planned type) is a build error, not a silent no-op: the builders for those types
+filter their keyword arguments down to the shared set, so an options block would
+otherwise be accepted, validated and then dropped.
+
 ## Adding a real implementation
 
 1. Write the module with the shared constructor contract:
    `(dmodel, q_heads, kv_heads, seq_len, rope_base, rope_scale_freqs, init_scale)`.
-   Input and output are `(batch, seq, dmodel)`.
+   Input and output are `(batch, seq, dmodel)`. Every builder is called with the same
+   keyword set, so a type needing extra context (`ame`: `vocab_size`, its options
+   block) does not change the call site -- it keeps what it uses and drops the rest.
 2. Point the type's entry in `ATTENTION_TYPES` at its builder (for the current
    stubs: replace the `_PlannedAttention` subclass).
-3. The registry tests pick the type up automatically; add type-specific tests for
+3. Declare what the cost model cannot guess: `attention_score_flops_per_token(seq_len)`
+   if the type does score work, and `non_matmul_parameters` for any 2-D parameter that
+   is not a matmul weight. `src/core/mfu.py` reads both; a type that declares neither
+   is charged `6*P` on its 2-D weights and zero score FLOPs.
+4. If the layer needs more than the residual stream -- `ame` needs the token ids --
+   declare `wants_token_ids = True` and take them as a second forward argument.
+   `Residual` resolves the flag once at construction and no other type is affected.
+5. The registry tests pick the type up automatically; add type-specific tests for
    the math. New kernel dependencies go through the deliberate pixi lock re-solve
    (pixi ≤0.67 keeps the lock at v6 — see the reset log).
