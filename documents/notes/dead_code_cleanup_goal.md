@@ -20,8 +20,9 @@ and land the result on `pretraining` with all gates green.
   bare name across `*.py *.yaml *.sh *.toml`, excluding its own def line and
   `.pixi/`, `pc_paper/`, `__pycache__/`). A finding below is a claim about
   `7c0b3384`, not about HEAD.
-- Two decision-gated items (D1, D2) need Maciej's confirmation before
-  deletion; everything else is pre-approved by this goal.
+- D1 is resolved (KEEP `src/definitions.py` untouched — see Cluster 1); D2
+  still needs Maciej's confirmation before deletion; everything else is
+  pre-approved by this goal.
 - Commit in the three clusters below (reviewable units), each message citing
   this file; end commits with the Claude co-author line. Push to
   `git@github.com:llm-random/nano.git pretraining` (origin https cannot
@@ -34,15 +35,13 @@ and land the result on `pretraining` with all gates green.
 - `src/definitions.py` (82 lines): imported nowhere. Aspirational typed-config
   layer (pydantic `BaseModel`s + dataclasses) that was never wired to Hydra;
   also internally broken — `from attr import dataclass` (line 12) shadows the
-  stdlib `dataclass` imported on line 9, and `attr` is not a declared
-  dependency pattern elsewhere in the repo. **D1 — ask Maciej first**: the
-  `solve_config_lr` TODO in `src/core/utils.py:49` says "move to devinitions
-  eval+ when created", so this may be a parked plan rather than residue.
-  **Resolved 2026-11-03: DELETE** — Maciej wants the capability (Pylance
-  typing + submit-time validation), but built properly; the replacement is
-  specified in [typed_config_goal.md](typed_config_goal.md), which runs
-  after this goal. Also remove the stale "move to devinitions" remark from
-  the `solve_config_lr` comment.
+  stdlib `dataclass` imported on line 9. **D1 — Resolved 2026-11-03: KEEP.**
+  Maciej wants its functionality recovered (Pylance typing + submit-time
+  validation), so the file stays and gets rewired by the separate goal
+  [typed_config_goal.md](typed_config_goal.md), which rewrites it in place.
+  This cleanup goal must NOT touch `src/definitions.py` at all — its ruff
+  findings (definitions.py lines 11–12) are left for the rewire goal, which
+  replaces the file's contents anyway.
 
 ### Cluster 2 — dead symbols in live modules (pre-approved)
 
@@ -69,7 +68,8 @@ and land the result on `pretraining` with all gates green.
 - `src/core/trainer.py`: unused imports `get_full_checkpoint_path` (18) and
   `cast_state_dict_to_tensors` (24).
 - `run_exp.py:192`: `except ... as e` with `e` unused.
-- `src/definitions.py` findings are moot if D1 deletes the file.
+- `src/definitions.py` findings: skip — D1 keeps the file for the rewire
+  goal, which replaces its contents.
 - Apply via `ruff check --select F401,F811,F841 --fix` **after** adding the
   noqa below, then eyeball the diff — do not trust `--fix` blind on main.py's
   import block.
