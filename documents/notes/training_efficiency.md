@@ -13,7 +13,8 @@ per-session detail stays in [pretraining_reset_log.md](pretraining_reset_log.md)
 
 **The short version.** A stage-3 audit measured the backbone at 25.2/27.7/30.8%
 MFU (h12/h16/h20) on one H100 and found no efficiency anomaly — just no
-`torch.compile` anywhere. nanoGPT, run size-matched on the same hardware, scored
+`torch.compile` anywhere. nanoGPT — its own GPT-2 architecture (MHA + GELU MLP),
+size-matched on non-embedding params, run on the same hardware — scored
 45.7/47.0%. Six single-change branches established that compile was the only real
 blocker; the data path, FSDP2, the optimizer and RoPE casts were all measured
 innocent. Kernel profiling then showed the entire remaining gap was eager glue
@@ -45,6 +46,23 @@ faster than theirs.
   FLOPs/token the same way, so MFUs are comparable — but **tokens/s and wall
   clock are the arbitration-free numbers**, because the two architectures need
   different FLOPs per token (theirs ~4% more).
+- **Which model each label means** — three different models get called "h20" in
+  this document (likewise at h16):
+  - **h20 (ours)**: the H-balanced model, H=20 — 20 blocks, dmodel 1280, **GQA**
+    (20 q / 10 kv heads, `RoPEAttention`), **SiLU-gated FF** (`GatedFeedForward`,
+    3 GEMMs, dff 5120), RoPE positions. 620.2M params (491.6M non-embedding),
+    3.97 GFLOPs/token. Every row labeled plain `h12`/`h16`/`h20` is this
+    architecture.
+  - **nanoGPT h20-eq**: nanoGPT's own GPT-2 architecture, sized to match our
+    h20's non-embedding params and workload — 25 layers, dmodel 1280, **MHA**
+    (20 heads), **2-GEMM GELU MLP**, learned positions; 4.122 GFLOPs/token (~4%
+    more than ours). Its attention and FF methods do **not** match ours: every
+    cross-framework number outside Parts 4.4–4.5 compares these two *different
+    architectures* at matched size and workload.
+  - **GPT-2 arch clone (our framework)**: branch `mfu-abl/nanogpt-arch`,
+    Part 4.4 — the h20-eq shape (25L, MHA, GELU MLP) inside our trainer, RoPE
+    kept. The only architecture-matched ours-vs-nanoGPT comparison in this
+    document.
 - wandb project: [ideas_cv/nano-mfu-audit](https://wandb.ai/ideas_cv/nano-mfu-audit).
 
 ---
@@ -391,6 +409,11 @@ All three final-matrix rows ran on `mfu-abl/stack@aa58bf1f`; `git diff` against 
 V1 branch's `8e2d5f6b` is empty on every code path, and the measurements agree with
 V1's own h16/h20 runs within 0.9%.
 
+**Model identity in the reference rows**: the two `*-eq` rows are **nanoGPT's
+GPT-2 architecture** (MHA, 2-GEMM GELU MLP, learned positions) size-matched to
+our models' non-embedding params — they do *not* use our attention (GQA) or FF
+(SiLU-gated) methods. The architecture-matched comparison is Part 4.4.
+
 **The V1 bug worth remembering.** The first compile attempt measured −0.2%
 ([sw7h19j9](https://wandb.ai/ideas_cv/nano-mfu-audit/runs/sw7h19j9)) — a real bug,
 not a result: **block-level compile guards on Residual's per-block `log_name`
@@ -463,7 +486,9 @@ The same `LoopTimers` class — **CUDA-event pairs for GPU sections, `perf_count
 for the host batch wait, one synchronize per step** — was placed at identical
 points in both training loops: ours behind `trainer.profile_timers=true` (branch
 `mfu-abl/profile-timers`, numerics no-op verified) and nanoGPT's `train.py`
-(`--profile_timers=True`, patched entropy clone). Both h20-size, seq 2048, 16×32,
+(`--profile_timers=True`, patched entropy clone). Both h20-size but **different
+architectures** — ours is the parity-combo h20 (GQA + SiLU-gated FF), theirs the
+GPT-2-shape h20-eq (MHA + GELU MLP; see Conventions) — seq 2048, 16×32,
 same H100; means over the measurement window, ms/step (jobs 31877 ours / 31878
 theirs):
 
@@ -497,6 +522,12 @@ Same protocol one level deeper: `torch.profiler` (CUDA activity) wrapped around
 `--kernel_profile=True` in the patched nanoGPT), every kernel dumped with
 self-time and launch count, aggregated into the same categories by `kprof_agg.py`.
 h20-size, 16×32, same H100, ms/step. Columns: jobs 31882 / 31905 / 32023 / 31889.
+The three "ours" columns are our h20 (GQA + gated FF) on the **plain-module +
+autocast-bf16 path (no FSDP2)** — the first column is Part 3.5's parity config,
+the next two widen only the compile scope; the nanoGPT column is its
+GPT-2-shape h20-eq (MHA + GELU) — per-category gaps therefore mix framework and
+architecture effects until Part 4.4 separates them, and nothing in this table
+measures the FSDP2 path.
 
 | kernel category | ours (per-block compile) | ours (whole-model compile) | **ours (+ compiled loss)** | nanoGPT |
 |---|---:|---:|---:|---:|
@@ -562,11 +593,37 @@ existed). h20 workload, compiled loss, 16×32, job 32064:
 | GPT-2 arch, our framework | 9,578 | 109,425 | 45.6% |
 | GPT-2 arch, nanoGPT framework | 9,250 | 113,150 | 47.0% |
 
-Kernel profile of the clone vs nanoGPT itself (ms/step): GEMMs 4,711 vs 4,899
-(**ours faster at identical shapes**), flash attention 2,418 vs 2,375 (par —
-confirming the earlier flash advantage was GQA, now gone), triton 1,982 vs 1,841
+Kernel profile at **matched architecture** — same categories, aggregation and
+format as the Part 4.2 table (steps 12–13, [scripts/kprof_agg.py](../../scripts/kprof_agg.py)),
+ms/step. Columns: jobs 32023 / 32064 / 31889. The first column repeats Part
+4.2's compiled-loss column so the architecture comparison (col 1 vs 2, same
+framework) and the framework comparison (col 2 vs 3, same architecture) share
+one table. Re-aggregated 2026-11-03 from the saved job logs (`~/mfu_32064.log`,
+`~/nanogpt_ref_31889.log` on entropy); the nanoGPT column reproduces Part 4.2's
+to the digit, validating the re-aggregation.
+
+| kernel category | ours (our arch, compiled loss) | **GPT-2 arch, our framework** | **GPT-2 arch, nanoGPT** |
+|---|---:|---:|---:|
+| GEMMs (nvjet) | 4,801 | 4,711 | 4,899 |
+| flash attention | 1,961 | 2,418 | 2,375 |
+| compiled (triton: fused glue, act., norms, CE…) | 1,871 | 1,982 | 1,841 |
+| eager elementwise | 291 | 345 | 108 |
+| eager norm pieces (pow/reduce/rsqrt) | 0 | 0 | 0 |
+| softmax/CE (eager) | 0 | 0 | 0 |
+| cat / copies / memcpy | 0.2 | 0.2 | 0.4 |
+| optimizer | 10 | 10 | 9 |
+| other | 8 | 9 | 6 |
+| **TOTAL busy** | **8,943** | **9,475** | **9,238** |
+| **step total (wall)** | **9,046** | **9,578** | **9,250** |
+| kernel launches per step | 60,377 | 66,437 | 40,934 |
+| tokens/s | 115,862 | 109,425 | 113,150 |
+| MFU (own FLOPs basis: 3.97 / 4.122 / 4.122 GF/tok) | 46.4% | 45.6% | 47.0% |
+
+Reading the matched-architecture pair (columns 2 vs 3): GEMMs 4,711 vs 4,899 —
+**ours faster at identical shapes**; flash attention 2,418 vs 2,375 (par —
+confirming the earlier flash advantage was GQA, now gone); triton 1,982 vs 1,841
 (+141: RoPE's rotation work, which we kept — their learned positions are a free
-add), eager elementwise 345 vs 108 (+237: grad-accumulation granularity, 25 layers
+add); eager elementwise 345 vs 108 (+237: grad-accumulation granularity, 25 layers
 of many small tensors). Peak memory 52.0 GiB.
 
 1. **Our architecture is genuinely faster than GPT-2's at equal parameters in the
@@ -673,8 +730,10 @@ tok/s ≈ **43.7% MFU** (vs 33.6% parity) — the only h16 number for the final 
 | nanoGPT reference (its defaults: 124M, seq 1024) | — | 37.9%² | — |
 | **nanoGPT size-matched** (same non-emb params, seq 2048) | — | **45.7%**² | **47.0%**² |
 
-¹ micro 8 (micro 16 OOMs on the plain path). ² on the same H100, converted to the
-989e12 basis. ³ from the numerics-overlay run, not a dedicated measurement.
+¹ micro 8 (micro 16 OOMs on the plain path). ² nanoGPT's GPT-2 architecture
+(MHA + GELU, learned positions), size-matched on non-embedding params — not our
+attention/FF methods; on the same H100, converted to the 989e12 basis. ³ from
+the numerics-overlay run, not a dedicated measurement.
 Variants ran h16+h20 only (Maciej's trim); h12 has the baseline and the stack.
 Only V1 clears the noise bar upward; V2 clears it in eager but reverses under
 compile; V5 is clearly negative; V3/V4/V6/V6c are noise.
@@ -690,7 +749,9 @@ on wall clock, the number that pays for GPU hours, we are ahead.
 Decomposition of the final state against nanoGPT, from the kernel profile: we are
 ahead on GEMMs (−98 ms) and flash attention (−414 ms), behind on eager
 elementwise (+183 ms, almost all fp32 grad-accumulation adds). Everything else is
-at parity.
+at parity. The flash-attention advantage is architecture (our GQA vs its MHA),
+not framework — at matched architecture flash is par (Part 4.4); the GEMM
+advantage survives at identical shapes.
 
 ### 6.3 What is in `pretraining` today
 
