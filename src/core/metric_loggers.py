@@ -2,11 +2,8 @@ import os
 import statistics
 from omegaconf import OmegaConf
 import wandb
-import torch
 from typing import Optional
 from abc import ABC, abstractmethod
-from abc import ABC, abstractmethod
-import torch.distributed as dist
 import logging
 
 logger = logging.getLogger(__name__)
@@ -134,20 +131,6 @@ class RecorderLogger(MetricLogger):
 
     def clear(self):
         self.data = {}
-
-
-def get_composition_file_path(hydra_config):
-    """
-    Get the path to the file passed to main
-    """
-    config_name = hydra_config.job.config_name
-    config_path = [
-        path["path"]
-        for path in hydra_config.runtime.config_sources
-        if path["schema"] == "file"
-    ][0]
-
-    return f"{config_path}/{config_name}.yaml"
 
 
 def get_metric_logger(

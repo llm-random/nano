@@ -63,21 +63,6 @@ def run_remote(connection, command, what):
 _SSH_HOSTS_TO_PASSPHRASES = {}
 
 
-def ensure_remote_config_exist(repo: Repo, remote_name: str, remote_url: str):
-    for remote in repo.remotes:
-        if remote.name == remote_name:
-            if remote.url != remote_url:
-                old_remote_url = remote.url
-                remote.set_url(remote_url)
-                print(
-                    f"Updated url of '{remote_name}' remote from '{old_remote_url}' to '{remote_url}'"
-                )
-            return
-
-    repo.create_remote(remote_name, url=remote_url)
-    print(f"Added remote '{remote_name}' with url '{remote_url}'")
-
-
 def commit_pending_changes(repo: Repo):
     if len(repo.index.diff("HEAD")) > 0:
         repo.git.commit(m="Versioning code", no_verify=True)
@@ -189,7 +174,7 @@ def ConnectWithPassphrase(*args, **kwargs) -> Generator[Connection, None, None]:
         connection = Connection(*args, **kwargs)
         connection.run('echo "Connection successful."')
         yield connection
-    except paramiko.ssh_exception.PasswordRequiredException as e:
+    except paramiko.ssh_exception.PasswordRequiredException:
         if connection.host not in _SSH_HOSTS_TO_PASSPHRASES:
             passphrase = getpass.getpass(
                 f"SSH key encrypted, provide the passphrase ({connection.host}): "
@@ -205,20 +190,6 @@ def ConnectWithPassphrase(*args, **kwargs) -> Generator[Connection, None, None]:
         yield connection
     finally:
         connection.close()
-
-
-def get_experiment_components(
-    hydra_config: OmegaConf,
-) -> str:
-    # this is a workaround as hydra does not provide a way to get the config path
-    # https://github.com/facebookresearch/hydra/discussions/2750
-    config_name = hydra_config.job.config_name
-    config_path = [
-        path["path"]
-        for path in hydra_config.runtime.config_sources
-        if path["schema"] == "file"
-    ][0]
-    return config_path, config_name
 
 
 def wait_for_job_id(connection, tmux_pane, tries: int = 3):

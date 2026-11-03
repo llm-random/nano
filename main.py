@@ -3,18 +3,13 @@ import hydra
 import yaml
 from src.core.utils import solve_config_lr
 from src.core.distributed_training import setup_distributed_training
-from grid_generator.generate_configs import create_grid_config
-from grid_generator.sbatch_builder import generate_sbatch_script
-import resolver as _  # I should be able to ignore this line by linter, but ~ things like # ignore did not work
+import resolver as _  # noqa: F401  side-effect import: registers OmegaConf resolvers
 import logging
 from omegaconf import OmegaConf
 
-import os
 import torch
 import torch.distributed as dist
-import logging
 from hydra.utils import instantiate
-import logging
 from src.core.checkpointing import (
     load_checkpoint_from_file,
     load_training_state,
@@ -68,13 +63,6 @@ def dump_grid_configs(configs_grid, output_folder):
         out_path = os.path.join(output_folder, f"config_{idx}.yaml")
         with open(out_path, "w", encoding="utf-8") as f:
             yaml.dump(cfg_dict, f, Dumper=CustomDumper, sort_keys=True)
-
-
-def upload_config_file(metric_logger):
-    slurm_array_task_id = os.environ.get("SLURM_ARRAY_TASK_ID")
-    file_path = f"generated_configs/config_{slurm_array_task_id}.yaml"
-    if slurm_array_task_id is not None and os.path.exists(file_path):
-        metric_logger.run.save(file_path)
 
 
 def check_env_vars():
@@ -140,58 +128,6 @@ def distributed_setup():
 def cleanup():
     if dist.is_initialized():
         dist.destroy_process_group()
-
-
-def log_environs(metric_logger):
-    scrap_keys = [
-        "SLURM_MEM_PER_GPU",
-        "SLURM_JOB_USER",
-        "SLURM_TASKS_PER_NODE",
-        "SLURM_JOB_UID",
-        "SLURM_TASK_PID",
-        "CONDA_EXE",
-        "SLURM_ARRAY_TASK_STEP",
-        "TMUX",
-        "SLURM_JOB_GPUS",
-        "SLURM_LOCALID",
-        "SLURM_SUBMIT_DIR",
-        "HOSTNAME",
-        "SLURMD_NODENAME",
-        "SLURM_JOB_START_TIME",
-        "SLURM_CLUSTER_NAME",
-        "SLURM_JOB_END_TIME",
-        "SLURM_CPUS_ON_NODE",
-        "SLURM_JOB_CPUS_PER_NODE",
-        "SLURM_GPUS_ON_NODE",
-        "LOGNAME",
-        "USER",
-        "SLURM_NODELIST",
-        "SLURM_JOB_PARTITION",
-        "SLURM_JOB_ACCOUNT",
-        "SLURM_NPROCS",
-        "SLURM_ARRAY_TASK_ID",
-        "SLURM_JOB_ID",
-        "SLURM_JOBID",
-        "SLURM_CONF",
-        "SLURM_ARRAY_TASK_COUNT",
-        "PATH",
-        "SLURM_ARRAY_JOB_ID",
-        "SLURM_JOB_NAME",
-        "SLURM_JOB_GID",
-        "CUDA_MODULE_LOADING",
-        "RANK",
-        "LOCAL_RANK",
-        "CUDA_DEVICE_ORDER",
-        "SLURM_TOPOLOGY_ADDR",
-        "HOME",
-        "CUDA_VISIBLE_DEVICES",
-        "MASTER_ADDR",
-        "MASTER_PORT",
-    ]
-
-    environs = os.environ
-    env_dict = {f"job/{k}": str(environs.get(k)) for k in scrap_keys}
-    metric_logger.run.config.update(env_dict)
 
 
 def get_device():

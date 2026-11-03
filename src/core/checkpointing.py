@@ -111,15 +111,6 @@ def load_training_state(load_config):
     return training_start_config
 
 
-def _find_latest_checkpoint(path: str) -> str:
-    files = [os.path.join(path, f) for f in os.listdir(path)]
-    if not files:
-        logger.info(f"No checkpoints in '{path}'")
-        return
-
-    return max(files, key=os.path.getmtime)
-
-
 def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
     checkpoint_path = load_config.path
     if checkpoint_path is None:

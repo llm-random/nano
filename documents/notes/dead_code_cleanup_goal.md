@@ -113,3 +113,30 @@ and land the result on `pretraining` with all gates green.
 - All four gates green; diff contains deletions, noqa line, and nothing else.
 - Pushed to `pretraining`; this file updated in the same push with an
   execution record section (date, commits, what D1/D2 decided).
+
+## Execution record (2026-11-03)
+
+Executed at `6874efe7` under the master goal: both plans in one working tree,
+one commit per plan, single push at the end (deviation from the per-cluster
+commits prescribed above, ordered by the master goal).
+
+- **D1: KEPT.** `src/definitions.py` untouched by this plan; its 3 ruff
+  findings were the only ones left at this plan's gate and are gone after the
+  companion commit ([typed_config_goal.md](typed_config_goal.md)) replaced the
+  file. (`ruff --fix` did auto-touch it once in passing; it was restored to
+  HEAD before anything else happened, so the committed diff honors D1.)
+- **D2: DELETED** both run_exp.py helpers, re-verified dead at HEAD: the
+  cemetery pushes and clones by URL (`repo.git.push(remote_url, ...)` /
+  `git clone ... {remote_url}`) and never touches named git remotes, so
+  `ensure_remote_config_exist` had no caller; the live wandb logger passes the
+  fully composed resolved config to `wandb.init`, superseding
+  `get_experiment_components`' raw-yaml-locating purpose.
+- Clusters 2 and 3 deleted exactly as listed; `main.py:8 import resolver as _`
+  kept with its `# noqa: F401` and a why-comment; the ruff `--fix` diff was
+  eyeballed (it also removed llama.py's then-unused `from .model import ...`
+  and utils.py's orphaned imports — all consequences of the listed deletions).
+- Gates: full pytest green (172 tests at this plan's stage); ruff
+  F401/F811/F841 zero outside definitions.py (zero everywhere after the
+  companion commit); dead-symbol re-scan clean — all 10 names appear nowhere,
+  `LlamaRoPE` and `repeat_kv` still live (model.py:278, tests); CPU smoke
+  `tiny_local` trained 200 steps and checkpointed.

@@ -15,13 +15,12 @@ import logging
 
 from src.core.checkpointing import (
     TrainingState,
-    get_full_checkpoint_path,
     save_training_state,
     step_checkpoint_path,
 )
 from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
 from src.core.mfu import model_flops_per_token, peak_flops_bf16
-from src.core.utils import cast_state_dict_to_tensors, create_batch_fingerprint
+from src.core.utils import create_batch_fingerprint
 
 logger = logging.getLogger(__name__)
 
