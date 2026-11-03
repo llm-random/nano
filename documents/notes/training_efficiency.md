@@ -761,12 +761,12 @@ the `+trainer.X=` spelling used throughout this document's historical records wa
 correct when those runs were made but no longer composes.
 
 > **Superseded 2026-11-03 for the compile knobs** — see
-> [multigpu_efficiency.md](multigpu_efficiency.md) §7.7–7.11. The measured-best
+> [multigpu_efficiency.md](multigpu_efficiency.md) §7.7–7.10. The measured-best
 > configuration at **every** world size is now `+compile_blocks_full=true`
 > **with FSDP2 on**: 9,584 ms / **45.57%** MFU at h20 on one H100, matching the
 > `distributed=null` recipe below (9,578 ms / 45.6%) while using 1.7 GiB less
 > and working unchanged on 2 and 4 GPUs. (`trainer.compile_ce` was tested
-> alongside it and **rejected on numerics** — §7.10.)
+> alongside it and **rejected on numerics** — §7.9.)
 > The advice that follows is kept because it is what the runs in this document
 > used; it is no longer what to run.
 

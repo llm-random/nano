@@ -17,6 +17,83 @@ Work happens on branch `multigpu-mfu` in the worktree
 
 ---
 
+## 0. Status report — where FSDP2 stands (2026-11-03)
+
+**Multi-GPU training works, scales nearly linearly, and is no longer slower per
+GPU than the best single-GPU configuration.** Before this round, using FSDP2
+cost ~11 MFU points on every GPU; it now costs essentially nothing, and the
+FSDP2 path is the fastest configuration this framework has, at any world size.
+
+### How to run it
+
+```
++compile_blocks_full=true          # top-level key, so it keeps the '+'
+```
+with FSDP2 as configured in `configs/_trainer/llama.yaml` (`trainer.distributed`
+sharding embedding / block / head). Nothing else is needed; `autocast_bf16` is
+not used, because FSDP2's `MixedPrecisionPolicy` already computes in bf16 and
+reduces in fp32. Launch with `torchrun --nproc-per-node=<N>`; `common.batch_size`
+is the **global** batch, so only `gradient_accumulation_steps` changes with the
+GPU count.
+
+### Measured, GPT-2-arch h20, seq 2048, global batch 512, entropy H100s
+
+| world size | step ms (cv) | tokens/s | MFU | peak mem/GPU | scaling |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 9,584 (0.21%) | 109,361 | **45.57%** | 50.3 GiB | — |
+| 2 | 4,886 (0.13%) | 214,499 | **44.69%** | 45.7 GiB | 98.1% |
+| 4 | 2,466 (0.25%) | 425,054 | **44.28%** | 43.4 GiB | 97.2% |
+
+Four H100s return **3.89×** one H100's best. Because the adopted configuration
+is also the best single-GPU one, that scaling figure is the real speedup, not a
+comparison against a handicapped baseline.
+
+### What is verified
+
+- **Correctness of the metric.** MFU divided global throughput by *one* GPU's
+  peak, so multi-GPU runs would have reported 2× and 4× too high. Fixed and
+  regression-tested across world sizes 1/2/4 (§3).
+- **Numerics.** 300-step overlay against the previous configuration: last-50
+  mean |Δloss| 0.0063 — a fifth of a bf16 ulp — no systematic sign, and exactly
+  the same final loss (§7.9).
+- **Compile health.** Zero dynamo recompile warnings in every run. This matters
+  because the failure mode is silent: it looks like "compile didn't help here".
+- **Load balance.** Ranks agree to 0.2 ms at 4 GPUs; no straggler.
+- **Data pipeline.** `data_fetch` is 0.1–0.2 ms at 4 ranks, so the long-standing
+  worry that 2 dataloader workers could not feed a multi-GPU run does not bite
+  at this scale (it may still bite at 8+).
+
+### What is known-bad
+
+- **`trainer.compile_ce` — do not enable.** It buys ~1% step time and 3 GiB and
+  shifts the loss systematically upward (higher in 50 of the last 50 steps).
+  Knob kept, defaulted off, measurement recorded beside it (§7.9).
+
+### What is untested — do not assume
+
+| area | state |
+|---|---|
+| multi-node | **never run.** The torchrun template supports `--nnodes`, nothing has exercised it |
+| world size > 4 | never run. Communication is flat in absolute terms and so grows as a share of the step (2.3% → 5.9% → 8.7% at 1/2/4); 8 GPUs is where it should start to bite |
+| non-NVLink interconnect | everything here is one node with NV18 full NVLink. These numbers are a best case |
+| multi-GPU checkpointing | a real sharded dcp round-trip has never been run at world size > 1 |
+| resume across a changed GPU count | **unsafe.** The dataloader shards per rank and the checkpoint does not record `world_size`, so a run is reproducible only at fixed (seed, world_size) |
+| FSDP1 | untouched and unmeasured; it remains a legacy fallback |
+
+### Open, ranked by measured worth
+
+1. **micro-batch ≥ 32** — R1 freed 11.7 GiB/GPU and micro 32 has been OOM-bound
+   since job 32024. Newly plausible, unmeasured.
+2. **`reshard_after_forward=False`** — would remove the backward re-gather, half
+   of all all-gathers, for memory we now have spare.
+3. **batching gradient sync** — real but worth < 2%; the stronger argument is
+   pushing NCCL off its `RING_LL` low-latency protocol by sending fewer, larger
+   messages.
+4. **bf16 `reduce_dtype`** — the reduce-scatter runs in fp32 today, doubling
+   gradient traffic. A numerics question, not a free win.
+
+---
+
 ## 1. The model under test
 
 **GPT-2-arch h20** — the architecture nanoGPT runs, built inside our framework.
@@ -544,7 +621,7 @@ precision the log-softmax needs**, which is exactly what §7.10 then measured.
 > numerics gate** — see §7.10. The adopted stack is R1 alone (§7.11). The
 > section is kept as measured, because a rejected rung is a result.
 
-### 7.10 The numerics gate rejects R2
+### 7.9 The numerics gate rejects R2
 
 The 300-step overlay was run at 4 GPUs, h20 GPT-2 arch, same seed, profiling
 off, against the pre-R1 production configuration. The adopted stack failed it:
@@ -573,19 +650,41 @@ moved the residual stream and norms from fp32 to bf16, which would have
 explained the speed, the 11.7 GiB memory drop and a worse loss together — is
 **wrong**, and the isolation is what caught it.
 
-`compile_ce` degrades the loss on its own, with or without R1. The likely
-mechanism: eager `F.cross_entropy` upcasts to fp32 for the log-softmax, and
-compiled standalone it appears to stay in bf16, which over a 50,304-wide
-vocabulary is materially worse arithmetic. The trade it offered was ~1% step
-time and 3 GiB for ~1.6% worse loss. **Rejected.** The knob stays in the code,
-defaulted off, with the measurement recorded next to it so nobody re-tries it
-blind.
+`compile_ce` shifts the loss on its own, with or without R1. **Rejected**; the
+knob stays in the code, defaulted off, with the measurement recorded next to it
+so nobody re-tries it blind.
+
+**What is established, and what is not.** `torch.compile` preserves semantics in
+exact arithmetic, not in floating point: inductor may fuse, reassociate
+reductions and choose its own intermediate dtypes, and floating-point addition
+is not associative. That normally shows up as *unbiased* noise — which is
+exactly what R1 shows. A one-directional shift across 50 consecutive steps is
+not reassociation noise, and that much is solid.
+
+The *mechanism* is a leading hypothesis, not a measured fact: eager
+`F.cross_entropy` dispatches to a kernel that accumulates the log-sum-exp in
+fp32 even for bf16 inputs, because summing 50,304 exponentials in bf16 is poor;
+inductor generates its own kernel and is not obliged to keep that upcast.
+Confirming it means reading the generated Triton kernel's dtypes, which nobody
+has done.
+
+**And one thing these runs cannot distinguish**: whether the *gradients* are
+degraded (the model genuinely trains worse) or only the *reported* number is
+biased (training fine, metric wrong). A growing offset does not settle it —
+bf16 log-sum-exp error grows as logits spread during training, so a reporting
+bias would grow too. The test that would settle it is cheap and unrun: evaluate
+both final models with the same eager fp32 loss; equal means it was a reporting
+artifact.
+
+The rejection does not depend on which it is. Option one is worse training;
+option two is a loss metric that silently lies, which would undermine every
+number in this document. Neither is worth ~1% throughput.
 
 Worth noting R2 had already been flagged as marginal on throughput grounds
 (1.06%, below the 3% bar, adopted only because repeats agreed). The numerics
 gate rejected it independently — two different safeguards pointing the same way.
 
-### 7.11 Adopted stack and the final curve
+### 7.10 Adopted stack and the final curve
 
 **`+compile_blocks_full=true`** — R1 alone — with FSDP2 as configured in
 `configs/_trainer/llama.yaml`. `compile_ce` off.
@@ -615,7 +714,7 @@ there.
 
 ## 8. Where that leaves the effort
 
-The baselines reordered the work, and §7.7–7.11 then closed the item they
+The baselines reordered the work, and §7.7–7.10 then closed the item they
 promoted. Both halves are worth keeping, because the order they arrived in is
 the argument.
 

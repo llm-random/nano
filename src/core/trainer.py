@@ -144,13 +144,19 @@ class Trainer:
     # FSDP2 and with regional block compile instead of replacing them.
     #
     # MEASURED HARMFUL, 2026-11-03 -- do not enable without re-testing. It buys
-    # ~1% step time and 3 GiB, and costs accuracy: over 300 steps at h20 the
-    # loss sits ABOVE the uncompiled-CE twin in 50 of the last 50 steps,
-    # last-50 mean |dloss| 0.110 against 0.006 for the same run without it
-    # (documents/notes/multigpu_efficiency.md 7.10). Eager F.cross_entropy
-    # upcasts to fp32 for the log-softmax; compiled standalone it appears to
-    # stay in bf16, which over a 50304-wide vocabulary is materially worse
-    # arithmetic. Kept, defaulted off, as the record of a tested dead end.
+    # ~1% step time and 3 GiB, and shifts the loss: over 300 steps at h20 it
+    # sits ABOVE the uncompiled-CE twin in 50 of the last 50 steps, last-50 mean
+    # |dloss| 0.110 against 0.006 for the same run without it
+    # (documents/notes/multigpu_efficiency.md 7.9). A one-directional shift is
+    # not the unbiased noise that fusion and reassociation produce.
+    #
+    # Suspected but NOT confirmed: eager F.cross_entropy accumulates the
+    # log-sum-exp in fp32 even for bf16 inputs, and inductor's own kernel need
+    # not keep that upcast -- which over a 50304-wide vocabulary matters.
+    # Unresolved either way: whether the gradients are worse or only the
+    # reported number is biased. Evaluating both final models under one eager
+    # fp32 loss would settle it. Rejected regardless: the first is worse
+    # training, the second is a metric that lies.
     compile_ce: bool = False
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
