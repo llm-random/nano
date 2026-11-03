@@ -11,14 +11,16 @@ Three things are locked in here:
 """
 
 import os
+import re
 import warnings
+from dataclasses import MISSING as DATACLASS_MISSING
 from dataclasses import fields as dataclass_fields
 
 import attr
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.errors import ConfigCompositionException
-from omegaconf import OmegaConf
+from omegaconf import MISSING, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
 import resolver  # noqa: F401  (registers the repo's custom OmegaConf resolvers)
@@ -56,6 +58,55 @@ def test_trainer_schema_mirrors_the_trainer_class():
         f"schema-only: {sorted(schema_fields - config_supplied)}, "
         f"trainer-only: {sorted(config_supplied - schema_fields)}"
     )
+
+
+def _declared_defaults(schema_cls):
+    """Schema fields carrying a concrete scalar default (required fields and
+    structured subtrees excluded)."""
+    out = {}
+    for f in dataclass_fields(schema_cls):
+        if f.name in {"_target_", "_partial_"}:
+            continue
+        if f.default_factory is not DATACLASS_MISSING:
+            continue  # nested schema, compared by its own fields
+        if f.default is DATACLASS_MISSING or f.default == MISSING:
+            continue  # required; `???` until a config supplies it
+        out[f.name] = f.default
+    return out
+
+
+def test_trainer_schema_defaults_match_the_trainer_class():
+    """Names matching is not enough: the defaults must agree too.
+
+    dump_grid_configs writes the UNMERGED grid point, so a default that
+    disagrees between schema and class would mean submit-side validation sees
+    one value while the cluster runs another. This pins the pairs for every
+    knob that has a default on either side.
+    """
+    schema_defaults = _declared_defaults(TrainerSchema)
+    trainer_defaults = {
+        a.name: a.default
+        for a in attr.fields(Trainer)
+        if a.default is not attr.NOTHING
+        and not isinstance(a.default, attr.Factory)
+        and a.name not in RUNTIME_INJECTED
+    }
+    assert schema_defaults == trainer_defaults
+
+
+def test_caret_key_cannot_sit_under_a_schema_backed_section():
+    """Why a sweep config must omit `- base_schema` from its defaults.
+
+    A `^key` grid under common/trainer is an unknown key to the schema, so
+    composition rejects it. The sweep loses nothing by omitting the schema:
+    run_exp.py check_points every EXPANDED point before submitting, which is
+    covered by test_legit_grid_expands_and_passes_check_point below.
+    """
+    base = definitions._base_schema_node()
+    with pytest.raises(ConfigKeyError, match=re.escape("^n_steps")):
+        OmegaConf.merge(base, {"trainer": {"^n_steps": [10, 20]}})
+    with pytest.raises(ConfigKeyError, match=re.escape("^batch_size")):
+        OmegaConf.merge(base, {"common": {"^batch_size": [8, 16]}})
 
 
 def test_typo_key_override_fails_composition():

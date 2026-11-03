@@ -161,6 +161,17 @@ submit-time rejection) is unchanged:
   is schema-checked at submit by `check_point`, which is where sweep typos
   surface. Cluster-side runs compose the generated flat configs (no defaults
   list, no schema) and are re-checked by `main()`'s `check_point`.
+- Configs in a group directory (`configs/mfu_audit/*.yaml`) reference the
+  node as `- /base_schema`; the leading slash is absolute. A bare
+  `- base_schema` there is resolved relative to the config's own group and
+  Hydra looks for `mfu_audit/base_schema`. This only ever affected
+  `--config-name mfu_audit/h20`, which has never been a usable invocation —
+  before the schema it composed everything nested under a single `mfu_audit:`
+  key, with no top-level `common`/`trainer`, and died on resolve with
+  `InterpolationKeyError`. The absolute spelling is correctness hygiene, not
+  a repair: that invocation is still unusable, and the repo's convention
+  (`--config-path configs/mfu_audit --config-name h20`) composes identically
+  before and after the change, verified on all five configs.
 - `~trainer.X` deletion overrides no longer work on schema'd keys (typed
   nodes do not support deletion); plain `trainer.eval_dataloader=null` (or
   `=None` for the historical string idiom) replaces them. The eval-off
@@ -186,7 +197,12 @@ tree): identical except the declared defaults materialize —
 mirrored into the model tree via `${common.attention}`;
 `build_attention` treats a null mix as absent) — the values the code
 already assumed. The `tiny_local` smoke after all changes reproduces the
-pre-schema run bit-identically (final_ce 8.451301097869873).
+pre-schema run bit-identically — same final_ce before and after, 3/3
+repeats. The absolute figure is environment-specific and is not a portable
+gate value: this box (torch 2.7.1+cu128, 6 CPU threads) yields
+8.451301097869873, while a reviewer on different CPU threading measured
+8.451300477981567. Compare before-vs-after on one machine rather than
+against a number copied from here.
 
 **Fresh-eyes review** (independent subagent over the combined diff, per the
 master goal) confirmed three bugs, all fixed here and pinned in
@@ -220,8 +236,8 @@ run's local path, the wandb full_config, the already-validated
 learning_rate); `get_metric_logger`'s full_config is `Optional[DictConfig]`;
 and `RootSchema` gained the annotation-only `init_model_opt_sched_fn` field
 (absent from the stored schema node, so composed configs are unchanged).
-Annotations and casts only — zero runtime change (tiny_local final_ce still
-8.451301097869873). main.py's one remaining Pylance error (`"parameters" is
+Annotations and casts only — zero runtime change (tiny_local final_ce
+unchanged). main.py's one remaining Pylance error (`"parameters" is
 not a known attribute of "None"`) predates this work.
 
 **Gates (re-run after the review fixes):** full pytest green — 188 tests, 16
@@ -229,5 +245,51 @@ new in tests/test_typed_config.py (schema↔Trainer sync, negative compose
 tests, grid-point checks, range checks, top-level config composition pins,
 registry idempotence, the three review pins); `tiny_local` CPU smoke through
 `check_point` trained 200 steps; the three negative overrides and the range
-violation each fail with readable errors; ruff F401/F811/F841 zero
-everywhere, definitions.py and scripts/ included.
+violation each fail with readable errors; ruff F401/F811/F841 clean over
+the gate's scope (`src main.py run_exp.py conftest.py update_pixi.py
+scripts`), definitions.py included. That is the scope the cleanup goal
+specifies, not the whole repo — 6 findings remain repo-wide (3 in
+`grid_generator/generate_configs.py`, 3 across two test files), all in
+files neither commit touched, down from 22 at 6874efe7.
+
+## Follow-up (2026-11-03): second review round
+
+A second independent review of the committed range raised three headline
+findings. Verified against both commits before acting:
+
+- **`mfu_audit` configs and `- base_schema`** — mechanism real, severity not.
+  Applied `- /base_schema` to all five (see the implementation note above).
+  The claim that the configs "no longer compose" does not hold: the only
+  affected invocation never worked, and the proposed fix does not make it
+  work either — with `- /base_schema` it still composes to a nested
+  `mfu_audit:` tree and dies on resolve with `InterpolationKeyError`.
+- **"ruff zero everywhere"** — fair; the claim was scoped-gate-clean, not
+  repo-clean. Corrected in the gates paragraph above.
+- **"final_ce figure wrong"** — does not reproduce. This box yields
+  8.451301097869873 on 3/3 repeats, before and after. The figure is
+  environment-dependent, so it is now labelled as such rather than changed.
+
+The review also flagged stale `+trainer.X=` repro commands in the MFU notes,
+and the flag was correct — `+trainer.autocast_bf16=true` does error with
+`An item is already at 'trainer.autocast_bf16'`. That has since been resolved
+upstream rather than here: `b9189d1c` merged those five notes into
+[training_efficiency.md](training_efficiency.md), which uses the plain
+spelling throughout and spells out that `compile_model` keeps its `+` as a
+top-level key. Nothing left to fix; the only `+trainer.X=` strings remaining
+in the repo are the deliberate `+trainer.bogus=1` negative-test examples and
+dated entries in [pretraining_reset_log.md](pretraining_reset_log.md), which
+record what was run at the time.
+
+Tests hardened: `TrainerSchema` defaults are now compared against `Trainer`'s
+attrs defaults (names alone could not catch a knob defaulting differently on
+each side — mutation-checked by flipping `compile_loss`), and the
+caret-sweep rule is pinned (a `^key` under a schema'd section is rejected,
+which is why a sweep config omits `- base_schema`).
+
+**Gates:** 190 passed, 0 failed (188 + the 2 new tests); ruff clean over the
+gate scope; `tiny_local` smoke final_ce 8.451301097869873, unchanged; all
+five `mfu_audit` configs compose byte-identically to before the change under
+the repo's convention. Note for anyone verifying in a fresh git worktree:
+`data/` and `data_eval/` are gitignored, so 21 dataset-dependent tests skip
+there unless those directories are linked in — symlink them, or the suite
+looks green while skipping the training smokes.
