@@ -80,7 +80,8 @@ divergence. Cheap, and it closes the numerics question for good.
 
 1. **Merged** — `mfu-abl/whole-compile` → `pretraining` (`34bf3c17`); gates
    green, knobs opt-in, FSDP2 configs keep `compile_blocks`.
-2. **Compiled loss** — branch `mfu-abl/compiled-loss` (`733f455`),
+2. **Compiled loss** — branch `mfu-abl/compiled-loss` (`733f455`), merged
+   to `pretraining` on 2026-11-03 (`438d55c5`).
    `+trainer.compile_loss=true`: h20 step 9,451 → **9,046 ms**, 115,862
    tok/s, **46.4% MFU — 2.2% faster wall-clock than nanoGPT's 9,250 ms** at
    matched workload (job 32023; kernel table in
