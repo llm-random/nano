@@ -159,11 +159,40 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         # string-free, so one graph serves every block. Top-level key
         # (+compile_blocks=true) rather than a trainer key, because every
         # cfg.trainer entry is passed to Trainer's constructor.
+        #
+        # Kept as-is so the runs recorded in documents/notes/ reproduce from
+        # their logged commands; compile_blocks_full below is the wider unit
+        # that the log_name fix made possible.
         for block in model.encoder.blocks:
             block.attention_layer.layer.compile()
             block.ff_layer.layer.compile()
         logger.info(
             f"torch.compile applied to attention+ff of {len(model.encoder.blocks)} blocks"
+        )
+    if cfg.get("compile_blocks_full", False):
+        # Same regional strategy, one level wider: the compiled unit is the
+        # whole TransformerBlock, so each block's two Residual wrappers -- the
+        # RMSNorm, the `out + x` add and the bf16<->fp32 boundary casts -- are
+        # traced with the attention and ff they surround instead of running
+        # eager between two compiled regions.
+        #
+        # That glue is where the time is. Under compile_blocks the dominant
+        # eager kernels fire 51 times per micro-step at h20 (25 blocks x 2
+        # Residual wrappers + the head norm), measured at 3.7 s/step of
+        # elementwise plus 0.5 s of norm pieces on one GPU
+        # (documents/notes/multigpu_efficiency.md).
+        #
+        # The reason compile_blocks stops short no longer applies: Residual's
+        # per-block log_name used to be traced and guarded on, forcing one
+        # recompile per block until recompile_limit silently dropped blocks to
+        # eager, and that logging now sits behind @torch.compiler.disable.
+        # The compiled unit is also exactly the module FSDP2 shards, which is
+        # the pairing FSDP2 documents. Watch for recompile warnings anyway --
+        # this failure mode is silent (documents/notes/multigpu_compile_scope_plan.md).
+        for block in model.encoder.blocks:
+            block.compile()
+        logger.info(
+            f"torch.compile applied to {len(model.encoder.blocks)} whole blocks"
         )
     if cfg.get("compile_model", False):
         # Whole-model compile, nanoGPT-style: one inductor graph containing the
