@@ -115,8 +115,8 @@ reduces in fp32), `trainer.profile_timers=true` and
 | # | world size | gres | ga | job | step ms (cv) | tokens/s | MFU | peak mem/GPU |
 |---|---:|---|---:|---|---:|---:|---:|---:|
 | B1 | 1 | `gpu:h100:1` | 32 | 32264 | **12,678** (0.15%) | **82,668** | **34.45%** | 62.0 GiB |
-| B2 | 2 | `gpu:h100:2` | 16 | 32267 | running | | | |
-| B4 | 4 | `gpu:h100:4` | 8 | — | pending | | | |
+| B2 | 2 | `gpu:h100:2` | 16 | 32267 | **6,447** (0.07%) | **162,555** | **33.87%** | 57.4 GiB |
+| B4 | 4 | `gpu:h100:4` | 8 | 32269 | running | | | |
 
 Ideal (linear) scaling from B1, for reading the rows above: 6,339 ms /
 165,336 tok/s at 2 GPUs and 3,170 ms / 330,672 tok/s at 4 — MFU staying at
@@ -253,7 +253,68 @@ per-collective overhead, not bandwidth.** If B2/B4 fall well short of that, the
 cause is something this model does not capture — exposed (non-overlapped)
 communication, a straggler, or the data pipeline failing to feed N ranks.
 
-_(B2 and B4 fill in below as they land.)_
+### 7.3 B2 — two GPUs
+
+**6,447 ms/step, 162,555 tok/s, 33.87% MFU, 57.4 GiB/GPU, cv 0.07%** (job
+32267). Against B1's ideal of 6,339 ms that is a 108 ms shortfall —
+**98.3% scaling efficiency**, and per-GPU MFU falls only 34.45% → 33.87%.
+Peak memory per GPU drops 62.0 → 57.4 GiB, which is sharding doing its job.
+
+The two ranks are indistinguishable (mean over steps 16–29, ms):
+
+| rank | forward | backward | clip | optim | log | step total |
+|---|---:|---:|---:|---:|---:|---:|
+| 0 | 1,975.0 | 4,460.2 | 1.5 | 7.1 | 139.4 | 6,447.2 |
+| 1 | 1,967.7 | 4,467.5 | 1.5 | 7.2 | 139.7 | 6,447.2 |
+
+Spread 0.0 ms — no straggler, as expected when every rank runs identical shapes.
+
+**Every kernel category halves except communication.** Rank 0, ms/step, against
+B1 (which did twice the micro-steps):
+
+| category | B1 (1 GPU) | B2 (2 GPUs) | ratio |
+|---|---:|---:|---:|
+| GEMMs | 4,693 | 2,413 | 0.51 |
+| eager elementwise | 3,674 | 1,789 | 0.49 |
+| flash attention | 2,263 | 1,152 | 0.51 |
+| compiled (triton) | 843 | 424 | 0.50 |
+| eager norms | 549 | 283 | 0.52 |
+| softmax/CE | 230 | 115 | 0.50 |
+| optimizer | 351 | 111 | 0.32 |
+| cat/copy/memcpy | 198 | 98 | 0.49 |
+| **other (collectives + plumbing)** | **295** | **397** | **1.35** |
+| TOTAL busy | 13,095 | 6,782 | 0.52 |
+
+The `other` row is the only one that grows, and at 2 GPUs it resolves into real
+NCCL kernels:
+
+| kernel | ms/step | launches/step | what the count means |
+|---|---:|---:|---|
+| `ncclDevKernel_AllGather_RING_LL` | 188.9 | 864 | 27 modules × 16 micro-steps × 2 (forward, then again in backward because `reshard_after_forward` is on) |
+| `ncclDevKernel_ReduceScatter_Sum_**f32**_RING_LL` | 123.5 | 432 | 27 modules × 16 micro-steps — **27 would suffice** |
+| `chunk_cat` (bf16→fp32 for the reduce) | 33.3 | 432 | |
+| `split_with_sizes_copy_out` | 33.1 | 864 | |
+
+Three things worth keeping:
+
+1. **Overlap is doing most of the work.** 312 ms of NCCL kernel time plus 66 ms
+   of copy plumbing costs only 108 ms of wall clock, so roughly 70% of
+   communication hides behind compute. Note `TOTAL busy` (6,782) exceeds the
+   wall step (6,447): collectives run on their own streams.
+2. **The prediction in §7.2 was right for partly the wrong reason.** It called
+   ~1.6% shortfall and measured 1.7% — but it estimated ~99 ms of communication
+   where the kernels actually take 312 ms. The error is the protocol: NCCL picked
+   **RING_LL**, the low-latency protocol, which buys latency with bandwidth
+   because the 27-per-micro-step pattern produces many small messages. Overlap
+   covered the difference. Bandwidth modelling alone would have mispredicted.
+3. **F2 is confirmed and quantified at this scale.** 432 reduce-scatters where
+   27 are needed: **405 are avoidable**, ~116 ms of kernel time. But since most
+   of it overlaps, batching the sync is worth *at most* the ~108 ms the step is
+   actually losing — not the 116 ms the kernel total suggests. The stronger
+   argument for batching is the protocol: fewer, larger messages should move NCCL
+   off LL and raise achieved bandwidth.
+
+_(B4 fills in below.)_
 
 ## 8. Log
 
