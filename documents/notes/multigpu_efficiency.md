@@ -123,10 +123,30 @@ Ideal (linear) scaling from B1, for reading the rows above: 6,339 ms /
 34.45%, since MFU is already per-GPU normalized. Any shortfall is exposed
 communication.
 
-For context, the same model's single-GPU optimum (no FSDP2, whole-model compile
-+ compiled loss) is 9,578 ms / 109,425 tok/s / 45.6% at 52.0 GiB. So the
-FSDP2-compatible configuration starts **32% slower in wall clock and 10 GiB
-heavier** before a second GPU is involved at all.
+**Two different "1 GPU" numbers — do not confuse them.** This framework reaches
+**45.6% MFU** on one H100 for this model, but only in a configuration that
+cannot be used on several (no FSDP2 at all; see §1). The multi-GPU-capable
+configuration reaches **34.45%** on the same one GPU. Both are real; they
+measure different things:
+
+| configuration | 1 GPU | usable on 2+ GPUs? |
+|---|---:|---|
+| no FSDP2, whole-model compile + compiled loss | **45.6%** (9,578 ms, 52.0 GiB) | **no** — without FSDP2 there is no gradient synchronisation |
+| FSDP2 + `compile_blocks` | **34.45%** (12,678 ms, 62.0 GiB) | yes — B1/B2/B4 |
+
+So the deficit a multi-GPU run carries splits into two unrelated parts, and
+only the second is about parallelism:
+
+- **45.6% → 34.45% (−11.2 points, −24% relative): compile scope.** Paid in full
+  at world size 1, before a second GPU exists. It is the ~3.9 s/step of eager
+  glue that regional compile leaves outside the graph (§7.1), and it is the
+  single largest number in this document.
+- **34.45% → whatever the multi-GPU rows show: communication.** Measured at
+  −1.7% relative for B2.
+
+Comparisons in §7 are FSDP2-to-FSDP2 (B1 → B2 → B4) because that isolates the
+cost of parallelism. Whenever a row is compared to 45.6% instead, it is said
+explicitly.
 
 B1 is not redundant with the 45.6% reference: that run had no FSDP2 and used
 whole-model compile plus a compiled loss. B1 is the *same-commit, same-node*
@@ -257,8 +277,13 @@ communication, a straggler, or the data pipeline failing to feed N ranks.
 
 **6,447 ms/step, 162,555 tok/s, 33.87% MFU, 57.4 GiB/GPU, cv 0.07%** (job
 32267). Against B1's ideal of 6,339 ms that is a 108 ms shortfall —
-**98.3% scaling efficiency**, and per-GPU MFU falls only 34.45% → 33.87%.
-Peak memory per GPU drops 62.0 → 57.4 GiB, which is sharding doing its job.
+**98.3% scaling efficiency**, with per-GPU MFU falling 34.45% → 33.87%, i.e.
+parallelism costs 1.7%. Peak memory per GPU drops 62.0 → 57.4 GiB, which is
+sharding doing its job.
+
+Stated against the framework's best single-GPU result for this model (45.6%),
+the same run is **26% down** — but §5 shows 24 of those points were already
+lost at world size 1 to compile scope. The 1.7% is the multi-GPU part.
 
 The two ranks are indistinguishable (mean over steps 16–29, ms):
 
