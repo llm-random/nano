@@ -88,7 +88,22 @@ Guarded by `test_the_mfu_denominator_is_the_peak_of_every_gpu`
 At world size 1 the arithmetic is unchanged, so every number in
 training_efficiency.md stands.
 
-## 4. Baselines — status
+## 4. The hardware
+
+entropy's `h100` partition is the single node **h100a**: 8×H100 80GB HBM3
+(SXM — so the 989 TFLOP/s bf16 peak in `src/core/mfu.py` is the right basis),
+256 CPUs, 1,007 GiB RAM. GPUs are connected **NV18** — 18 bonded NVLink lanes,
+~900 GB/s — so every pair is full-bandwidth NVLink and FSDP2's all-gathers and
+reduce-scatters run on the best interconnect this model will ever see. A
+scaling result measured here is an upper bound for anything PCIe- or
+network-bound; it says nothing about multi-node, which is out of scope.
+
+Our QoS cap is 8 GPUs (`j321m_h100`), so 2- and 4-GPU jobs fit on one node.
+The node is shared — other users' jobs run alongside, which is also true of
+every single-GPU number in training_efficiency.md. Runs are submitted **one at
+a time** so our own jobs never contend with each other.
+
+## 5. Baselines — status
 
 Three runs, same model, same workload, same commit; only the GPU count changes.
 Configuration: FSDP2 (`trainer.distributed` from `configs/_trainer/llama.yaml`,
@@ -97,18 +112,28 @@ no autocast knob (FSDP2's `MixedPrecisionPolicy` already computes in bf16 and
 reduces in fp32), `trainer.profile_timers=true` and
 `trainer.kernel_profile=true` on.
 
-| # | world size | gres | ga | status | step ms | tokens/s | MFU | peak mem |
+| # | world size | gres | ga | job | step ms (cv) | tokens/s | MFU | peak mem/GPU |
 |---|---:|---|---:|---|---:|---:|---:|---:|
-| B1 | 1 | `gpu:h100:1` | 32 | pending | | | | |
-| B2 | 2 | `gpu:h100:2` | 16 | pending | | | | |
-| B4 | 4 | `gpu:h100:4` | 8 | pending | | | | |
+| B1 | 1 | `gpu:h100:1` | 32 | 32264 | **12,678** (0.15%) | **82,668** | **34.45%** | 62.0 GiB |
+| B2 | 2 | `gpu:h100:2` | 16 | 32267 | running | | | |
+| B4 | 4 | `gpu:h100:4` | 8 | — | pending | | | |
+
+Ideal (linear) scaling from B1, for reading the rows above: 6,339 ms /
+165,336 tok/s at 2 GPUs and 3,170 ms / 330,672 tok/s at 4 — MFU staying at
+34.45%, since MFU is already per-GPU normalized. Any shortfall is exposed
+communication.
+
+For context, the same model's single-GPU optimum (no FSDP2, whole-model compile
++ compiled loss) is 9,578 ms / 109,425 tok/s / 45.6% at 52.0 GiB. So the
+FSDP2-compatible configuration starts **32% slower in wall clock and 10 GiB
+heavier** before a second GPU is involved at all.
 
 B1 is not redundant with the 45.6% reference: that run had no FSDP2 and used
 whole-model compile plus a compiled loss. B1 is the *same-commit, same-node*
 FSDP2 + `compile_blocks` anchor, so the 1→2→4 scaling curve measures
 communication rather than two weeks of code drift.
 
-## 5. How a run is measured
+## 6. How a run is measured
 
 No wandb key exists on entropy (`~/.wandb_key` is absent, which is why the
 single-GPU GPT-2-arch run logged to stdout too), so runs use
@@ -137,11 +162,72 @@ Everything else follows the single-GPU protocol (training_efficiency.md Part 7):
 3% noise bar before a delta is believed, identical windows on both sides of any
 comparison, a changed micro-batch reported as a separate best-fit row.
 
-## 6. Results
+## 7. Results
 
-_(filled as runs land)_
+### 7.1 What FSDP2 costs before any communication happens (B1, world size 1)
 
-## 7. Log
+B1's kernel profile, next to the single-GPU optimum for the same model from
+training_efficiency.md Part 4.4 (plain module, `compile_model` + `compile_loss`,
+no FSDP2). Both at h20 GPT-2 arch, 16×32, same node; ms/step:
+
+| kernel category | B1: FSDP2 + `compile_blocks` | reference: no FSDP2 + whole-model compile |
+|---|---:|---:|
+| GEMMs (nvjet) | 4,693 | 4,711 |
+| flash attention | 2,263 | 2,418 |
+| compiled (triton) | 843 | 1,982 |
+| **eager elementwise** | **3,674** | 345 |
+| **eager norm pieces** | **549** | 0 |
+| **softmax/CE (eager)** | **230** | 0 |
+| optimizer | 351 | 10 |
+| cat / copies / memcpy | 198 | 0.2 |
+| other (FSDP2 plumbing, see below) | 295 | 9 |
+| **TOTAL busy** | **13,095** | **9,475** |
+
+Two separable costs, and the compute itself is not one of them — GEMMs are
+identical (4,693 vs 4,711) and flash attention is *faster* under FSDP2:
+
+1. **Regional compile leaves the glue eager — about 3.9 s/step.** Eager
+   elementwise, eager norms and eager cross-entropy (3,674 + 549 + 230 = 4,453)
+   replace what whole-model compile fuses into triton (345 + 0 + 0 = 345, with
+   triton correspondingly larger). This is the same gap Part 4.2 measured on one
+   GPU, and it is the price of `compile_blocks` being the FSDP2-documented
+   pairing. It is not a multi-GPU cost at all — it is the compile-scope question
+   the multi-GPU effort inherits.
+2. **FSDP2's own plumbing — about 255 ms/step even with nothing to communicate.**
+   In the `other` row: an NCCL **one-rank** kernel (117 ms, 864 launches/step),
+   `split_with_sizes_copy_out` (72 ms, 1,728) and `chunk_cat` (66 ms, 864, its
+   template showing the bf16→fp32 cast for the fp32 reduce). At world size 1
+   these move no data between devices; they are the all-gather/reduce-scatter
+   machinery running against itself.
+
+**The launch count names the gradient-sync problem exactly.** 864 = **27 × 32**:
+27 sharded module groups (25 blocks + embedding + head) × 32 micro-steps. Every
+micro-step runs a collective per sharded module, when only the last micro-step
+of the accumulation needs to. That is finding F2 from the survey, now measured
+rather than inferred — and at world size 1 it is nearly free, because the
+"collective" is a local copy. At world size 2 and 4 the same 27-per-micro-step
+pattern becomes real NVLink traffic: 432 and 216 collectives per optimizer step
+where 27 would do.
+
+Section timers at step 19 confirm where the 32% sits — entirely inside the model,
+in equal proportion, with everything around it at parity (ms):
+
+| section | reference (no FSDP2, whole compile) | B1 (FSDP2 + `compile_blocks`) | ratio |
+|---|---:|---:|---:|
+| forward (32 micros) | 2,948.8 | 3,895.2 | 1.32× |
+| backward (32 micros) | 6,596.7 | 8,747.8 | 1.33× |
+| grad clip | 2.8 | 2.8 | 1.00× |
+| optimizer step | 8.8 | 11.5 | 1.31× |
+| metric logging | 136.3 | 133.5 | 0.98× |
+| data (fetch + H2D) | 0.7 | 0.7 | — |
+| **step total** | **9,561.2** | **12,661.9** | **1.32×** |
+
+(The ~134 ms/step in `log` is present identically on both sides, so it cancels
+in every comparison here; it is ~1.4% of a step and nobody has looked at it.)
+
+_(B2 and B4 fill in below as they land.)_
+
+## 8. Log
 
 - **2026-11-03** — scope set; worktree `multigpu-mfu` created off `pretraining`.
   MFU accounting fixed (§3) with a world-size-parametrized regression test.
