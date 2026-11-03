@@ -130,6 +130,7 @@ class TrainerSchema:
     profile_timers: bool = False
     kernel_profile: bool = False
     compile_loss: bool = False
+    compile_ce: bool = False
 
 
 @dataclass

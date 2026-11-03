@@ -139,6 +139,10 @@ class Trainer:
     # INSTEAD of compile_model, not on top of it: the traced function already
     # contains the model. Speedup-plan item 2.
     compile_loss: bool = False
+    # Compile ONLY the cross-entropy, leaving the model's compile scope alone.
+    # Unlike compile_loss this never traces self.model, so it composes with
+    # FSDP2 and with regional block compile instead of replacing them.
+    compile_ce: bool = False
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
     # anything outside it is rejected before training starts.
@@ -181,6 +185,7 @@ class Trainer:
         # Resolved lazily on first use (calculate_loss): the save-type test
         # stubs borrow this post-init without the rest of the class.
         self._forward_loss_fn = None
+        self._ce_fn = None
 
         self.loss_averaged_100 = AveMetric(100, "100/train/loss")
         self.time_diff_averaged_100 = AveDiffMetric(100, "100/time", time.time())
@@ -274,10 +279,18 @@ class Trainer:
             # would read N x every kernel's time.
             if int(os.environ.get("RANK", 0)) == 0:
                 for ka in self._kprof.key_averages():
+                    # With CPU activity recorded, key_averages() holds both the
+                    # operators and the kernels they launch, and an operator can
+                    # carry device time of its own. Emitting both into kprof_us
+                    # would double-count every GEMM (aten::mm alongside nvjet)
+                    # and every collective (nccl:_all_gather_base alongside
+                    # ncclDevKernel), so the kernel stream is restricted to
+                    # CUDA-side entries and the operators go to kprof_op below.
+                    is_kernel = "CUDA" in str(getattr(ka, "device_type", ""))
                     self_us = getattr(ka, "self_device_time_total", 0) or getattr(
                         ka, "self_cuda_time_total", 0
                     )
-                    if self_us > 0:
+                    if is_kernel and self_us > 0:
                         logger.info(
                             f"kprof_us: self_cuda={self_us:.0f} count={ka.count} name={ka.key}"
                         )
@@ -289,7 +302,7 @@ class Trainer:
                     total_us = getattr(ka, "device_time_total", 0) or getattr(
                         ka, "cuda_time_total", 0
                     )
-                    if total_us > 0 and total_us != self_us:
+                    if not is_kernel and total_us > 0:
                         logger.info(
                             f"kprof_op: cuda_total={total_us:.0f} self={self_us:.0f} "
                             f"count={ka.count} name={ka.key}"
@@ -487,6 +500,28 @@ class Trainer:
         # Tensors should be on the same device for loss calculation #TODO check
         target_ids = target_ids.to(predicted_ids.device)
 
+        if self._ce_fn is None:
+            # Lazily, like _forward_loss_fn above: the save-type test stubs
+            # borrow __attrs_post_init__ without the rest of the class.
+            self._ce_fn = (
+                torch.compile(type(self)._cross_entropy)
+                if self.compile_ce
+                else type(self)._cross_entropy
+            )
+        return self._ce_fn(predicted_ids, target_ids)
+
+    @staticmethod
+    def _cross_entropy(predicted_ids, target_ids):
+        """Cross-entropy alone, compilable without tracing the model.
+
+        Split out so `compile_ce` can fuse the log-softmax, the NLL and the
+        bf16<->fp32 casts over the logits -- the largest activation in the step
+        -- while the model keeps whatever compile scope it was given. Under
+        FSDP2 that distinction matters: `compile_loss` traces `self.model`,
+        so it is whole-model compile and has to survive the all-gather hooks,
+        whereas this does not touch the model at all
+        (documents/notes/multigpu_compile_scope_plan.md, R2).
+        """
         mask_loss = F.cross_entropy(
             predicted_ids.flatten(0, -2),
             target_ids.reshape(-1).long(),
