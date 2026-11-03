@@ -258,14 +258,20 @@ class Trainer:
             self._kprof.__enter__()
         elif step == 14 and getattr(self, "_kprof", None) is not None:
             self._kprof.__exit__(None, None, None)
-            for ka in self._kprof.key_averages():
-                us = getattr(ka, "self_device_time_total", 0) or getattr(
-                    ka, "self_cuda_time_total", 0
-                )
-                if us > 0:
-                    logger.info(
-                        f"kprof_us: self_cuda={us:.0f} count={ka.count} name={ka.key}"
+            # Every rank profiles (the context manager is cheap and symmetric),
+            # but only rank 0 prints. The lines carry no rank of their own and
+            # all ranks share one job log, so N ranks printing would interleave
+            # into a stream no aggregator could split -- and scripts/kprof_agg.py
+            # would read N x every kernel's time.
+            if int(os.environ.get("RANK", 0)) == 0:
+                for ka in self._kprof.key_averages():
+                    us = getattr(ka, "self_device_time_total", 0) or getattr(
+                        ka, "self_cuda_time_total", 0
                     )
+                    if us > 0:
+                        logger.info(
+                            f"kprof_us: self_cuda={us:.0f} count={ka.count} name={ka.key}"
+                        )
             self._kprof = None
 
     def train(self):
@@ -317,8 +323,12 @@ class Trainer:
                         "log",
                     )
                 )
+                # Tagged with the rank: all ranks share one job log, and on
+                # multi-GPU the spread between ranks is the straggler signal,
+                # so these are worth keeping per rank rather than silencing.
                 logger.info(
-                    f"timers_ms: step={step} {parts} step_total={step_total:.1f}"
+                    f"timers_ms: rank={int(os.environ.get('RANK', 0))} "
+                    f"step={step} {parts} step_total={step_total:.1f}"
                 )
 
             if self._should_save_checkpoint:
