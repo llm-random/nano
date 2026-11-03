@@ -182,8 +182,11 @@ def get_metric_logger(
                 "slurm_array_task_id": slurm_array_task_id,
                 "slurm_out": slurm_out,
             }
+            # config only. These are fixed facts about where the run executed, so
+            # they are run_env.* columns in the runs table. They used to be logged
+            # into the history as well, which bought nothing -- the same four values
+            # twice over, the second copy as one-point chart fields.
             wandb_logger.config.update({"run_env": run_env}, allow_val_change=True)
-            wandb_logger.log({f"run_env/{k}": v for k, v in run_env.items()})
             _metric_logger = WandbLogger(
                 run=wandb_logger, should_log=True, config=metric_logger_config
             )

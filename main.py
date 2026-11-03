@@ -209,9 +209,13 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
         training_state["run_id"] is None
         or cfg.infrastructure.metric_logger.new_wandb_job
     ):
-        # Update wandb config
+        # config, not log: every one of these is a run *input*, fixed before step 0
+        # and never updated again. run.log() files a value in the history, where
+        # wandb can only render it as a one-point chart and the runs table cannot
+        # group, filter or sort on it. config.update() puts them beside common.* and
+        # trainer.*, which is where a hyperparameter belongs.
         if metric_logger.run is not None:
-            metric_logger.run.log(
+            metric_logger.run.config.update(
                 {
                     "learning_rate": learning_rate,
                     "exp_lr": exp_lr,
@@ -222,7 +226,9 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
                     # different data. The seed is already in the config; this puts the
                     # other half of the pair in the run record beside it.
                     "world_size": int(os.environ.get("WORLD_SIZE", 1)),
-                }
+                },
+                # a resumed run may already carry these keys
+                allow_val_change=True,
             )
 
     torch.manual_seed(cfg.trainer.train_dataloader.dataset.seed)
