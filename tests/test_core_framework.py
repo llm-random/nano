@@ -420,6 +420,73 @@ def test_metric_logger_accepts_either_config_form(as_plain_dict):
 
 
 # ---------------------------------------------------------------------------
+# Run inputs belong in wandb's config, not its history.
+#
+# A value that is fixed before step 0 and never changes is a hyperparameter.
+# Logged into the history it becomes a one-point chart that the runs table
+# cannot group, filter or sort on -- useless where it matters, noise where it
+# does not. run_env used to be written to BOTH, so the same four strings
+# appeared twice, the second copy as dead chart fields.
+
+
+class _FakeWandbConfig:
+    def __init__(self):
+        self.updates = []
+
+    def update(self, values, **_kwargs):
+        self.updates.append(dict(values))
+
+
+class _FakeWandbRun:
+    def __init__(self):
+        self.config = _FakeWandbConfig()
+        self.logged = []
+
+    def log(self, values, *_args, **_kwargs):
+        self.logged.append(dict(values))
+
+
+def test_run_env_goes_to_wandb_config_and_not_the_history(monkeypatch):
+    import wandb
+
+    from src.core.metric_loggers import get_metric_logger
+
+    run = _FakeWandbRun()
+    monkeypatch.setattr(wandb, "init", lambda **_kwargs: run)
+    monkeypatch.setattr(wandb, "define_metric", lambda *_a, **_k: None)
+    monkeypatch.setenv("RANK", "0")
+    monkeypatch.setenv("SLURM_JOB_ID", "4242")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
+    monkeypatch.setenv("SLURM_SUBMIT_DIR", "/somewhere")
+
+    get_metric_logger(
+        metric_logger_config=OmegaConf.create(
+            {
+                "type": "wandb",
+                "name": "t",
+                "tags": [],
+                "new_wandb_job": True,
+                "wandb_entity": "e",
+                "project_name": "p",
+                "heavy_metrics_calculation_interval": 100,
+            }
+        )
+    )
+
+    run_env = {}
+    for update in run.config.updates:
+        run_env.update(update.get("run_env", {}))
+    assert run_env.get("slurm_job_id") == "4242", (
+        f"run_env did not reach wandb.config; updates were {run.config.updates}"
+    )
+    assert run_env.get("slurm_out") == "/somewhere/slurm-4242_7.out"
+    assert run.logged == [], (
+        "startup facts were written into the run history, where each becomes a "
+        f"one-point chart: {run.logged}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # A fixed eval set.
 #
 # An eval number is only comparable across runs if it is measured on the same

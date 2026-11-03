@@ -542,6 +542,30 @@ def test_world_size_is_recorded_with_the_run():
     )
 
 
+def test_static_run_inputs_are_wandb_config_not_wandb_history():
+    """learning_rate/exp_lr/save path/world_size are inputs, so they are config.
+
+    They are fixed before step 0 and never change. run.log() files a value in the
+    run history, which wandb renders as a chart -- a one-point chart here -- and
+    which the runs table cannot group, filter or sort on. config.update() puts
+    them beside common.* and trainer.*, where a hyperparameter is usable.
+    """
+    import inspect
+
+    import main
+
+    source = inspect.getsource(main.initialize_training_components)
+    assert "metric_logger.run.config.update(" in source, (
+        "the startup run record no longer goes through wandb's config"
+    )
+    assert "metric_logger.run.log(" not in source, (
+        "a fixed run input is being logged into the history, where it becomes a "
+        "one-point chart instead of a runs-table column"
+    )
+    for key in ("learning_rate", "exp_lr", "full_save_checkpoints_path", "world_size"):
+        assert f'"{key}"' in source, f"{key} dropped out of the run record"
+
+
 def test_no_config_writes_a_bare_none():
     """A bare `None` in YAML is the string "None", not a null.
 
