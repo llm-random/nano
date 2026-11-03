@@ -458,6 +458,56 @@ latency-optimised protocol that gives up bandwidth, because 27 collectives per
 micro-step makes every message small; and the all-gather count carries a ×2 for
 the backward re-gather, which is what `reshard_after_forward` buys memory with.
 
+### 7.7 R1 — widening the compile unit (2026-11-03)
+
+Executed from [multigpu_compile_scope_plan.md](multigpu_compile_scope_plan.md).
+`+compile_blocks_full=true` compiles each whole `TransformerBlock` instead of
+only its inner attention and ff modules, so the two `Residual` wrappers — the
+RMSNorm, the `out + x` add and the boundary casts — are traced rather than left
+eager between two compiled regions.
+
+| | 1 GPU | 4 GPUs |
+|---|---:|---:|
+| `compile_blocks` (baseline) | 12,678 ms · 34.45% · 62.0 GiB | 3,240 ms · 33.70% · 55.1 GiB |
+| **`compile_blocks_full` (R1)** | **9,584 ms · 45.57% · 50.3 GiB** | **2,466 ms · 44.28% · 43.4 GiB** |
+| delta | **+11.1 points** | **+10.6 points** |
+
+Jobs 32289 (1 GPU) and 32287 (4 GPUs); cv 0.21% and 0.25%; **zero dynamo
+recompile warnings** in both, and all ranks logged "torch.compile applied to 25
+whole blocks". Loss trajectories match the baselines step for step
+(7.6875 → 7.5000 at 4 GPUs), which is the first numerics signal; the formal
+overlay comes once the stack is final.
+
+**The single-GPU FSDP2 penalty is gone.** R1 at world size 1 scores 9,584 ms /
+45.57% against the non-FSDP2 optimum's 9,578 ms / 45.6% — a 0.06% difference,
+inside noise — and uses *less* memory (50.3 vs 52.0 GiB). The decomposition in
+§7.1 predicted ~650 ms of irreducible FSDP2 overhead would survive; the
+measurement says ~6 ms. Widening the compiled region evidently absorbs the glue
+around FSDP2's module boundaries as well as the Residual layer's own.
+
+That collapses the two framings §5 had to keep apart: the best single-GPU
+configuration **is now an FSDP2 configuration**, so scaling efficiency and
+practical speedup are the same number. From the new 1-GPU anchor, 4 GPUs give
+425,054 / 109,361 = **3.89×, i.e. 97.2%** — against 2.96× before R1.
+
+**Memory fell rather than rose.** The plan listed a memory regression as a
+plausible failure mode (wider compiled regions hold more live activations);
+instead peak dropped 11.7 GiB/GPU at 4 GPUs and 11.7 GiB at 1 GPU, mirroring
+what whole-model compile did on one GPU in training_efficiency.md §4.3. Micro
+32 at h20, OOM-bound since job 32024, is plausibly back in reach.
+
+**What remains.** 45.57% (1 GPU) − 44.28% (4 GPUs) = **1.29 points**, which is
+communication and nothing else. The plan's criterion for attempting R3
+(whole-model compile under FSDP2) was "more than ~2 points remain", so **R3 is
+ruled out by its own test** — there is no longer a compile-scope gap to close.
+
+**A measurement caveat worth recording.** R1's first 4-GPU run (job 32285) read
+2,625 ms at **cv 13.3%**: steady state was a stable 2.465 s but steps 18, 19 and
+21 spiked to 3.54/3.29/2.78 s while another user's jobs ran on the node. The
+repeat (32287) gave 2,466 ms at cv 0.25%. Discarding slow steps would have been
+cherry-picking, so the repeat is what is reported — and this is what the
+protocol's repeat rule is for on a shared node.
+
 ## 8. Where that leaves the effort
 
 The baselines answer the question they were set, and they reorder the work.
