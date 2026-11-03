@@ -26,15 +26,22 @@ FSDP2 path is the fastest configuration this framework has, at any world size.
 
 ### How to run it
 
-```
-+compile_blocks_full=true          # top-level key, so it keeps the '+'
-```
-with FSDP2 as configured in `configs/_trainer/llama.yaml` (`trainer.distributed`
-sharding embedding / block / head). Nothing else is needed; `autocast_bf16` is
-not used, because FSDP2's `MixedPrecisionPolicy` already computes in bf16 and
-reduces in fp32. Launch with `torchrun --nproc-per-node=<N>`; `common.batch_size`
-is the **global** batch, so only `gradient_accumulation_steps` changes with the
-GPU count.
+Use **`configs/mfu_audit/h20_mgpu.yaml`**, which carries the whole recipe:
+FSDP2 from `_trainer/llama.yaml` plus `compile_blocks_full: true`. Raise `gres`
+and set `gradient_accumulation_steps` together — 32 / 16 / 8 for 1 / 2 / 4
+GPUs, holding the per-forward micro-batch at 16, because `common.batch_size` is
+the **global** batch. Launch with `torchrun --nproc-per-node=<N>`.
+
+> **Do not use `h20.yaml` for this.** It sets `distributed: null` for the
+> single-GPU recipe it documents, and without FSDP2 there is no gradient
+> synchronisation at all: N ranks would train N independent models while the
+> logs looked entirely normal. That is why the multi-GPU recipe is a separate
+> file rather than a flag.
+
+`autocast_bf16` is deliberately absent — FSDP2's `MixedPrecisionPolicy` already
+computes in bf16 and reduces in fp32. `compile_loss` is absent because it traces
+`self.model`, so under FSDP2 it is whole-model compile (untested, and there is
+nothing left for it to win). `compile_ce` is absent because it is harmful.
 
 ### Measured, GPT-2-arch h20, seq 2048, global batch 512, entropy H100s
 

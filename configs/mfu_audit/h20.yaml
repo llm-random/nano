@@ -23,7 +23,11 @@
 #
 # This config is single-GPU only: without FSDP2 there is no gradient
 # synchronisation, so do not raise gres above gpu:h100:1. For 2+ GPUs use
-# FSDP2 with regional compile instead.
+# h20_mgpu.yaml, which keeps FSDP2 and compiles each whole TransformerBlock
+# (`+compile_blocks_full=true`) -- still regional compile, so the compiled unit
+# is the sharded unit. Measured 45.57% at 1 GPU and 44.28% at 4, so the FSDP2
+# path no longer costs anything against the recipe below
+# (documents/notes/multigpu_efficiency.md).
 defaults:
   - /base_schema
   - ../_misc@_here_: default

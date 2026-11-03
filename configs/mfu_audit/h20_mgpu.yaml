@@ -1,0 +1,76 @@
+# h20 on 1-4 H100s in the measured-best FSDP2 configuration.
+#
+# The multi-GPU counterpart of h20.yaml. Same workload -- 30 steps, 512
+# sequences x 2048 tokens, eval and checkpointing off -- but FSDP2 is kept and
+# the compile scope is the one that pairs with it.
+#
+# h20.yaml sets `distributed: null`, which is correct for the single-GPU recipe
+# it documents and fatal for several GPUs: without FSDP2 there is no gradient
+# synchronisation at all, so N ranks would train N independent models while the
+# logs looked normal. That is why this is a separate file rather than a flag.
+#
+#   distributed       FSDP2 from _trainer/llama.yaml (embedding / block / head)
+#   compile_blocks_full  compile each whole TransformerBlock -- regional
+#                     compile, so the compiled unit is the sharded unit, and it
+#                     includes the Residual wrappers that compile_blocks leaves
+#                     eager. Worth ~11 MFU points
+#                     (documents/notes/multigpu_efficiency.md 7.7)
+#   no autocast_bf16  FSDP2's MixedPrecisionPolicy already computes in bf16
+#   no compile_loss   it traces self.model, so under FSDP2 it is whole-model
+#                     compile -- untested, and nothing is left for it to win
+#   no compile_ce     measured harmful (multigpu_efficiency.md 7.9)
+#
+# `common.batch_size` is the GLOBAL batch: get_dataloader hands each rank
+# total // world_size. To hold the per-forward micro-batch at 16, set
+# gradient_accumulation_steps = 512 / (16 * ngpu) -- 32, 16, 8 for 1, 2, 4
+# GPUs -- and raise `gres` to match. Measured here:
+#
+#   GPUs   ga   step ms   tokens/s     MFU   peak/GPU
+#      1   32     9,584    109,361  45.57%   50.3 GiB
+#      2   16     4,886    214,499  44.69%   45.7 GiB
+#      4    8     2,466    425,054  44.28%   43.4 GiB
+#
+# (GPT-2-arch h20, 4.122 GFLOPs/token: add
+# `model.encoder.block_fn.ff_layer_fn._target_=src.core.model.GeluFeedForward
+# '~model.encoder.block_fn.ff_layer_fn.gate_fn' common.n_blocks=25
+# 'common.kv_heads=${common.q_heads}'`. Without those overrides this is the
+# H-balanced h20 at 3.97 GFLOPs/token, which has not been measured multi-GPU.)
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12
+  gradient_accumulation_steps: 32 # micro-batch 16 at 1 GPU; see the header
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:1 # raise to :2 / :4 together with gradient_accumulation_steps
+    job-name: mfu_h20_mgpu
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-mfu-audit
+    name: mfu_h20_mgpu_s2048_b512
+    tags:
+      - mfu_audit
+      - h20
+      - multigpu
