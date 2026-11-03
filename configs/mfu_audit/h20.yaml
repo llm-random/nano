@@ -1,8 +1,29 @@
-# Stage-3 backbone/MFU audit (documents/notes/training_efficiency.md):
-# 30 steps of h20 on one entropy H100, 512 sequences x 2048 tokens per step
-# (1,048,576 tokens). Eval and checkpointing are off so nothing but the training
-# loop sits inside the timing window; gradient_accumulation_steps starts safe and
-# the micro-batch probe overrides it per model.
+# h20 on one H100, in the measured-best single-GPU configuration.
+#
+# 30 steps, 512 sequences x 2048 tokens per step (1,048,576 tokens). Eval and
+# checkpointing are off so nothing but the training loop sits inside the timing
+# window.
+#
+# The compile/parallelism settings below are the Part 4.4 / 6.3 recipe from
+# documents/notes/training_efficiency.md, measured at 46.4% MFU on this exact
+# architecture (job 32023, 3.97 GFLOPs/token). They were previously left at the
+# unoptimised audit defaults, which measure 30.8% -- the stage-3 backbone
+# baseline. That baseline is what h12.yaml and h16.yaml still carry, so the
+# ladder in training_efficiency.md Part 4 is unaffected by this file.
+#
+#   distributed: null     no FSDP2. At world size 1 it is a ~0.5pt loss under
+#                         compile (training_efficiency.md 6.4), and dropping it
+#                         is what lets the whole model compile as one graph.
+#   compile_model: true   whole-model compile, one inductor graph including the
+#                         Residual glue that regional compile_blocks leaves
+#                         eager -- worth ~11 MFU points.
+#   compile_loss: true    the measured-best addition on top of compile_model.
+#   autocast_bf16: true   required by the recipe.
+#   grad accum 32         micro-batch 16, the probed value for h20.
+#
+# This config is single-GPU only: without FSDP2 there is no gradient
+# synchronisation, so do not raise gres above gpu:h100:1. For 2+ GPUs use
+# FSDP2 with regional compile instead.
 defaults:
   - /base_schema
   - ../_misc@_here_: default
@@ -20,11 +41,18 @@ common:
 trainer:
   n_steps: 30
   learning_rate: 0.000244140625 # 2^-12
-  gradient_accumulation_steps: 64 # micro-batch 8 x 2048; the probe tunes this
+  gradient_accumulation_steps: 32 # micro-batch 16, the probed value for h20
   eval_interval: 0
   eval_dataloader: null
+  distributed: null # single-GPU only -- see the header
+  autocast_bf16: true
+  compile_loss: true
   scheduler:
     warmup_steps: 10
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_model")`), so on the CLI it keeps its `+`.
+compile_model: true
 
 infrastructure:
   slurm:
