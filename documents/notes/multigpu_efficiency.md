@@ -543,28 +543,68 @@ against the non-FSDP2 optimum's 9,578 ms / 45.6%, using 4.7 GiB less. The
 configuration that held the record through all of training_efficiency.md is no
 longer the fastest one; an FSDP2 configuration is.
 
-### 7.9 Adopted stack and the final curve
+### 7.10 The numerics gate rejects R2
 
-**`+compile_blocks_full=true trainer.compile_ce=true`**, with FSDP2 as
-configured in `configs/_trainer/llama.yaml`.
+The 300-step overlay was run at 4 GPUs, h20 GPT-2 arch, same seed, profiling
+off, against the pre-R1 production configuration. The adopted stack failed it:
+mean |Δloss| 0.0704, max 0.1562, last-50 mean 0.0912 (1.61% of final CE) —
+roughly 10× the precedent that cleared the single-GPU compiled loss
+(training_efficiency.md §5.2: mean 0.0074, max 0.066, last-50 0.0036) — and the
+difference was **systematic**: the stack's loss was higher in 50 of 50 steps
+across the last three 50-step buckets, settling at a stable +0.09. Logged
+losses are bf16-quantized in 0.03125 steps, so that is 3 ulps always in the
+same direction; a random walk would cross zero.
 
-| world size | step ms | tokens/s | MFU | vs baseline MFU | peak mem/GPU |
+Because the stack changed two things at once, a 2×2 isolated them. All four
+arms are 300 steps, 4 GPUs, same seed, compared against `old`:
+
+| arm | config | mean \|Δ\| | max \|Δ\| | last-50 | higher in last 50 | final loss |
+|---|---|---:|---:|---:|---:|---:|
+| **r1only** (32307) | `compile_blocks_full` | **0.0093** | 0.0938 | **0.0063** | 0/50 | **5.5625** |
+| r2only (32317) | `compile_blocks` + `compile_ce` | 0.0875 | 0.2188 | 0.1100 | **50/50** | 5.6562 |
+| new (32302) | both | 0.0704 | 0.1562 | 0.0912 | **50/50** | 5.6562 |
+| old (32303) | `compile_blocks` | — | — | — | — | 5.5625 |
+
+**R1 is clean and R2 is the cause.** R1's last-50 mean of 0.0063 is a fifth of
+one bf16 ulp, it shows no systematic sign, and it finishes on exactly the
+baseline's final loss. The first hypothesis — that widening the compiled region
+moved the residual stream and norms from fp32 to bf16, which would have
+explained the speed, the 11.7 GiB memory drop and a worse loss together — is
+**wrong**, and the isolation is what caught it.
+
+`compile_ce` degrades the loss on its own, with or without R1. The likely
+mechanism: eager `F.cross_entropy` upcasts to fp32 for the log-softmax, and
+compiled standalone it appears to stay in bf16, which over a 50,304-wide
+vocabulary is materially worse arithmetic. The trade it offered was ~1% step
+time and 3 GiB for ~1.6% worse loss. **Rejected.** The knob stays in the code,
+defaulted off, with the measurement recorded next to it so nobody re-tries it
+blind.
+
+Worth noting R2 had already been flagged as marginal on throughput grounds
+(1.06%, below the 3% bar, adopted only because repeats agreed). The numerics
+gate rejected it independently — two different safeguards pointing the same way.
+
+### 7.11 Adopted stack and the final curve
+
+**`+compile_blocks_full=true`** — R1 alone — with FSDP2 as configured in
+`configs/_trainer/llama.yaml`. `compile_ce` off.
+
+| world size | step ms (cv) | tokens/s | MFU | vs baseline MFU | peak mem/GPU |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 9,474 | 110,629 | 46.10% | +11.65 pt | 47.3 GiB |
-| 2 | _(filled by the confirmation run)_ | | | | |
-| 4 | 2,439 | 429,698 | 44.77% | +11.07 pt | 40.3 GiB |
+| 1 (32289) | 9,584 (0.21%) | 109,361 | **45.57%** | +11.12 pt | 50.3 GiB |
+| 2 (32318) | _(confirmation running)_ | | | | |
+| 4 (32287) | 2,466 (0.25%) | 425,054 | **44.28%** | +10.58 pt | 43.4 GiB |
 
-4-GPU figures are the mean of jobs 32294 and 32296. Against the 33.70%
-baseline: **+33% throughput and −27% peak memory** (55.1 → 40.3 GiB), which
-also puts micro-batch 32 back within reach after being OOM-bound since job
-32024.
+Against the 33.70% baseline at 4 GPUs: **+31% throughput and −21% peak memory**
+(55.1 → 43.4 GiB), which also puts micro-batch 32 back within reach after being
+OOM-bound since job 32024. Zero dynamo recompile warnings anywhere.
 
 **R3 is not attempted.** The plan's criterion was "more than ~2 points remain";
-after R2 the gap between the 1-GPU anchor (46.10%) and 4 GPUs (44.77%) is
-**1.33 points**, and it is communication, not compile scope. Whole-model
-compile under FSDP2 — the item training_efficiency.md parked as the open
-question — would be a day of tracing risk spent on something the measurements
-say is no longer there.
+the gap between the 1-GPU anchor (45.57%) and 4 GPUs (44.28%) is **1.29
+points**, and it is communication, not compile scope. Whole-model compile under
+FSDP2 — the item training_efficiency.md parked as the open question — would be
+a day of tracing risk spent on something the measurements say is no longer
+there.
 
 ## 8. Where that leaves the effort
 

@@ -142,6 +142,15 @@ class Trainer:
     # Compile ONLY the cross-entropy, leaving the model's compile scope alone.
     # Unlike compile_loss this never traces self.model, so it composes with
     # FSDP2 and with regional block compile instead of replacing them.
+    #
+    # MEASURED HARMFUL, 2026-11-03 -- do not enable without re-testing. It buys
+    # ~1% step time and 3 GiB, and costs accuracy: over 300 steps at h20 the
+    # loss sits ABOVE the uncompiled-CE twin in 50 of the last 50 steps,
+    # last-50 mean |dloss| 0.110 against 0.006 for the same run without it
+    # (documents/notes/multigpu_efficiency.md 7.10). Eager F.cross_entropy
+    # upcasts to fp32 for the log-softmax; compiled standalone it appears to
+    # stay in bf16, which over a 50304-wide vocabulary is materially worse
+    # arithmetic. Kept, defaulted off, as the record of a tested dead end.
     compile_ce: bool = False
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
