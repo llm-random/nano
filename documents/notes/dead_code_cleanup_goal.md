@@ -38,7 +38,11 @@ and land the result on `pretraining` with all gates green.
   dependency pattern elsewhere in the repo. **D1 — ask Maciej first**: the
   `solve_config_lr` TODO in `src/core/utils.py:49` says "move to devinitions
   eval+ when created", so this may be a parked plan rather than residue.
-  Recommended answer: delete; git history keeps it.
+  **Resolved 2026-11-03: DELETE** — Maciej wants the capability (Pylance
+  typing + submit-time validation), but built properly; the replacement is
+  specified in [typed_config_goal.md](typed_config_goal.md), which runs
+  after this goal. Also remove the stale "move to devinitions" remark from
+  the `solve_config_lr` comment.
 
 ### Cluster 2 — dead symbols in live modules (pre-approved)
 
