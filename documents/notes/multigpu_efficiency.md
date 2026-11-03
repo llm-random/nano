@@ -103,7 +103,7 @@ The node is shared — other users' jobs run alongside, which is also true of
 every single-GPU number in training_efficiency.md. Runs are submitted **one at
 a time** so our own jobs never contend with each other.
 
-## 5. Baselines — status
+## 5. Baselines
 
 Three runs, same model, same workload, same commit; only the GPU count changes.
 Configuration: FSDP2 (`trainer.distributed` from `configs/_trainer/llama.yaml`,
@@ -116,7 +116,7 @@ reduces in fp32), `trainer.profile_timers=true` and
 |---|---:|---|---:|---|---:|---:|---:|---:|
 | B1 | 1 | `gpu:h100:1` | 32 | 32264 | **12,678** (0.15%) | **82,668** | **34.45%** | 62.0 GiB |
 | B2 | 2 | `gpu:h100:2` | 16 | 32267 | **6,447** (0.07%) | **162,555** | **33.87%** | 57.4 GiB |
-| B4 | 4 | `gpu:h100:4` | 8 | 32269 | running | | | |
+| B4 | 4 | `gpu:h100:4` | 8 | 32269 | **3,240** (0.17%) | **323,440** | **33.70%** | 55.1 GiB |
 
 Ideal (linear) scaling from B1, for reading the rows above: 6,339 ms /
 165,336 tok/s at 2 GPUs and 3,170 ms / 330,672 tok/s at 4 — MFU staying at
@@ -339,11 +339,85 @@ Three things worth keeping:
    argument for batching is the protocol: fewer, larger messages should move NCCL
    off LL and raise achieved bandwidth.
 
-_(B4 fills in below.)_
+### 7.4 B4 — four GPUs
 
-## 8. Log
+**3,240 ms/step, 323,440 tok/s, 33.70% MFU, 55.1 GiB/GPU, cv 0.17%** (job
+32269). Ideal from B1 is 3,170 ms, so the shortfall is 70 ms —
+**97.8% scaling efficiency**, per-GPU MFU 34.45% → 33.70% (−2.2%).
 
-- **2026-11-03** — scope set; worktree `multigpu-mfu` created off `pretraining`.
+Ranks remain indistinguishable; spread 0.2 ms across four (means, steps 16–29):
+
+| rank | forward | backward | clip | optim | log | step total |
+|---|---:|---:|---:|---:|---:|---:|
+| 0 | 989.8 | 2,241.7 | 0.8 | 5.1 | 140.7 | 3,240.2 |
+| 1 | 985.8 | 2,245.4 | 0.8 | 5.3 | 141.2 | 3,240.1 |
+| 2 | 987.9 | 2,243.1 | 0.8 | 5.4 | 140.8 | 3,240.0 |
+| 3 | 985.6 | 2,245.5 | 0.8 | 5.3 | 141.5 | 3,240.2 |
+
+Collectives: 432 all-gathers (165.8 ms) and 216 fp32 reduce-scatters (94.4 ms),
+again 27 modules × 8 micro-steps (×2 for the backward re-gather), plus 33 ms of
+chunk_cat/split plumbing. 260 ms of NCCL kernel time costs 70 ms of wall clock —
+about 73% overlapped, the same story as B2.
+
+### 7.5 The scaling curve
+
+| world size | step ms | tokens/s | MFU | scaling eff. | peak mem/GPU | comm (NCCL) ms | comm as % of busy |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 12,678 | 82,668 | 34.45% | — | 62.0 GiB | 117¹ | 2.3% |
+| 2 | 6,447 | 162,555 | 33.87% | **98.3%** | 57.4 GiB | 312 | 5.9% |
+| 4 | 3,240 | 323,440 | 33.70% | **97.8%** | 55.1 GiB | 260 | 8.7% |
+
+¹ world size 1 has no inter-device traffic; this is NCCL's one-rank local-copy
+kernel, included so the row is comparable.
+
+**FSDP2 scales almost perfectly on this node.** 1.97× at two GPUs and 3.91× at
+four, with per-GPU MFU losing 0.6 and 0.8 points. Ranks stay balanced to within
+0.2 ms, the data pipeline keeps up at four ranks (`data_fetch` is 0.1–0.2 ms —
+the worry in training_efficiency.md §8.2 that 2 workers would not feed a
+multi-GPU run does not bite at this scale), and memory per GPU falls as
+sharding spreads parameters, gradients and optimizer state.
+
+**The one trend that does not improve is communication.** Everything else
+quarters from B1 to B4; collective time stays roughly flat in absolute terms
+(295 → 397 → 304 ms of the `other` row) and therefore grows as a share of the
+step: 2.3% → 5.9% → 8.7%. Extrapolating the same shape, 8 GPUs on one node
+would be the first world size where it starts to bite, and anything off NVLink
+would bite much sooner.
+
+## 8. Where that leaves the effort
+
+The baselines answer the question they were set, and they reorder the work.
+
+**Multi-GPU is not where this model is losing MFU.** Parallelism costs 1.7% at
+two GPUs and 2.2% at four. The deficit against the framework's own single-GPU
+best (45.6% → ~33.8%) is **~24% relative, and all of it is paid at world size 1**
+by using regional `compile_blocks` instead of whole-model compile plus a
+compiled loss (§5, §7.1). On these measurements:
+
+| candidate | measured worth | note |
+|---|---|---|
+| **whole-model compile + compiled loss under FSDP2** | **~11 MFU points** | the entire 45.6 → 34.45 gap; untested under FSDP2, which is the only reason we are not taking it |
+| batching gradient sync (F2) | **< 110 ms/step, under 2%** | 405 of 432 reduce-scatters at B2 are avoidable, but ~70% of collective time already overlaps compute; the better argument is pushing NCCL off the RING_**LL** low-latency protocol onto a bandwidth protocol by sending fewer, larger messages |
+| `reshard_after_forward` tuning | ≤ the all-gather half of comm | would remove the backward re-gather (half of 864/432 all-gathers) at a memory cost; memory is available — 55–57 GiB of 80 in use |
+| micro-batch ≥ 32 | unmeasured | 55.1 GiB/GPU at B4 leaves headroom the single-GPU probe did not have; it changes ga, so it is a separate best-fit row, not a like-for-like one |
+
+This inverts the ranking the survey started from, where per-micro-step gradient
+sync was called the "top multi-GPU throughput suspect" (training_efficiency.md
+§8.1). It is real, it is visible in the launch counts, and it is worth less than
+2% — because NVLink is fast and FSDP2 overlaps well. **The compile-scope
+question is the whole game.**
+
+What has *not* been established, and should not be assumed from these runs:
+multi-node (never run), any world size above 4, non-NVLink interconnects, a real
+multi-GPU checkpoint round-trip, and resume across a changed GPU count (the
+dataloader shards per rank, so a run is reproducible at fixed (seed, world_size)
+only — see training_efficiency.md §8.2).
+
+## 9. Log
+
+- **2026-11-03** — baselines B1/B2/B4 complete (jobs 32264 / 32267 / 32269), all
+  exit 0. FSDP2 scales at 98.3% / 97.8%; the multi-GPU deficit is dominated by
+  compile scope, not parallelism (§8). Scope set; worktree `multigpu-mfu` created off `pretraining`.
   MFU accounting fixed (§3) with a world-size-parametrized regression test.
   `GeluFeedForward` cherry-picked from `mfu-abl/nanogpt-arch` (`9f3e7421`) — it
   had never been merged, so the GPT-2 architecture was not buildable on
