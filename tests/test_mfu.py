@@ -150,3 +150,33 @@ def test_mfu_is_tokens_per_second_times_flops_over_peak(monkeypatch):
     logged = stub.metric_logger.logged
     expected = (1_048_576 / 1.0) * 2.0e9 / 989e12
     assert logged["train/mfu"] == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("world_size", [1, 2, 4])
+def test_the_mfu_denominator_is_the_peak_of_every_gpu(monkeypatch, world_size):
+    """processed_tokens counts global tokens, so the peak must be global too.
+
+    Dividing the whole job's throughput by one device's peak reported
+    world_size x the true utilization -- latent until the first multi-GPU run,
+    which is what this guards (documents/notes/multigpu_efficiency.md).
+    """
+    import src.core.trainer as trainer_module
+
+    monkeypatch.setenv("WORLD_SIZE", str(world_size))
+    monkeypatch.setattr(trainer_module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        trainer_module.torch.cuda, "get_device_name", lambda _device: "NVIDIA H100 80GB HBM3"
+    )
+    monkeypatch.setattr(trainer_module, "model_flops_per_token", lambda _m, _s: 2.0e9)
+    clock = iter([100.0, 101.0])
+    monkeypatch.setattr(trainer_module.time, "time", lambda: next(clock))
+
+    stub = _throughput_stub()
+    stub._log_throughput()
+    # one step of a job whose ranks together consumed 1,048,576 tokens
+    stub.processed_tokens = 1_048_576
+    stub._log_throughput()
+
+    assert stub._peak_flops == pytest.approx(989e12 * world_size)
+    expected = (1_048_576 / 1.0) * 2.0e9 / (989e12 * world_size)
+    assert stub.metric_logger.logged["train/mfu"] == pytest.approx(expected)

@@ -621,12 +621,20 @@ class Trainer:
                         self.model, self._seq_len_for_flops
                     )
                     device_name = torch.cuda.get_device_name(self.device)
-                    self._peak_flops = peak_flops_bf16(device_name)
+                    # processed_tokens counts GLOBAL tokens (every rank's), so the
+                    # denominator must be the GLOBAL peak -- one GPU's peak times
+                    # the world size. Dividing global throughput by a single
+                    # device's peak reports world_size x the true utilization,
+                    # which was invisible while every measured run was world_size 1.
+                    world_size = int(os.environ.get("WORLD_SIZE", 1))
+                    per_gpu_peak = peak_flops_bf16(device_name)
+                    self._peak_flops = per_gpu_peak and per_gpu_peak * world_size
                     logger.info(
-                        f"MFU accounting: {device_name}, "
+                        f"MFU accounting: {device_name} x{world_size}, "
                         f"{self._flops_per_token / 1e9:.3f} GFLOPs/token at "
                         f"seq_len {self._seq_len_for_flops}, peak "
-                        f"{self._peak_flops and self._peak_flops / 1e12} TFLOP/s"
+                        f"{self._peak_flops and self._peak_flops / 1e12} TFLOP/s "
+                        f"({per_gpu_peak and per_gpu_peak / 1e12} per GPU)"
                     )
                 if self._flops_per_token and self._peak_flops:
                     self.metric_logger.log(
