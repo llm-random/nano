@@ -50,6 +50,41 @@ def test_the_embedding_lookup_is_not_counted_but_the_head_is():
     assert model_flops_per_token(model, s) != without_head
 
 
+def test_ame_banks_are_not_charged_as_matmuls_but_its_scores_are():
+    """The accounting claim AME depends on. Its banks hold ~4x the backbone in
+    parameters and cost zero matmul FLOPs (they are gathers); its score path
+    costs exactly what standard attention's does. Charging 6*P for the banks
+    would inflate the FLOPs/token several-fold and make every MFU number and
+    every matched-FLOP comparison meaningless."""
+    h, s, vocab = 4, 128, 256
+    d, L = 64 * h, h
+    with initialize_config_dir(
+        version_base=None,
+        config_dir=os.path.join(REPO_ROOT, "configs", "_model", "h_balanced"),
+    ):
+        cfg = compose(
+            config_name="h4",
+            overrides=[
+                f"common.sequence_length={s}",
+                f"common.vocab_size={vocab}",
+                "common.attention.type=ame",
+            ],
+        )
+    with torch.device("meta"):
+        model = instantiate(cfg.model, _convert_="all")
+
+    # AME keeps v_proj and o_proj (full width, MHA-shaped) and drops q/k: 2*d^2
+    # per layer against gqa's 3*d^2, plus the gated FF's 12*d^2 and the head.
+    # ... and the sink key is one more column in the score path.
+    expected = 6 * (14 * L * d**2 + vocab * d) + 12 * L * (s + 1) * d
+    assert model_flops_per_token(model, s) == expected
+
+    banks = 2 * L * vocab * d
+    total = sum(p.numel() for p in model.parameters())
+    assert total > banks, "the banks really are in the model"
+    assert model_flops_per_token(model, s) < 6 * total, "and really are not charged"
+
+
 def test_an_mqa_layer_reports_its_smaller_kv_cost():
     """The count is measured, so kv_heads=1 must shave exactly the kv width."""
     dims = dict(dmodel=256, q_heads=4, kv_heads=2, seq_len=128)

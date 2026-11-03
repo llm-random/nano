@@ -53,13 +53,22 @@ class Residual(nn.Module):
         self.layer = layer
         self.metric_logger = None
         self.log_name = log_name
+        # Most layers are a function of the residual stream alone. A layer whose
+        # scores are indexed by token id (src.core.ame) needs the ids too, and
+        # says so by declaring `wants_token_ids`. Resolved once here, at
+        # construction, so the branch in forward is a Python constant dynamo
+        # folds away rather than a per-step attribute lookup.
+        self.wants_token_ids = getattr(layer, "wants_token_ids", False)
 
     def set_metric_logger(self, metric_logger):
         self.metric_logger = metric_logger
 
-    def forward(self, x):
+    def forward(self, x, token_ids=None):
         normalized = self.norm(x)
-        out = self.layer(normalized)
+        if self.wants_token_ids:
+            out = self.layer(normalized, token_ids)
+        else:
+            out = self.layer(normalized)
         if self.metric_logger is not None:
             self._accumulate_intermediate_metrics(x, out)
         return out + x
@@ -287,6 +296,12 @@ class RoPEAttention(nn.Module):
 
         return output
 
+    def attention_score_flops_per_token(self, seq_len):
+        """QK^T and AV at 2*s*datt each per token forward, tripled for the
+        backward: the PaLM convention, no causal discount. src.core.mfu reads
+        this off every attention module, so each type states its own cost."""
+        return 12 * seq_len * self.q_heads * self.dhead
+
 
 class GatedFeedForward(nn.Module):
     def __init__(self, ff_pre_act_fn, ff_post_act_fn, gate_fn):
@@ -350,8 +365,8 @@ class TransformerBlock(nn.Module):
             log_name=f"{self.log_name}/residual_feedforward",
         )
 
-    def forward(self, x):
-        x = self.attention_layer(x)
+    def forward(self, x, token_ids=None):
+        x = self.attention_layer(x, token_ids)
         x = self.ff_layer(x)
         return x
 
@@ -378,9 +393,12 @@ class TransformerEncoder(nn.Module):
         super().__init__()
         self.blocks = nn.ModuleList([block_fn(i) for i in range(n_blocks)])
 
-    def forward(self, x):
+    def forward(self, x, token_ids=None):
+        # token_ids travels beside the activations because an id-indexed
+        # attention layer needs them at every depth, not only at the embedding.
+        # Layers that do not want them never see them (see Residual).
         for block in self.blocks:
-            x = block(x)
+            x = block(x, token_ids)
         return x
 
 
@@ -408,11 +426,56 @@ class LLM(nn.Module):
         self.encoder = encoder
         self.head = head
 
-    def forward(self, *args, **kwargs):
-        x = self.embedding(*args, **kwargs)
-        x = self.encoder(x)
+    def forward(self, input_ids):
+        x = self.embedding(input_ids)
+        x = self.encoder(x, input_ids)
         x = self.head(x)
         return x
+
+
+def parameter_groups(model, weight_decay):
+    """AdamW param groups: declared scales at wd=0, everything else at `weight_decay`.
+
+    AdamW's decay is *decoupled* -- `p <- p*(1 - lr*wd)` runs whether or not the
+    parameter has a gradient -- so it moves temperatures, gates and per-head
+    scalars for which decay means nothing, and moves them hardest where the
+    gradient is weakest. For most models that is a rounding error. For one whose
+    research question is "does this coefficient go to zero" (src.core.ame) it is
+    the answer, supplied by the optimizer.
+
+    A module opts its own parameters out by naming them in a
+    `no_weight_decay_parameters` attribute. **A model where nothing declares any
+    returns a single group holding exactly `model.parameters()`**, so every
+    existing config keeps the optimizer it had and no committed number moves.
+    """
+
+    def resolve(module, name):
+        """`"tau"` or a dotted path like `"q_bank.weight"`."""
+        for part in name.split("."):
+            module = getattr(module, part, None)
+            if module is None:
+                return None
+        return module
+
+    undecayed = set()
+    for module in model.modules():
+        for name in getattr(module, "no_weight_decay_parameters", ()):
+            parameter = resolve(module, name)
+            # Buffers answer getattr too -- a pinned alpha is a buffer, not a
+            # parameter -- and must never reach the optimizer.
+            if isinstance(parameter, nn.Parameter):
+                undecayed.add(id(parameter))
+
+    if not undecayed:
+        return [{"params": list(model.parameters()), "weight_decay": weight_decay}]
+
+    groups = {True: [], False: []}
+    for parameter in model.parameters():
+        groups[id(parameter) in undecayed].append(parameter)
+    return [
+        {"params": groups[False], "weight_decay": weight_decay},
+        {"params": groups[True], "weight_decay": 0.0},
+    ]
 
 
 def attention_mechanism(

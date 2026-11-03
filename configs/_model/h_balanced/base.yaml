@@ -22,6 +22,9 @@ common:
   # registered type for the whole stack; an optional "mix" swaps a subset:
   #   attention: {type: gqa, mix: {type: ame, layers: every_4th}}
   # layers: every_2nd | every_4th | all | an explicit 0-based index list.
+  # A type may also carry an options block named after it, applied wherever it
+  # is built (base or mix) -- see _AME_OPTIONS in src/core/attention.py:
+  #   attention: {type: ame, ame: {shift: true, pin_alpha: false, sink: true}}
   attention:
     type: gqa
 
@@ -58,6 +61,8 @@ model:
         q_heads: ${common.q_heads}
         kv_heads: ${common.kv_heads}
         seq_len: ${common.sequence_length}
+        # Only id-indexed types (ame) read this; the rest ignore it.
+        vocab_size: ${common.vocab_size}
         # llm-random lineage: base 10000, no llama frequency scaling.
         rope_base: 10000
         rope_scale_freqs: false

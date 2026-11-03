@@ -17,7 +17,7 @@ from src.core.checkpointing import (
     get_full_checkpoint_path,
 )
 from src.core.metric_loggers import WandbLogger, get_metric_logger
-from src.core.model import Residual
+from src.core.model import Residual, parameter_groups
 
 # Importing src.definitions registers `base_schema` in Hydra's ConfigStore, which
 # every runnable config's defaults list references -- it must happen before compose.
@@ -206,9 +206,12 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         logger.info("torch.compile applied to the whole model")
     model = setup_distributed_training(model, cfg.trainer.distributed)
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        # Groups rather than a flat parameters(): a layer may declare scales
+        # that decoupled decay must not touch (src.core.model.parameter_groups).
+        # A model that declares none yields one group holding exactly
+        # model.parameters(), so this is a no-op for every existing config.
+        parameter_groups(model, cfg.trainer.weight_decay),
         lr=learning_rate,
-        weight_decay=cfg.trainer.weight_decay,
         # The fused kernel exists only for CUDA tensors; CPU runs keep the
         # default path, which also keeps the seeded CPU gates bit-identical.
         fused=torch.cuda.is_available(),
@@ -284,9 +287,12 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
         )
         if cfg.trainer.checkpoint.load.only_weights:
             optimizer = torch.optim.AdamW(
-                model.parameters(),
+                # Same grouping as the fresh-start path above. This branch
+                # rebuilds the optimizer from scratch after a weights-only
+                # load, so without it a resume would silently put decay back
+                # on the parameters the model asked to keep out of it.
+                parameter_groups(model, cfg.trainer.weight_decay),
                 lr=learning_rate,
-                weight_decay=cfg.trainer.weight_decay,
                 fused=torch.cuda.is_available(),
             )
             scheduler = instantiate(cfg.trainer.scheduler)(

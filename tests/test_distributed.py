@@ -117,3 +117,43 @@ def test_sharded_checkpoint_round_trips(cpu_process_group, tmp_path):
     torch.testing.assert_close(
         next(iter(fresh.parameters())).full_tensor(), saved, rtol=0, atol=0
     )
+
+
+def test_the_weight_decay_grouping_survives_sharding(cpu_process_group):
+    """`parameter_groups` runs *after* `setup_distributed_training`, so it sees
+    DTensors rather than plain tensors, and it decides membership with an
+    `isinstance(p, nn.Parameter)` check. If fully_shard dropped that class the
+    check would quietly match nothing, every AME scale would land back in the
+    decayed group, and the only symptom would be alpha_2 drifting to zero on a
+    multi-GPU run -- which is the exact signal the method is trying to measure.
+    """
+    import torch.nn as nn
+
+    from src.core.ame import AMEAttention
+    from src.core.model import parameter_groups
+
+    torch.manual_seed(0)
+    layer = AMEAttention(32, 4, 4, 16, vocab_size=64, dhead=16, backend="reference")
+    expected = {
+        name
+        for name, _ in layer.named_parameters()
+        if name in set(AMEAttention.no_weight_decay_parameters)
+    }
+    assert expected, "fixture declares no scales"
+
+    layer = _shard(layer)
+    assert all(isinstance(p, nn.Parameter) for p in layer.parameters())
+
+    groups = parameter_groups(layer, 0.1)
+    assert [group["weight_decay"] for group in groups] == [0.1, 0.0]
+    undecayed = {id(p) for p in groups[1]["params"]}
+    assert {n for n, p in layer.named_parameters() if id(p) in undecayed} == expected
+
+    # And the exemption has to hold through a real step, not just at grouping.
+    optimizer = torch.optim.AdamW(groups, lr=2**-6)
+    before = layer.tau.detach().clone(), layer.alpha.detach().clone()
+    for parameter in layer.parameters():
+        parameter.grad = torch.zeros_like(parameter)
+    optimizer.step()
+    assert (layer.tau - before[0]).abs().max().item() == 0.0
+    assert (layer.alpha - before[1]).abs().max().item() == 0.0

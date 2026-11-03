@@ -35,9 +35,9 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 
 | Doc | Topic |
 |---|---|
-| [ame_implementation.md](notes/ame_implementation.md) | *AME* in this repo: the id-indexed Q/K attention layer, the token-id plumbing it needed, the spec choices settled to land it, and what is deliberately not built |
-| [ame_code_review.md](notes/ame_code_review.md) | Review of the AME implementation (2026-11-03): eight confirmed issues, headed by the GPU path running FlexAttention uncompiled and weight decay confounding the α/β readout |
-| [ame_fix_plan.md](notes/ame_fix_plan.md) | The four-phase plan that fixes them (Phases 2-4 applied 2026-11-03; Phase 1 needs a GPU), and the three things left out on purpose |
+| [ame_implementation.md](notes/ame_implementation.md) | **The AME record**: the id-indexed Q/K attention layer, the plumbing it needed, the spec choices settled to land it, what is verified, the 8 review findings and fix-plan progress, and what is open |
+| [ame_code_review.md](notes/ame_code_review.md) | Review of the AME implementation (2026-11-03): eight confirmed issues, headed by the GPU path running FlexAttention uncompiled and weight decay confounding the α/β readout — all fixed |
+| [ame_fix_plan.md](notes/ame_fix_plan.md) | The four-phase plan that fixes them (all applied 2026-11-03), what each phase was verified with, and the three things left out on purpose |
 | [long-context-attention.md](notes/long-context-attention.md) | How deployed 200k+ models avoid all-to-all attention: 8 published methods, their quality evidence, and the attention-cost retention `c(L)` each implies for our FLOP charts |
 | [claude-code-machine-setup.md](notes/claude-code-machine-setup.md) | Replicating the Claude Code setup (settings, skills, agent memory) on a new machine via the `claude-sync` repo |
 | [cluster_fixes_lem_helios.md](notes/cluster_fixes_lem_helios.md) | lem and helios blockers: $HOME quota, HF cache permissions, PIXI_HOME -- diagnosis and fix plan |

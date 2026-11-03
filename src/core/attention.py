@@ -6,20 +6,26 @@ Every type shares one constructor contract so they are interchangeable per layer
 
 `mha`, `mqa` and `gqa` are real today and are all the same `RoPEAttention` -- they
 differ only in how many kv heads they keep (mha: q_heads, mqa: 1, gqa: the config's
-kv_heads) and in the k/v projection widths that follow. `mla`, `mamba2`,
-`gated_deltanet` and `ame` are registered interfaces: they construct (so a config
-naming them composes and instantiates today) and raise on forward until their real
-implementations land. Adding a type = one builder function + one registry line.
+kv_heads) and in the k/v projection widths that follow. `ame` is real and lives in
+`src.core.ame`: it takes two extra pieces of context the others do not -- the vocab
+size (its banks are indexed by token id) and the token ids themselves at forward,
+which is why it declares `wants_token_ids`. `mla`, `mamba2` and `gated_deltanet` are
+registered interfaces: they construct (so a config naming them composes and
+instantiates today) and raise on forward until their real implementations land.
+Adding a type = one builder function + one registry line.
 
 The config surface lives in `common.attention` (see configs/_model/h_balanced/
 base.yaml); `build_attention` is the `attention_fn` the transformer block calls
-with its block id, which is what makes per-layer switching possible.
+with its block id, which is what makes per-layer switching possible. A type may
+take its own options block there -- `attention: {type: ame, ame: {...}}` -- which
+applies wherever that type appears, base or mix.
 """
 
 from functools import partial
 
 import torch.nn as nn
 
+from src.core.ame import AMEAttention
 from src.core.model import Linear, RoPEAttention, llm_random_weight_init
 
 
@@ -50,21 +56,60 @@ def _rope_attention(
     )
 
 
+# Every builder is called with the same keyword set, so a type that needs extra
+# context (ame: vocab_size, its options block) does not change the call site. A
+# builder keeps what it uses and drops the rest through this filter.
+_ROPE_KEYS = ("seq_len", "rope_base", "rope_scale_freqs", "init_scale")
+
+
+def _rope_kwargs(kwargs):
+    return {key: kwargs[key] for key in _ROPE_KEYS if key in kwargs}
+
+
 def _build_mha(dmodel, q_heads, kv_heads, **kwargs):
     """Multi-head attention: every query head has its own kv head."""
-    return _rope_attention(dmodel, q_heads, q_heads, **kwargs)
+    return _rope_attention(dmodel, q_heads, q_heads, **_rope_kwargs(kwargs))
 
 
 def _build_mqa(dmodel, q_heads, kv_heads, **kwargs):
     """Multi-query attention: one kv head shared by every query head."""
-    return _rope_attention(dmodel, q_heads, 1, **kwargs)
+    return _rope_attention(dmodel, q_heads, 1, **_rope_kwargs(kwargs))
 
 
 def _build_gqa(dmodel, q_heads, kv_heads, **kwargs):
     """Grouped-query attention: the config's kv_heads (H/2 in the H family)."""
     if q_heads % kv_heads:
         raise ValueError(f"gqa needs q_heads % kv_heads == 0, got {q_heads}/{kv_heads}")
-    return _rope_attention(dmodel, q_heads, kv_heads, **kwargs)
+    return _rope_attention(dmodel, q_heads, kv_heads, **_rope_kwargs(kwargs))
+
+
+def _build_ame(dmodel, q_heads, kv_heads, *, vocab_size=None, options=None, **kwargs):
+    """AME: id-indexed Q/K banks (src.core.ame).
+
+    MHA-shaped, so the config's `kv_heads` does not apply and is ignored, the
+    same way `mha` ignores it. `vocab_size` is required -- the banks have one row
+    per token type -- and `options` is the config's `attention.ame` block.
+    """
+    if vocab_size is None:
+        raise ValueError(
+            "ame needs common.vocab_size: its Q/K banks are indexed by token id. "
+            "Pass vocab_size to build_attention (the model config does this via "
+            "`vocab_size: ${common.vocab_size}` under attention_fn)."
+        )
+    unknown = set(options or {}) - set(_AME_OPTIONS)
+    if unknown:
+        raise ValueError(
+            f"unknown attention.ame options {sorted(unknown)}; "
+            f"expected {sorted(_AME_OPTIONS)}"
+        )
+    return AMEAttention(
+        dmodel,
+        q_heads,
+        kv_heads,
+        vocab_size=vocab_size,
+        **_rope_kwargs(kwargs),
+        **dict(options or {}),
+    )
 
 
 class _PlannedAttention(nn.Module):
@@ -112,13 +157,9 @@ class GatedDeltaNet(_PlannedAttention):
     """Gated DeltaNet linear-attention mixer; needs its chunked-scan kernel."""
 
 
-class AMEAttention(_PlannedAttention):
-    """AME (attention memory embedding) -- this project's own method."""
-
-
 def _planned(cls):
     def build(dmodel, q_heads, kv_heads, **kwargs):
-        return cls(dmodel, q_heads, kv_heads, **kwargs)
+        return cls(dmodel, q_heads, kv_heads, **_rope_kwargs(kwargs))
 
     return build
 
@@ -130,8 +171,32 @@ ATTENTION_TYPES = {
     "mla": _planned(MLAttention),
     "mamba2": _planned(Mamba2Mixer),
     "gated_deltanet": _planned(GatedDeltaNet),
-    "ame": _planned(AMEAttention),
+    "ame": _build_ame,
 }
+
+# The options `attention.ame` accepts, i.e. AMEAttention's keyword-only knobs
+# minus vocab_size (which comes from common). Named here so a typo in a sweep
+# fails at build time with the valid set printed, instead of reaching the model.
+_AME_OPTIONS = (
+    "dhead",
+    "qk_norm",
+    "bank_init_std",
+    "shift",
+    "pin_alpha",
+    "pin_beta",
+    "sink",
+    "min_horizon",
+    "horizon_factor",
+    "slopes",
+    "learnable_slopes",
+    "backend",
+)
+
+# Which types accept an options block, and which options. Checked instead of
+# `ATTENTION_TYPES` so that a block for a type that has no options -- `{type:
+# gqa, gqa: {...}}`, or one aimed at a still-planned type -- is an error rather
+# than silently dropped on the floor by the builder's kwarg filter.
+_TYPE_OPTIONS = {"ame": _AME_OPTIONS}
 
 
 _NTH_PATTERNS = {"every_2nd": 2, "every_4th": 4}
@@ -197,6 +262,7 @@ def build_attention(
     q_heads,
     kv_heads,
     seq_len,
+    vocab_size=None,
     rope_base=10000,
     rope_scale_freqs=False,
     init_scale=1,
@@ -204,12 +270,19 @@ def build_attention(
     """The `attention_fn` a TransformerBlock calls with its block id.
 
     `attention` is the config mapping: {"type": <name>} for a uniform stack, plus
-    an optional "mix" (see resolve_layer_types) to swap the type on some layers.
+    an optional "mix" (see resolve_layer_types) to swap the type on some layers,
+    plus an optional options block per registered type name -- `{"type": "ame",
+    "ame": {...}}` -- which applies wherever that type is built, base or mix.
+
+    `vocab_size` is only consumed by types whose parameters are indexed by token
+    id (ame); the projection-based types ignore it.
     """
-    unknown = set(attention) - {"type", "mix"}
+    unknown = set(attention) - {"type", "mix"} - set(_TYPE_OPTIONS)
     if unknown:
         raise ValueError(
-            f"unknown attention config keys {sorted(unknown)}; expected type, mix"
+            f"unknown attention config keys {sorted(unknown)}; expected type, mix, "
+            f"or an options block for a type that takes options "
+            f"({sorted(_TYPE_OPTIONS)})"
         )
     if not 0 <= block_id < n_blocks:
         raise ValueError(f"block_id {block_id} outside 0..{n_blocks - 1}")
@@ -224,4 +297,6 @@ def build_attention(
         rope_base=rope_base,
         rope_scale_freqs=rope_scale_freqs,
         init_scale=init_scale,
+        vocab_size=vocab_size,
+        options=attention.get(name),
     )

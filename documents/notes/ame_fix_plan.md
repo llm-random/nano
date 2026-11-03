@@ -1,12 +1,12 @@
 # AME fix plan
 
-**Status: Phases 2–4 applied 2026-11-03; Phase 1 outstanding (needs a GPU).**
-Written 2026-11-03.
+**Status: all four phases applied 2026-11-03.** The one thing left in it is 2.6, which
+is Maciej's decision, not work. Written 2026-11-03.
 
 | phase | state |
 |---|---|
-| 1 — the kernel (F1) | **not started.** Needs a GPU and, for 1.5, new cluster time. |
-| 2 — weight decay (F2) | **done**, including 2.5 instrumentation. 2.6 left at the documented default (banks stay decayed) — still your call. |
+| 1 — the kernel (F1) | **done.** Verified on an H100; h20 re-measured at 18.1% MFU, 22.1 s/step — 7.5x the unfused path. |
+| 2 — weight decay (F2) | **done**, instrumentation complete, and 2.6 decided 2026-11-03: **the banks are exempt from weight decay**. |
 | 3 — the revert (F4) | **done**, verified by composing all 11 configs before and after: byte-identical. |
 | 4 — cleanup (F3, F5, F6, F7) | **done.** |
 | — | **F8 found while fixing F2**: the cosine scheduler asserted a single param group. See Phase 2.3. |
@@ -34,6 +34,39 @@ up, run Phase 2 first** — Stage 0 *is* the α/β readout that F2 confounds.
 ---
 
 ## Phase 1 — the kernel (F1)
+
+> **Done 2026-11-03.** 1.1 applied, 1.2 tried and rejected on measurement (below).
+> Verified on an H100 by jobs 32359 / 32362 / 32363 / 32364 / 32366 / 32367 / 32368 /
+> 32369, and re-measured at h20 by job **32360**:
+> **22.1 s/step, 47,391 tokens/s, 18.1% MFU**, against 165 s / 6,295 / 2.4% on the unfused
+> path. **7.5x**, with nothing but the kernel changed.
+>
+> Two things worth carrying forward, both cases of a guess being overturned by a
+> measurement:
+>
+> - **1.2 is rejected, and the first two reasons given for the decision were both
+>   wrong.** The original argument for skipping it — that `@torch._dynamo.disable` on
+>   `_block_mask` would *introduce* a graph break where none existed — is false: measured
+>   on an H100 the layer already takes **3** graph breaks (`call_id` on a nested
+>   function, from tracing `create_block_mask`'s internals), and the decorator brings it
+>   to **2**, at 2.0 ms against 2.1 ms per forward+backward with identical peak memory.
+>   So it was applied. It then **failed the GPU suite**: with `_block_mask` outside the
+>   graph the BlockMask becomes a graph *input* and its sizes arrive symbolic, so
+>   `torch.compile` on the layer dies with an InductorError on a `(s4,)` shape, taking
+>   out `test_the_default_path_compiles_and_trains` and
+>   `test_on_cuda_the_shift_and_sink_survive_the_compiled_kernel` (job 32368). Reverted.
+>   One graph break is not worth a kernel that will not lower, and the reason is recorded
+>   in `_block_mask`'s docstring so the next person does not re-derive it.
+> - **1.3's memory test did not work on the first attempt**, and only a mutation run
+>   showed it: measured cold at seq 512 vs 1024 it passed against the unfused path,
+>   because the first call's compile workspace dominates (cold, 512 read *larger* than
+>   1024) and because below 1024 the quadratic term has not taken over, so unfused also
+>   grows ~2x. Warmed up and moved to 1024 vs 2048 it separates cleanly: **1.99x fused,
+>   3.75x unfused** (60.6 vs 1097.4 MiB).
+>
+> The general lesson from both: a claim about compilation or performance is worth what a
+> reverted-fix run says it is worth, and nothing more.
+
 
 **What is wrong.** `backend="auto"` picks flex on CUDA ([ame.py:307](../../src/core/ame.py#L307)),
 but nothing compiles it: `compile_model` and `compile_blocks` default to `False`
@@ -76,13 +109,63 @@ Compiling here rather than switching on `compile_model` keeps the fast path inde
 of a config flag — the failure mode was precisely that the tests compiled and the config
 did not. CPU is unaffected: `auto` still picks the reference path there.
 
-### 1.2 Keep the block mask out of the traced region
+### 1.2 Keep the block mask out of the traced region — ~~proposed~~ **REJECTED**
 
-Decorate `_block_mask` ([ame.py:357](../../src/core/ame.py#L357)) with
-`@torch._dynamo.disable`. `create_block_mask` compiles internally, so tracing it inside
-another graph is fragile; the dict cache makes it a guard anyway.
+> The proposal was to decorate `_block_mask` with `@torch._dynamo.disable`, on the
+> reasoning that `create_block_mask` compiles internally so tracing it inside another
+> graph is fragile. **Applied on an H100, and it breaks the GPU suite.**
+>
+> It does deliver what it promises: the layer goes from **3** graph breaks to **2** (the
+> three being `call_id` on a nested function, from tracing `create_block_mask`'s
+> internals), at 2.0 ms against 2.1 ms per forward+backward with identical peak memory.
+> But moving the mask outside the graph makes the BlockMask a graph *input*, and its
+> sequence length then arrives as a SymInt once dynamo has marked that dimension
+> dynamic. Inductor cannot lower `flex_attention` with it: `args[8]: (s4,)`,
+> `InductorError` out of `_inductor/ir.py`. `test_the_default_path_compiles_and_trains`
+> and `test_on_cuda_the_shift_and_sink_survive_the_compiled_kernel` both go red.
+>
+> **Reproduced twice on the real suite** — job 32368, then job 32372 with the unmodified
+> tree as a control in the same job: with 1.2, exit 1 and those two failures; without it,
+> exit 0. One graph break is not worth a kernel that will not lower.
+>
+> **Three rescues were tried and none works**: `dynamic=False` at the call site,
+> `torch._dynamo.mark_static` on the sequence dimension, and forcing the length concrete
+> with `int(seq_len)` inside `_block_mask` so no SymInt can reach the BlockMask (job
+> 32373). The last one addresses the mechanism directly and still fails with the same
+> `InductorError` on the same two tests. Treat the step as closed.
+>
+> Two warnings for whoever revisits this:
+>
+> - **A standalone probe does not reproduce it.** Compiling the layer at two sequence
+>   lengths in a fresh process passes with the decorator, with `dynamic=False`, with
+>   `mark_static` and with both. The dynamic promotion that triggers the failure comes
+>   from the suite compiling many layers across widths in one process. Test this against
+>   `pytest -m gpu`, not against a script.
+> - **The first rejection of this step was argued badly.** It was waved away on the claim
+>   that the decorator "would introduce a graph break where none existed" — false, there
+>   were already three. The conclusion happened to be right and the reason was not.
 
 ### 1.3 A test that fails on the real failure
+
+> **What each of the three tests actually guards** (job 32374, with 1.1 reverted):
+>
+> | test | 1.1 reverted | what it is |
+> |---|---|---|
+> | `..._does_not_materialize_the_score_matrix` | **fails** | the F1 regression test |
+> | `..._reaches_the_compiled_kernel` | **fails** | the F1 regression test, cheaply |
+> | `..._is_right_without_the_test_compiling_it` | **fails** | the shipping path, end to end |
+>
+> The third one originally asserted correctness only, and so **passed** with 1.1 reverted
+> — the unfused path computes the same answer, only slowly. That was defensible as a
+> division of labour and was the wrong call: "the shipping path, end to end" is both
+> halves, and F1 was precisely a path that computed the right answer the wrong way. It
+> now asserts that the call reached the compiled wrapper *and* that the output matches
+> the reference, and it fails when 1.1 is reverted (job 32375).
+>
+> It is also verified by a mutation that changes only the compiled-wrapper branch of
+> `_flex_attention` (job 32371): it fails while the CPU backend-equivalence and
+> spec-oracle tests stay green, so it still covers something nothing else does.
+
 
 GPU-marked, in `tests/test_ame.py`:
 
@@ -123,7 +206,15 @@ superseded. **Needs explicit go-ahead** — it is new cluster time.
 > - **`distributed: null` will not transfer unchanged.** Without FSDP2 the parameters
 >   stay fp32, and AME's 3.16B is ~12.6 GB of weights plus gradients plus Adam moments
 >   before activations. Decide that deliberately rather than by copying the header.
-> - Whichever baseline number is quoted, say which h20 it is. Two now exist.
+>   **`configs/mfu_audit/h20_mgpu.yaml` (added the same day) is the better template**:
+>   it keeps FSDP2 with its bf16 `MixedPrecisionPolicy` and uses `compile_blocks_full`
+>   rather than whole-model compile. AME needs the sharding and the bf16 parameters, so
+>   that is the recipe to mirror — and `compile_blocks_full` compiles the whole
+>   `TransformerBlock`, which puts `_attend_flex` inside a compiled region and may make
+>   1.1 redundant at h20. Check that before assuming both are needed.
+> - Whichever baseline number is quoted, say which h20 it is. Three now exist
+>   (`h20.yaml` single-GPU at 46.4%, `h20_mgpu.yaml` FSDP2, and the old 30.8% audit
+>   default that h12/h16 still carry).
 >
 > Also note the worktree sits at `b9189d1c`, three commits behind `pretraining`. A 3-way
 > merge of `main.py` is clean (their change is the wandb config block at line 212, these
@@ -235,21 +326,28 @@ At minimum: per-head α₂/β₂, τ, and the horizon ladder to the metric logge
 Without this, Phase 2's fix is unverifiable on a real run, and the τ/slope decoupling is
 invisible by construction.
 
-### 2.6 Decide the banks
+### 2.6 Decide the banks — **DECIDED 2026-11-03: the banks are exempt**
 
-Not a code change — a call to make.
+Maciej's call. `no_weight_decay_parameters` now includes `q_bank.weight` and
+`k_bank.weight`, so the only AME parameters that still decay are `v_proj` and `o_proj` —
+the actual matmul weights.
 
-- **For `wd=0` on the banks:** with QK-norm the rows are scale-invariant, so decay changes
-  nothing functionally. It only shrinks `‖row‖`, which inflates the effective learning rate
-  on row direction and destroys Stage 1's "rare-type rows stay at init" diagnostic — they
-  do not stay, they shrink toward zero keeping their random direction.
-- **Against:** the dense baseline decays its `W_Q`/`W_K`, and `baselines.md` cares about
-  matched treatment.
+The reason it goes this way: with QK-norm a bank row's *length* never reaches the score,
+only its direction does, so decay on the banks changes no output at all. What it does
+change is `‖row‖`, which it shrinks every step regardless of gradient — inflating the
+effective learning rate on row direction, and breaking Stage 1's "rare-type rows stay at
+init" check, because a row that is never gradient-updated does not stay at init under
+decay: it collapses toward zero carrying its random direction.
 
-**Recommendation:** exempt τ/α/β/sinks now (unambiguous), leave the banks decayed, and
-settle the banks explicitly before Stage 1 rather than discovering it inside Stage 1.
+The cost, which has to be stated when reporting: AME's banks are now regularized
+differently from the dense baseline's `W_Q`/`W_K`, and `baselines.md` asks for matched
+treatment. That is a real asymmetry, taken deliberately, because the alternative silently
+corrupts the diagnostic the method is going to be judged by.
 
----
+Implementation note: `no_weight_decay_parameters` entries may be dotted paths
+(`q_bank.weight`), since the attribute itself is a module. `parameter_groups` resolves
+them; a plain `getattr` would have matched nothing and silently left the banks decayed,
+which is mutation-checked.
 
 ## Phase 3 — the revert (F4)
 
@@ -318,6 +416,76 @@ for a type that declares no options is named as an error.
 - Add F1 as the first of the step-time causes; mark the table void pending Phase 1.5.
 
 ---
+
+## What was applied, per phase — 2026-11-03
+
+Everything below is in `/home/maciej/code/nano-small-changes`, uncommitted. Tests run on
+the pinned pixi torch 2.7.1 (`/home/maciej/code/nano/.pixi/envs/default/bin/python`).
+
+### Phase 2 — weight decay
+
+| step | change | verified with |
+|---|---|---|
+| 2.1 | `AMEAttention.no_weight_decay_parameters = ("tau", "alpha", "beta", "slopes", "k_sink", "v_sink")` | mutation 4 |
+| 2.2 | `src/core/model.py:parameter_groups` | mutations 5, 11 |
+| 2.3 | both optimizer sites in `main.py` (179 fresh start, 251 `only_weights` resume) + the F8 scheduler fix | end-to-end smoke through `main.py`; mutation 7 |
+| 2.4 | 7 tests in `tests/test_ame.py` | see the mutation table |
+| 2.5 | `AMEAttention.instrumentation()` + `Trainer._log_layer_instrumentation` | mutations 6, 8, 9, 10 |
+| 2.6 | **not decided** — banks stay decayed, pinned by `test_the_banks_are_still_decayed` | — |
+
+The compatibility guarantee is asserted by identity, not by count:
+`test_a_model_that_declares_no_scales_gets_exactly_one_parameter_group` checks that a gqa
+model yields one group whose `params` list is element-for-element `model.parameters()`,
+so a second empty group would not pass.
+
+### Phase 3 — the base.yaml revert
+
+`sequence_length: ???` restored, `batch_size: 512` and its comment removed; the two AME
+edits kept. Verified by composing **all 11 runnable configs twice**, once with the hunk
+and once without, and diffing the resolved output: **identical for every config**.
+`tiny_remote` and `tiny_remote_wandb` fail to compose in both states (pre-existing,
+missing `_eval/basic`), so that is not this change.
+
+### Phase 4 — cleanup
+
+| step | change | verified with |
+|---|---|---|
+| 4.1 | `_shift1` builds its pad list from the rank | mutation 1, plus a 2-D/3-D/4-D/5-D parametrized test |
+| 4.2 | `ValueError` naming the cause when `token_ids` is None | mutation 2 |
+| 4.3 | `_TYPE_OPTIONS` replaces `ATTENTION_TYPES` in the key check | mutation 3 |
+| 4.4 | `ame_implementation.md` corrected (micro-batch 8 not 16; the torch 2.9-only warning; table marked void; F1 added as the first cause) and `attention-switching.md` updated for the narrowed rule | — |
+
+### Mutation table
+
+Each new behaviour was confirmed to fail when its fix is reverted, then restored.
+
+| # | behaviour | mutation | without | with |
+|---|---|---|---|---|
+| 1 | `_shift1` rank-safety | hard-coded 4-D pad tuple | FAIL | PASS |
+| 2 | missing-ids error | delete the `None` guard | FAIL | PASS |
+| 3 | option blocks rejected | `_TYPE_OPTIONS` → `ATTENTION_TYPES` | FAIL | PASS |
+| 4 | scales declared | rename `no_weight_decay_parameters` | FAIL | PASS |
+| 5 | groups actually split | force the single-group branch | FAIL | PASS |
+| 6 | `instrumentation()` exists | delete the method | FAIL | PASS |
+| 7 | scheduler takes groups | restore `len(param_groups) == 1` | FAIL | PASS |
+| 8 | trainer logs AME layers | method body → `return` | FAIL | PASS |
+| 9 | heavy-interval gate | delete the gate line | FAIL | PASS |
+| 10 | **only** AME layers logged | log a dummy for every module | FAIL | PASS |
+| 11 | grouping survives sharding | `isinstance` → `type(p) is nn.Parameter` | FAIL *(sharded only; the unsharded tests stay green)* | PASS |
+
+8, 9 and 10 need three different mutations because two of them are negative tests: a
+no-op trainer cannot fail "logs nothing for a gqa stack". Mutation 11 is the sharp one —
+it breaks the sharded test and nothing else, which is the whole reason that test exists.
+
+### Not verifiable on CPU
+
+- **Everything in Phase 1.** Untouched; no file in it was modified.
+- **The `full_tensor()` collective in `instrumentation()` at world size > 1.** It is
+  uniform across ranks because `Trainer.log_metrics` runs on every rank and the rank gate
+  lives inside the metric logger — that is reasoning from the code, not a measurement.
+  Single-rank behaviour is tested on a gloo mesh.
+- **Whether the exemption changes training outcomes.** The tests prove decay no longer
+  moves the scales; whether that changes what α₂ converges to is a Stage-0 question.
 
 ## Not in the plan, deliberately
 

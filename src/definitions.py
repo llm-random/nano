@@ -40,6 +40,11 @@ class AttentionSchema:
     # Optional per-layer override, e.g. {type: ame, layers: every_4th} -- see
     # resolve_layer_types in src/core/attention.py, which validates its keys.
     mix: Any = None
+    # Optional per-type options block, applied wherever that type is built.
+    # Left untyped: build_attention checks the keys against the type's own
+    # option list and names the offender, which a dataclass per type would
+    # duplicate. One field per type that has options.
+    ame: Any = None
 
 
 @dataclass

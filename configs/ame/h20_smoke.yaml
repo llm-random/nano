@@ -1,0 +1,78 @@
+# AME at h20 on one entropy H100, in the configuration its baseline uses.
+#
+# 30 steps, 512 sequences x 2048 tokens per step, eval and checkpointing off, so
+# nothing but the training loop sits inside the timing window.
+#
+# **Read against configs/mfu_audit/h20_mgpu.yaml, not h20.yaml.** Three h20
+# baselines now exist and they are not interchangeable:
+#
+#   mfu_audit/h20.yaml       single-GPU recipe, `distributed: null`, 46.4% MFU
+#   mfu_audit/h20_mgpu.yaml  FSDP2 + compile_blocks_full, 45.57% MFU at 1 GPU
+#   the stage-3 audit default (h12/h16 still carry it), 30.8% MFU
+#
+# h20.yaml's `distributed: null` cannot transfer here: without FSDP2 the
+# parameters stay fp32, and AME is 3.16B of them -- 12.6 GiB of weights before
+# gradients, Adam moments or activations. So this mirrors h20_mgpu.yaml:
+#
+#   distributed          FSDP2 from _trainer/llama.yaml, whose
+#                        MixedPrecisionPolicy is also what keeps the parameters
+#                        in bf16 for the forward
+#   compile_blocks_full  compile each whole TransformerBlock. Worth ~11 MFU
+#                        points on the backbone, and for AME it also puts
+#                        `_attend_flex` inside a compiled region -- though
+#                        src/core/ame.py compiles flex_attention itself now, so
+#                        the fused kernel no longer depends on this flag
+#                        (documents/notes/ame_code_review.md F1).
+#   no autocast_bf16     FSDP2's MixedPrecisionPolicy already computes in bf16
+#   no compile_loss      it traces self.model, so under FSDP2 it is whole-model
+#                        compile -- untested here
+#   no compile_ce        measured harmful (multigpu_efficiency.md 7.9)
+#
+# Sizing: the banks are 2.576B parameters on top of a 587M backbone, so bf16
+# parameters + fp32 master + fp32 grads + Adam moments come to ~57 GiB before
+# activations. gradient_accumulation_steps stays at 128 (micro-batch 4) rather
+# than h20_mgpu's 32 (micro-batch 16) for two reasons: ~23 GiB of activation
+# headroom will not hold a micro-batch of 16 at this parameter count, and
+# keeping 4 makes the step time directly comparable to the voided measurement
+# taken at micro-batch 4 before the kernel was fixed -- so the only thing that
+# differs between the two numbers is the kernel.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, the audit's value
+  gradient_accumulation_steps: 128 # micro-batch 4 x 2048; see the header
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:1
+    job-name: ame_h20
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h20_s2048_b512
+    tags:
+      - ame
+      - h20

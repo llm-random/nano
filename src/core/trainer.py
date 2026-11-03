@@ -215,6 +215,8 @@ class Trainer:
         self._flops_per_token = None
         self._peak_flops = None
         self._seq_len_for_flops = None
+        # The last micro-batch's ids, for per-layer attention diagnostics.
+        self._last_input_ids = None
 
     @property
     def _should_evaluate(self) -> bool:
@@ -578,6 +580,11 @@ class Trainer:
         in_flight = _to_device(chunks[0])
         for i in range(len(chunks)):
             input_ids, target_ids = self._preprocess_input(in_flight)
+            # Kept for the per-layer diagnostics: an id-indexed layer's
+            # attention entropy is a function of the ids, and this is the only
+            # place that has them. One micro-batch of int64, and it is eager
+            # code outside whatever compile scope the model was given.
+            self._last_input_ids = input_ids
             if self.model.training:
                 self._update_processed_tokens(input_ids)
 
@@ -680,8 +687,31 @@ class Trainer:
         )
         self.time_diff_averaged_100.log(self.metric_logger, time.time())
         self._log_throughput()
+        self._log_layer_instrumentation()
 
         self.metric_logger.flush_accumulated_metrics()
+
+    def _log_layer_instrumentation(self):
+        """Per-layer diagnostics from any module that offers them.
+
+        Duck-typed on an `instrumentation(token_ids=None)` method returning
+        `{name: float}`,
+        so a layer states its own diagnostics and the trainer stays ignorant of
+        attention types. A stack where no module defines it -- every gqa model
+        in the repo -- iterates the module list and logs nothing.
+
+        Gated on the same interval as the other heavy metrics: each scalar costs
+        a `.item()` sync, and under FSDP2 reading a sharded parameter costs a
+        collective, so this is heavy by exactly the definition already in use.
+        """
+        if not self.metric_logger._should_log_heavy_metrics:
+            return
+        for module_name, module in self.model.named_modules():
+            readout = getattr(module, "instrumentation", None)
+            if readout is None:
+                continue
+            for key, value in readout(token_ids=self._last_input_ids).items():
+                self.metric_logger.log(f"{module_name}/{key}", value)
 
     def _log_throughput(self):
         """step_time, tokens/s and (on a known GPU) MFU, once per step.

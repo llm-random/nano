@@ -17,7 +17,7 @@ three places (F7).
 
 | # | severity | finding |
 |---|---|---|
-| **F1** | **high — performance** | The GPU path runs FlexAttention **uncompiled**, i.e. the unfused fallback that materializes the full score matrix. The 12× step-time gap is substantially an artifact. |
+| **F1** | **high — performance** | The GPU path ran FlexAttention **uncompiled**, i.e. the unfused fallback that materializes the full score matrix. The 12× step-time gap was substantially an artifact. **Fixed 2026-11-03: 7.5× faster, 2.4% → 18.1% MFU.** |
 | **F2** | **high — scientific validity** | Weight decay 0.1 hits `tau`, `alpha`, `beta`, the sinks and the banks. It confounds both of the method's headline readouts. |
 | **F3** | medium — latent | `_shift1` silently returns a wrong shape for any input that is not 4-D. |
 | **F4** | medium — scope | `h_balanced/base.yaml` carries a hunk unrelated to AME that removes a mandatory-field guard. |

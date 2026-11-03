@@ -129,6 +129,62 @@ def test_training_loop_reports_a_loss_for_every_step(tmp_path):
     )
 
 
+def test_an_ame_stack_trains_end_to_end_through_main(tmp_path):
+    """AME through the real entry point: config composition, the token-id
+    plumbing at every layer, the training loop, and the checkpoint writers.
+
+    The unit tests drive the layer directly, so none of them would catch a
+    config key that does not compose or ids that stop reaching layer 3.
+
+    Deliberately *not* asserting the first loss is within 0.15 of ln(vocab), the
+    way test_training_loop_reports_a_loss_for_every_step does: one step of this
+    config is batch 2 x seq 16 = 30 tokens, and measured over six steps both gqa
+    (10.92-11.45) and ame (10.55-11.34) wander by about +-0.5 around it. That
+    assertion holds for gqa on the strength of a single lucky batch. The band
+    here is wide enough to mean something when it fails.
+    """
+    import math
+
+    save_path, output = _run(
+        tmp_path,
+        "nano",
+        name="ame",
+        extra=[
+            "common.attention.type=ame",
+            # Every step, so the per-layer instrumentation actually fires inside
+            # this run rather than only on the production interval of 100.
+            "infrastructure.metric_logger.heavy_metrics_calculation_interval=1",
+        ],
+    )
+    losses = [
+        float(line.split("loss:")[1].split()[0].rstrip(","))
+        for line in output.splitlines()
+        if "loss:" in line
+    ]
+    assert len(losses) >= N_STEPS, f"expected >= {N_STEPS} losses, got {len(losses)}"
+    assert all(value == value for value in losses), "loss went NaN"
+    assert all(value > 0 for value in losses), "loss is not positive"
+    assert abs(losses[0] - math.log(50304)) < 1.0, (
+        f"first loss {losses[0]:.3f} is nowhere near ln(50304)={math.log(50304):.3f}; "
+        "suspect bank init, vocab or the token-id plumbing"
+    )
+    step_dir = os.path.join(save_path, f"step_{N_STEPS - 1}")
+    assert os.path.isdir(step_dir), f"no checkpoint under {save_path}"
+
+    # The instrumentation, end to end. The parameter half (alpha_2, tau,
+    # horizons) only needs the module; `attention_entropy` additionally needs
+    # the trainer to have stashed the micro-batch's ids, which is the one link
+    # in that chain no unit test can reach -- a stub supplies _last_input_ids
+    # directly, so dropping the stash in calculate_loss breaks nothing until a
+    # real run goes looking for it.
+    for metric in ("alpha_2/absmean", "tau/mean", "horizon/max"):
+        assert metric in output, f"{metric} never reached the metric logger"
+    assert "attention_entropy/normalized" in output, (
+        "the attention diagnostics never fired: the trainer is not handing the "
+        "layer the token ids it needs (Trainer.calculate_loss stashes them)"
+    )
+
+
 RESUME_STEPS = 20
 RESUME_AT = 10
 

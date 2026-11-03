@@ -61,12 +61,20 @@ class TrapezoidalLR(SequentialLR):
 def get_cosine_scheduler_with_warmup(
     optimizer, warmup_steps: int, n_steps: int, final_lr_fraction: float
 ):
-    assert (
-        len(optimizer.param_groups) == 1
-    ), "Cosine scheduler only supports one param group"
-    optimizer_lr = optimizer.param_groups[0][
-        "lr"
-    ]  # param_groups changes when applying scheduler
+    # One *learning rate*, not one group. eta_min below is a single scalar handed
+    # to every group, so groups at different lrs would silently get the wrong
+    # floor -- that is what this guard is really for. Groups that differ only in
+    # weight decay (src.core.model.parameter_groups, which AME needs so decoupled
+    # decay cannot walk its temperature and shift coefficients toward zero) share
+    # an lr and are fine.
+    learning_rates = {group["lr"] for group in optimizer.param_groups}
+    assert len(learning_rates) == 1, (
+        f"Cosine scheduler needs one learning rate across all param groups, got "
+        f"{sorted(learning_rates)}. eta_min is one value for all of them, so a "
+        f"second lr would be floored at the wrong fraction."
+    )
+    # Read before the scheduler runs: param_groups changes when it is applied.
+    optimizer_lr = learning_rates.pop()
     warmup = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=0.1,
