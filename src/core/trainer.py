@@ -61,7 +61,13 @@ class LoopTimers:
         end = torch.cuda.Event(enable_timing=True)
         start.record()
         try:
-            yield
+            # The same section boundaries double as profiler annotations, so a
+            # kernel dump can attribute GPU time to forward/backward instead of
+            # guessing from kernel names -- which does not work, because GEMMs
+            # and elementwise kernels serve both passes under identical names.
+            # Free when no profiler is active.
+            with torch.profiler.record_function(f"section:{name}"):
+                yield
         finally:
             end.record()
             self._pairs.append((name, start, end))
@@ -249,11 +255,14 @@ class Trainer:
         if not self.kernel_profile:
             return
         if step == 12:
-            activities = (
-                [torch.profiler.ProfilerActivity.CUDA]
-                if torch.cuda.is_available()
-                else [torch.profiler.ProfilerActivity.CPU]
-            )
+            # CPU activity is on so the dump carries the operator tree as well
+            # as raw kernels: aten ops and autograd nodes name themselves, and
+            # the `section:` ranges LoopTimers opens give exact forward/backward
+            # attribution of GPU time. Without it only bare kernel names exist,
+            # which cannot be split by pass.
+            activities = [torch.profiler.ProfilerActivity.CPU]
+            if torch.cuda.is_available():
+                activities.append(torch.profiler.ProfilerActivity.CUDA)
             self._kprof = torch.profiler.profile(activities=activities)
             self._kprof.__enter__()
         elif step == 14 and getattr(self, "_kprof", None) is not None:
@@ -265,12 +274,25 @@ class Trainer:
             # would read N x every kernel's time.
             if int(os.environ.get("RANK", 0)) == 0:
                 for ka in self._kprof.key_averages():
-                    us = getattr(ka, "self_device_time_total", 0) or getattr(
+                    self_us = getattr(ka, "self_device_time_total", 0) or getattr(
                         ka, "self_cuda_time_total", 0
                     )
-                    if us > 0:
+                    if self_us > 0:
                         logger.info(
-                            f"kprof_us: self_cuda={us:.0f} count={ka.count} name={ka.key}"
+                            f"kprof_us: self_cuda={self_us:.0f} count={ka.count} name={ka.key}"
+                        )
+                    # Operators and `section:` ranges carry GPU time in their
+                    # subtree rather than themselves, so they are reported on
+                    # the inclusive total: that is what attributes kernels to a
+                    # pass or an op. Emitted separately so kprof_agg.py, which
+                    # sums self-time, cannot double-count them.
+                    total_us = getattr(ka, "device_time_total", 0) or getattr(
+                        ka, "cuda_time_total", 0
+                    )
+                    if total_us > 0 and total_us != self_us:
+                        logger.info(
+                            f"kprof_op: cuda_total={total_us:.0f} self={self_us:.0f} "
+                            f"count={ka.count} name={ka.key}"
                         )
             self._kprof = None
 
