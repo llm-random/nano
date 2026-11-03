@@ -475,9 +475,3 @@ if [ "$MODE" = one ]; then
 else
     for c in "${CLUSTERS[@]}"; do render "$c"; done
 fi
-[ "$ALL" = 1 ] || printf '\nShowing submit-worthy partitions only (-a for all).\n'
-[ "$RES" = 1 ] && printf '1GPU-CPU/RAM: largest 1-GPU request that FITS (node headroom, capped per-GPU by
-site policy: lem 16c/250G, helios 72c/119G, entropy uncapped). Fitting is not starting:
-lem quoted now+46min even for 1 CPU / 1G pinned to a node with 40 CPU and 495G free.\n'
-printf '\nFREE is an upper bound: QoS caps (shared account on entropy) and RAM can still
-hold a job in the queue. Probe before submitting: sbatch --test-only ... --wrap=true\n'
