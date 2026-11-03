@@ -384,6 +384,80 @@ step: 2.3% → 5.9% → 8.7%. Extrapolating the same shape, 8 GPUs on one node
 would be the first world size where it starts to bite, and anything off NVLink
 would bite much sooner.
 
+### 7.6 Granular profile, all three runs side by side
+
+Both instrumentation knobs were on for every baseline, so each run carries
+per-section CUDA-event timings (every step) and a full per-kernel dump (steps
+12–13). Raw logs: `~/mgpu_{32264,32267,32269}.log` on entropy.
+
+**Section timers** — mean over steps 16–29, rank 0, ms:
+
+| section | B1 (1 GPU) | B2 (2 GPUs) | B4 (4 GPUs) |
+|---|---:|---:|---:|
+| forward | 3,901.1 | 1,975.0 | 989.8 |
+| backward | 8,758.4 | 4,460.2 | 2,241.7 |
+| grad clip | 2.8 | 1.5 | 0.8 |
+| optimizer | 11.1 | 7.1 | 5.1 |
+| metric logging | 133.5 | 139.4 | 140.7 |
+| data fetch + H2D | 0.7 | 0.4 | 0.3 |
+| **step total** | **12,677.8** | **6,447.2** | **3,240.2** |
+
+`log` is flat in absolute terms because it is a `.item()` synchronisation point,
+not real logging work; it therefore grows as a share of a shrinking step
+(1.1% → 2.2% → 4.3%) and is the one loop-level item worth revisiting if step
+times fall much further.
+
+**Per micro-step** — each rank runs the same 16-sequence micro-batch at every
+world size (ga 32/16/8), so anything not flat here is a scaling cost:
+
+| | B1 | B2 | B4 |
+|---|---:|---:|---:|
+| forward / micro-step | 121.9 | 123.4 | 123.7 |
+| backward / micro-step | 273.7 | 278.8 | 280.2 |
+| total busy / micro-step | 409.2 | 423.9 | 434.6 |
+| **busy minus collectives / micro-step** | **400.0** | **399.0** | **396.6** |
+| collectives / micro-step | 9.2 | 24.8 | 38.0 |
+
+**Compute per micro-step is invariant to 0.9%**, and every bit of the scaling
+loss is the collectives row. This is the cleanest form of the result: FSDP2
+costs nothing in arithmetic, only in communication.
+
+**Kernel categories** — ms/step, rank 0, against the ideal B4/B1 ratio of 0.25:
+
+| category | B1 | B2 | B4 | B4/B1 |
+|---|---:|---:|---:|---:|
+| GEMMs (nvjet) | 4,693.4 | 2,412.7 | 1,216.9 | 0.259 |
+| eager elementwise | 3,674.1 | 1,789.0 | 883.4 | 0.240 |
+| flash attention | 2,262.6 | 1,151.8 | 574.7 | 0.254 |
+| compiled (triton) | 842.8 | 424.3 | 212.5 | 0.252 |
+| eager norms | 548.6 | 283.0 | 141.5 | 0.258 |
+| softmax/CE (eager) | 229.5 | 114.8 | 57.4 | 0.250 |
+| optimizer | 351.1 | 111.4 | 37.5 | 0.107 |
+| cat/copy/memcpy | 198.2 | 97.7 | 48.7 | 0.246 |
+| **collectives + plumbing** | **294.9** | **397.2** | **303.9** | **1.031** |
+| **TOTAL busy** | **13,095.3** | **6,781.8** | **3,476.5** | 0.266 |
+
+**Collectives opened up** — the `other` row per run:
+
+| run | kernel | ms/step | launches | count is |
+|---|---|---:|---:|---|
+| B1 | NCCL one-rank (local copy, no traffic) | 117.1 | 864 | 27 × 32 |
+| | `split_with_sizes_copy_out` | 72.4 | 1,728 | |
+| | `chunk_cat` (bf16→fp32 for the reduce) | 65.8 | 864 | |
+| B2 | `AllGather_RING_LL` | 188.9 | 864 | 27 × 16 × 2 |
+| | `ReduceScatter_Sum_**f32**_RING_LL` | 123.5 | 432 | 27 × 16 |
+| | `chunk_cat` + `split_with_sizes_copy_out` | 66.4 | 1,296 | |
+| B4 | `AllGather_RING_LL` | 165.8 | 432 | 27 × 8 × 2 |
+| | `ReduceScatter_Sum_**f32**_RING_LL` | 94.4 | 216 | 27 × 8 |
+| | `chunk_cat` + `split_with_sizes_copy_out` | 33.0 | 648 | |
+
+Three details in there matter for what to change next: the reduce-scatter is
+**f32**, so `MixedPrecisionPolicy(reduce_dtype=fp32)` doubles gradient traffic
+against a bf16 reduce; NCCL selects **RING_LL** at every world size, its
+latency-optimised protocol that gives up bandwidth, because 27 collectives per
+micro-step makes every message small; and the all-gather count carries a ×2 for
+the backward re-gather, which is what `reshard_after_forward` buys memory with.
+
 ## 8. Where that leaves the effort
 
 The baselines answer the question they were set, and they reorder the work.
