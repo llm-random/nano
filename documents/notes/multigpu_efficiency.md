@@ -108,11 +108,40 @@ whole-model compile plus a compiled loss. B1 is the *same-commit, same-node*
 FSDP2 + `compile_blocks` anchor, so the 1→2→4 scaling curve measures
 communication rather than two weeks of code drift.
 
-## 5. Results
+## 5. How a run is measured
+
+No wandb key exists on entropy (`~/.wandb_key` is absent, which is why the
+single-GPU GPT-2-arch run logged to stdout too), so runs use
+`infrastructure.metric_logger.type=stdout` and are reduced from the job log by
+[scripts/mfu_window_log.py](../../scripts/mfu_window_log.py) — the log-reading
+twin of `scripts/mfu_window.py`. It reads **rank 0 only**; every rank prints the
+same metric names and averaging them together would be meaningless.
+
+**Window: steps 16–29, not 10–29.** With `kernel_profile=true` the profiler
+fires at step 14 and the step after it is still elevated, so the usual 10–29
+window mixes in two distorted steps. Measured on the single-GPU reference run
+(job 32064): steady state is 9.57 s/step, step 14 is 24.5 s and step 15 is
+11.2 s, so the 10–29 mean reads 10,408 ms at cv 32% while 16–29 reads
+**9,573 ms at cv 0.13%**. The published figure for that run is 9,578 ms, so
+16–29 is the window its headline numbers were taken over, and reproducing it to
+0.06% is what validates this reducer:
+
+| reducer on job 32064 | step ms | cv | tokens/s | MFU |
+|---|---:|---:|---:|---:|
+| window 10–29 (profiler steps included) | 10,408 | 32% | 105,265 | 43.87% |
+| window 15–29 (Part 4.5's uniform reducer) | 9,683 | 4.4% | 108,408 | 45.18% |
+| **window 16–29 (used here)** | **9,573** | **0.13%** | **109,486** | **45.63%** |
+| published (training_efficiency.md Part 4.4) | 9,578 | — | 109,425 | 45.6% |
+
+Everything else follows the single-GPU protocol (training_efficiency.md Part 7):
+3% noise bar before a delta is believed, identical windows on both sides of any
+comparison, a changed micro-batch reported as a separate best-fit row.
+
+## 6. Results
 
 _(filled as runs land)_
 
-## 6. Log
+## 7. Log
 
 - **2026-11-03** — scope set; worktree `multigpu-mfu` created off `pretraining`.
   MFU accounting fixed (§3) with a world-size-parametrized regression test.
