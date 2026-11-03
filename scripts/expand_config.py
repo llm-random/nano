@@ -37,6 +37,7 @@ import yaml
 sys.path.insert(0, os.getcwd())
 
 import resolver  # noqa: F401  (registers the repo's custom OmegaConf resolvers)
+import src.definitions  # noqa: F401  (registers base_schema, referenced by every runnable config's defaults)
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 

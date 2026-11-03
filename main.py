@@ -5,7 +5,8 @@ from src.core.utils import solve_config_lr
 from src.core.distributed_training import setup_distributed_training
 import resolver as _  # noqa: F401  side-effect import: registers OmegaConf resolvers
 import logging
-from omegaconf import OmegaConf
+from typing import cast
+from omegaconf import DictConfig
 
 import torch
 import torch.distributed as dist
@@ -17,6 +18,10 @@ from src.core.checkpointing import (
 )
 from src.core.metric_loggers import WandbLogger, get_metric_logger
 from src.core.model import Residual
+
+# Importing src.definitions registers `base_schema` in Hydra's ConfigStore, which
+# every runnable config's defaults list references -- it must happen before compose.
+from src.definitions import RootSchema, check_point
 import platform
 
 logger = logging.getLogger(__name__)
@@ -186,17 +191,19 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
     return model, optimizer, scheduler
 
 
-def initialize_training_components(cfg: OmegaConf, metric_logger=None):
+def initialize_training_components(cfg: RootSchema, metric_logger=None):
     training_state = load_training_state(cfg.trainer.checkpoint.load)
 
     if metric_logger is None:
         metric_logger = get_metric_logger(
             metric_logger_config=cfg.infrastructure.metric_logger,
             tracker_run_id=training_state["run_id"],
-            full_config=cfg,
+            # cast: the runtime object is a DictConfig; RootSchema is Pylance sugar.
+            full_config=cast(DictConfig, cfg),
         )
 
-    learning_rate, exp_lr = solve_config_lr(cfg.trainer.learning_rate)
+    # cast: validate() has already rejected a null/negative learning_rate.
+    learning_rate, exp_lr = solve_config_lr(cast(float, cfg.trainer.learning_rate))
 
     if isinstance(metric_logger, WandbLogger) and (
         training_state["run_id"] is None
@@ -258,10 +265,13 @@ def initialize_training_components(cfg: OmegaConf, metric_logger=None):
     return model, optimizer, scheduler, training_state, metric_logger
 
 
-def run(cfg: OmegaConf, metric_logger=None):
+def run(cfg: RootSchema, metric_logger=None):
     setup_enviroment()
 
-    if "distributed" in cfg.trainer and cfg.trainer.distributed is not None:
+    # The runtime object is a DictConfig (the RootSchema annotation is Pylance
+    # sugar); `in` also guards configs that predate the schema'd key.
+    trainer_node = cast(DictConfig, cfg.trainer)
+    if "distributed" in trainer_node and trainer_node.distributed is not None:
         distributed_setup()
 
     initialize_fn = (
@@ -294,7 +304,10 @@ def run(cfg: OmegaConf, metric_logger=None):
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
-def main(config: OmegaConf):
+def main(config: RootSchema):
+    # Re-checks keys/types against the schema (Hydra's `+key=` force-add slips
+    # past struct validation at compose) and runs validate()'s range checks.
+    check_point(config)
     run(config)
 
 

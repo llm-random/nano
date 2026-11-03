@@ -130,3 +130,104 @@ replace the implementation.
   schema exposed as wrong).
 - Pushed to `git@github.com:llm-random/nano.git pretraining`. Never delete
   branches.
+
+## Execution record (2026-11-03)
+
+Executed at `6874efe7`, after [dead_code_cleanup_goal.md](dead_code_cleanup_goal.md),
+in one working tree under the master goal (one commit per plan, single push).
+
+**Implementation notes** — deviations forced by measured Hydra/OmegaConf
+behavior; the design intent (strict common+trainer, open everything else,
+submit-time rejection) is unchanged:
+
+- The stored `base_schema` node is a plain-dict root holding structured
+  `CommonSchema`/`TrainerSchema` children, not `OmegaConf.structured(RootSchema)`:
+  struct *flags* inherit downward, so flag-based strictness on `trainer` also
+  closed its untyped subtrees (`train_dataloader`, `distributed.fsdp2`), which
+  merge freely today. Object-type strictness scopes exactly to common/trainer.
+  `RootSchema` remains the entry-point annotation type for Pylance.
+- Hydra's `+key=` force-add bypasses struct validation at compose (measured),
+  so `+trainer.bogus=1` is caught one layer later by `check_point()` — a
+  schema merge + `validate()` run by `main()` on every composed config and by
+  `submit_experiment` on every expanded grid point. `check_point` converts its
+  input to a plain container first, because merging a node that already
+  carries the schema's object_type skips per-key validation (measured).
+- `validate()` runs per expanded grid point, not on the raw sweep config: a
+  caret sweep (`^learning_rate: [...]`) legitimately leaves the plain key
+  null until expansion.
+- `^key` grids cannot sit under `common`/`trainer` in a config whose defaults
+  include `- base_schema` (compose rejects them as unknown keys). A caret
+  sweep config simply omits that line and loses nothing: every expanded point
+  is schema-checked at submit by `check_point`, which is where sweep typos
+  surface. Cluster-side runs compose the generated flat configs (no defaults
+  list, no schema) and are re-checked by `main()`'s `check_point`.
+- `~trainer.X` deletion overrides no longer work on schema'd keys (typed
+  nodes do not support deletion); plain `trainer.eval_dataloader=null` (or
+  `=None` for the historical string idiom) replaces them. The eval-off
+  subprocess test in tests/test_core_framework.py was updated to the plain
+  spelling — same purpose, the literal string "None" still flows through
+  main.py. Likewise `+trainer.X=...` is retired for schema'd sections: the
+  four instrumentation knobs (`autocast_bf16`, `profile_timers`,
+  `kernel_profile`, `compile_loss`) are declared in the schema and spelled
+  plain (`trainer.compile_loss=true`). Top-level `+compile_model=true` /
+  `+compile_blocks=true` still work (open root).
+
+**Config the schema exposed as wrong:** `configs/tiny_remote.yaml` and
+`configs/tiny_remote_wandb.yaml` do not compose at HEAD at all — their
+defaults reference `_eval/basic`, which `efe41424` (lm-eval harness removal)
+deleted. Pre-existing, invisible to the hygiene test (its glob only sweeps
+`configs/*/*.yaml`). Outside both plans' scope: left broken on purpose,
+`- base_schema` prepended like the rest, flagged here for a separate fix.
+
+**Composed-values spot check** (mfu_audit/h20, fully resolved, HEAD vs this
+tree): identical except the declared defaults materialize —
+`trainer.{autocast_bf16,profile_timers,kernel_profile,compile_loss}: false`,
+`trainer.distributed.fsdp: null` and `common.attention.mix: null` (also
+mirrored into the model tree via `${common.attention}`;
+`build_attention` treats a null mix as absent) — the values the code
+already assumed. The `tiny_local` smoke after all changes reproduces the
+pre-schema run bit-identically (final_ce 8.451301097869873).
+
+**Fresh-eyes review** (independent subagent over the combined diff, per the
+master goal) confirmed three bugs, all fixed here and pinned in
+tests/test_typed_config.py:
+
+1. `scripts/expand_config.py` composes runnable configs but did not import
+   `src.definitions`, so every schema-backed config failed there with
+   `Could not load 'base_schema'` — the one composer the rewire missed.
+   Fixed with the registration import; pinned by a subprocess test.
+2. `validate()` rejected `trainer.n_steps=0`, which is how a
+   finalize/conversion pass is configured (src/core/schedulers.py allows it
+   explicitly, and the very next warmup check carved it out, unreachably).
+   Now `>= 0`.
+3. `AttentionSchema` omitted `mix` — the live per-layer attention override
+   (`attention: {type: gqa, mix: {type: ame, layers: every_4th}}`,
+   configs/_model/h_balanced/base.yaml), which no route could submit any
+   more since check_point guards grid points too. Declared `mix: Any = None`.
+
+**IDE gate (verified against live Pylance):** main.py was
+opened in VS Code via the remote CLI (Pylance only analyzes open files) and
+diagnostics were read back through the editor API. The deliberate
+`config.trianer` on the annotated entry point produced the Pylance error
+`Cannot access attribute "trianer" for class "RootSchema"`
+(reportAttributeAccessIssue), and the valid `config.common.sequence_length`
+access drew no diagnostic — the same symbol table drives `cfg.common.`
+completion. Making the gate honestly green also meant clearing the Pylance
+errors the new annotations introduced at DictConfig boundaries:
+`initialize_training_components`/`run` now take `cfg: RootSchema`;
+`typing.cast` marks the runtime-is-DictConfig seams (create_grid_config,
+run's local path, the wandb full_config, the already-validated
+learning_rate); `get_metric_logger`'s full_config is `Optional[DictConfig]`;
+and `RootSchema` gained the annotation-only `init_model_opt_sched_fn` field
+(absent from the stored schema node, so composed configs are unchanged).
+Annotations and casts only — zero runtime change (tiny_local final_ce still
+8.451301097869873). main.py's one remaining Pylance error (`"parameters" is
+not a known attribute of "None"`) predates this work.
+
+**Gates (re-run after the review fixes):** full pytest green — 188 tests, 16
+new in tests/test_typed_config.py (schema↔Trainer sync, negative compose
+tests, grid-point checks, range checks, top-level config composition pins,
+registry idempotence, the three review pins); `tiny_local` CPU smoke through
+`check_point` trained 200 steps; the three negative overrides and the range
+violation each fail with readable errors; ruff F401/F811/F841 zero
+everywhere, definitions.py and scripts/ included.

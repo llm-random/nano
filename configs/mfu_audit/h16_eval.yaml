@@ -2,6 +2,7 @@
 # 20, and the final_ce pass over the fixed fineweb holdout. First GPU exercise of
 # the stage-1 final_eval rewrite at real sequence length. Not an MFU measurement.
 defaults:
+  - base_schema
   - ../_misc@_here_: default
   - ../_cluster@_here_: entropy
   - ../_model/h_balanced@_here_: h16

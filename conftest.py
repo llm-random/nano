@@ -18,6 +18,10 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+# Registers `base_schema` in Hydra's ConfigStore; tests compose runnable configs
+# whose defaults lists reference it. Must follow the sys.path setup above.
+import src.definitions  # noqa: E402,F401
+
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "gpu: requires a CUDA device")

@@ -1,6 +1,6 @@
 import os
 import statistics
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 import wandb
 from typing import Optional
 from abc import ABC, abstractmethod
@@ -136,7 +136,7 @@ class RecorderLogger(MetricLogger):
 def get_metric_logger(
     metric_logger_config: OmegaConf = None,
     tracker_run_id: Optional[str] = None,
-    full_config: Optional[OmegaConf] = None,
+    full_config: Optional[DictConfig] = None,
 ):
     _metric_logger = None
 

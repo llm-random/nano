@@ -696,8 +696,10 @@ def test_a_run_with_eval_switched_off_still_finishes():
             "configs",
             "--config-name",
             "smoketest_fineweb_final_eval_local",
-            "~trainer.eval_dataloader",
-            "+trainer.eval_dataloader=None",
+            # A plain assignment puts the *string* "None" in the Any-typed schema
+            # field -- the old `~key` + `+key=None` dance is gone because typed
+            # nodes (src/definitions.py) do not support deletion.
+            "trainer.eval_dataloader=None",
             "trainer.eval_interval=0",
         ],
         cwd=REPO_ROOT,

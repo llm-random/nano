@@ -4,6 +4,7 @@
 # loop sits inside the timing window; gradient_accumulation_steps starts safe and
 # the micro-batch probe overrides it per model.
 defaults:
+  - base_schema
   - ../_misc@_here_: default
   - ../_cluster@_here_: entropy
   - ../_model/h_balanced@_here_: h16

@@ -9,15 +9,16 @@ from git import Repo
 from contextlib import contextmanager
 import copy
 import getpass
-from typing import Generator, Optional
+from typing import Generator, Optional, cast
 from fabric import Connection
 import hydra
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 import paramiko.ssh_exception
 
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
 from main import dump_grid_configs, run
+from src.definitions import RootSchema, check_point
 import resolver
 
 logger = logging.getLogger(__name__)
@@ -225,13 +226,25 @@ def wait_for_job_id(connection, tmux_pane, tries: int = 3):
 
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
 def submit_experiment(
-    cfg: OmegaConf,
+    cfg: RootSchema,
 ):
     missing_keys: set[str] = OmegaConf.missing_keys(cfg)
     if missing_keys:
         raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
 
-    configs_grid = create_grid_config(cfg)
+    # cast: the runtime object is a DictConfig; RootSchema is Pylance sugar.
+    configs_grid = create_grid_config(cast(DictConfig, cfg))
+    # Schema-check every expanded grid point before anything is dumped or
+    # submitted. `^key` grids are expanded by now, so a mistyped sweep key or
+    # out-of-range value fails here, on the laptop, naming the point.
+    for point_dict, point_overrides in configs_grid:
+        try:
+            check_point(point_dict)
+        except Exception as exc:
+            raise RuntimeError(
+                f"grid point {point_overrides or '(no overrides)'} failed the "
+                f"schema check: {exc}"
+            ) from exc
     dump_grid_configs(configs_grid, cfg.infrastructure.generated_configs_path)
 
     script = cfg.infrastructure.get("script", None)
@@ -246,7 +259,7 @@ def submit_experiment(
     if cfg.infrastructure.server == "local":
         config, _overrides = configs_grid[0]
         omega_conf = OmegaConf.create(config)
-        run(omega_conf)
+        run(cast(RootSchema, omega_conf))
     else:
         experiment_branch_name = version_code(
             remote_url=cfg.infrastructure.git.remote_url,
