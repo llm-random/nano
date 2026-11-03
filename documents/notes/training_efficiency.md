@@ -760,12 +760,29 @@ typed-config rewire (`b973c0bf`), so they take **plain `trainer.X=` overrides**;
 the `+trainer.X=` spelling used throughout this document's historical records was
 correct when those runs were made but no longer composes.
 
+> **Superseded 2026-11-03 for the compile knobs** — see
+> [multigpu_efficiency.md](multigpu_efficiency.md) §7.7–7.9. The measured-best
+> configuration at **every** world size is now
+> `+compile_blocks_full=true trainer.compile_ce=true` **with FSDP2 on**:
+> 9,474 ms / **46.10%** MFU at h20 on one H100, which beats the
+> `distributed=null` recipe below (9,578 ms / 45.6%) while using 4.7 GiB less.
+> The advice that follows is kept because it is what the runs in this document
+> used; it is no longer what to run.
+
 - Single-GPU pretraining default: `trainer.distributed=null
   trainer.autocast_bf16=true +compile_model=true`
   (`compile_model` is a top-level key, so it keeps its `+`).
 - For the measured-best single-GPU configuration add `trainer.compile_loss=true`.
-- **FSDP2 multi-GPU runs keep `+compile_blocks=true`** — regional compile is the
-  pairing FSDP2 documents; whole-model compile under FSDP2 is **untested** (Part 8).
+- ~~**FSDP2 multi-GPU runs keep `+compile_blocks=true`** — regional compile is the
+  pairing FSDP2 documents; whole-model compile under FSDP2 is **untested**.~~
+  **Corrected 2026-11-03.** `compile_blocks` compiled only each block's inner
+  attention and ff modules, leaving the `Residual` wrappers (norm, residual add,
+  boundary casts) eager — worth **11 MFU points**, paid at every world size.
+  Compiling the whole `TransformerBlock` (`+compile_blocks_full=true`) is still
+  *regional* compile, still the FSDP2-documented pairing — the compiled unit is
+  exactly the sharded unit — and it recovers all of it with zero dynamo
+  recompiles. Whole-model compile under FSDP2 remains untested and is now
+  pointless to test: after this change the residual gap is communication.
 - Measurement knobs: `trainer.profile_timers=true` (section timers),
   `trainer.kernel_profile=true` (per-kernel dump at steps 12–13).
 
@@ -817,6 +834,11 @@ follows the same rules.
 4. **Noise bar**: step-time cv is 0.6–1.6%, so **a delta under ~3% in tokens/s
    needs a repeat run before it is believed**, in either direction. For
    framework-level comparisons, 5–6 repeats per side give ±0.3% on the mean.
+   (2026-11-03: compiled FSDP2 runs reach 0.21–0.25% cv, where 3% is very
+   conservative — but keep the rule. It is what caught a 4-GPU run that read
+   cv 13.3% because another user's jobs contended on the node; its steady state
+   was fine and the repeat agreed with it. On a shared node, run-to-run
+   variance, not within-run cv, is the thing a repeat tests.)
 5. **Reduction window must be identical on both sides** of any comparison — the
    trainer's own window and a uniform steps-15–29 reducer differ by ~0.5%.
 6. **Numerics gate**: a change claiming to be a no-op proves it with a seeded CPU

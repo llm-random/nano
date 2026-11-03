@@ -508,6 +508,64 @@ repeat (32287) gave 2,466 ms at cv 0.25%. Discarding slow steps would have been
 cherry-picking, so the repeat is what is reported — and this is what the
 protocol's repeat rule is for on a shared node.
 
+### 7.8 R2 — compiling the cross-entropy (2026-11-03)
+
+`trainer.compile_ce=true` on top of R1. `trainer.compile_loss` could not serve
+here: it wraps `_forward_loss`, which calls `self.model(...)`, so under FSDP2 it
+is whole-model compile and belongs to R3. R2 compiles the cross-entropy alone
+and never touches the model, so it composes with regional block compile instead
+of replacing it.
+
+| run | world size | step ms (cv) | tokens/s | MFU | peak mem/GPU |
+|---|---:|---:|---:|---:|---:|
+| R1 (32287) | 4 | 2,466 (0.25%) | 425,054 | 44.28% | 43.4 GiB |
+| R2 (32294) | 4 | 2,437 (0.25%) | 429,997 | 44.80% | 40.3 GiB |
+| R2 repeat (32296) | 4 | 2,441 (0.24%) | 429,398 | 44.74% | 40.3 GiB |
+| **R2 (32299)** | **1** | **9,474 (0.25%)** | **110,629** | **46.10%** | **47.3 GiB** |
+
+Zero recompile warnings throughout; loss trajectories unchanged.
+
+**Reported honestly: the gain is below the pre-registered bar but reproducible.**
+R2 improves on R1 by 1.06% in step time, under the protocol's 3% threshold. The
+two R2 runs agree to 0.16%, a spread six times smaller than the effect, so the
+difference is real rather than node noise. The 3% bar was calibrated against
+runs with 0.6–1.6% cv (training_efficiency.md §4.5) and is conservative at the
+0.24–0.25% these runs achieve — but it did its job, because it is what forced
+the repeat instead of a claim off one number. Adopted: +0.5 MFU points and
+−3.1 GiB are both worth having, and the change carries no tracing risk.
+
+The memory saving has a clear mechanism: compiling the cross-entropy keeps the
+logits — batch × seq × vocab, the largest activation in the step — from being
+materialised again in fp32 at a graph boundary.
+
+**R2 at one GPU beats the previous single-GPU record.** 9,474 ms / 46.10%
+against the non-FSDP2 optimum's 9,578 ms / 45.6%, using 4.7 GiB less. The
+configuration that held the record through all of training_efficiency.md is no
+longer the fastest one; an FSDP2 configuration is.
+
+### 7.9 Adopted stack and the final curve
+
+**`+compile_blocks_full=true trainer.compile_ce=true`**, with FSDP2 as
+configured in `configs/_trainer/llama.yaml`.
+
+| world size | step ms | tokens/s | MFU | vs baseline MFU | peak mem/GPU |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 9,474 | 110,629 | 46.10% | +11.65 pt | 47.3 GiB |
+| 2 | _(filled by the confirmation run)_ | | | | |
+| 4 | 2,439 | 429,698 | 44.77% | +11.07 pt | 40.3 GiB |
+
+4-GPU figures are the mean of jobs 32294 and 32296. Against the 33.70%
+baseline: **+33% throughput and −27% peak memory** (55.1 → 40.3 GiB), which
+also puts micro-batch 32 back within reach after being OOM-bound since job
+32024.
+
+**R3 is not attempted.** The plan's criterion was "more than ~2 points remain";
+after R2 the gap between the 1-GPU anchor (46.10%) and 4 GPUs (44.77%) is
+**1.33 points**, and it is communication, not compile scope. Whole-model
+compile under FSDP2 — the item training_efficiency.md parked as the open
+question — would be a day of tracing risk spent on something the measurements
+say is no longer there.
+
 ## 8. Where that leaves the effort
 
 The baselines answer the question they were set, and they reorder the work.
