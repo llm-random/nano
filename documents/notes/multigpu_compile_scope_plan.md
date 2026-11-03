@@ -228,4 +228,26 @@ Worth stating so the plan can fail honestly rather than be rationalised:
 
 ## 9. Log
 
-- **2026-11-03** — plan written off the B1/B2/B4 baselines. Nothing executed yet.
+- **2026-11-03** — plan written off the B1/B2/B4 baselines.
+- **2026-11-03 (same day)** — **executed; goal met at R1.**
+  - **R1 adopted.** `+compile_blocks_full=true`: 4 GPUs 33.70% → **44.28%**
+    (2,466 ms, 425k tok/s), 1 GPU 34.45% → **45.57%**, 2 GPUs **44.69%**. Peak
+    memory −21%. Zero recompile warnings. Numerics clean (last-50 mean |Δloss|
+    0.0063, exactly the baseline's final loss). The premise held: the eager glue
+    was the `Residual` layer, and the `log_name` blocker really was obsolete.
+  - **R2 rejected.** `trainer.compile_ce` bought ~1% step time and 3 GiB and
+    cost ~1.6% loss quality, systematically (higher in 50/50 of the last 50
+    steps). Knob kept, defaulted off, with the measurement beside it. Likely
+    cause: eager cross-entropy upcasts to fp32 for the log-softmax; compiled
+    standalone it stays in bf16, which over a 50,304-wide vocabulary is worse
+    arithmetic.
+  - **R3 not attempted**, per this plan's own criterion — 1.29 points remain
+    between 1 and 4 GPUs and they are communication, not compile scope.
+  - **Prediction check.** §1 predicted ~45% at 1 GPU and ~43.7% at 4; measured
+    45.57% and 44.28%. The arithmetic was right, including that FSDP2's residual
+    plumbing would mostly disappear — it predicted ~650 ms would survive at
+    world size 1 and ~6 ms did, because the wider compiled region absorbs the
+    glue around FSDP2's module boundaries too.
+  - **Falsification check.** §8 listed "R1 lands under 2 points", "R1 helps on 1
+    GPU but not on 4" and "memory regresses past ~70 GiB". None occurred; memory
+    moved the other way, by −11.7 GiB/GPU.

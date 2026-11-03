@@ -531,17 +531,18 @@ two R2 runs agree to 0.16%, a spread six times smaller than the effect, so the
 difference is real rather than node noise. The 3% bar was calibrated against
 runs with 0.6–1.6% cv (training_efficiency.md §4.5) and is conservative at the
 0.24–0.25% these runs achieve — but it did its job, because it is what forced
-the repeat instead of a claim off one number. Adopted: +0.5 MFU points and
-−3.1 GiB are both worth having, and the change carries no tracing risk.
+the repeat instead of a claim off one number.
 
 The memory saving has a clear mechanism: compiling the cross-entropy keeps the
 logits — batch × seq × vocab, the largest activation in the step — from being
-materialised again in fp32 at a graph boundary.
+materialised again in fp32 at a graph boundary. That same mechanism is the
+warning sign in hindsight: **fp32 around the logits is not waste, it is the
+precision the log-softmax needs**, which is exactly what §7.10 then measured.
 
-**R2 at one GPU beats the previous single-GPU record.** 9,474 ms / 46.10%
-against the non-FSDP2 optimum's 9,578 ms / 45.6%, using 4.7 GiB less. The
-configuration that held the record through all of training_efficiency.md is no
-longer the fastest one; an FSDP2 configuration is.
+> **These throughput numbers stand but the configuration was not adopted.**
+> R2 was provisionally taken on throughput grounds and then **rejected by the
+> numerics gate** — see §7.10. The adopted stack is R1 alone (§7.11). The
+> section is kept as measured, because a rejected rung is a result.
 
 ### 7.10 The numerics gate rejects R2
 
@@ -592,8 +593,14 @@ gate rejected it independently — two different safeguards pointing the same wa
 | world size | step ms (cv) | tokens/s | MFU | vs baseline MFU | peak mem/GPU |
 |---:|---:|---:|---:|---:|---:|
 | 1 (32289) | 9,584 (0.21%) | 109,361 | **45.57%** | +11.12 pt | 50.3 GiB |
-| 2 (32318) | _(confirmation running)_ | | | | |
+| 2 (32318) | 4,886 (0.13%) | 214,499 | **44.69%** | — | 45.7 GiB |
 | 4 (32287) | 2,466 (0.25%) | 425,054 | **44.28%** | +10.58 pt | 43.4 GiB |
+
+Scaling from the 1-GPU anchor: **98.1%** at two GPUs (4,886 vs an ideal 4,792)
+and **97.2%** at four (2,466 vs 2,396). Because the adopted configuration is
+also the best single-GPU one, that scaling efficiency *is* the practical
+speedup — four H100s return **3.89×** one H100's best, where before this work
+the same comparison gave 2.96×.
 
 Against the 33.70% baseline at 4 GPUs: **+31% throughput and −21% peak memory**
 (55.1 → 43.4 GiB), which also puts micro-batch 32 back within reach after being
@@ -608,26 +615,40 @@ there.
 
 ## 8. Where that leaves the effort
 
-The baselines answer the question they were set, and they reorder the work.
+The baselines reordered the work, and §7.7–7.11 then closed the item they
+promoted. Both halves are worth keeping, because the order they arrived in is
+the argument.
 
-**Multi-GPU is not where this model is losing MFU.** Parallelism costs 1.7% at
-two GPUs and 2.2% at four. The deficit against the framework's own single-GPU
-best (45.6% → ~33.8%) is **~24% relative, and all of it is paid at world size 1**
-by using regional `compile_blocks` instead of whole-model compile plus a
-compiled loss (§5, §7.1). On these measurements:
+**Multi-GPU was never where this model was losing MFU.** Parallelism costs 1.7%
+at two GPUs and 2.2% at four. The ~24% relative deficit the baselines found was
+**all paid at world size 1** by regional `compile_blocks` leaving the `Residual`
+layer eager — and widening the compiled unit to the whole `TransformerBlock`
+recovered it, lifting 4 GPUs from 33.70% to **44.28%** and one GPU from 34.45%
+to **45.57%**, which matches the best configuration this framework had ever
+reached by any route.
 
-| candidate | measured worth | note |
+| candidate | status | note |
 |---|---|---|
-| **whole-model compile + compiled loss under FSDP2** | **~11 MFU points** | the entire 45.6 → 34.45 gap; untested under FSDP2, which is the only reason we are not taking it |
-| batching gradient sync (F2) | **< 110 ms/step, under 2%** | 405 of 432 reduce-scatters at B2 are avoidable, but ~70% of collective time already overlaps compute; the better argument is pushing NCCL off the RING_**LL** low-latency protocol onto a bandwidth protocol by sending fewer, larger messages |
-| `reshard_after_forward` tuning | ≤ the all-gather half of comm | would remove the backward re-gather (half of 864/432 all-gathers) at a memory cost; memory is available — 55–57 GiB of 80 in use |
-| micro-batch ≥ 32 | unmeasured | 55.1 GiB/GPU at B4 leaves headroom the single-GPU probe did not have; it changes ga, so it is a separate best-fit row, not a like-for-like one |
+| **widen the compiled unit to `TransformerBlock`** | **done — +10.6 pt at 4 GPUs** | the whole gap; still regional compile, so the compiled unit is the sharded unit |
+| compile the cross-entropy alone | **rejected** | +1% throughput, −1.6% loss quality; §7.10 |
+| whole-model compile under FSDP2 | **not attempted, and no longer worth it** | the gap it targeted is gone; 1.29 points remain and they are communication |
+| batching gradient sync (F2) | open, worth < 2% | 405 of 432 reduce-scatters at B2 are avoidable, but ~70% of collective time already overlaps compute; the better argument is pushing NCCL off the RING_**LL** low-latency protocol onto a bandwidth protocol by sending fewer, larger messages |
+| `reshard_after_forward` tuning | open | would remove the backward re-gather (half of 864/432 all-gathers) at a memory cost; memory is now plentiful — 43–50 GiB of 80 in use |
+| micro-batch ≥ 32 | open, newly plausible | R1 freed 11.7 GiB/GPU; micro 32 has been OOM-bound since job 32024. It changes ga, so it is a separate best-fit row, not a like-for-like one |
 
-This inverts the ranking the survey started from, where per-micro-step gradient
+This inverted the ranking the survey started from, where per-micro-step gradient
 sync was called the "top multi-GPU throughput suspect" (training_efficiency.md
 §8.1). It is real, it is visible in the launch counts, and it is worth less than
-2% — because NVLink is fast and FSDP2 overlaps well. **The compile-scope
-question is the whole game.**
+2% — because NVLink is fast and FSDP2 overlaps well. The compile-scope question
+was the whole game, and it is now answered.
+
+**Two methodological results worth more than either number.** First, a
+hypothesis that explains everything is not thereby true: "widening the compiled
+region moved the residual stream to bf16" accounted for the speedup, the memory
+drop *and* the worse loss in one stroke, and the isolation run showed it was
+wrong. Second, both safeguards earned their keep independently — the repeat
+rule caught a 13.3%-cv run contended by another user, and the numerics gate
+caught a rung that had already passed on throughput.
 
 What has *not* been established, and should not be assumed from these runs:
 multi-node (never run), any world size above 4, non-NVLink interconnects, a real
@@ -637,6 +658,11 @@ only — see training_efficiency.md §8.2).
 
 ## 9. Log
 
+- **2026-11-03 (later)** — [multigpu_compile_scope_plan.md](multigpu_compile_scope_plan.md)
+  executed. R1 (`compile_blocks_full`) adopted: 4 GPUs 33.70% → **44.28%**,
+  1 GPU 34.45% → **45.57%**, 2 GPUs **44.69%**, peak memory −21%, zero recompile
+  warnings, numerics clean. R2 (`compile_ce`) measured, then **rejected** by the
+  numerics gate. R3 ruled out by the plan's own criterion. Jobs 32285–32318.
 - **2026-11-03** — baselines B1/B2/B4 complete (jobs 32264 / 32267 / 32269), all
   exit 0. FSDP2 scales at 98.3% / 97.8%; the multi-GPU deficit is dominated by
   compile scope, not parallelism (§8). Scope set; worktree `multigpu-mfu` created off `pretraining`.
