@@ -1,6 +1,14 @@
 # Stage-3 audit E5: h16 with the eval path ON -- periodic eval at steps 10 and
 # 20, and the final_ce pass over the fixed fineweb holdout. First GPU exercise of
-# the stage-1 final_eval rewrite at real sequence length. Not an MFU measurement.
+# the stage-1 final_eval rewrite at real sequence length. Not an MFU measurement.#
+# Single-GPU, no FSDP2 -- the default for every h-size config in this directory
+# (multi-GPU is an explicit opt-in: see h20_mgpu.yaml). `distributed: null`
+# makes the model a plain module, so `autocast_bf16: true` is REQUIRED with it:
+# FSDP2's MixedPrecisionPolicy was what provided bf16, and without either the
+# run silently trains in fp32 at roughly a sixth of the speed (the fp32 control
+# rows in documents/notes/training_efficiency.md Part 1.3).
+# Compiled like the others: this config exists to exercise the eval path, so it
+# should exercise the one production actually runs.
 defaults:
   - /base_schema
   - ../_misc@_here_: default
@@ -21,8 +29,15 @@ trainer:
   gradient_accumulation_steps: 32 # from the E3 probe
   eval_interval: 10
   n_eval_steps: 2
+  distributed: null # single-GPU: no FSDP2 -- see the header
+  autocast_bf16: true # required once distributed is null, or this runs fp32
+  compile_loss: true
   scheduler:
     warmup_steps: 10
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_model")`), so on the CLI it keeps its `+`.
+compile_model: true
 
 infrastructure:
   slurm:

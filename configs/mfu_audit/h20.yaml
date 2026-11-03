@@ -8,8 +8,10 @@
 # documents/notes/training_efficiency.md, measured at 46.4% MFU on this exact
 # architecture (job 32023, 3.97 GFLOPs/token). They were previously left at the
 # unoptimised audit defaults, which measure 30.8% -- the stage-3 backbone
-# baseline. That baseline is what h12.yaml and h16.yaml still carry, so the
-# ladder in training_efficiency.md Part 4 is unaffected by this file.
+# baseline. h12.yaml and h16.yaml now carry the same single-GPU recipe, so none
+# of these files reproduces the stage-3 numbers any more; the ladder in
+# training_efficiency.md Part 4 is reproduced from the commands and branches
+# recorded there, which is where it always lived.
 #
 #   distributed: null     no FSDP2. At world size 1 it is a ~0.5pt loss under
 #                         compile (training_efficiency.md 6.4), and dropping it

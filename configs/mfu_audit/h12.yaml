@@ -2,7 +2,13 @@
 # 30 steps of h12 on one entropy H100, 512 sequences x 2048 tokens per step
 # (1,048,576 tokens). Eval and checkpointing are off so nothing but the training
 # loop sits inside the timing window; gradient_accumulation_steps starts safe and
-# the micro-batch probe overrides it per model.
+# the micro-batch probe overrides it per model.#
+# Single-GPU, no FSDP2 -- the default for every h-size config in this directory
+# (multi-GPU is an explicit opt-in: see h20_mgpu.yaml). `distributed: null`
+# makes the model a plain module, so `autocast_bf16: true` is REQUIRED with it:
+# FSDP2's MixedPrecisionPolicy was what provided bf16, and without either the
+# run silently trains in fp32 at roughly a sixth of the speed (the fp32 control
+# rows in documents/notes/training_efficiency.md Part 1.3).
 defaults:
   - /base_schema
   - ../_misc@_here_: default
@@ -23,8 +29,15 @@ trainer:
   gradient_accumulation_steps: 64 # micro-batch 8 x 2048; the probe tunes this
   eval_interval: 0
   eval_dataloader: null
+  distributed: null # single-GPU: no FSDP2 -- see the header
+  autocast_bf16: true # required once distributed is null, or this runs fp32
+  compile_loss: true
   scheduler:
     warmup_steps: 10
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_model")`), so on the CLI it keeps its `+`.
+compile_model: true
 
 infrastructure:
   slurm:
