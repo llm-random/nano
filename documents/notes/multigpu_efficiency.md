@@ -225,6 +225,34 @@ in equal proportion, with everything around it at parity (ms):
 (The ~134 ms/step in `log` is present identically on both sides, so it cancels
 in every comparison here; it is ~1.4% of a step and nobody has looked at it.)
 
+### 7.2 Prediction, written before B2 and B4 landed
+
+Worth recording in advance so the measurement can contradict it. The model is
+620.4M params; FSDP2 all-gathers parameters in bf16 (1.24 GB whole) and
+reduce-scatters gradients in **fp32** (2.48 GB whole, per
+`MixedPrecisionPolicy(reduce_dtype=fp32)`). Each rank moves (N−1)/N of that.
+With `reshard_after_forward` at its default the parameters are gathered again
+in backward, so per optimizer step:
+
+| | all-gather | reduce-scatter | total | at ~400 GB/s |
+|---|---:|---:|---:|---:|
+| 2 GPUs, ga 16 | 19.8 GB | 19.8 GB | 39.7 GB | ~99 ms |
+| 4 GPUs, ga 8 | 14.9 GB | 14.9 GB | 29.8 GB | ~75 ms |
+
+Against ideal step times of 6,339 and 3,170 ms that is 1.6% and 2.4% — **small**,
+because NVLink is fast and the model is not large. The interesting consequence:
+**batching the gradient sync would save less bandwidth than expected**
+(reduce-scatter would fall to 1.24 GB / 1.86 GB, worth only ~47 ms and ~33 ms),
+so if the per-micro-step sync hurts, it should hurt through *launch and copy
+overhead* rather than bytes moved — at world size 1 the plumbing cost 255 ms
+across 864 launches, about 0.3 ms each, which would put 432 launches at ~128 ms
+and 216 at ~64 ms.
+
+So the prediction is: **scaling close to linear, with any shortfall dominated by
+per-collective overhead, not bandwidth.** If B2/B4 fall well short of that, the
+cause is something this model does not capture — exposed (non-overlapped)
+communication, a straggler, or the data pipeline failing to feed N ranks.
+
 _(B2 and B4 fill in below as they land.)_
 
 ## 8. Log
