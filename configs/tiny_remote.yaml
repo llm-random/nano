@@ -1,20 +1,20 @@
 defaults:
   - base_schema
-  - _cluster@_here_: entropy_a100
-  - _model/h_balanced@_here_: h4
+  - _cluster@_here_: entropy
+  - _model/h_balanced@_here_: h16
   - _trainer@_here_: llama
-  - _dataset@_here_: c4
+  - _dataset@_here_: fineweb
   - _checkpoints@_here_: none
   - _misc@_here_: default
-  - _eval@_here_: basic
+  # - _eval@_here_: basic
 
 common:
-  sequence_length: 128
-  batch_size: 16
+  sequence_length: 256
+  batch_size: 256
 
 trainer:
   gradient_accumulation_steps: 1
-  n_steps: 100
+  n_steps: 40_000
   learning_rate: 1e-3
 
   checkpoint:
@@ -30,10 +30,10 @@ infrastructure:
     tags:
       - nano
       - remote
-      - tiny
+      - 1h_test
 
   slurm:
-    time: "00:10:00"
-    gres: gpu:1
+    time: "02:00:00"
+    gres: gpu:4
     job-name: ${infrastructure.metric_logger.name}
 
