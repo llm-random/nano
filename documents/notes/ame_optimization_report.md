@@ -9,8 +9,9 @@ node) for the evening block. Branch `ame_optimize`.
 **Model:** AME h20 (H-balanced, 20 blocks, dmodel 1280, 2.576B bank + 587M
 backbone, 3.768 GFLOPs/token) unless stated; h16 and h12 where noted.
 **Workload:** global batch 512 × 2048, 30 steps, LR 2^-12, fineweb, seed fixed.
-**Active plan:** §7 — AME h20 to 45% MFU, 4 GPUs first, then 1 GPU (from
-2026-11-05 evening, unattended overnight; nothing run under it yet).
+**Active plan:** §7 — AME h20 to 45% MFU, 4 GPUs first, then 1 GPU. The
+unattended run started 2026-11-05 23:55; its experiments are §1.17 onward and
+the night block of §3, its progress §7.7.
 
 All MFU figures are **per GPU** (`tokens/s × GFLOPs/token ÷ (989 TFLOP/s ×
 world_size)`) and are the **mean over steps ≥ 15**, which is what
@@ -110,7 +111,10 @@ Percentages are relative MFU change at the stated shape.
 | **O35** | The h-sweep at 1 GPU | **Done** | h16 **+11.1%** over h20 | §1.12 |
 | **O36** | Raise micro-batch at 4 GPUs | **Attempted, blocked** | h16 mb32 OOM → with O11 fits but **−2.6%** | §1.13 |
 | **O37** | No FSDP2 at world size 1 | **Built** | **+4.2%** at h20, **−2.5%** at h16 | §1.11 |
-| **O38** | Smaller bank optimizer state: bf16 first moment, or no bf16 bank copy, or 8-bit states | **Proposed 2026-11-05, not built** | — (target: micro-batch 8 at h20, 1 GPU) | §7.6 B1 |
+| **O38** | Smaller bank optimizer state: bf16 first moment, or no bf16 bank copy, or 8-bit states | **(b) built 2026-11-06**, opt-in (`trainer.bank_compute_copy=false`, bit-identical); (a) not built; 8-bit is a §7.10 proposal | — (target: micro-batch 8 at h20, 1 GPU) | §7.6 B1 |
+| **O39** | Bank exchange off the critical path: ids all-gathered once per micro-step, each layer's gather + all-to-all on a side stream two layers ahead, reassembly folded into the compiled block, backward exchange + scatter on the side stream | **Built 2026-11-06** (`trainer.bank_prefetch_depth`) | v1 **+2.1%** (35.06 → 35.79); v2 in progress | §1.20 |
+| **O40** | FSDP2 parameters kept unsharded across micro-steps (`set_reshard_after_backward(False)` until the last) | **Built, opt-in, not kept** | **−0.9%** by the mean, +0.6% by the median | §1.19 |
+| **A0** | §7 attribution: 4-GPU best and its dense twin, kernel profiles | **Done** | measurement; the target is the bank path + AME glue | §1.17 |
 | **B1/B2** | Baselines: AME h20 and dense h20 at 4 GPU | **Done** | 26.84% / 44.44% | Headline |
 | **B3** | Dense control: the §1.15 micro-batch sweep with dense attention, all 24 cells | **Done** (2026-11-05 evening) | measurement, not a change; AME at 76–86% of dense | §1.16 |
 | **D1** | Diagnose why memory parallelism gave no speedup | **Done** | found the graph break, not mem-parallelism | §4 |
@@ -123,6 +127,7 @@ Percentages are relative MFU change at the stated shape.
 | **—** | Cross-entropy outside autocast (`_loss_ctx`) | **Built** | removes a 6.14 GiB fp32 copy; throughput-neutral | §1.6 |
 | **—** | Triton cache isolation per rank | **Built** | correctness/stability | §1.14 |
 | **—** | Instrumentation made non-fatal under FSDP2 | **Built** | correctness | §1.14 |
+| **—** | The traced bank path checked under compile (`tests/test_bank_compile.py`) | **Done** | correct on CUDA; inductor CPU miscompiles it | §1.18 |
 
 **Two catalogue entries are not optimizations and have no section of their own.**
 **O13** is a warning rather than a change: pkmf measured `overlap_comm` as a
@@ -610,6 +615,167 @@ attributes it. At equal micro-batch on 4 GPUs AME is at 73.5–79.8% of dense.
 **5. Dense h20 at 4 GPUs and mb 16 reproduces B2**: 44.47% against 44.44% (job
 32577), on the new account and at sequence length 2049 instead of 2048.
 
+### 1.17 A0 — attribution of the 4-GPU best against its dense twin (2026-11-05/06 night)
+
+The first step of §7. Both runs are the §6.1 h20/4-GPU configuration
+(`configs/ame/h20_4gpu.yaml`) with `trainer.kernel_profile=true
+trainer.profile_timers=true`; the dense twin adds `common.attention.type=gqa
+trainer.mem_parallel_size=null`. Steps 12–13 are profiled; MFU is the mean over
+steps ≥ 15 as everywhere, so the profiler does not touch it.
+
+| | job | MFU/GPU | step | compute kernels busy | GPU idle | exposed NCCL |
+|---|---|---:|---:|---:|---:|---:|
+| AME | 33502 | **35.06%** | 2.849 s | 2615.1 ms | 71.5 ms | ~255 ms |
+| dense | 33507 | **44.51%** | 2.361 s | 2311.9 ms | 39.4 ms | ~26 ms |
+
+"Exposed" is measured on the timeline (`kprof_kernels.py` in the scratch tools,
+now the method): the time an NCCL kernel runs while no compute kernel runs on
+any stream. Per collective, busy / exposed ms per step:
+
+| | AME | dense |
+|---|---:|---:|
+| bank all-to-all (`SendRecv`) | 196.6 / **196.6** | — |
+| all-gather (FSDP2 parameters, plus AME's id all-gather) | 103.1 / 75.3 | 76.4 / 9.1 |
+| reduce-scatter | 98.9 / 39.1 | 133.0 / 17.1 |
+
+**Per category, AME minus dense (ms per step, kernel time):**
+
+| category | AME | dense | Δ |
+|---|---:|---:|---:|
+| GEMM | 1138.7 | 1311.4 | **−172.7** |
+| attention (flex vs flash) | 477.1 | 477.0 | **+0.1** |
+| triton glue | 737.6 | 370.8 | **+366.8** |
+| NCCL all-to-all | 196.8 | 0 | +196.8 |
+| copy / memcpy | 70.4 | 9.4 | +61.0 |
+| other eager | 107.9 | 64.0 | +43.9 |
+| optimizer-category kernels | 31.4 | 13.4 | +18.0 |
+| softmax / CE, FSDP2 packing, bank / embedding | 84.5 | 86.6 | −2.1 |
+
+**Findings.**
+
+1. **Attention is at parity.** flex with ALiBi costs exactly what dense's
+   flash costs (477.1 vs 477.0 ms). Nothing is left to win from the kernel by
+   matching dense.
+2. **AME's GEMMs are 172.7 ms cheaper than dense's.** It has no Q/K projections
+   (6.4% fewer GEMM FLOPs), and dense's N = 640 K/V projections are its least
+   efficient GEMMs. So if AME's other costs equalled dense's, AME would run at
+   about 2.361 − 0.173 = 2.19 s, **45.5%**: the 45% target is the AME-specific
+   overhead, not the shared backbone.
+3. **The bank path costs about 500 ms of critical path**: the all-to-all
+   (196.6, fully exposed), the backward stack/permute of the fused pair
+   (`triton_poi_fused_stack_10`, 135.6 ms, 160 launches), the copies around the
+   traced collective (`triton_poi_fused_all_to_all_single_*`, 34.7 ms;
+   `direct_copy_kernel` in backward, 60.4 ms, 480 launches), and the scatter
+   into `main_grad` (`triton_poi_fused__to_copy_index_add_12`, 36.9 ms).
+4. **AME's own attention-side math** (normalize, KV-shift mix, tau, sink merge,
+   and the reductions for the per-head parameters' gradients) is the rest of
+   the glue excess: about 53 ms forward and 107 ms backward over dense's RoPE.
+5. **The exchange is traced, not a graph break.** The kernel names
+   (`triton_poi_fused_all_to_all_single_*`, `..._index_add_*`) show dynamo
+   tracing `_FusedBankGather` into the compiled block, collectives and
+   `main_grad` scatter included. That retires S5's premise (§2.6): since D2 the
+   fused path has no graph break. Its correctness under compile had never been
+   checked; §1.18 does.
+
+### 1.18 The compiled bank path is correct on CUDA, and wrong on CPU
+
+`FusedBankPair.forward` carries no `@torch.compiler.disable`, so every AME run
+since D2 (job 32666) has run the bank gather, the all-to-all and the in-place
+`index_add_` into `main_grad` inside the compiled block. D1 (2026-11-04) had
+measured that tracing the bank path gives a wrong `main_grad` (7.3e-3 on the
+toy model) and blamed AOTAutograd. Rechecked:
+
+| backend | where | main_grad vs eager |
+|---|---|---|
+| `aot_eager` | CPU | **exact** (0.0) |
+| inductor | CPU | **wrong**, max 7.3e-3: k banks only, q banks exact |
+| inductor, mp 1 | CUDA (job 33504) | **pass** (< 1e-4 relative) |
+| inductor, NCCL, mp 2 | CUDA (job 33504) | **pass** |
+
+The CPU error is an inductor C++ codegen bug in torch 2.7.1, not an AOTAutograd
+one: the AOT graph functionalizes `index_add_` into
+`index_put(..., accumulate=True)` plus a `copy_` back into `main_grad`, which
+is right; the generated C++ kernel for the k bank's scatter indexes its target
+with the wrong tile variable (`x0 + 2*x0_inner + 64*id` in a loop over
+`x1_inner`), spreading each row's gradient over rows `id` and `id + 1`. It needs
+`qk_norm` (the normalize backward is what gets fused into the tiled kernel) and
+is independent of the shift and the sink. D1's 7.3e-3 is this bug: same toy
+model, same number. **Production is CUDA, and on CUDA the path is correct.**
+The gate for it is now `tests/test_bank_compile.py` (aot_eager on CPU; inductor
+on CUDA at mp 1 and over NCCL at mp ≥ 2).
+
+### 1.19 O40 — parameters unsharded across micro-steps (built, opt-in, not kept)
+
+`trainer.keep_params_unsharded_during_accumulation=true` calls FSDP2's
+`set_reshard_after_backward(False)` on every micro-step but the last, so with
+O33's `reshard_after_forward=False` the backbone is all-gathered once per
+optimizer step instead of once per micro-step. Gradients are still
+reduce-scattered every micro-step, so nothing changes numerically:
+`tests/test_grad_sync_accumulation.py` checks bit-identical gradients and that
+the all-gather count falls by exactly the accumulation factor.
+
+**Effect (job 33509 against 33502): 35.06% → 34.75% by the mean, 35.28% by the
+median.** Thirteen of the fifteen steady steps ran 2823–2835 ms against the
+base's 2834–2860 (forward −32 ms, backward +14 ms), and two had their forward
+jump by +614 and +834 ms (steps 14 and 26). Peak memory 64.63 → 64.79 GiB. By
+this report's rule (the mean, §1.1) it is a loss. Whether the spikes are O40's
+own (an allocator stall, as with O9) or another job starting on the node was
+not settled by one run; O40 is kept as an opt-in flag for a retest on top of
+O39, where the all-gather it removes is a larger share of what is exposed.
+
+### 1.20 O39 — the bank exchange off the critical path (built)
+
+AME's q and k are gathers by token id, so a layer's rows depend on nothing the
+layers below compute. Until now each block nevertheless waited for its own
+all-to-all inside its compiled graph (§1.17: 196.6 ms per step, all of it
+exposed). O39 moves the exchange out of the blocks:
+
+- the encoder all-gathers the micro-batch's ids **once** (S6, §2.7: 8
+  launches per step instead of 160) and issues each layer's gather and
+  all-to-all on a separate CUDA stream, two layers ahead
+  (`trainer.bank_prefetch_depth=2`, `src/core/memory_parallel.py`
+  `BankPrefetcher`);
+- the block receives the all-to-all's receive buffer as it lands (rank-major)
+  and reassembles it through a view inside its compiled region, where the
+  transpose folds into the normalize that reads it (A2, §2.2): the backward
+  `stack`/permute copy (135.6 ms) disappears;
+- the gradient exchange and the scatter into `main_grad` run on the side
+  stream too (autograd runs a Function's backward on its forward's stream), so
+  the compute stream never waits for them. `reduce()` joins the streams before
+  anything reads `main_grad`.
+
+Gates: bit-identical to the fused path on a gloo mesh in float64 at mp 2 and
+4, losses, bank masters and every backbone parameter after two optimizer steps
+(`tests/test_bank_prefetch.py`).
+
+**v1 (job 33512): 35.06% → 35.79% (+2.1%), step 2.849 → 2.791 s, peak 64.61
+GiB.** Forward unchanged (849 vs 851 ms), backward −56 ms. Loss trace: equal to
+the base through step 17, one bf16 ulp (0.03125) apart at step 18, equal again
+after; grad-norm trace drifts from step 1 with alternating sign (two runs of
+the base itself match to step 16), the signature of a reassociated
+fp32 accumulation, not of a different function.
+
+**Why so little: v1's kernel profile (job 33527).**
+
+| per step | A0 (33502) | O39 v1 (33527) |
+|---|---:|---:|
+| all-to-all busy / exposed | 196.6 / 196.6 | 444.6 / 59.6 |
+| compute-stream GEMMs | 1138.7 | 1317.3 |
+| bank gathers | ~15 (fused, Triton) | 169.8 (`indexSelectLargeIndex`, eager) |
+| scatter into `main_grad` | 36.9 (Triton) | 158.6 (`indexFuncLargeIndex`, eager) + 86.0 copies |
+| compute-stream gaps | — | 200.2 |
+
+The exposure went (196.6 → 59.6 ms) and so did the backward copy, but the work
+moved to the side stream ran as **eager kernels 3–11× slower** than the
+compiled ones they replaced, q and k as two all-to-alls instead of one, and all
+of it beside the compute stream, whose GEMMs ran **178.6 ms slower** for the
+shared memory bandwidth and SMs. A side stream hides latency, not cost.
+
+**v2** (job 33530): the side-stream gather and scatter compiled (`torch.compile`
+on two small functions, CUDA only), and q and k back in one buffer and one
+all-to-all per layer. An optional cap on the bank group's NCCL CTAs
+(`trainer.bank_nccl_max_ctas`) to bound what the exchange takes from compute.
+
 ---
 
 ## 2. Promising, not done or not tested
@@ -660,6 +826,10 @@ group is tensor parallelism — a redesign of O6, not a tweak.
 > 350 ms is an upper bound, reached only if the exchange hides behind compute.
 
 ### 2.2 The `fused_stack` permute kernel — ~85 ms at 4 GPUs
+
+> **Done inside O39 (§1.20):** the block takes the all-to-all's buffer as it
+> lands and reassembles it through a view; the 135.6 ms backward copy
+> (`triton_poi_fused_stack_10`, which A0 places in the backward) is gone.
 
 `_FusedBankGather`'s `.permute().reshape()` after the all-to-all runs at **~400
 GB/s on a 3 TB/s machine** (0.84 ms per launch moving 336 MB, 160 launches,
@@ -713,6 +883,12 @@ work. Untested.
 
 ### 2.6 S5 — the bank path under compile
 
+> **Retired (2026-11-06, §1.17–§1.18).** Since D2 the fused pair has no
+> `@torch.compiler.disable`; dynamo traces it, collectives and scatter
+> included, with no graph break, and the result is correct on CUDA. The 160
+> breaks below were the unfused path's. O39 then takes the exchange out of the
+> compiled block on purpose.
+
 `ShardedBank.forward` carries `@torch.compiler.disable` (dynamo traces it but
 the in-place scatter gives a **wrong gradient**), costing a graph break per
 block — 160 per step at ga 8. D1 established that this graph break, not memory
@@ -720,6 +896,8 @@ parallelism, was the real Tier 2 regression. **Unsized.** Would need the
 side-effecting backward restructured so dynamo can trace it safely.
 
 ### 2.7 S6 — hoist the id all-gather
+
+> **Done inside O39 (§1.20):** one id all-gather per micro-step.
 
 320 NCCL launches per step → 8, by gathering ids once per micro-step rather
 than once per bank per block. The payload is ~1 MB so it is nearly all latency.
@@ -951,6 +1129,25 @@ start.**
 
 All eight failures are `torch.OutOfMemoryError` with nothing else wrong in the
 log; the last job ended at 19:32.
+
+### 2026-11-05/06 (night) — the §7 run: Phase A, h20 on 4 GPUs
+
+Same account and node, `trainer.profile_timers=true` on every training run.
+Base for every A/B: `configs/ame/h20_4gpu.yaml` (35.06%, job 33502, this
+session). **Times are submit times** (cluster clock).
+
+| time | job | what it tested | carries | MFU | outcome / conclusion |
+|---|---|---|---|---:|---|
+| 23:56 | 33502 | **A0, AME**: kernel profile of the 4-GPU best | §6.1 h20/4-GPU | **35.06%** | Base of this run (34.91–35.02% before). All-to-all 196.6 ms/step, 100% exposed; bank path ≈ 500 ms of critical path (§1.17). |
+| 23:58 | 33504 | gate (2 GPUs): new `test_bank_compile.py`, `test_ame.py`, `test_memory_parallel.py` | — | — | 3/3, 73/73, 28/28. **The compiled bank path is correct on CUDA**, at mp 1 and over NCCL (§1.18). |
+| 00:01 | 33507 | **A0, dense twin**: kernel profile, `gqa`, no banks | same recipe | 44.51% | Attention at parity with AME's flex; dense GEMMs 172.7 ms dearer (§1.17). |
+| 00:11 | 33509 | **O40**, parameters unsharded across micro-steps | base + O40 | 34.75% (median 35.28%) | Normal steps −19 ms, but two forward spikes (+614, +834 ms at steps 14 and 26). Not kept; the code stays, opt-in (§1.19). |
+| 00:18 | 33512 | **O39**, bank exchange prefetched on a side stream, depth 2 | base + O39 | **35.79%** | **+2.1%** (step 2.791 s). Backward −56 ms, forward unchanged: far less than the exchange costs (§1.20). Peak 64.61 GiB, unchanged. |
+| 00:19 | 33515 | gate (2 GPUs) of O39 v1: + `test_bank_prefetch.py`, O40 tests | — | — | 15 passed (CPU bit-identity of O39 at mp 2 and 4, O40, O9). Two CUDA tests failed: the new prefetch test by my own bug (an `import torch._dynamo` inside the worker shadowed `torch`), and `test_bank_compile`'s NCCL test with a `c10::Error` whose traceback my output filter cut. AME suite 73/73. Cancelled at 19 min in the memory_parallel suite: superseded by 33533. |
+| 00:24, 00:25 | — | O39 kernel profile, two submits | — | — | **Not submitted**: GitHub rejected the cemetery push (`remote: fatal error in commit_refs_rules`) twice, while reporting no incident. run_exp restored the tree both times; nothing was queued. |
+| 00:29 | 33527 | **O39 v1 kernel profile** | base + O39 v1 | — | Exposed all-to-all 196.6 → 59.6 ms and the backward copy gone, but the side stream ran eager gathers (169.8 ms) and scatters (158.6 + 86.0 ms), 3–11× slower than the compiled kernels they replaced, and the compute stream's GEMMs ran 178.6 ms slower beside them (§1.20). |
+| 00:37 | 33530 | **O39 v2**: side-stream gather and scatter compiled, one all-to-all per layer | base + O39 v2 | | running |
+| 00:38 | 33533 | gate (2 GPUs) of O39 v2 + O38(b), full logs kept | — | — | running |
 
 ### Jobs on this account NOT part of this work
 
@@ -1296,6 +1493,67 @@ updated, and it repeated what §7 already says. §7.9 now holds a short goal
 that sends the run to read the whole report first and to record back into it,
 and points at §7.4 and §7.8 for the rules. §7.1 says the same.
 
+### 2026-11-05, 23:55 — the §7 run starts
+
+Maciej set the §7.9 goal at ~23:50 and left the run unattended. Read the report
+in full first, then A0 as §7.5 orders. lukaskoz held five 1-GPU jobs and
+wojszalek one 2-GPU job (not preemptable); each 4-GPU probe named only
+lukaskoz's jobs, so they went ahead (§7.4).
+
+### 2026-11-05, 23:58 — is the compiled bank path even correct?
+
+Reading `memory_parallel.py` before profiling turned up a question the record
+never answered. D1 found that letting dynamo trace the bank path gives a wrong
+`main_grad`, which is why `ShardedBank.forward` carries
+`@torch.compiler.disable` — but D2's `FusedBankPair.forward`, which every run
+since 32666 uses, does not, and a local `torch._dynamo.explain` showed it traced
+with no graph break. If D1 was right, every MFU number since D2 was measured
+on a model whose bank gradient is wrong. Checked locally first: `aot_eager`
+exact, CPU inductor wrong on the k banks only, the miscompile visible in the
+generated C++ (§1.18). Then the GPU gate (33504): correct on CUDA. The record
+stands; D1's explanation goes in the corrections table, and S5's premise
+(§2.6) is retired.
+
+### 2026-11-06, 00:05 — A0: the 45% target is the bank path and AME's glue
+
+AME against its dense twin (§1.17): attention at parity, AME's GEMMs 172.7 ms
+cheaper, and about 500 ms of critical path in the bank exchange, about 160 ms
+in AME's attention-side math. So 45% does not need a faster backbone than
+dense's; it needs AME's own overhead brought to dense's level. Lead order
+changed accordingly: the exchange first (O39, absorbing A1 and A2), O40 as a
+cheap side bet on the exposed all-gather (A4), then compile autotuning and the
+glue.
+
+### 2026-11-06, 00:15 — O40 inconclusive, O39 v1 +2.1%
+
+O40 lost by the mean and won by the median (§1.19); not kept, flag retained.
+O39 v1 gained 2.1% where the exchange it moved costs ~500 ms. Rather than tune
+blind, a kernel profile of O39 (§1.20).
+
+### 2026-11-06, 00:24 — GitHub refuses the cemetery push
+
+Two `run_exp.py` submits failed in `version_code`: `remote: fatal error in
+commit_refs_rules`, with githubstatus.com reporting all systems operational.
+run_exp restored the worktree both times and nothing was queued. Per §7.8 I
+retried once, then wrote a fallback that ships the worktree as a tar stream and
+skips the push (`submit_direct.py`, in the session scratch space; the W&B key
+travels on stdin, never in an argv). It was not needed: the third attempt at
+00:29 went through.
+
+### 2026-11-06, 00:36 — O39's side stream ran the slow kernels
+
+The profile (§1.20): exposure gone, but the gathers and the scatter ran eager
+on the side stream, 3–11× slower than the compiled versions they replaced, and
+slowed the compute stream's GEMMs by 178.6 ms. v2 compiles them and goes back
+to one all-to-all per layer. The first gate of O39 (33515) had a bug in its own
+CUDA test (an `import torch._dynamo` inside the worker shadowing `torch`) and a
+failure in `test_bank_compile`'s NCCL test whose traceback my output filter
+cut; I cancelled it (superseded code) and resubmitted with full logs (33533).
+O38(b) — gather from the fp32 master, no bf16 bank copy — was written
+meanwhile for Phase B: bit-identical on CPU after a bug of mine where
+`materialize()` rebound the master each step and left the bank optimizer
+stepping a tensor that never got a gradient.
+
 ### Corrections I made to my own earlier claims
 
 Recorded because several changed what was worked on next.
@@ -1312,6 +1570,7 @@ Recorded because several changed what was worked on next.
 | `log = 151.5 ms` is a 5% opportunity | A host timer overlapping GPU timers that already account for the step. No opportunity. |
 | "lukaskoz's 11-hour job has finished" | It was preempted — by my job. |
 | Head-parallel attention removes 350.2 ms at 4 GPUs (§2.1) | It moves the same volume as the Q/K exchange it replaces; only the 134.6 ms permute goes away outright. §7.5 A3. |
+| Tracing the bank path gives a wrong `main_grad` because "the side effect does not survive AOTAutograd" (D1, 2026-11-04) | AOTAutograd keeps it (`aot_eager` exact). The 7.3e-3 is an inductor **CPU** codegen bug in the k banks' fused scatter; on CUDA the traced path is correct (job 33504, §1.18). Every run since D2 has used the traced path. |
 
 ---
 
@@ -1582,12 +1841,12 @@ Base: `configs/ame/h20_4gpu.yaml`. Needed: −633 ms per step.
 
 | step | what | value (estimate) | status |
 |---|---|---:|---|
-| **A0** | **Attribution first.** Kernel profile (steps 12–13) and time profiler of the current best and of its dense twin, the same config with `common.attention.type=gqa trainer.mem_parallel_size=null`. Output: a per-kernel table of AME minus dense, so every lead below gets a measured cost instead of an estimate, and the exposed (not overlapped) part of each NCCL collective. | measurement | not started |
-| **A1** | S6, hoist the id all-gather (§2.7): 320 NCCL launches per step → 8. | ~16 ms | not started |
-| **A2** | The reassembly permute (§2.2): a Triton transpose, or an all-to-all layout in which a view suffices. | ~85 ms (≤ 134.6) | not started |
-| **A3** | **The bank exchange, redesigned.** Three candidates, compared on paper and in a microbenchmark before any is built. **(a)** Deduplicate by token id before the exchange (O15, deferred so far): a micro-batch of 32,768 tokens holds fewer distinct ids than tokens, and only distinct rows need to move, in both directions. The value scales with tokens ÷ distinct ids, which is the first thing to measure on FineWeb. **(b)** Row-sharded banks (§2.8): full-width rows, so a scatter by token index replaces the transposing permute; rows balanced across ranks by `id mod 4`. **(c)** Head-parallel attention (§2.1), which moves the same volume as today (T × 1920 values per rank per block per micro-step, 125.8 MB at mb 16), so its value is the permute plus whatever exchange it can overlap with compute. | 85–350 ms, with A2 | not started |
-| **A4** | FSDP2 forward all-gather: whatever A0 shows exposed; explicit forward prefetch. | ≤ ~113 ms | not started |
-| **A5** | S5, the bank path under compile (§2.6): 160 graph breaks per step. | unsized (A0) | not started |
+| **A0** | **Attribution first.** Kernel profile (steps 12–13) and time profiler of the current best and of its dense twin, the same config with `common.attention.type=gqa trainer.mem_parallel_size=null`. Output: a per-kernel table of AME minus dense, so every lead below gets a measured cost instead of an estimate, and the exposed (not overlapped) part of each NCCL collective. | measurement | **done** (§1.17): bank path ≈ 500 ms of critical path, AME glue ≈ 160 ms, attention at parity, AME GEMMs 172.7 ms cheaper than dense |
+| **A1** | S6, hoist the id all-gather (§2.7): 320 NCCL launches per step → 8. | ~16 ms | **done** inside O39 (§1.20) |
+| **A2** | The reassembly permute (§2.2): a Triton transpose, or an all-to-all layout in which a view suffices. | ~85 ms (≤ 134.6) | **done** inside O39: a view, folded into the consumer (§1.20) |
+| **A3** | **The bank exchange, redesigned.** Three candidates, compared on paper and in a microbenchmark before any is built. **(a)** Deduplicate by token id before the exchange (O15, deferred so far): a micro-batch of 32,768 tokens holds fewer distinct ids than tokens, and only distinct rows need to move, in both directions. The value scales with tokens ÷ distinct ids, which is the first thing to measure on FineWeb. **(b)** Row-sharded banks (§2.8): full-width rows, so a scatter by token index replaces the transposing permute; rows balanced across ranks by `id mod 4`. **(c)** Head-parallel attention (§2.1), which moves the same volume as today (T × 1920 values per rank per block per micro-step, 125.8 MB at mb 16), so its value is the permute plus whatever exchange it can overlap with compute. | 85–350 ms, with A2 | **in progress** as O39: the overlap route, which (c) cannot match because AME's q/k need no activations (§1.20) |
+| **A4** | FSDP2 forward all-gather: whatever A0 shows exposed; explicit forward prefetch. | ≤ ~113 ms | O40 tried (§1.19): inconclusive, retest on O39 |
+| **A5** | S5, the bank path under compile (§2.6): 160 graph breaks per step. | unsized (A0) | **retired**: no graph break since D2, and correct on CUDA (§1.18) |
 | **A6** | S3c, `sink_score` as a per-vocabulary gather (§2.5). | unsized (A0) | not started |
 | **A7** | Shared backbone: GEMM efficiency (§2.4); one kernel-by-kernel pass over the "triton glue" (§2.9, 731.8 ms, partly at its bandwidth bound); a Liger-style fused linear + cross-entropy kernel (§2.13). | 61–130 ms + unsized | not started |
 
@@ -1627,6 +1886,8 @@ part of the run.
 | date | step | best, 4 GPUs | best, 1 GPU | note |
 |---|---|---:|---:|---|
 | 2026-11-05 | plan written | 35.02% | 35.59% | nothing run under this plan yet |
+| 2026-11-06 00:05 | A0 | 35.06% (re-measured, 33502) | — | dense twin 44.51% |
+| 2026-11-06 00:25 | O40, O39 v1 | **35.79%** (O39 v1, 33512) | — | O40 not kept |
 
 ### 7.8 Running unattended
 
