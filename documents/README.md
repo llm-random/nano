@@ -42,6 +42,7 @@ will test, how fast it runs. Everything else is in `notes/archive/`.
 | [ame_implementation.md](notes/ame_implementation.md) | **What AME is**: the layer, the plumbing it needed, the spec choices settled to land it, what is verified, what is open |
 | [ame_experiments.md](notes/ame_experiments.md) | **The scientific program — unrun, and the next thing to do.** The claims as falsifiable statements, Stage 0/1/2, the decision tree, the reporting standard |
 | [ame_optimization_report.md](notes/ame_optimization_report.md) | **The MFU record (2026-11-04/05)**: every improvement tried and its effect, what is still worth trying, all ~66 experiments, the decision history, best config per model size. 26.84% → 35.02% at 4 GPUs, 37.96% at h16/1 GPU |
+| [ame_microbatch_sweep.md](notes/ame_microbatch_sweep.md) | **Micro-batch sweep, AME and dense (2026-11-05)**: all 48 runs, h12/h16/h20 × 1/4 GPUs — MFU, step, tokens/s, peak memory, fwd/bwd time per run |
 
 **Efficiency**
 

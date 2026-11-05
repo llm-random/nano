@@ -1,0 +1,86 @@
+# AME at H=12, four H100s, micro-batch 16 -- the missing cell of the h-sweep.
+#
+# The 2026-11-05 sweep measured five of the six (H, GPU-count) cells and left
+# this one unrun, so section 6.1 of ame_optimization_report.md reads "never
+# run" here. This config fills it.
+#
+# It is deliberately the *controlled* analogue of its two neighbours rather
+# than a tuned configuration. `h16_4gpu_mb16_o29.yaml` and
+# `h20_4gpu_mb16_mp4_o29.yaml` are the best-known 4-GPU configs for their H,
+# and both carry the same four choices:
+#
+#     micro-batch 16 (gradient_accumulation_steps 8 at batch_size 512)
+#     mem_parallel_size 4      -- the Q/K banks sharded across the four ranks
+#     reshard_after_forward false  (O29)
+#     sequence_length 2049     -- see below
+#
+# Holding all four fixed makes the three 4-GPU numbers a clean H-sweep: the
+# only thing that varies across them is H. That is worth more here than
+# squeezing this one cell.
+#
+# Measured 2026-11-05 (jobs 33073-33077): micro-batch 16 is NOT h12's best at
+# four GPUs, so do not quote this file's default as "h12's 4-GPU MFU".
+#
+#     mb  8  (ga 16)   24.66%   17.01 GiB
+#     mb 16  (ga  8)   28.53%   29.08 GiB   <- this file's default
+#     mb 32  (ga  4)   30.04%   53.22 GiB   <- best: add
+#                                              trainer.gradient_accumulation_steps=4
+#     mb 64  (ga  2)   OOM on the 12.28 GiB [64, 2048, 50304] bf16 logits
+#
+# The default stays at 16 because this file is the controlled analogue of the
+# other two 4-GPU rows. See ame_optimization_report.md section 1.15.
+#
+# sequence_length 2049, not 2048: `_preprocess_input` takes `batch[:, :-1]` for
+# next-token targets, so the model sees 2048 -- which is 16 * 128, and
+# flex_attention's row-blocks are 128-wide. At 2047 the last row-block is
+# ragged and costs 479.9 ms per step at the h20 shape (job 32688). Every config
+# in this directory carries it. It reads like a typo; it is not one.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h12
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  # 2049, not 2048: the model sees width - 1 = 2048, which is 16 * 128.
+  sequence_length: 2049
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, held across the whole sweep: this is a
+  # throughput run, and changing two things at once would make it unreadable.
+  gradient_accumulation_steps: 8 # micro-batch 16 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  mem_parallel_size: 4
+  distributed:
+    fsdp2:
+      reshard_after_forward: false # O29, worth 50 ms at h20 for 1.1 GiB
+
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: ame_h12_4g16
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h12_4gpu_mb16_o29
+    tags:
+      - ame
+      - h12
+      - multigpu
+      - hsweep
+      - mp4
+      - sinkmerge
+      - align

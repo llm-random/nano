@@ -1,8 +1,10 @@
 # AME MFU optimization — report
 
-**Period:** 2026-11-04 20:05 → 2026-11-05 11:21 (cluster local time, UTC+1).
+**Period:** 2026-11-04 20:05 → 2026-11-05 11:21 (cluster local time, UTC+1),
+then a reproduction and micro-batch sweep 2026-11-05 17:11 → 18:27.
 **Platform:** entropy `h100` partition, H100 80GB SXM, account `mim`, QOS
-`j321m_h100`. Branch `ame_optimize`.
+`j321m_h100` until 11:21; QOS `mstefaniak_h100` (Maciej's own account, same
+node) for the evening block. Branch `ame_optimize`.
 **Model:** AME h20 (H-balanced, 20 blocks, dmodel 1280, 2.576B bank + 587M
 backbone, 3.768 GFLOPs/token) unless stated; h16 and h12 where noted.
 **Workload:** global batch 512 × 2048, 30 steps, LR 2^-12, fineweb, seed fixed.
@@ -11,7 +13,8 @@ All MFU figures are **per GPU** (`tokens/s × GFLOPs/token ÷ (989 TFLOP/s ×
 world_size)`) and are the **mean over steps ≥ 15**, which is what
 `scripts/run_summary.py` computes (`STEADY_FROM = 15`) and what the §3 ledger
 in `ame_optimization_plan.md` records. Figures agree with that ledger
-throughout.
+throughout; the evening block postdates it and is computed the same way from
+the job logs.
 
 **One run is aggregation-sensitive and it matters.** For **O9** the mean over
 steps ≥ 15 is 26.16% while the median is 27.32% — a 1.13-point gap that
@@ -42,6 +45,13 @@ below:
    (33.30%). The bank machinery — id all-gather, activation all-to-all,
    reassembly permute — is work that does not exist at world size 1 and grows
    while per-rank compute shrinks.
+
+**Reproduced, and the micro-batch question closed (2026-11-05 evening, §1.15).**
+On Maciej's own account, all five best configurations re-measured within 0.23
+points with identical peak memory, and h12 at 4 GPUs was measured for the first
+time (30.04%). A 24-run sweep then showed every best configuration already sits
+at the largest micro-batch that fits: MFU rises at every doubling until OOM,
+and at global batch 512 there is no micro-batch in between.
 
 ---
 
@@ -338,10 +348,13 @@ micro-batch gain still outweighs that loss; by h12 it does not.
 |---|---:|---:|
 | h20 | 34.17% | **35.02%** |
 | h16 | **37.96%** | 33.30% |
+| h12 | 34.46% | 30.04% |
 
 At 1 GPU h20 is memory-starved into micro-batch 4 and h16's 4× micro-batch
 wins. At 4 GPUs the banks shard, h20 gets micro-batch 16 too, and its higher
-arithmetic intensity decides it.
+arithmetic intensity decides it — the 4-GPU order is exactly the order of
+GFLOPs/token. (h12 at 4 GPUs: measured 2026-11-05 evening, job 33076, at its best
+micro-batch of 32; §1.15.)
 
 ### 1.13 O11 — fused-linear-CE (lifted from the cut list 2026-11-05)
 
@@ -433,6 +446,92 @@ TFLOP/s against ~989 for bf16) on the largest matmul in the step.
   fused-vs-unfused equivalence.
 - **`tests/test_fused_linear_ce.py`** — 14 tests, float64, tolerance of a few
   ulps with a negative control on each that misses by 1e-2 or more.
+
+### 1.15 Micro-batch sweep — every cell (2026-11-05 evening)
+
+Run on Maciej's own account (`mstefaniak_h100`, same node), with
+`trainer.profile_timers=true` throughout. The question: is each §6.1
+configuration at its best micro-batch? 24 runs, four per (model, GPU count)
+cell, bracketing the known best with smaller micro-batches below and an OOM
+above. Everything except micro-batch is held at the §6.1 configuration; global
+batch stays 512, so `gradient_accumulation_steps = 512 ÷ (micro-batch × GPUs)`.
+Three points are the reproduction runs, whose configs are identical.
+
+**MFU/GPU, %** (bold = best in the row; jobs in §3):
+
+| model | GPUs | mb 1 | mb 2 | mb 4 | mb 8 | mb 16 | mb 32 | mb 64 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| h12 | 1 | | | | 29.57 | 33.01 | **34.57** | OOM |
+| h16 | 1 | | | 25.45 | 34.93 | **37.73** | OOM | |
+| h20 | 1 | 16.51 | 31.13 | **35.45** | OOM | | | |
+| h12 | 4 | | | | 24.66 | 28.53 | **30.04** | OOM |
+| h16 | 4 | | | 24.83 | 30.34 | **33.29** | OOM | |
+| h20 | 4 | | | 30.23 | 33.48 | **34.91** | OOM | |
+
+**1. In all six cells the best micro-batch is the largest that fits.** MFU
+rises at every doubling until the next one OOMs. The §6.1 configurations were
+already there, so the sweep moves no best-known number; it confirms each one
+is the optimum for this batch size. That is exact, not sampled: micro-batch ×
+ga × GPUs = 512 = 2⁹ admits only powers of two, so no micro-batch exists
+between the last that fits and the first that OOMs.
+
+**2. Five of the six OOMs die allocating exactly the bf16 logits tensor**
+`[micro-batch, 2048, 50304]`: 12.28 GiB at mb 64 (h12, both GPU counts), 6.14
+GiB at mb 32 (h16, both), 1.54 GiB at mb 8 (h20, 1 GPU). The sixth, h20 at 4
+GPUs and mb 32, failed on a 320 MiB allocation with 79.12 of 79.18 GiB in use,
+nowhere near fitting. So the logits tensor is the wall almost everywhere, which
+is what O11 targets (§1.13); §2.13 sets the price O11 would have to beat.
+
+**3. Each doubling returns less than the one before**, 0.16–0.44× of it:
+
+| cell | second-to-last doubling | last doubling that fits |
+|---|---:|---:|
+| h12, 1 GPU | 8→16: +11.6% | 16→32: +4.7% |
+| h16, 1 GPU | 4→8: +37.2% | 8→16: +8.0% |
+| h20, 1 GPU | 1→2: +88.6% | 2→4: +13.9% |
+| h12, 4 GPU | 8→16: +15.7% | 16→32: +5.3% |
+| h16, 4 GPU | 4→8: +22.2% | 8→16: +9.7% |
+| h20, 4 GPU | 4→8: +10.8% | 8→16: +4.3% |
+
+(relative MFU change). At the small end the step is overhead-bound: h20 at 1
+GPU and mb 1 runs 512 micro-steps per optimizer step, and its forward (12.2 s)
+costs more than its backward (11.8 s), the reverse of every other run.
+
+**4. The MFU lost going from 1 to 4 GPUs grows as the model shrinks:** h20
+−1.5%, h16 −11.8%, h12 −13.1% (same-session best points, relative). h12 has the
+least compute per token (1.053 GFLOPs) to set against the bank machinery's
+fixed per-step cost, so it is the weakest 4-GPU cell, as §6.4 had predicted.
+
+**5. The time profiler finds no gaps between sections.** At every best point the
+GPU-timed sections (data_h2d, forward, backward, clip, bank_reduce, optim,
+bank_step) cover 99.79–99.95% of the step; backward is 68.3–69.1% of it and
+forward 29.7–30.5%. Whatever MFU is left is inside the forward and backward
+kernels, not in orchestration. The `log` section (46–186 ms) is a host timer
+around the loss `.item()` sync, so it overlaps the GPU sections rather than
+adding to them, the same reading as the `log = 151.5 ms` correction in §4.
+
+**Reproduction.** The five cells measured in the morning re-measured within
+0.23 points with identical peak memory, h16 at 4 GPUs to the millisecond:
+
+| cell | morning | evening | Δ points | peak GiB (both) |
+|---|---:|---:|---:|---:|
+| h12, 1 GPU, mb 32 | 34.46% (32832) | 34.57% (33022) | +0.11 | 66.54 |
+| h16, 1 GPU, mb 16 | 37.96% (32825) | 37.73% (33034) | −0.23 | 68.35 |
+| h20, 1 GPU, mb 4, no FSDP2 | 35.59% (32834) | 35.45% (33051) | −0.14 | 66.87 |
+| h16, 4 GPU, mb 16 | 33.30% (32856) | 33.29% (33071) | −0.01 | 44.53 |
+| h20, 4 GPU, mb 16 | 35.02% (32847) | 34.91% (33067) | −0.11 | 64.63 |
+
+The morning runs had `profile_timers` off and the evening runs had it on; its one
+`torch.cuda.synchronize()` per step is inside these deltas, so it costs at most
+a few tenths of a point.
+
+**Provenance.** wandb project `ideas_cv/nano-ame`. Sweep runs are named
+`ame_<model>_<GPUs>g_mb<N>_entr`; the three 1-GPU reproductions are
+`ame_h12_1gpu_mb32_entr`, `ame_h16_1gpu_mb16_entr` and
+`ame_h20_1gpu_mb4_nofsdp_entr`. Each one's cemetery branch is its run name plus
+the submit timestamp. The h12/4-GPU base is the one new config,
+`configs/ame/h12_4gpu_mb16_o29.yaml`; every other point is a §6.1 config with
+`trainer.gradient_accumulation_steps` overridden on the command line.
 
 ---
 
@@ -598,6 +697,27 @@ careful pass.
 **Deferred:** O14/O15 fused gather, O19/O20 per-group LR, O21–O27 schedule
 machinery.
 
+### 2.13 The price a memory saving must beat (from the §1.15 sweep)
+
+Every cell's best micro-batch is the largest that fits, and in five of six the
+next one is blocked by the logits tensor. So any memory saving (O11, O10, a
+fused kernel) is worth exactly **what the next micro-batch doubling returns,
+minus its own cost**. The sweep bounds the first term. Each doubling has
+returned 0.16–0.44× of the one before; carrying each cell's own decay one step
+further puts the next doubling at **+1.7% to +4.3% relative**: h16 at 4 GPUs
++4.3%, every other cell +1.7–2.2%. At h16/4 GPU that agrees with the +4.7%
+§1.13 backed out of a measured O11 run. These are extrapolations, not
+measurements.
+
+O11 v1 costs 7.0%, which is why it loses in every cell. **A logits-free loss
+path costing under ~1.7% of the step would pay in every cell; under ~4%, at
+h16/4 GPU only.** The untried route is a single fused linear + cross-entropy
+kernel that computes each chunk's logits, softmax and gradient in one Triton
+pass — so neither §1.13 v1's recompute nor v2/v3's separate unfused ops — the
+approach of Liger-Kernel's `LigerFusedLinearCrossEntropyLoss`. Untested here.
+Its cost on this model is the whole question, so it needs a gate run before
+anything else.
+
 ---
 
 ## 3. Experiment log
@@ -669,6 +789,44 @@ cancelled, or a benchmark rather than a training run).
 | 11:03 | 32870 | **O11 v2**, gradients-in-forward | 20.87% | My bug: fp32 contractions, 16× matmul penalty. |
 | 11:15 | 32876 | **O11 v3**, model-dtype contractions | 30.38% | Fixed, but still below v1. **The recompute was cheaper than hand-rolling the softmax.** |
 
+### 2026-11-05 (evening) — Maciej's own account: reproduction and the micro-batch sweep
+
+QOS `mstefaniak_h100`, same node, `trainer.profile_timers=true` on every run.
+Configs are the §6.1 files, with only `trainer.gradient_accumulation_steps`
+varied (shown as micro-batch × ga). **Times here are job start**; the sweep's
+21 jobs were all submitted 17:37–17:45 and ran as the 8-GPU cap allowed.
+
+| time | job | what it tested | MFU | outcome / conclusion |
+|---|---|---|---:|---|
+| 17:11 | 33014 | CPU-only `srun` on h100a: env, FineWeb, HF cache | — | torch 2.7.1+cu128 from the account's own pixi env; data readable. |
+| 17:16 | 33022 | **repro** h12, 1 GPU, 32 × 16 | 34.57% | Morning 34.46%. Peak 66.54 GiB, identical. |
+| 17:22 | 33034 | **repro** h16, 1 GPU, 16 × 32 | 37.73% | Morning 37.96%. Peak 68.35 GiB, identical. |
+| 17:28 | 33051 | **repro** h20, 1 GPU, 4 × 128, no FSDP2 | 35.45% | Morning 35.59%. Peak 66.87 GiB, identical. |
+| 17:37 | 33065 | sweep: h20, 4 GPU, 4 × 32 | 30.23% | |
+| 17:42 | 33078 | sweep: h12, 1 GPU, 8 × 64 | 29.57% | |
+| 17:42 | 33066 | sweep: h20, 4 GPU, 8 × 16 | 33.48% | |
+| 17:42 | 33079 | sweep: h12, 1 GPU, 16 × 32 | 33.01% | |
+| 17:46 | 33080 | sweep: h12, 1 GPU, 64 × 8 | — | **OOM**: 12.28 GiB (the logits) with 70.82 GiB in use. |
+| 17:47 | 33081 | sweep: h16, 1 GPU, 4 × 128 | 25.45% | |
+| 17:47 | 33082 | sweep: h16, 1 GPU, 8 × 64 | 34.93% | |
+| 17:47 | 33083 | sweep: h16, 1 GPU, 32 × 16 | — | **OOM**: 6.14 GiB (the logits) with 77.08 GiB in use. |
+| 17:47 | 33084 | sweep: h20, 1 GPU, 1 × 512 | 16.51% | Overhead-bound: forward 12.2 s > backward 11.8 s. |
+| 17:47 | 33085 | sweep: h20, 1 GPU, 2 × 256 | 31.13% | |
+| 17:48 | 33086 | sweep: h20, 1 GPU, 8 × 64 | — | **OOM**: 1.54 GiB (the logits) with 79.08 GiB in use. |
+| 17:54 | 33067 | **repro + sweep** h20, 4 GPU, 16 × 8 | 34.91% | Morning 35.02%. Peak 64.63 GiB, identical. |
+| 17:58 | 33068 | sweep: h20, 4 GPU, 32 × 4 | — | **OOM**: 320 MiB with 79.12 GiB in use. |
+| 18:01 | 33069 | sweep: h16, 4 GPU, 4 × 32 | 24.83% | |
+| 18:05 | 33070 | sweep: h16, 4 GPU, 8 × 16 | 30.34% | |
+| 18:09 | 33071 | **repro + sweep** h16, 4 GPU, 16 × 8 | 33.29% | Morning 33.30%; step 1.689 s in both. |
+| 18:12 | 33072 | sweep: h16, 4 GPU, 32 × 4 | — | **OOM**: 6.14 GiB (the logits) with 75.18 GiB in use. Reproduces 32853. |
+| 18:15 | 33073 | **first** h12 at 4 GPU: 8 × 16 | 24.66% | |
+| 18:18 | 33075 | h12, 4 GPU, 16 × 8 | 28.53% | The controlled analogue of the other 4-GPU rows; not h12's best. |
+| 18:21 | 33076 | h12, 4 GPU, 32 × 4 | **30.04%** | **Best h12 at 4 GPUs.** Weakest cell of the grid. |
+| 18:24 | 33077 | h12, 4 GPU, 64 × 2 | — | **OOM**: 12.28 GiB (the logits) with 78.12 GiB in use. |
+
+Each OOM is a `torch.OutOfMemoryError` on a 79.18 GiB card, with nothing else
+wrong in the log; all six are the intended upper brackets.
+
 ### Jobs on this account NOT part of this work
 
 Listed so the log is exhaustive and the next person does not have to re-derive
@@ -681,6 +839,12 @@ which `sacct` rows belong here.
 | 32818, 32845 | `update_pixi` | Environment helpers, not experiments. |
 | 32867, 32886, 32890 | `h16_chinchilla` | 4-GPU array job on the shared `j321m` account that **I did not submit** — it appeared mid-session and I left it alone. |
 | 32682, 32683 | `ame_bench_attn` | Covered above as the 32681–32685 benchmark block. |
+
+**On `mstefaniak` (2026-11-05), before the evening block:** 32926, 32927,
+32979, 32980, 32983 (CPU-only checks), 32981 (`update_pixi`, the env build),
+32982 (`envcheck`, failed in 1 s and rerun as 32983), and 32987 `mfu_h4` and
+32990 `ame_h20` (1-GPU smoke tests, 15:48 and 15:52). These were account
+bring-up, not this work.
 
 ### Correctness gates (not throughput runs)
 
@@ -835,6 +999,68 @@ float32 reassociation; and the "logits never materialised" probe hooked the
 module while the new code calls `F.linear` directly, passing vacuously. A test
 whose mechanism has drifted from the code is worse than no test.
 
+### 2026-11-05, ~17:10 — Maciej moves the work to his own account
+
+Maciej had a new entropy account, `mstefaniak`, configured on his name, and
+asked that the work stop using the shared `j321m` one. The ask: work from a
+separate worktree on `ame_optimize` so his checkout stays on `ame_main`, check
+that the account works, and reproduce the MFU for h12/h16/h20 on 1 and 4 GPUs
+(six runs) with the time profiler on. I made the worktree (`~/code/nano-ame`)
+and checked the account from a CPU-only `srun` on h100a (job 33014: the
+account's own pixi env, FineWeb readable). I also wrote the one config that did
+not exist: h12 at 4 GPUs, as the controlled analogue of the other two 4-GPU
+rows (mb 16, `mem_parallel_size` 4, O33), with a header saying mb 32 was the
+likelier optimum. Submits went out one at a time, one `--test-only` probe each.
+The three 1-GPU runs reproduced within 0.23 points with identical peak memory.
+
+### 2026-11-05, ~17:35 — Maciej widens it: a micro-batch sweep, all at once
+
+This came before the 4-GPU reproductions started. Submit everything at once,
+and for each (model, GPU count) find the best micro-batch with a worse one on
+each side, or an OOM above. At least 3 runs per cell and 18 in total, ending
+with one table of every MFU. I chose 4 per cell (24 runs), reusing the three
+finished reproductions because their configs were identical, and queued the
+4-GPU jobs first so they would not wait behind a wall of 1-GPU ones.
+
+Two mechanical problems on the way; neither queued anything wrong:
+
+- **The repo's `^key` grid could not express it.** `TrainerSchema` rejects a
+  `^gradient_accumulation_steps` key at compose time. So each point became a
+  plain `run_exp.py` call with overrides, submitted serially, because every
+  invocation commits and pushes from the same repo.
+- **The first serial loop died after one attempt.** fabric forwarded the loop's
+  stdin to the remote shell (`OSError: Socket is closed`, before cloning).
+  Rerun with `< /dev/null`; all 21 submitted 17:37–17:45.
+
+Under "submit all at once" the per-submit probe became one probe per job shape:
+a 1-GPU and a 4-GPU `--test-only` immediately before the batch. Both named only
+`lukaskoz` jobs as preemption candidates; `wojszalek`'s 32991 never appeared and
+ran throughout. Preempting `lukaskoz` is acceptable here (§4, 08:49). Which of
+his jobs Slurm cancelled cannot be read from this account, because `sacct`
+shows only one's own jobs. Two long `px_*` jobs the probes listed, 32955
+(2 h 45 m) and 32956 (≥1 h 42 m), vanished in windows when a job of mine started
+on a full node.
+
+### 2026-11-05, ~17:49 — entropy stops accepting new connections from the laptop
+
+New SSH connections began timing out at TCP connect (`193.0.109.82:22`), while
+already-open sessions kept working. That is a firewall drop, most likely set
+off by this session's own burst: ~21 submissions in 8 minutes, each its own
+SSH session, then one `scp` per log. The jobs were unaffected. I stopped making
+new connections; Maciej switched to a VPN at ~18:03 and the new address
+connected at once. After that, logs came back through one SSH session as a tar
+stream.
+
+### 2026-11-05, 18:27 — the sweep closes the micro-batch question
+
+All six cells bracket cleanly, and every §6.1 configuration is already at the
+largest micro-batch that fits (§1.15). h12 at 4 GPUs, measured for the first
+time, peaks at mb 32 (30.04%). That is above the mb 16 I had configured as the
+controlled analogue, and it is the weakest cell of the grid, as §6.4 predicted.
+The result changes no recommended setting. It changes where the next gain has
+to come from: a memory saving cheaper than the next micro-batch doubling
+returns (§2.13), or the forward and backward kernels themselves.
+
 ### Corrections I made to my own earlier claims
 
 Recorded because several changed what was worked on next.
@@ -866,9 +1092,13 @@ Recorded because several changed what was worked on next.
 `sequence_length: 2049` (always — it is a correctness fix as much as a speed
 one), the S2 sink merge and S3b merge form (both in `ame.py`, unconditional),
 `mem_parallel_size = world_size` at 4 GPUs, `reshard_after_forward: false`,
-`fused_linear_ce: false` (memory tool, not a speed one).
+`fused_linear_ce: false` (memory tool, not a speed one). **Micro-batch:** the
+largest that fits, which is what every §6.1 configuration already uses; the
+§1.15 sweep confirmed it in all six cells.
 
-**Cluster:** j321m's home hit its disk quota during the session. I deleted my
+**Cluster:** the evening block ran on `mstefaniak`, not `j321m`; this
+paragraph is about the shared account. j321m's home hit its disk quota during
+the session. I deleted my
 own profiler traces (1.9 GB). The cemetery is **93 GB**, of which **~35 GB is
 two `brrrrr_*` runs' checkpoints** from 2026-11-04 (8 × 4.4 GB `.distcp`) that
 are not mine. The filesystem has 7.8 TB free — this is purely the per-user
@@ -902,7 +1132,7 @@ ceiling for the % column is B2 = 44.44%.
 | model | GPUs | best MFU/GPU | step | tokens/s | micro-batch × ga | peak GiB | % of dense | job | config |
 |---|---:|---:|---:|---:|---:|---:|---:|---|---|
 | **h12** | **1** | **34.46%** | 3.240 s | 323,631 | 32 × 16 | 66.54 | 77.5% | 32832 | `ame/h12_1gpu_mb32.yaml` |
-| h12 | 4 | *never run* | — | — | — | — | — | — | — |
+| **h12** | **4** | **30.04%** | 0.929 s | 1,128,504 | 32 × 4 | 53.22 | 67.6% | 33076 | `ame/h12_4gpu_mb16_o29.yaml` + `trainer.gradient_accumulation_steps=4` |
 | **h16** | **1** | **37.96%** | 5.924 s | 177,001 | 16 × 32 | 68.35 | **85.4%** | 32825 | `ame/h16_1gpu_mb16.yaml` |
 | **h16** | **4** | **33.30%** | 1.689 s | 621,015 | 16 × 8 | 44.53 | 74.9% | 32856 | `ame/h16_4gpu_mb16_o29.yaml` |
 | **h20** | **1** | **35.59%** | 11.226 s | 93,404 | 4 × 128 | 66.87 | 80.1% | 32834 | `ame/h20_1gpu_mb4_nofsdp.yaml` |
@@ -912,6 +1142,11 @@ GFLOPs/token, which is why the MFU columns are not directly comparable across
 rows: h12 **1.053**, h16 **2.121**, h20 **3.768**. A smaller model carries less
 compute per token, so equal MFU does not mean equal efficiency of the same
 work — and raw tokens/s across rows is a different model's tokens.
+
+Every row was re-measured on 2026-11-05 evening on Maciej's own account, within
+0.23 points and with identical peak memory; the h12/4-GPU row comes from that
+block. Every row is also the largest micro-batch that fits: the next power of
+two OOMs in all six (§1.15).
 
 ### 6.2 What each best configuration contains
 
@@ -923,6 +1158,7 @@ They differ in the sharding and head settings:
 | | `mem_parallel_size` | sharding | O33 `reshard_after_forward` | O37 FSDP2 off | O11 fused CE |
 |---|---:|---|---|---|---|
 | h12, 1 GPU | 1 | FSDP2 (degenerate) | — | no | no |
+| h12, 4 GPU | 4 | FSDP2 + column-sharded banks | **false** (not A/B'd at h12) | n/a | no |
 | h16, 1 GPU | 1 | FSDP2 (degenerate) | — | **no** — tested, −2.5% | **no** — tested, −7.0% |
 | h16, 4 GPU | 4 | FSDP2 + column-sharded banks | **false** | n/a | **no** — tested at mb 32, −2.6% |
 | h20, 1 GPU | 1 | **none** (O37) | n/a | **yes**, +4.2% | no |
@@ -951,20 +1187,21 @@ but 0.6 points *less* efficient per GPU.
 because the bank machinery (id all-gather, activation all-to-all, reassembly
 permute — 350.2 ms/step at 4 GPUs) does not exist at world size 1 and grows
 while per-rank compute shrinks. If MFU is the objective and the model fits, use
-fewer GPUs; if wall clock is the objective, use more and accept the loss.
+fewer GPUs; if wall clock is the objective, use more and accept the loss. The
+loss is largest for the smallest model: from 1 to 4 GPUs h20 loses 1.5%, h16
+11.8% and h12 13.1% (same-session best points, §1.15), because h12 has the
+least compute per token to set against that fixed cost.
 
 ### 6.4 Not measured
 
 Stated so nothing here is read as a complete sweep.
 
-- **h12 at 4 GPUs** — never submitted. Expected to be the weakest of the grid
-  on MFU: lowest arithmetic intensity (1.053 GFLOPs/token) meeting the largest
-  relative communication cost.
+- **Micro-batches between powers of two.** At global batch 512 there are none
+  (micro-batch × ga × GPUs = 2⁹), so §1.15's optima are exact for this batch
+  size; testing, say, 24 or 48 would need a different global batch.
 - **Any model at 2 or 3 GPUs.** The crossover between h16's 1-GPU 37.96% and
   its 4-GPU 33.30% is unlocated; 2 GPUs would bound it.
 - **h12 and h16 at 4 GPUs without O33**, so their O33 deltas are inferred from
   h20's rather than measured.
-- **h16 at 1 GPU above micro-batch 16** — 68.35 of 80 GiB leaves no room, and
-  O11 buys the room at a cost larger than the micro-batch returns.
 - **h14, h18.** The sweep has three points 3.5 MFU apart with a clear peak at
   h16; these would interpolate rather than discover.
