@@ -80,12 +80,14 @@ def update_remote_pixi(cfg: OmegaConf):
         print(f"  1. Connect to {server}")
         print(f"  2. Create temporary directory in $HOME for pixi config")
         print(f"  3. Copy pixi.toml (and pixi.lock if present) there")
-        print(f"  4. Run 'pixi install' on compute node using srun with SLURM params:")
+        print(
+            f"  4. Run 'pixi install' as a batch job (sbatch --wait) with SLURM params:"
+        )
         slurm_params = create_slurm_parameters(slurm_config)
         for param in slurm_params:
             print(f"      {param}")
         print(
-            "  5. Inside srun: mkdir -p PIXI_HOME, copy from temp dir to PIXI_HOME, run pixi install"
+            "  5. Inside the job: mkdir -p PIXI_HOME, copy from temp dir to PIXI_HOME, run pixi install"
         )
         return
 
@@ -103,7 +105,7 @@ def update_remote_pixi(cfg: OmegaConf):
         connection.run(f"mkdir -p {remote_tmp_dir}", hide=True)
 
         # Now that we know the real remote path, set SLURM output there
-        slurm_config["output"] = f"{remote_tmp_dir}/pixi_install_%j.out"
+        slurm_config["output"] = f"{remote_tmp_dir}/slurm-%j.out"
 
         # Copy pixi.toml / pixi.lock into $HOME temp dir
         print(f"Copying pixi.toml to {remote_tmp_dir}/...")
@@ -113,14 +115,13 @@ def update_remote_pixi(cfg: OmegaConf):
             print(f"Copying pixi.lock to {remote_tmp_dir}/...")
             connection.put(str(pixi_lock), remote=f"{remote_tmp_dir}/pixi.lock")
 
-        # Run pixi install on compute node using srun
-        print(f"\nRunning 'pixi install' on compute node...")
+        # Batch job, not srun: only batch jobs record StdOut, which ,ftails reads.
+        print(f"\nSubmitting 'pixi install' as a batch job...")
 
-        # Build srun command with SLURM parameters
         slurm_params = create_slurm_parameters(slurm_config)
-        # Convert #SBATCH flags to srun flags (remove #SBATCH prefix)
-        srun_flags = [param.replace("#SBATCH ", "") for param in slurm_params]
-        srun_cmd = "srun " + " ".join(srun_flags)
+        sbatch_flags = [param.replace("#SBATCH ", "") for param in slurm_params]
+        # --wait blocks until the job ends and exits with the job's exit code.
+        sbatch_cmd = "sbatch --wait " + " ".join(sbatch_flags)
 
         # Set up PATH and other environment variables from the cluster config
         text = "\n".join(script_lines)
@@ -144,7 +145,7 @@ def update_remote_pixi(cfg: OmegaConf):
 
         env_commands = "\n".join(env_setup) if env_setup else ""
 
-        # mkdir + copy happen on the compute node, via srun
+        # mkdir + copy happen on the compute node, inside the job
         base_command = f"""\
 ts=$(date +%Y_%m_%d_%H_%M_%S)
 mkdir -p "$PIXI_HOME"
@@ -176,13 +177,19 @@ pixi install
 
         command_file = f"{remote_tmp_dir}/run_pixi_install.sh"
         connection.run(f"echo '{install_command}' > {command_file}")
-        full_command = f"{srun_cmd} bash -le {command_file}"
+        full_command = f'{sbatch_cmd} --wrap="bash -le {command_file}"'
 
-        result = connection.run(full_command, pty=True)
+        result = connection.run(full_command, pty=True, warn=True)
+        log = connection.run(
+            f"ls {remote_tmp_dir}/slurm-*.out", hide=True, warn=True
+        ).stdout.strip()
+        print(f"\nLog: {log}")
 
         if result.ok:
             print("\n✓ Pixi environment updated successfully!")
         else:
+            # The job's output only goes to the log, so show how it ended.
+            connection.run(f"tail -n 20 {log}", warn=True)
             print("\n✗ Error running pixi install")
             sys.exit(1)
 
