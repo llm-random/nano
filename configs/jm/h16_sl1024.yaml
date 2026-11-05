@@ -15,7 +15,7 @@ common:
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 10_000
-  learning_rate: 1e-3w
+  learning_rate: 1e-3
 
   checkpoint:
     save:
