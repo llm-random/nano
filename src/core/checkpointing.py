@@ -8,6 +8,8 @@ import torch.distributed.checkpoint as dcp
 from src.core.metric_loggers import WandbLogger
 import logging
 
+from src.core.memory_parallel import get_controller
+
 logger = logging.getLogger(__name__)
 
 
@@ -137,3 +139,10 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
             scheduler.load_state_dict(checkpoint["scheduler"])
             logger.info(f"Loaded non-sharded sheduler from '{checkpoint_path}'")
             logger.debug(f"Loaded non-sharded checkpoint from '{checkpoint_path}'")
+
+        # The memory-parallel banks are not in either state_dict above: they are
+        # plain (non-DTensor) column slices that share one fully-qualified name
+        # across ranks, so they travel as a rank-local sidecar.
+        banks = get_controller(model)
+        if banks is not None:
+            banks.load(checkpoint_path)
