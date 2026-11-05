@@ -1,7 +1,7 @@
 # AME — experimental program
 
-The empirical companion to [`ame.md`](ame.md) (the design record) and
-[`baselines.md`](baselines.md) (who we compare against and how we report it). Those two
+The empirical companion to the design record and the baseline standard. Both live
+**outside this repo**, in `~/code/research/ame/` — `ame.md` and `baselines.md`. Those two
 say what the method *is* and what a fair table looks like. This file says **what we are
 actually trying to find out, in what order, with what controls, and what result would
 make us stop.**
@@ -10,8 +10,15 @@ Written to be read before any compute is spent. If you read only two sections, r
 **§2 (the claims, as falsifiable statements)** and **§3 (Week 0 — the measurements that
 need no model)**.
 
-Status: nothing here has been run. Every number quoted is an estimate from `ame.md`,
-carried here so that a measurement can contradict it.
+**Status: proposed — still unrun as of 2026-11-05, and still the live plan.** Every
+number quoted is an estimate from `ame.md`, carried here so that a measurement can
+contradict it.
+
+Nothing in the 2026-11-04/05 efficiency work touched this program: those runs measured
+**throughput**, not quality, so "nothing here has been run" is still literally true. Its
+two prerequisites — the weight-decay fix and the α/β instrumentation — are both done
+(`archive/ame_review_and_fixes.md` Phase 2), so **Stage 0 is unblocked**. This is the
+next thing to do with AME.
 
 **Contents**
 0. [Compressed method reference](#0-compressed-method-reference)

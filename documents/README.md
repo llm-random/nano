@@ -13,6 +13,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 |---|---|---|
 | `concepts/` | Definitions: what a term means, how a thing is constructed, what it implies. Should stay true for months. | long-lived |
 | `notes/` | Task notebooks: a concrete investigation, its plan, its results, its open items. Dated, append-only. | per-task |
+| `notes/archive/` | Task notebooks that are **closed**: the work finished, or a later doc supersedes them. Kept for the evidence and the reasoning, not consulted for current state. | retired |
 | `scripts/` | Small runnable companions to the docs: parameter/FLOP calculators, figure notebooks. Importable, no side effects on import. | long-lived |
 
 ### concepts/
@@ -33,19 +34,53 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 
 ### notes/
 
+**AME** — the id-indexed Q/K attention method. Three live docs: what it is, what we
+will test, how fast it runs. Everything else is in `notes/archive/`.
+
 | Doc | Topic |
 |---|---|
-| [ame_implementation.md](notes/ame_implementation.md) | **The AME record**: the id-indexed Q/K attention layer, the plumbing it needed, the spec choices settled to land it, what is verified, the 8 review findings and fix-plan progress, and what is open |
-| [ame_code_review.md](notes/ame_code_review.md) | Review of the AME implementation (2026-11-03): eight confirmed issues, headed by the GPU path running FlexAttention uncompiled and weight decay confounding the α/β readout — all fixed |
-| [ame_fix_plan.md](notes/ame_fix_plan.md) | The four-phase plan that fixes them (all applied 2026-11-03), what each phase was verified with, and the three things left out on purpose |
+| [ame_implementation.md](notes/ame_implementation.md) | **What AME is**: the layer, the plumbing it needed, the spec choices settled to land it, what is verified, what is open |
+| [ame_experiments.md](notes/ame_experiments.md) | **The scientific program — unrun, and the next thing to do.** The claims as falsifiable statements, Stage 0/1/2, the decision tree, the reporting standard |
+| [ame_optimization_report.md](notes/ame_optimization_report.md) | **The MFU record (2026-11-04/05)**: every improvement tried and its effect, what is still worth trying, all ~66 experiments, the decision history, best config per model size. 26.84% → 35.02% at 4 GPUs, 37.96% at h16/1 GPU |
+
+**Efficiency**
+
+| Doc | Topic |
+|---|---|
+| [training_efficiency.md](notes/training_efficiency.md) | **The single-GPU efficiency record, chronological**: baseline audit and MFU tables, the nanoGPT gap analysis, the six-variant ablation, kernel-level attribution, the compile work, final results (46.4% MFU at h20), the measurement protocol. Merges five earlier notes |
+| [multigpu_efficiency.md](notes/multigpu_efficiency.md) | The multi-GPU counterpart: same conventions, same protocol, FSDP2 and DDP at 4×H100 |
+| [multigpu_compile_scope_plan.md](notes/multigpu_compile_scope_plan.md) | The plan that closed the compile-scope gap under FSDP2 — `compile_blocks_full`, 33.7% → 44.3% |
 | [long-context-attention.md](notes/long-context-attention.md) | How deployed 200k+ models avoid all-to-all attention: 8 published methods, their quality evidence, and the attention-cost retention `c(L)` each implies for our FLOP charts |
-| [claude-code-machine-setup.md](notes/claude-code-machine-setup.md) | Replicating the Claude Code setup (settings, skills, agent memory) on a new machine via the `claude-sync` repo |
-| [cluster_fixes_lem_helios.md](notes/cluster_fixes_lem_helios.md) | lem and helios blockers: $HOME quota, HF cache permissions, PIXI_HOME -- diagnosis and fix plan |
-| [main_baseline_audit.md](notes/main_baseline_audit.md) | The audit that made main a clean branch point: test tiers, trainer contracts, config fixes |
+
+**Repo and branch work**
+
+| Doc | Topic |
+|---|---|
+| [main_baseline_audit.md](notes/main_baseline_audit.md) | The audit that made `main` a clean branch point: test tiers, trainer contracts, config fixes |
+| [dead_code_cleanup_goal.md](notes/dead_code_cleanup_goal.md) | Dead code on the pretraining branch, verified by whole-repo reference scan + `ruff F401,F811,F841` |
+| [typed_config_goal.md](notes/typed_config_goal.md) | Wiring `src/definitions.py` back in: Pylance typing and submit-time config validation. Run after the cleanup goal |
 | [pretraining_reset_log.md](notes/pretraining_reset_log.md) | Running log of the pretraining-branch reset: what was removed, kept, put aside |
 | [pretraining_stage1_removal_plan.md](notes/pretraining_stage1_removal_plan.md) | Stage-1 removal plan (compression/distillation/legacy), phases and gates |
 | [pretraining_stage2_plan.md](notes/pretraining_stage2_plan.md) | Stage-2 plan: H-balanced lineage, NeoX tokenizer, attention registry, pattern mixing |
-| [training_efficiency.md](notes/training_efficiency.md) | **The efficiency record, chronological**: stage-3 baseline audit and MFU tables, the nanoGPT gap analysis, the six-variant ablation, kernel-level attribution, the compile work, final results (46.4% MFU at h20), the measurement protocol, and the multi-GPU baseline. Merges five earlier notes |
+
+**Environment**
+
+| Doc | Topic |
+|---|---|
+| [cluster_fixes_lem_helios.md](notes/cluster_fixes_lem_helios.md) | lem and helios blockers: `$HOME` quota, HF cache permissions, `PIXI_HOME` — diagnosis and fix plan |
+| [claude-code-machine-setup.md](notes/claude-code-machine-setup.md) | Replicating the Claude Code setup (settings, skills, agent memory) on a new machine via the `claude-sync` repo |
+
+### notes/archive/
+
+Closed notebooks. Each opens with what superseded it. Two are still the **only** source
+for something, and say so at the top — don't assume archived means redundant.
+
+| Doc | Topic | Closed |
+|---|---|---|
+| [ame_optimization_plan.md](notes/archive/ame_optimization_plan.md) | The three-tier plan. Superseded by the report, **except §3** — the experiment ledger, the only map from a result back to its wandb run and config — and §4, the decision log | 2026-11-05 |
+| [ame_optimization.md](notes/archive/ame_optimization.md) | The pkmf static-memory survey: the evidence behind each O-number, which the report's §1.0 inventory only names. Also O22–O26, which are schedule/LR items rather than MFU work | 2026-11-05 |
+| [interactive_ame.md](notes/archive/interactive_ame.md) | The hour-by-hour working log of the AME MFU session. The report was written from it and supersedes it | 2026-11-05 |
+| [ame_review_and_fixes.md](notes/archive/ame_review_and_fixes.md) | The AME code review and its remediation, merged: 8 findings (F1–F8) with the evidence, and the four phases that fixed them. F1 — FlexAttention running uncompiled — is the ancestor of all the efficiency work | 2026-11-03 |
 
 ## Conventions for writing here
 
@@ -59,3 +94,11 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 - Facts that belong to the code (what a function does today) stay in the code. This folder is for
   what the code does *not* say: why a construction is the way it is, which convention is in force,
   and what the alternatives were.
+- **Retire a note rather than deleting it.** When a notebook's work is finished, or a later doc
+  supersedes it, `git mv` it into `notes/archive/` and replace its status block with one that says
+  so and names the successor. A closed note that still *claims* to be current is worse than no note:
+  it is read as reality and acted on. Two tests for whether a note is ready to retire — nobody will
+  add to it again, and nothing should be looked up in it to answer "what is true today". Check for
+  inbound links from code and configs before moving it; comments cite these files by name.
+- **Merge a matched pair when neither half stands alone.** A findings doc and its fix plan, a
+  proposal and its outcome. Preserve the section identifiers the source tree cites.

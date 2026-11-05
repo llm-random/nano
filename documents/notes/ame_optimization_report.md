@@ -50,7 +50,7 @@ below:
 ### 1.0 Complete inventory — every O-number, and every lettered item
 
 The O-series is the pkmf-derived catalogue in
-[ame_optimization.md](ame_optimization.md) (O1–O31) plus Tier 4's additions
+[archive/ame_optimization.md](archive/ame_optimization.md) (O1–O31) plus Tier 4's additions
 (O32–O37). **Every one is listed here, built or not**, so this table is the
 index and the subsections below are the detail. Lettered items (B, D, S) are
 work that arose during this effort and was never catalogued.
@@ -440,7 +440,7 @@ TFLOP/s against ~989 for bf16) on the largest matmul in the step.
 
 > **On the O-numbering, and a collision I introduced.** O1–O31 are a catalogue
 > of optimizations harvested from the pkmf framework, defined in
-> [ame_optimization.md](ame_optimization.md). Tiers 1–3 implemented O1–O9; the
+> [ame_optimization.md](archive/ame_optimization.md). Tiers 1–3 implemented O1–O9; the
 > rest were cut or deferred, which is why the implemented set jumps from O8/O9
 > straight to the thirties — the numbers in between exist as catalogue entries
 > that were never built.
@@ -855,7 +855,8 @@ Recorded because several changed what was worked on next.
 
 ## 5. State at pause
 
-**Code on `ame_optimize`, uncommitted:** `src/core/memory_parallel.py` (new),
+**Code, committed on `ame_optimize` and merged to `ame_main` 2026-11-05**
+(7 commits, `ed4952cc`..`04c960f3`): `src/core/memory_parallel.py` (new),
 `src/core/ame.py` (sink merge, S3b), `src/core/model.py` (O11, `parameter_groups`),
 `src/core/trainer.py` (Tier 2/3 hooks, `_loss_ctx`, O11 wiring),
 `src/core/distributed_training.py` (DDP, O33), `src/definitions.py`,
@@ -873,9 +874,20 @@ two `brrrrr_*` runs' checkpoints** from 2026-11-04 (8 × 4.4 GB `.distcp`) that
 are not mine. The filesystem has 7.8 TB free — this is purely the per-user
 limit, and it will recur.
 
-**Companion documents:** `ame_optimization_plan.md` (the plan, §3 ledger, §4
-decision log), `interactive_ame.md` (the working log, hypotheses in flight),
-`ame_experiments.md`, `ame_implementation.md`.
+**Companion documents:**
+[ame_implementation.md](ame_implementation.md) — what the AME layer is;
+[ame_experiments.md](ame_experiments.md) — the scientific program, unrun, and the next
+thing to do.
+
+**Archived, but still the source for two things.**
+[archive/ame_optimization_plan.md](archive/ame_optimization_plan.md) §3 is the ledger
+these figures are computed from, and the only place carrying wandb run ids and config
+paths per job; §4 is the decision log §4 here is distilled from.
+[archive/ame_optimization.md](archive/ame_optimization.md) holds the evidence behind each
+O-number that §1.0 only names. Also
+[archive/interactive_ame.md](archive/interactive_ame.md), the working log this report was
+written from, and [archive/ame_review_and_fixes.md](archive/ame_review_and_fixes.md),
+the 2026-11-03 review and its fixes.
 
 ---
 

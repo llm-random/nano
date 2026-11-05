@@ -1,11 +1,27 @@
 # AME MFU improvement loop — working log
 
-**Target: AME h20 training MFU > 35% per GPU on entropy 4xH100.**
-Standing instruction (Maciej, 2026-11-05): keep trying strategies until it
-clears 35%; log what was tried and what is planned here so progress is legible.
+**Status: historical, superseded.** The hour-by-hour working log of the
+2026-11-04/05 MFU session — hypotheses, attempts, dead ends, and what was planned
+next at each point. Kept for the reasoning, not for the results. Archived
+2026-11-05.
 
-This file is the *working* log — hypotheses, attempts, dead ends, next steps.
-The durable record of finished results stays in
+**For the results read [ame_optimization_report.md](../ame_optimization_report.md)
+instead.** It was written from this log and supersedes it: §4 is this history
+distilled and corrected, §3 is the complete experiment list, §1 and §2 are what
+worked and what is still worth trying.
+
+Two things below are stale. They are left as written, because a working log is a
+record of what was believed at the time:
+
+- **The target.** It opens at "> 35% MFU per GPU", the standing instruction on
+  2026-11-05. Maciej raised it the same day to **40%, ideally matching dense
+  (44.44%)**. The session ended at 37.96% — h16 on 1 GPU.
+- **The strategy backlog.** Its last row marks O10 *and* O11 REJECTED. O11
+  (fused-linear-CE) was **lifted back into scope** by Maciej later on 2026-11-05,
+  implemented, gated and measured — it lost to the recompute path it was meant to
+  replace, and is committed but off by default. O10 stayed cut. Report §1.4.
+
+The plan this log ran against is
 [ame_optimization_plan.md](ame_optimization_plan.md).
 
 ---

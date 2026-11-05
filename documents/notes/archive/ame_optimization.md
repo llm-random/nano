@@ -1,8 +1,23 @@
 # AME optimization — what pkmf's static-memory stack does that `ame_optimize` does not
 
-**Status:** analysis only. Nothing here is implemented; this is the feature list and the
-evidence for it. Written 2026-11-04 against branch `ame_optimize` (HEAD `f302ae12`) and
-the `pkmf/` drop at `nano/pkmf` (gitignored, read-only reference).
+**Status: historical — a closed survey, kept for the evidence.** Written 2026-11-04
+against branch `ame_optimize` (HEAD `f302ae12`) and the `pkmf/` drop at `nano/pkmf`
+(gitignored, read-only reference). A survey of a frozen external codebase: nothing will
+be added to it. Archived 2026-11-05.
+
+**"Nothing here is implemented" was true on 2026-11-04 and is not true now.** O1–O9, O11
+and O33 were implemented and measured on 2026-11-05. **§1.0 of
+[ame_optimization_report.md](../ame_optimization_report.md) is the current index** — it
+names every O-number with its state and measured effect, and adds O32–O37, which are not
+in this document.
+
+**What is still only here:** the *evidence* behind each item — pkmf's call sites, why it
+works, its parameters — which the report's one-line inventory does not carry. That is
+what you need to implement one of the untried items. Also **O22–O26**, which the report
+omits because they are not MFU work at all: GPU-count-invariant schedule sizing, variable
+gradient accumulation, granular micro-batching, token-space WSD and Step-Law LR. Those
+matter for the training program in [ame_experiments.md](../ame_experiments.md), not for
+throughput.
 
 ---
 

@@ -12,7 +12,7 @@
 # B1/mb16 -- AME h20 on four entropy H100s at micro-batch 16.
 #
 # The 4-GPU baseline every Tier 1-3 result is read against
-# (documents/notes/ame_optimization_plan.md section 2.3). It is h20_smoke.yaml
+# (documents/notes/archive/ame_optimization_plan.md section 2.3). It is h20_smoke.yaml
 # with the GPU count raised from 1 to 4 and gradient accumulation lowered to
 # match, so the GLOBAL token schedule is byte-for-byte the schedule the 1-GPU
 # baseline trained:
@@ -26,7 +26,7 @@
 # The 1-GPU baseline ran micro-batch 4 at ga 128; this quadruples the per-GPU
 # micro-batch while the global optimizer step is unchanged. Holding the global batch
 # fixed and varying only the physical split is the pkmf ablation invariant
-# (ame_optimization.md section 5): tokens/s and MFU stay directly comparable
+# (archive/ame_optimization.md section 5): tokens/s and MFU stay directly comparable
 # across GPU counts and micro-batches because every cell trains the identical
 # 512 x 2048-token optimizer step.
 #

@@ -122,7 +122,7 @@ def setup_ddp_model(model, ddp_config, ignored_params=None):
 
     This is the shape pkmf trained their memory models in, and the shape in
     which memory parallelism has a baseline that is not already sharding
-    everything (documents/notes/ame_optimization_plan.md section 3b).
+    everything (documents/notes/archive/ame_optimization_plan.md section 3b).
 
     `ignored_params` is DDP's own: parameters it must not touch, which is
     exactly the bank set. DDP would otherwise register an all-reduce hook on

@@ -200,7 +200,8 @@ class AMEAttention(nn.Module):
     # "is this a matmul weight" for FLOP accounting, this one answers "should
     # decay touch it". They overlap today and are not the same question.
     #
-    # The banks are here too, decided 2026-11-03 (ame_fix_plan.md 2.6). With
+    # The banks are here too, decided 2026-11-03
+    # (archive/ame_review_and_fixes.md 2.6). With
     # QK-norm a bank row's length does not reach the score at all -- only its
     # direction does -- so decay on the banks changes no output. What it does do
     # is shrink ||row|| every step, which inflates the effective learning rate on
@@ -429,7 +430,7 @@ class AMEAttention(nn.Module):
         # identically, so under column sharding they are one gather, one
         # all-to-all and one permute instead of two of each -- and those kernels
         # are launch-bound, not bandwidth-bound, so halving the count is most of
-        # the cost (documents/notes/ame_optimization_plan.md, D1/D2). Absent the
+        # the cost (documents/notes/archive/ame_optimization_plan.md, D1/D2). Absent the
         # controller `qk_bank` is None and this is the original two-lookup path,
         # unchanged.
         if self.qk_bank is not None:
@@ -554,7 +555,7 @@ class AMEAttention(nn.Module):
         script: compiling the layer at a couple of sequence lengths in a fresh
         process does *not* reproduce the failure, because the dynamic promotion
         comes from the suite compiling many layers across widths in one
-        process (`ame_fix_plan.md` 1.2, jobs 32368 and 32372).
+        process (`archive/ame_review_and_fixes.md` 1.2, jobs 32368 and 32372).
 
         The mask is cached per (seq_len, offset, device), so after the first
         call this is a dict lookup.

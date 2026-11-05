@@ -1,7 +1,18 @@
 # AME training-efficiency plan — three tiers
 
-**Status: all three tiers COMPLETE.** Written 2026-11-04 against branch
-`ame_optimize` (HEAD `f302ae12`).
+**Status: historical — closed, and kept for provenance.** All three tiers are done; the
+code is committed on `ame_optimize` and `ame_main`. Written 2026-11-04 against HEAD
+`f302ae12`. Archived 2026-11-05.
+
+**Read [ame_optimization_report.md](../ame_optimization_report.md) instead** for what was
+tried, what it was worth and what is left. It supersedes the whole of this document's
+narrative — the tier plans below describe work that is finished.
+
+**What is still only here: §3, the experiment ledger.** It is the only map from a result
+back to the run that produced it — **14 wandb run ids and 17 config paths**, plus peak
+memory and step time per job, which the report condenses away. If you need to reproduce
+or re-examine a number, start there. §4, the decision log, is the other original: the
+report's §4 is distilled from it.
 
 - **Tier 1** — B1/B2 measured, O9 measured and **rejected on this test bed**
   (−2.53% on entropy, +3.33% on lem), O31 attribution produced. The attribution
@@ -883,7 +894,7 @@ the attention type:** same node, 4×H100 SXM, FSDP2 + `MixedPrecisionPolicy(bf16
 `compile_blocks_full`, global batch 512×2048, ga 8 / micro-batch 16, profiler over steps
 12–13.
 
-The kernel tables already in [training_efficiency.md](training_efficiency.md) §4.2 could
+The kernel tables already in [training_efficiency.md](../training_efficiency.md) §4.2 could
 **not** serve as the dense side: they are one GPU, plain module + autocast, **no FSDP2**
 ("nothing in this table measures the FSDP2 path"), and §8 states every number there is
 single-GPU. Subtracting them would have charged AME for the whole distributed path.
@@ -1953,7 +1964,7 @@ Tiers 2 and 3 are built, gated and measured above. What follows is the
 continuation Maciej directed on 2026-11-04 — keep going until AME clears 35%
 MFU on 4 GPUs — and it is recorded here because every run belongs in one
 ledger. The working log with the hypotheses in flight is
-[interactive_ame.md](interactive_ame.md); this is the result record.
+[archive/interactive_ame.md](interactive_ame.md); this is the result record.
 
 | job | GPUs | what | result |
 |---|---:|---|---|

@@ -22,7 +22,7 @@
 #                        `_attend_flex` inside a compiled region -- though
 #                        src/core/ame.py compiles flex_attention itself now, so
 #                        the fused kernel no longer depends on this flag
-#                        (documents/notes/ame_code_review.md F1).
+#                        (documents/notes/archive/ame_review_and_fixes.md F1).
 #   no autocast_bf16     FSDP2's MixedPrecisionPolicy already computes in bf16
 #   no compile_loss      it traces self.model, so under FSDP2 it is whole-model
 #                        compile -- untested here

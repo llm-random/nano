@@ -1,7 +1,7 @@
 # B2 -- dense H-balanced h20 on four entropy H100s, micro-batch 16.
 #
 # The same-architecture ceiling that AME's 4-GPU numbers are read against
-# (documents/notes/ame_optimization_plan.md section 2.3). h20_mgpu.yaml already
+# (documents/notes/archive/ame_optimization_plan.md section 2.3). h20_mgpu.yaml already
 # carries a measured 1/2/4-GPU table, but that table was taken with the
 # GPT-2-arch overrides applied -- GeluFeedForward, n_blocks 25,
 # kv_heads = q_heads -- which make the model 4.122 GFLOPs/token. This file is

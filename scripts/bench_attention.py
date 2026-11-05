@@ -12,7 +12,7 @@ So measure it directly, on the real layer, at the real shape.
 
 Reports milliseconds per CALL and, scaled by layers x micro-steps, the
 contribution to one optimizer step of the h20 4-GPU recipe -- so the numbers
-line up with the kernel tables in documents/notes/ame_optimization_plan.md.
+line up with the kernel tables in documents/notes/archive/ame_optimization_plan.md.
 
 The SDPA row is the floor, not a drop-in replacement: `is_causal=True` with no
 additive bias is what the dense twin runs. AME needs an ALiBi distance bias and

@@ -620,7 +620,7 @@ def test_a_pinned_arm_contributes_no_undecayed_parameters():
 
 
 def test_the_banks_are_not_decayed():
-    """Decided 2026-11-03 (ame_fix_plan.md 2.6): the banks are exempt.
+    """Decided 2026-11-03 (archive/ame_review_and_fixes.md 2.6): the banks are exempt.
 
     With QK-norm a row's length never reaches the score -- only its direction
     does -- so decay on the banks changes no output. It only shrinks ||row||
@@ -1009,7 +1009,7 @@ def _peak_mib_for_attention(seq_len):
 
 @pytest.mark.gpu
 def test_the_default_path_does_not_materialize_the_score_matrix():
-    """The regression for the whole of ame_code_review.md F1.
+    """The regression for the whole of archive/ame_review_and_fixes.md F1.
 
     An uncompiled flex_attention is the `sdpa_dense` fallback: it materializes
     `[B, H, Q, KV]`, so doubling the sequence costs ~4x the memory. The fused

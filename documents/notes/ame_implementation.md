@@ -1,8 +1,11 @@
 # AME in this repo: the layer, the plumbing, the review, and what is left
 
 **Status: established.** The layer, the plumbing and all eight review findings are done
-and tested, on CPU and on an H100. No experiment has been run: Stage 0 has not started.
-Last updated 2026-11-03.
+and tested, on CPU and on an H100, and the code is committed. **No *scientific* experiment
+has been run — Stage 0 has not started.** The cluster jobs run since are throughput
+benchmarks, not quality measurements; their record is
+[ame_optimization_report.md](ame_optimization_report.md).
+Written 2026-11-03, last updated 2026-11-05.
 
 AME — *Attention Memory Embedding* — replaces the Q and K projections of a standard
 attention head with two memory banks indexed by **token id**. The design record lives
@@ -11,11 +14,12 @@ the staged program, `baselines.md` for the comparison standard). This note is th
 side: what landed, which open choices were settled to land it, what is verified, and what
 is still outstanding. Paired reading:
 [attention-switching.md](../concepts/attention-switching.md) for the registry `ame` sits
-in, [ame_code_review.md](ame_code_review.md) for the evidence behind each finding, and
-[ame_fix_plan.md](ame_fix_plan.md) for the remediation detail.
+in, and [archive/ame_review_and_fixes.md](archive/ame_review_and_fixes.md) for the
+evidence behind each finding and the remediation detail.
 
-**Code lives in the `/home/maciej/code/nano-small-changes` worktree (branch
-`small-changes`), uncommitted.** Only these `.md` files are in the main tree.
+**The code is committed on `ame_main` and `ame_optimize`** as of 2026-11-05. It was
+developed in the `/home/maciej/code/nano-small-changes` worktree, which was removed
+2026-11-04; passages below that refer to it describe where things stood before then.
 
 > **Name.** Called MAE in discussions before 2026-11-03; renamed to AME, the name the
 > registry already used, because MAE collides with Masked Autoencoders and with "mean
@@ -29,7 +33,7 @@ in, [ame_code_review.md](ame_code_review.md) for the evidence behind each findin
 | Repo plumbing (ids, MFU, config, optimizer, instrumentation) | **implemented** |
 | CPU suite | **262 passed, 0 skipped, 0 failed** |
 | GPU correctness | **verified** — 9/9 on an H100, and a 3.16B run that trains |
-| GPU *performance* | **measured** — 18.1% MFU, 22.1 s/step at h20 once the kernel was fused |
+| GPU *performance* | **18.1% MFU** at h20 when this was written. **Optimized since** to 35.02% at 4 GPUs and 37.96% at h16/1 GPU — [ame_optimization_report.md](ame_optimization_report.md) |
 | Code review (2026-11-03) | 8 findings, F1–F8, **all fixed** |
 | Fix plan | **all four phases applied** |
 | Experiments | **none run.** Stage 0 has not started. |
@@ -298,8 +302,8 @@ that assertion passes on a single lucky batch. The AME test uses a band of 1.0.
 ## The code review, and the fix plan
 
 A second pass over the implementation on 2026-11-03 found **8 issues**. Evidence for each
-is in [ame_code_review.md](ame_code_review.md); the remediation detail and verification
-record are in [ame_fix_plan.md](ame_fix_plan.md).
+is in [archive/ame_review_and_fixes.md](archive/ame_review_and_fixes.md) Part A; the
+remediation detail and verification record are in Part B of the same document.
 
 | # | severity | finding | state |
 |---|---|---|---|
@@ -426,10 +430,13 @@ likely way to waste a month, and nothing in Stages 0–1 needs it. Also absent: 
    (`pin_alpha` / `pin_beta`). Its two prerequisites — the weight-decay fix and the α/β
    instrumentation — are both done, so nothing blocks it.
 2. **Report the regularization asymmetry.** 2.6 is decided — the banks are exempt from
-   weight decay (`ame_fix_plan.md` 2.6) — which means AME's banks and the dense baseline's
+   weight decay (`archive/ame_review_and_fixes.md` 2.6) — which means AME's banks and the dense baseline's
    `W_Q`/`W_K` are no longer treated alike. `baselines.md` asks for matched treatment, so
    this has to be said out loud in any comparison rather than left in the config.
-3. **Attribute the remaining 2.5× step-time gap** — micro-batch 4 vs the baseline's 16,
+3. ~~**Attribute the remaining 2.5× step-time gap**~~ — **done 2026-11-05.** This became
+   the MFU program; the attribution, and what came of it, are in
+   [ame_optimization_report.md](ame_optimization_report.md). Original wording:
+   — micro-batch 4 vs the baseline's 16,
    dense bank gradients, and FSDP2's per-micro-batch reduction. One short run with
    `trainer.profile_timers=true` separates the last two; the first needs either more
    memory headroom or an explicit decision to compare at equal micro-batch.
