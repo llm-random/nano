@@ -1,0 +1,56 @@
+# AME h20 on 1 GPU, at the best MFU measured for this cell.
+#
+#   35.59% MFU/GPU, 11.226 s/step, 93,404 tokens/s, 66.87 GiB peak
+#   job 32834 on entropy (H100 80GB); ame_optimization_report.md section 6.1
+#
+#   No FSDP2, so AME's alpha/beta/tau/entropy readouts are logged.
+#
+# Every value is that of configs/ame_tests/h20_1gpu_mb4_nofsdp.yaml, the file the
+# run used; only the run name, tags and job name differ. It is a 30-step
+# throughput benchmark, so the "benchmark settings" below are placeholders for
+# training.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy # where it was measured
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # benchmark setting
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128, so flex blocks align
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  attention:
+    type: ame
+
+compile_blocks_full: true
+
+trainer:
+  # MFU settings
+  gradient_accumulation_steps: 128 # micro-batch 4; 8 OOMs on the logits
+  mem_parallel_size: 1 # hand-managed bank path (Tier 2), banks unsharded
+  distributed: null # O37: no FSDP2 on 1 GPU; +4.2% here, -2.5% at h16
+  autocast_bf16: true # bf16 now comes from autocast instead of FSDP2
+
+  # Benchmark settings
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, not tuned for AME
+  scheduler:
+    warmup_steps: 10
+  eval_interval: 0
+  eval_dataloader: null
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:1
+    job-name: ame_h20_1g
+    time: "0-01:00:00" # benchmark setting
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h20_1gpu
+    tags:
+      - ame
+      - h20
+      - single_gpu

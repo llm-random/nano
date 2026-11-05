@@ -196,7 +196,7 @@ Documented at `memory_parallel.py:1024` docstring.
 **O9. Suppress gradient sync during accumulation.**
 `src/core/trainer.py:549` `calculate_loss` loops `loss.backward()` over
 `gradient_accumulation_steps` chunks with **no** `set_requires_gradient_sync(False)`.
-At `configs/ame/h20_smoke.yaml`'s `gradient_accumulation_steps: 128` that is **128 full
+At `configs/ame_tests/h20_smoke.yaml`'s `gradient_accumulation_steps: 128` that is **128 full
 FSDP2 reduce-scatters of 3.16B parameters per optimizer step**, each with a bf16→fp32
 cast. Already named as candidate 3 in `ame_implementation.md`.
 *This is the single cheapest fix in this document and it is framework-wide, not
@@ -540,7 +540,7 @@ cost little and are measurable in one run each.
 > (109,361 / 214,499 / **425,054** tok/s at 45.57 / 44.69 / **44.28%** MFU). The real gap
 > is narrower but still real — that table is the **GPT-2-arch** h20 at 4.122 GF/token
 > (it needs the `GeluFeedForward` / `n_blocks=25` / `kv_heads=q_heads` overrides), not
-> the **H-balanced** h20 at 3.97 GF/token that `configs/ame/h20_smoke.yaml` builds on,
+> the **H-balanced** h20 at 3.97 GF/token that `configs/ame_tests/h20_smoke.yaml` builds on,
 > which has never been measured multi-GPU. AME itself is 3.77 GF/token and has only a
 > 1-GPU number. Three denominators: MFU percentages compare across them, raw tokens/s
 > do not.

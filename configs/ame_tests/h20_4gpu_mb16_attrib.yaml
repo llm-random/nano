@@ -1,6 +1,6 @@
 # T1.3/O31 -- where the step time actually goes, at the production shape.
 #
-# The instrumented twin of configs/ame/h20_4gpu_mb16.yaml (baseline B1, job
+# The instrumented twin of configs/ame_tests/h20_4gpu_mb16.yaml (baseline B1, job
 # 32543). Same model, same global token schedule, same compile scope; the only
 # additions are two measurement-only flags. Throughput from THIS run is not the
 # baseline -- kernel_profile wraps steps 12-13 in torch.profiler and that costs

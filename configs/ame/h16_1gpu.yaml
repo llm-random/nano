@@ -1,0 +1,56 @@
+# AME h16 on 1 GPU, at the best MFU measured for this cell -- and of all six.
+#
+#   37.96% MFU/GPU, 5.924 s/step, 177,001 tokens/s, 68.35 GiB peak
+#   job 32825 on entropy (H100 80GB); ame_optimization_report.md section 6.1
+#
+#   FSDP2 is on, so AME's alpha/beta/tau/entropy readouts are NOT logged (any
+#   GPU count): instrumentation() hits sharded params and the trainer drops it.
+#
+# Every value is that of configs/ame_tests/h16_1gpu_mb16.yaml, the file the run
+# used; only the run name and tags differ. It is a 30-step throughput
+# benchmark, so the "benchmark settings" below are placeholders for training.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy # where it was measured
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # benchmark setting
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128, so flex blocks align
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  attention:
+    type: ame
+
+compile_blocks_full: true
+
+trainer:
+  # MFU settings
+  gradient_accumulation_steps: 32 # micro-batch 16; 32 OOMs on the logits
+  mem_parallel_size: 1 # hand-managed bank path (Tier 2), banks unsharded
+  # FSDP2 stays on from the llama trainer config (degenerate at 1 GPU): turning
+  # it off (O37) measured -2.5% here, although it is +4.2% at h20.
+
+  # Benchmark settings
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, not tuned for AME
+  scheduler:
+    warmup_steps: 10
+  eval_interval: 0
+  eval_dataloader: null
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:1
+    job-name: ame_h16_1g
+    time: "0-01:00:00" # benchmark setting
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h16_1gpu
+    tags:
+      - ame
+      - h16
+      - single_gpu

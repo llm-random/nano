@@ -1,17 +1,6 @@
-# LEM duplicate of the entropy run of the same name. Submitted because lem's
-# queue is 3 days deep and entropy's is hours -- whichever delivers first wins,
-# and the loser gets cancelled.
-#
-# IMPORTANT, do not cross the two clusters when reading results. lem is
-# gpu:hopper:4 -- four GPUs per NODE -- against entropy's 8xH100 SXM in one
-# node. O9 is a COMMUNICATION optimisation, so its measured value is a property
-# of the interconnect. A lem B1 may only be compared with a lem O9, and an
-# entropy B1 only with an entropy O9. Mixing them measures the fabric, not the
-# change.
-#
 # T1.2/O9 -- AME h20, 4xH100, micro-batch 16, gradient sync suppressed during accumulation.
 #
-# The A/B twin of configs/ame/h20_4gpu_mb16.yaml (baseline B1/mb16, job 32543).
+# The A/B twin of configs/ame_tests/h20_4gpu_mb16.yaml (baseline B1/mb16, job 32543).
 # IDENTICAL in every respect except `trainer.skip_grad_sync_during_accumulation`,
 # so the only thing that differs between the two measurements is WHEN gradients
 # are reduced -- never what they sum to.
@@ -47,7 +36,7 @@
 defaults:
   - /base_schema
   - ../_misc@_here_: default
-  - ../_cluster@_here_: lem
+  - ../_cluster@_here_: entropy
   - ../_model/h_balanced@_here_: h20
   - ../_trainer@_here_: llama
   - ../_dataset@_here_: fineweb
@@ -77,12 +66,12 @@ compile_blocks_full: true
 
 infrastructure:
   slurm:
-    gres: gpu:hopper:4
-    job-name: lem_ame_o9_mb16
+    gres: gpu:h100:4
+    job-name: ame_o9_4g_mb16
     time: "0-01:00:00"
   metric_logger:
     project_name: nano-ame
-    name: lem_ame_h20_4gpu_mb16_o9
+    name: ame_h20_4gpu_mb16_o9
     tags:
       - ame
       - h20

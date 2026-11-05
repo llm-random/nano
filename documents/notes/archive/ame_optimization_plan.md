@@ -172,7 +172,7 @@ runs on `a100` or `common`.
 
 ```bash
 ./.pixi/envs/default/bin/python run_exp.py \
-    --config-path configs/ame --config-name <bare-name>
+    --config-path configs/ame_tests --config-name <bare-name>
 ```
 
 Per-directory `--config-path`, bare `--config-name`, and **never via `pixi run`** — it
@@ -206,7 +206,7 @@ Results land in wandb `ideas_cv/llm-random-test`, project `nano-ame`.
 
 ### 1.3 Workload, held constant across every run in this plan
 
-Base config is `configs/ame/h20_smoke.yaml`. Every measurement keeps:
+Base config is `configs/ame_tests/h20_smoke.yaml`. Every measurement keeps:
 
 | | Value |
 |---|---|
@@ -279,7 +279,7 @@ quoted:
 
 The multi-GPU dense table above is the **GPT-2-arch** h20 (4.122 GF/token), produced by
 adding `GeluFeedForward`, `n_blocks=25` and `kv_heads=q_heads` overrides. The
-**H-balanced** h20 that `configs/ame/h20_smoke.yaml` is built on is 3.97 GF/token and
+**H-balanced** h20 that `configs/ame_tests/h20_smoke.yaml` is built on is 3.97 GF/token and
 **has never been measured multi-GPU**. AME itself is MHA-shaped at 3.77 GF/token.
 
 So there are three different denominators in play. MFU percentages are comparable across
@@ -289,7 +289,7 @@ them (each uses its own FLOPs/token); raw tokens/s are **not**.
 
 **B1 — AME h20 at 4 GPUs, micro-batch sweep.** The number every later result is read
 against, and the test of whether the micro-batch-4 bound was a 1-GPU artefact.
-Config: copy `configs/ame/h20_smoke.yaml` → `configs/ame/h20_4gpu.yaml`, set
+Config: copy `configs/ame_tests/h20_smoke.yaml` → `configs/ame_tests/h20_4gpu.yaml`, set
 `gres: gpu:h100:4`, and submit three variants:
 
 | variant | `gradient_accumulation_steps` | micro-batch/GPU |
@@ -326,9 +326,9 @@ on the `meta` device, all four clean):
 
 | run | config | ga | mb/GPU | params | wandb name |
 |---|---|---:|---:|---:|---|
-| B1/mb4 | `configs/ame/h20_4gpu_mb4.yaml` | 32 | 4 | 3.163B | `ame_h20_4gpu_mb4` |
-| B1/mb8 | `configs/ame/h20_4gpu_mb8.yaml` | 16 | 8 | 3.163B | `ame_h20_4gpu_mb8` |
-| B1/mb16 | `configs/ame/h20_4gpu_mb16.yaml` | 8 | 16 | 3.163B | `ame_h20_4gpu_mb16` |
+| B1/mb4 | `configs/ame_tests/h20_4gpu_mb4.yaml` | 32 | 4 | 3.163B | `ame_h20_4gpu_mb4` |
+| B1/mb8 | `configs/ame_tests/h20_4gpu_mb8.yaml` | 16 | 8 | 3.163B | `ame_h20_4gpu_mb8` |
+| B1/mb16 | `configs/ame_tests/h20_4gpu_mb16.yaml` | 8 | 16 | 3.163B | `ame_h20_4gpu_mb16` |
 | B2 | `configs/mfu_audit/h20_hbal_4gpu.yaml` | 8 | 16 | 0.620B | `mfu_h20_hbal_4gpu_mb16` |
 
 All four are `gres: gpu:h100:4`, 30 steps, global batch 512 × 2048, eval and
@@ -341,7 +341,7 @@ committed config — `infrastructure.server=entropy_j`. `_cluster/entropy.yaml` 
 
 ```bash
 ./.pixi/envs/default/bin/python run_exp.py \
-    --config-path configs/ame --config-name h20_4gpu_mb4 \
+    --config-path configs/ame_tests --config-name h20_4gpu_mb4 \
     infrastructure.server=entropy_j
 ```
 
@@ -431,7 +431,7 @@ and step on nothing while the loss kept being logged. The restore lives in a `fi
 for exactly this reason, and the test asserts gradients exist before comparing values.
 
 **Measurement configs** (identical to their B1 twins except the flag, the job name and
-the tags): `configs/ame/h20_4gpu_mb{4,8,16}_o9.yaml`. All pre-flighted.
+the tags): `configs/ame_tests/h20_4gpu_mb{4,8,16}_o9.yaml`. All pre-flighted.
 
 **Scope note.** This is a framework fix, not an AME fix. It benefits every large model in
 nano and should be reviewed as such. It is opt-in rather than default-on **because of the
@@ -660,31 +660,31 @@ pick them up.
 
 | # | Tier | Config | GPUs | ga | mb | job | tokens/s | MFU/GPU | peak GiB | notes |
 |---|---|---|---:|---:|---:|---|---:|---:|---:|---|
-| ~~B1/mb4~~ | 1 | `ame/h20_4gpu_mb4` | 4 | 32 | 4 | 32541 | — | — | — | **ignore** — cancelled 17:05, never ran |
-| ~~B1/mb8~~ | 1 | `ame/h20_4gpu_mb8` | 4 | 16 | 8 | 32542 | — | — | — | **ignore** — cancelled 17:05, never ran |
-| ~~B1~~ | 1 | `ame/h20_4gpu_mb16` | 4 | 8 | 16 | 32543 | — | — | — | **ignore** — cancelled 19:44, pre-fix snapshot, never ran |
+| ~~B1/mb4~~ | 1 | `ame_tests/h20_4gpu_mb4` | 4 | 32 | 4 | 32541 | — | — | — | **ignore** — cancelled 17:05, never ran |
+| ~~B1/mb8~~ | 1 | `ame_tests/h20_4gpu_mb8` | 4 | 16 | 8 | 32542 | — | — | — | **ignore** — cancelled 17:05, never ran |
+| ~~B1~~ | 1 | `ame_tests/h20_4gpu_mb16` | 4 | 8 | 16 | 32543 | — | — | — | **ignore** — cancelled 19:44, pre-fix snapshot, never ran |
 | ~~B2~~ | 1 | `mfu_audit/h20_hbal_4gpu` | 4 | 8 | 16 | 32544 | — | — | — | **ignore** — cancelled 19:44, never ran |
-| ~~O9~~ | 1 | `ame/h20_4gpu_mb16_o9` | 4 | 8 | 16 | 32555 | — | — | — | **ignore** — cancelled 19:44, never ran |
-| ~~O31~~ | 1 | `ame/h20_4gpu_mb16_attrib` | 4 | 8 | 16 | 32559 | — | — | — | **ignore** — cancelled 19:44, never ran |
-| **B1** ✅ | 1 | `ame/h20_4gpu_mb16` | 4 | 8 | 16 | **32576** | **281,748** | **26.84%** | **60.6** | 3.720 s/step, wandb `89nupukg` |
+| ~~O9~~ | 1 | `ame_tests/h20_4gpu_mb16_o9` | 4 | 8 | 16 | 32555 | — | — | — | **ignore** — cancelled 19:44, never ran |
+| ~~O31~~ | 1 | `ame_tests/h20_4gpu_mb16_attrib` | 4 | 8 | 16 | 32559 | — | — | — | **ignore** — cancelled 19:44, never ran |
+| **B1** ✅ | 1 | `ame_tests/h20_4gpu_mb16` | 4 | 8 | 16 | **32576** | **281,748** | **26.84%** | **60.6** | 3.720 s/step, wandb `89nupukg` |
 | **B2** ✅ | 1 | `mfu_audit/h20_hbal_4gpu` | 4 | 8 | 16 | **32577** | **443,432** | **44.44%** | **43.4** | 2.364 s/step, dense ceiling, wandb `oh5lepzx` |
-| **O9** ✅ | 1 | `ame/h20_4gpu_mb16_o9` | 4 | 8 | 16 | **32578** | **274,627** | **26.16%** | **69.5** | 3.840 s/step, **slower than B1**, wandb `aoa5vzdj` |
-| **O31** ✅ | 1 | `ame/h20_4gpu_mb16_attrib` | 4 | 8 | 16 | **32579** | 274,179 | 26.11% | 60.7 | attribution run; profiler costs ~2.7%, **not a baseline**, wandb `fztfn0lu` |
+| **O9** ✅ | 1 | `ame_tests/h20_4gpu_mb16_o9` | 4 | 8 | 16 | **32578** | **274,627** | **26.16%** | **69.5** | 3.840 s/step, **slower than B1**, wandb `aoa5vzdj` |
+| **O31** ✅ | 1 | `ame_tests/h20_4gpu_mb16_attrib` | 4 | 8 | 16 | **32579** | 274,179 | 26.11% | 60.7 | attribution run; profiler costs ~2.7%, **not a baseline**, wandb `fztfn0lu` |
 | **O31-dense** ✅ | 1 | `mfu_audit/h20_hbal_4gpu_attrib` | 4 | 8 | 16 | **32601** | — | — | 43.4 | dense attribution twin of 32579; 2360.3 ms/step |
-| **trace-AME** ✅ | 1 | `ame/h20_4gpu_mb16_attrib` | 4 | 8 | 16 | **32623** | — | — | — | chrome trace for the fwd/bwd split |
+| **trace-AME** ✅ | 1 | `ame_tests/h20_4gpu_mb16_attrib` | 4 | 8 | 16 | **32623** | — | — | — | chrome trace for the fwd/bwd split |
 | **trace-dense** ✅ | 1 | `mfu_audit/h20_hbal_4gpu_attrib` | 4 | 8 | 16 | **32624** | — | — | — | ditto, dense |
-| ~~B1-lem~~ | 1 | `ame/h20_4gpu_mb16_lem` | 4 | 8 | 16 | 6236712 | — | — | — | **ignore** — died in compile, Triton cache race, 0 steps |
-| ~~O9-lem~~ | 1 | `ame/h20_4gpu_mb16_o9_lem` | 4 | 8 | 16 | 6236713 | — | — | — | **ignore** — same, 0 steps |
-| ~~B1-lem.2~~ | 1 | `ame/h20_4gpu_mb16_lem` | 4 | 8 | 16 | 6236888 | — | — | — | **ignore** — triton fix held; died on the DTensor diagnostics bug |
-| ~~O9-lem.2~~ | 1 | `ame/h20_4gpu_mb16_o9_lem` | 4 | 8 | 16 | 6236892 | — | — | — | **ignore** — same |
-| **B1-lem** ✅ | 1 | `ame/h20_4gpu_mb16_lem` | 4 | 8 | 16 | **6237108** | **256,123** | n/a | **60.65** | **lem**, 4.092 s/step, wandb `jyvfozb7` |
-| **T23/mp4** ✅ | 2+3 | `ame/h20_4gpu_mb16_mp4` | 4 | 8 | 16 | **32632** | **278,636** | **26.54%** | **61.91** | 3.761 s/step, loss matches B1 for 28/30 steps, wandb `wix4sh1s` |
-| **T23/mp4-attrib** ✅ | 2+3 | `ame/h20_4gpu_mb16_mp4_attrib` | 4 | 8 | 16 | **32634** | — | — | 61.92 | attribution twin of 32632; **not a baseline**, wandb `ca52qnp4` |
-| **T23/mp2** ❌ | 2+3 | `ame/h20_4gpu_mb16_mp2` | 4 | 8 | 16 | **32638** | — | — | **OOM** | **CUDA OOM at 76.56 GiB in use / 79.18 total**, wandb `h800c0v3` |
-| **T2/mp1** ❌ | 2 | `ame/h20_4gpu_mb16_mp1` | 4 | 8 | 16 | **32649** | — | — | **OOM** | **CUDA OOM at 79.16 / 79.18 GiB** in the first optimizer step; fwd+bwd fitted, Adam moments did not |
-| **T2/1gpu** ✅ | 2 | `ame/h20_1gpu_mb4_mp1` | 1 | 128 | 4 | **32652** | **65,651** | **25.01%** | **64.31** | **1.385x over job 32360** (47,391 / 18.1% / 22.1 s); 15.966 s/step, loss 11.25→7.28, wandb `euckimjt` |
-| **B1/mb4** ✅ | 1 | `ame/h20_4gpu_mb4` | 4 | 32 | 4 | **32656** | **192,092** | **18.30%** | **24.06** | 5.456 s/step, the deferred B1 sweep point revived as the ga-scaling twin, wandb `do325fpp` |
-| **T23/mb4-mp4** ✅ | 2+3 | `ame/h20_4gpu_mb4_mp4` | 4 | 32 | 4 | **32659** | **235,421** | **22.42%** | **25.29** | **+22.56% over 32656**; 4.452 s/step, wandb `1j8hwgj9` |
+| ~~B1-lem~~ | 1 | `ame_tests/h20_4gpu_mb16_lem` | 4 | 8 | 16 | 6236712 | — | — | — | **ignore** — died in compile, Triton cache race, 0 steps |
+| ~~O9-lem~~ | 1 | `ame_tests/h20_4gpu_mb16_o9_lem` | 4 | 8 | 16 | 6236713 | — | — | — | **ignore** — same, 0 steps |
+| ~~B1-lem.2~~ | 1 | `ame_tests/h20_4gpu_mb16_lem` | 4 | 8 | 16 | 6236888 | — | — | — | **ignore** — triton fix held; died on the DTensor diagnostics bug |
+| ~~O9-lem.2~~ | 1 | `ame_tests/h20_4gpu_mb16_o9_lem` | 4 | 8 | 16 | 6236892 | — | — | — | **ignore** — same |
+| **B1-lem** ✅ | 1 | `ame_tests/h20_4gpu_mb16_lem` | 4 | 8 | 16 | **6237108** | **256,123** | n/a | **60.65** | **lem**, 4.092 s/step, wandb `jyvfozb7` |
+| **T23/mp4** ✅ | 2+3 | `ame_tests/h20_4gpu_mb16_mp4` | 4 | 8 | 16 | **32632** | **278,636** | **26.54%** | **61.91** | 3.761 s/step, loss matches B1 for 28/30 steps, wandb `wix4sh1s` |
+| **T23/mp4-attrib** ✅ | 2+3 | `ame_tests/h20_4gpu_mb16_mp4_attrib` | 4 | 8 | 16 | **32634** | — | — | 61.92 | attribution twin of 32632; **not a baseline**, wandb `ca52qnp4` |
+| **T23/mp2** ❌ | 2+3 | `ame_tests/h20_4gpu_mb16_mp2` | 4 | 8 | 16 | **32638** | — | — | **OOM** | **CUDA OOM at 76.56 GiB in use / 79.18 total**, wandb `h800c0v3` |
+| **T2/mp1** ❌ | 2 | `ame_tests/h20_4gpu_mb16_mp1` | 4 | 8 | 16 | **32649** | — | — | **OOM** | **CUDA OOM at 79.16 / 79.18 GiB** in the first optimizer step; fwd+bwd fitted, Adam moments did not |
+| **T2/1gpu** ✅ | 2 | `ame_tests/h20_1gpu_mb4_mp1` | 1 | 128 | 4 | **32652** | **65,651** | **25.01%** | **64.31** | **1.385x over job 32360** (47,391 / 18.1% / 22.1 s); 15.966 s/step, loss 11.25→7.28, wandb `euckimjt` |
+| **B1/mb4** ✅ | 1 | `ame_tests/h20_4gpu_mb4` | 4 | 32 | 4 | **32656** | **192,092** | **18.30%** | **24.06** | 5.456 s/step, the deferred B1 sweep point revived as the ga-scaling twin, wandb `do325fpp` |
+| **T23/mb4-mp4** ✅ | 2+3 | `ame_tests/h20_4gpu_mb4_mp4` | 4 | 32 | 4 | **32659** | **235,421** | **22.42%** | **25.29** | **+22.56% over 32656**; 4.452 s/step, wandb `1j8hwgj9` |
 
 **Everything above this line ran with the UNFUSED bank path and
 `@torch.compiler.disable`.** D2 changed the code, not the configs, so re-running
@@ -693,11 +693,11 @@ carry `_fused` in their wandb name to keep the two apart.
 
 | # | Tier | Config | GPUs | ga | mb | job | tokens/s | MFU/GPU | peak GiB | notes |
 |---|---|---|---:|---:|---:|---|---:|---:|---:|---|
-| **D3/ddp-mb4** ✅ | D3 | `ame/h20_4gpu_mb4_ddp_mp4` | 4 | 32 | 4 | **32664** | **241,679** | **23.02%** | **39.75** | **+25.81% over 32656**; 4.337 s/step, carries D2 as well, wandb `fwt5br9d` |
-| **D2/mb16-fused** ✅ | D2 | `ame/h20_4gpu_mb16_mp4` + fused | 4 | 8 | 16 | **32666** | **287,729** | **27.41%** | **61.90** | **+2.20% over B1** — the pinned test bed, flipped from -1.03%, wandb `l4tjf6u4` |
-| **D3/ddp-mb16** ❌ | D3 | `ame/h20_4gpu_mb16_ddp_mp4` | 4 | 8 | 16 | **32672** | — | — | **OOM** | **CUDA OOM at 73.68 / 79.18 GiB**, needing 6.14 GiB for cross-entropy |
-| **D2/mb4-fused** ✅ | D2 | `ame/h20_4gpu_mb4_mp4` + fused | 4 | 32 | 4 | **32674** | **246,636** | **23.49%** | — | **+28.39% over 32656** — the best configuration measured; 4.250 s/step, wandb `ame_h20_4gpu_mb4_mp4_fused` |
-| **O9-lem** ✅ | 1 | `ame/h20_4gpu_mb16_o9_lem` | 4 | 8 | 16 | **6237109** | **264,659** | n/a | **69.50** | **lem**, 3.960 s/step, wandb `jroouzw9` |
+| **D3/ddp-mb4** ✅ | D3 | `ame_tests/h20_4gpu_mb4_ddp_mp4` | 4 | 32 | 4 | **32664** | **241,679** | **23.02%** | **39.75** | **+25.81% over 32656**; 4.337 s/step, carries D2 as well, wandb `fwt5br9d` |
+| **D2/mb16-fused** ✅ | D2 | `ame_tests/h20_4gpu_mb16_mp4` + fused | 4 | 8 | 16 | **32666** | **287,729** | **27.41%** | **61.90** | **+2.20% over B1** — the pinned test bed, flipped from -1.03%, wandb `l4tjf6u4` |
+| **D3/ddp-mb16** ❌ | D3 | `ame_tests/h20_4gpu_mb16_ddp_mp4` | 4 | 8 | 16 | **32672** | — | — | **OOM** | **CUDA OOM at 73.68 / 79.18 GiB**, needing 6.14 GiB for cross-entropy |
+| **D2/mb4-fused** ✅ | D2 | `ame_tests/h20_4gpu_mb4_mp4` + fused | 4 | 32 | 4 | **32674** | **246,636** | **23.49%** | — | **+28.39% over 32656** — the best configuration measured; 4.250 s/step, wandb `ame_h20_4gpu_mb4_mp4_fused` |
+| **O9-lem** ✅ | 1 | `ame_tests/h20_4gpu_mb16_o9_lem` | 4 | 8 | 16 | **6237109** | **264,659** | n/a | **69.50** | **lem**, 3.960 s/step, wandb `jroouzw9` |
 
 **Two clusters are in this table and their rows must not be compared across.** lem is
 `gpu:hopper:4` — four GPUs per *node* — against entropy's 8×H100 SXM in one node. O9 is a
@@ -1192,7 +1192,7 @@ hooks, and the joint clip.
 
 ### Tier 2+3 measured: mathematically right, throughput-neutral, slightly better gradients
 
-Job **32632**, `ame/h20_4gpu_mb16_mp4`, against **B1** (job 32576). Same global
+Job **32632**, `ame_tests/h20_4gpu_mb16_mp4`, against **B1** (job 32576). Same global
 token schedule, same seed, same everything but `trainer.mem_parallel_size`.
 
 | | B1 (32576) | T2+3 mp=4 (32632) | delta |
@@ -1423,7 +1423,7 @@ and confirms the mathematics is identical across all three.
 
 Tier 2's Measurement asks for "one 1-GPU run to compare directly against pkmf's
 1.43x claim on a shape where no NCCL traffic confounds it"
-(`configs/ame/h20_1gpu_mb4_mp1.yaml`, against `h20_smoke.yaml` = job 32360:
+(`configs/ame_tests/h20_1gpu_mb4_mp1.yaml`, against `h20_smoke.yaml` = job 32360:
 47,391 tokens/s, 18.1% MFU, 22.1 s/step at ga 128 / micro-batch 4).
 
 At world_size 1 there is nothing left but the mechanism: `_build_groups` returns
@@ -1493,7 +1493,7 @@ interconnect, is the first-order explanation of the two results — and it sits
 little remains to save is also the part NVLink was already hiding.
 
 **The testable consequence:** at 4 GPUs, Tier 2+3's delta should improve
-monotonically as the micro-batch falls and `ga` rises. `configs/ame/h20_4gpu_mb4`
+monotonically as the micro-batch falls and `ga` rises. `configs/ame_tests/h20_4gpu_mb4`
 (ga 32) and `h20_4gpu_mb8` (ga 16) already exist from the deferred B1 sweep, so
 the curve is four runs away.
 
@@ -2091,7 +2091,7 @@ All of this is extrapolation from one GPU and is labelled as such until a
 The last two rows are projections from the 1-GPU A/B and the kernel benches,
 by two independent routes that agree. **They are not measured and are not
 claimed as results.** The 4-GPU run that would settle them is written
-(`configs/ame/h20_4gpu_mb16_mp4_align.yaml`) and unsubmitted — see the decision
+(`configs/ame_tests/h20_4gpu_mb16_mp4_align.yaml`) and unsubmitted — see the decision
 log below.
 
 ## Tier 4 — the 40% target
@@ -2185,7 +2185,7 @@ here is 1 GPU, where the collectives are single-rank no-ops. That is the gap.
 
 - **O37 — no FSDP2 at world size 1.** At 1 GPU FSDP2 shards nothing yet runs
   its full machinery: 2281 ms/step of `foreach` staging, packing and copies,
-  17.7% of the step. `configs/ame/h20_1gpu_mb4_nofsdp.yaml` takes bf16 from
+  17.7% of the step. `configs/ame_tests/h20_1gpu_mb4_nofsdp.yaml` takes bf16 from
   autocast instead. **A 1-GPU-only win that does not transfer to 4 GPUs**,
   where FSDP2 is what makes h20 fit at all. It matters because the h-sweep
   runs at 1 GPU and would otherwise measure FSDP2 overhead rather than AME.
@@ -2399,7 +2399,7 @@ toward — the same rule Tier 1 was held to when its gate fired negative.
   Replaced by `profile_timers` (step-tiling sections, outside the compiled region) plus
   `kernel_profile` with two new `kprof_agg.py` categories, `comm(nccl)` and
   `embedding/bank`. Sub-block attribution *inside* the compiled block is now a known gap,
-  not an assumed capability. Config: `configs/ame/h20_4gpu_mb16_attrib.yaml`.
+  not an assumed capability. Config: `configs/ame_tests/h20_4gpu_mb16_attrib.yaml`.
 - **2026-11-04** — **Both first lem runs died during compilation, before step 1, on a
   Triton cache race. Fixed in `main.py`.** Triton defaults `TRITON_CACHE_DIR` to
   `$HOME/.triton/cache` and publishes entries with `os.replace(temp, final)` — atomic on
@@ -2481,7 +2481,7 @@ toward — the same rule Tier 1 was held to when its gate fired negative.
   builds on, and AME itself is 3.77 GF/token. Hence B2.
 - **2026-11-05** — **Deviation from section 1.3's held-constant workload.**
   `common.sequence_length` moves from 2048 to **2049** in
-  `configs/ame/h20_4gpu_mb16_mp4_align.yaml`, so that after the next-token shift
+  `configs/ame_tests/h20_4gpu_mb16_mp4_align.yaml`, so that after the next-token shift
   the model sees n = 2048 and flex's row-blocks are 128-aligned. This is a
   **data** change, not a numerics change: each example now spans 2049 dataset
   tokens, so the token stream is not the one B1 saw and the loss trace is

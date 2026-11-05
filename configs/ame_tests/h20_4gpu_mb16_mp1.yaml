@@ -15,7 +15,7 @@
 # accounting above is wrong and everything downstream of it needs re-reading.
 # Either way it costs about two minutes of the allocation.
 #
-# Everything else is configs/ame/h20_4gpu_mb16.yaml (B1/mb16) unchanged:
+# Everything else is configs/ame_tests/h20_4gpu_mb16.yaml (B1/mb16) unchanged:
 # 4xH100, global batch 512 x 2048, ga 8 => micro-batch 16, 30 steps, seed and
 # schedule identical. The ONLY difference from the baseline twin is
 # trainer.mem_parallel_size.

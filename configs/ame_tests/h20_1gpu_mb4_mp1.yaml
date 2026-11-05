@@ -12,7 +12,7 @@
 # micro-steps, against FSDP2 materialising a dense gradient per micro-step and
 # AdamW stepping 2.576B parameters it did not need to.
 #
-# The A/B twin is configs/ame/h20_smoke.yaml, measured as entropy job 32360:
+# The A/B twin is configs/ame_tests/h20_smoke.yaml, measured as entropy job 32360:
 # 47,391 tokens/s, 18.1% MFU, 22.1 s/step at ga 128 / micro-batch 4. This file
 # is that config with ONE key added, so the comparison is clean.
 #

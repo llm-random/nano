@@ -1,8 +1,8 @@
 # AME at H=12, four H100s, micro-batch 16 -- the missing cell of the h-sweep.
 #
 # The 2026-11-05 sweep measured five of the six (H, GPU-count) cells and left
-# this one unrun, so section 6.1 of ame_optimization_report.md reads "never
-# run" here. This config fills it.
+# this one unrun. This config fills it; section 6.1 of
+# ame_optimization_report.md now reports the result.
 #
 # It is deliberately the *controlled* analogue of its two neighbours rather
 # than a tuned configuration. `h16_4gpu_mb16_o29.yaml` and
@@ -33,8 +33,9 @@
 # sequence_length 2049, not 2048: `_preprocess_input` takes `batch[:, :-1]` for
 # next-token targets, so the model sees 2048 -- which is 16 * 128, and
 # flex_attention's row-blocks are 128-wide. At 2047 the last row-block is
-# ragged and costs 479.9 ms per step at the h20 shape (job 32688). Every config
-# in this directory carries it. It reads like a typo; it is not one.
+# ragged and costs 479.9 ms per step at the h20 shape (job 32688). All six
+# configs in configs/ame/ carry it; the ones here at 2048 run the ragged shape.
+# It reads like a typo; it is not one.
 defaults:
   - /base_schema
   - ../_misc@_here_: default

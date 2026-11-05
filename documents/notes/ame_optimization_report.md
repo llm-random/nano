@@ -49,7 +49,7 @@ below:
 **Reproduced, and the micro-batch question closed (2026-11-05 evening, §1.15).**
 On Maciej's own account, all five best configurations re-measured within 0.23
 points with identical peak memory, and h12 at 4 GPUs was measured for the first
-time (30.04%). A 24-run sweep then showed every best configuration already sits
+time (30.00%). A 24-run sweep then showed every best configuration already sits
 at the largest micro-batch that fits: MFU rises at every doubling until OOM,
 and at global batch 512 there is no micro-batch in between.
 
@@ -348,7 +348,7 @@ micro-batch gain still outweighs that loss; by h12 it does not.
 |---|---:|---:|
 | h20 | 34.17% | **35.02%** |
 | h16 | **37.96%** | 33.30% |
-| h12 | 34.46% | 30.04% |
+| h12 | 34.46% | 30.00% |
 
 At 1 GPU h20 is memory-starved into micro-batch 4 and h16's 4× micro-batch
 wins. At 4 GPUs the banks shard, h20 gets micro-batch 16 too, and its higher
@@ -457,7 +457,10 @@ above. Everything except micro-batch is held at the §6.1 configuration; global
 batch stays 512, so `gradient_accumulation_steps = 512 ÷ (micro-batch × GPUs)`.
 Three points are the reproduction runs, whose configs are identical.
 
-**MFU/GPU, %** (bold = best in the row; jobs in §3):
+**MFU/GPU, %** (bold = best in the row; jobs in §3). These are the sweep's own
+aggregation, which reads 0.00–0.04 points above the W&B mean over steps ≥ 15
+used everywhere else (four runs checked): h12 at 4 GPUs is 30.04% here and
+30.00% by the mean, the figure §6.1 uses.
 
 | model | GPUs | mb 1 | mb 2 | mb 4 | mb 8 | mb 16 | mb 32 | mb 64 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -530,7 +533,7 @@ a few tenths of a point.
 `ame_h12_1gpu_mb32_entr`, `ame_h16_1gpu_mb16_entr` and
 `ame_h20_1gpu_mb4_nofsdp_entr`. Each one's cemetery branch is its run name plus
 the submit timestamp. The h12/4-GPU base is the one new config,
-`configs/ame/h12_4gpu_mb16_o29.yaml`; every other point is a §6.1 config with
+`configs/ame_tests/h12_4gpu_mb16_o29.yaml`; every other point is a §6.1 config with
 `trainer.gradient_accumulation_steps` overridden on the command line.
 
 ---
@@ -1131,12 +1134,12 @@ ceiling for the % column is B2 = 44.44%.
 
 | model | GPUs | best MFU/GPU | step | tokens/s | micro-batch × ga | peak GiB | % of dense | job | config |
 |---|---:|---:|---:|---:|---:|---:|---:|---|---|
-| **h12** | **1** | **34.46%** | 3.240 s | 323,631 | 32 × 16 | 66.54 | 77.5% | 32832 | `ame/h12_1gpu_mb32.yaml` |
-| **h12** | **4** | **30.04%** | 0.929 s | 1,128,504 | 32 × 4 | 53.22 | 67.6% | 33076 | `ame/h12_4gpu_mb16_o29.yaml` + `trainer.gradient_accumulation_steps=4` |
-| **h16** | **1** | **37.96%** | 5.924 s | 177,001 | 16 × 32 | 68.35 | **85.4%** | 32825 | `ame/h16_1gpu_mb16.yaml` |
-| **h16** | **4** | **33.30%** | 1.689 s | 621,015 | 16 × 8 | 44.53 | 74.9% | 32856 | `ame/h16_4gpu_mb16_o29.yaml` |
-| **h20** | **1** | **35.59%** | 11.226 s | 93,404 | 4 × 128 | 66.87 | 80.1% | 32834 | `ame/h20_1gpu_mb4_nofsdp.yaml` |
-| **h20** | **4** | **35.02%** | 2.852 s | 367,691 | 16 × 8 | 64.63 | 78.8% | 32847 | `ame/h20_4gpu_mb16_mp4_o29.yaml` |
+| **h12** | **1** | **34.46%** | 3.240 s | 323,631 | 32 × 16 | 66.54 | 77.5% | 32832 | `ame_tests/h12_1gpu_mb32.yaml` |
+| **h12** | **4** | **30.00%** | 0.930 s | 1,127,285 | 32 × 4 | 53.22 | 67.5% | 33076 | `ame_tests/h12_4gpu_mb16_o29.yaml` + `trainer.gradient_accumulation_steps=4` |
+| **h16** | **1** | **37.96%** | 5.924 s | 177,001 | 16 × 32 | 68.35 | **85.4%** | 32825 | `ame_tests/h16_1gpu_mb16.yaml` |
+| **h16** | **4** | **33.30%** | 1.689 s | 621,015 | 16 × 8 | 44.53 | 74.9% | 32856 | `ame_tests/h16_4gpu_mb16_o29.yaml` |
+| **h20** | **1** | **35.59%** | 11.226 s | 93,404 | 4 × 128 | 66.87 | 80.1% | 32834 | `ame_tests/h20_1gpu_mb4_nofsdp.yaml` |
+| **h20** | **4** | **35.02%** | 2.852 s | 367,691 | 16 × 8 | 64.63 | 78.8% | 32847 | `ame_tests/h20_4gpu_mb16_mp4_o29.yaml` |
 
 GFLOPs/token, which is why the MFU columns are not directly comparable across
 rows: h12 **1.053**, h16 **2.121**, h20 **3.768**. A smaller model carries less
@@ -1145,8 +1148,14 @@ work — and raw tokens/s across rows is a different model's tokens.
 
 Every row was re-measured on 2026-11-05 evening on Maciej's own account, within
 0.23 points and with identical peak memory; the h12/4-GPU row comes from that
-block. Every row is also the largest micro-batch that fits: the next power of
+block (job 33076; §1.15 quotes it as 30.04%, by the sweep's own aggregation).
+Every row is also the largest micro-batch that fits: the next power of
 two OOMs in all six (§1.15).
+
+Curated copies of all six rows are in `configs/ame/` (`h12_1gpu.yaml` …
+`h20_4gpu.yaml`), each identical to the config in the last column except run
+name, tags and job name. Every other AME config moved to `configs/ame_tests/`
+on 2026-11-05.
 
 ### 6.2 What each best configuration contains
 

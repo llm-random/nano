@@ -1,5 +1,5 @@
 # Dense H-balanced h20 at 4 GPUs, instrumented -- the ATTRIBUTION TWIN of
-# configs/ame/h20_4gpu_mb16_attrib.yaml.
+# configs/ame_tests/h20_4gpu_mb16_attrib.yaml.
 #
 # Exists so that "where does AME lose its MFU?" can be answered by subtraction
 # rather than by inference. AME measured 26.84% MFU against this model's 44.44%

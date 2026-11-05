@@ -14,7 +14,7 @@
 #
 # So this should land between the two, and the sign of the prediction is what is
 # being tested: Tier 2+3's delta must improve monotonically as the micro-batch
-# falls and ga rises. Its A/B twin is `configs/ame/h20_4gpu_mb4.yaml`, the B1
+# falls and ga rises. Its A/B twin is `configs/ame_tests/h20_4gpu_mb4.yaml`, the B1
 # sweep point written in Tier 1 and deferred before it ran -- both are submitted
 # together so the pair is measured on the same node in the same hour.
 #

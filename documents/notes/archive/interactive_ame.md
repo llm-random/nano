@@ -308,7 +308,7 @@ alignment saving scales with it and the *ratio* to step time is the same
 ~14.5% in both. What 1 GPU cannot show is whether the saving survives contact
 with FSDP2's collectives, which is the only reason the 4-GPU run still matters.
 
-`configs/ame/h20_4gpu_mb16_mp4_align.yaml` is written and ready to submit the
+`configs/ame_tests/h20_4gpu_mb16_mp4_align.yaml` is written and ready to submit the
 moment a 4th GPU frees.
 
 ### 2026-11-05 08:30 — alignment measured in training: **28.75% -> 33.39%** at 1 GPU

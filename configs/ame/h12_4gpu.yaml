@@ -1,0 +1,62 @@
+# AME h12 on 4 GPUs, at the best MFU measured for this cell.
+#
+#   30.00% MFU/GPU, 0.930 s/step, 1,127,285 tokens/s, 53.22 GiB peak
+#   job 33076 on entropy (4x H100 80GB); ame_optimization_report.md section 6.1
+#   (W&B's mean over steps >= 15, the method of every 6.1 row; the 1.15 sweep
+#   table quotes this run as 30.04% / 0.929 s / 1,128,504 by its own aggregation)
+#
+#   FSDP2 is on, so AME's alpha/beta/tau/entropy readouts are NOT logged (any
+#   GPU count): instrumentation() hits sharded params and the trainer drops it.
+#
+# Every value is that of configs/ame_tests/h12_4gpu_mb16_o29.yaml plus the
+# override the run passed on the command line, gradient_accumulation_steps=4;
+# only the run name, tags and job name differ. That run also had
+# trainer.profile_timers=true, which costs at most a few tenths of a point.
+# It is a 30-step throughput benchmark, so the "benchmark settings" below are
+# placeholders for training.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy # where it was measured
+  - ../_model/h_balanced@_here_: h12
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # benchmark setting
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128, so flex blocks align
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  attention:
+    type: ame
+
+compile_blocks_full: true
+
+trainer:
+  # MFU settings
+  gradient_accumulation_steps: 4 # micro-batch 32 = 512 / (4 GPUs x 4); 64 OOMs
+  mem_parallel_size: 4 # banks column-sharded over the 4 GPUs (Tier 3)
+  distributed:
+    fsdp2:
+      reshard_after_forward: false # O33; +1.7% at h20, not A/B-tested at h12
+
+  # Benchmark settings
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, not tuned for AME
+  scheduler:
+    warmup_steps: 10
+  eval_interval: 0
+  eval_dataloader: null
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: ame_h12_4g
+    time: "0-01:00:00" # benchmark setting
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h12_4gpu
+    tags:
+      - ame
+      - h12
+      - multigpu

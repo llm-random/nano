@@ -1,20 +1,15 @@
-# Tier 2+3 at mem_parallel_size 4 -- the headline run of both tiers.
+# Tier 2+3 at mem_parallel_size 2 -- the middle of the sweep.
 #
-# One memory-parallel group spanning all four ranks: each rank owns a quarter of
-# the columns of every Q/K bank, the memory-DP subgroups are singletons, and the
-# bank gradient all-reduce disappears entirely. Per-rank bank state is 11.6 GB,
-# the same as FSDP2 gives today -- but FSDP2 reaches it by all-gathering whole
-# banks twice per micro-step (measured at 269.3 ms forward + 276.6 ms backward,
-# plan section 3) and this does not gather parameters at all. What crosses the
-# wire instead is activations: an id all-gather (~1 MB) and an all-to-all of
-# 3/4 x 32768 x 1280 bf16 per bank per micro-step.
+# Two memory-parallel groups of 2 ranks, each rank owning half the columns of
+# every bank, and memory-DP subgroups of 2 -- so unlike mp=4 the bank
+# all-reduce does NOT disappear, it just runs over half the world. This is the
+# point that separates "sharding the banks helped" from "deleting the bank
+# all-reduce helped"; at mp=1 and mp=4 those two effects are confounded.
 #
-# Read against B1 (job 32576): 26.84% MFU/GPU, 281,748 tokens/s, 3.720 s/step,
-# 60.6 GiB peak. Same global token schedule, same seed, same everything else,
-# so the loss trace is directly comparable step for step -- which is the plan
-# section 1.4.2 gate, and the grad-norm trace beside it is 1.4.3.
+# Per-rank bank state 23.2 GB against 11.6 GB sharded by FSDP2, so ~72 GiB
+# peak against B1's 60.6 GiB. Expected to fit, with little room.
 #
-# Everything else is configs/ame/h20_4gpu_mb16.yaml (B1/mb16) unchanged:
+# Everything else is configs/ame_tests/h20_4gpu_mb16.yaml (B1/mb16) unchanged:
 # 4xH100, global batch 512 x 2048, ga 8 => micro-batch 16, 30 steps, seed and
 # schedule identical. The ONLY difference from the baseline twin is
 # trainer.mem_parallel_size.
@@ -43,7 +38,7 @@ trainer:
   scheduler:
     warmup_steps: 10
   # The one thing that differs from the baseline twin. Must divide world_size.
-  mem_parallel_size: 4
+  mem_parallel_size: 2
 
 # Top-level, not a trainer key: main.py reads it off the config root
 # (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
@@ -52,15 +47,15 @@ compile_blocks_full: true
 infrastructure:
   slurm:
     gres: gpu:h100:4
-    job-name: ame_mp4_4g
+    job-name: ame_mp2_4g
     time: "0-01:00:00"
   metric_logger:
     project_name: nano-ame
-    name: ame_h20_4gpu_mb16_mp4
+    name: ame_h20_4gpu_mb16_mp2
     tags:
       - ame
       - h20
       - multigpu
       - tier2
       - tier3
-      - mp4
+      - mp2

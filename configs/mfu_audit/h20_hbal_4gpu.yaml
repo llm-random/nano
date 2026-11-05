@@ -6,7 +6,7 @@
 # GPT-2-arch overrides applied -- GeluFeedForward, n_blocks 25,
 # kv_heads = q_heads -- which make the model 4.122 GFLOPs/token. This file is
 # the SAME recipe with NO overrides, i.e. the H-balanced h20 at
-# 3.97 GFLOPs/token, which is the backbone configs/ame/h20_smoke.yaml is built
+# 3.97 GFLOPs/token, which is the backbone configs/ame_tests/h20_smoke.yaml is built
 # on and which has never been measured multi-GPU.
 #
 # Why it matters: three denominators are in play -- GPT-2-arch 4.122,

@@ -11,7 +11,7 @@ its verification record). **Section identifiers are preserved exactly** — F1�
 in Part A, the four Phases and their numbered items in Part B — because the
 source tree cites them by number: `src/core/ame.py:203` and
 `tests/test_ame.py:623` cite 2.6, `src/core/ame.py:557` cites 1.2, and
-`configs/ame/h20_smoke.yaml:25` cites F1.
+`configs/ame_tests/h20_smoke.yaml:25` cites F1.
 
 | | |
 |---|---|
@@ -67,7 +67,7 @@ good* at the end.
 ([ame.py:307](../../../src/core/ame.py#L307)), and `_attend_flex` calls `flex_attention(...)`
 directly. Nothing compiles it: `compile_model` and `compile_blocks` both default to
 `False` ([main.py:151,168](../../../main.py#L151)), and **no config in the repo sets either**
-— including `configs/ame/h20_smoke.yaml`.
+— including `configs/ame_tests/h20_smoke.yaml`.
 
 Uncompiled, `flex_attention` dispatches to the `CompositeExplicitAutograd` implementation
 `sdpa_dense` → `math_attention` → `_math_attention_inner`, which is:
@@ -309,7 +309,7 @@ plus a test at 3-D and 5-D.
 
 This is **not** the other agent's change — the main tree has no diff for this file at all,
 so it is mine. Nothing needs it: all eleven configs that use `h_balanced` already set both
-values themselves, `configs/ame/h20_smoke.yaml` included.
+values themselves, `configs/ame_tests/h20_smoke.yaml` included.
 
 What it costs: `???` is OmegaConf's mandatory-value marker. Removing it means a config that
 forgets `sequence_length` now silently trains at 2048 instead of failing at composition.
@@ -625,7 +625,7 @@ superseded. **Needs explicit go-ahead** — it is new cluster time.
 > - **`compile_model: true` is now the baseline's own setting**, which is the knob 1.1
 >   works around. Doing both is still right — 1.1 makes AME's fast path independent of
 >   config, 1.5 should mirror the new baseline — but it means the comparison config has
->   to be rebuilt against the new h20, not the one `ame/h20_smoke.yaml` was shaped from.
+>   to be rebuilt against the new h20, not the one `ame_tests/h20_smoke.yaml` was shaped from.
 > - **`distributed: null` will not transfer unchanged.** Without FSDP2 the parameters
 >   stay fp32, and AME's 3.16B is ~12.6 GB of weights plus gradients plus Adam moments
 >   before activations. Decide that deliberately rather than by copying the header.
@@ -784,7 +784,7 @@ which is mutation-checked.
 
 The main tree has no diff for this file, so it is not the other agent's work. Nothing
 needs it: all eleven configs using `h_balanced` set both values themselves,
-`configs/ame/h20_smoke.yaml` included. `???` is OmegaConf's mandatory-value marker, so
+`configs/ame_tests/h20_smoke.yaml` included. `???` is OmegaConf's mandatory-value marker, so
 removing it turns a composition-time failure into a silent default of 2048 for every
 h-family config — and `batch_size` is interpolated by
 `configs/_dataset/default.yaml` as `total_batch_size`.

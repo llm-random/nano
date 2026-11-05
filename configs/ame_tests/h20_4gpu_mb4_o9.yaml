@@ -1,17 +1,17 @@
-# T1.2/O9 -- AME h20, 4xH100, micro-batch 8, gradient sync suppressed during accumulation.
+# T1.2/O9 -- AME h20, 4xH100, micro-batch 4, gradient sync suppressed during accumulation.
 #
-# The A/B twin of configs/ame/h20_4gpu_mb8.yaml (baseline B1/mb8, job 32542).
+# The A/B twin of configs/ame_tests/h20_4gpu_mb4.yaml (baseline B1/mb4, job 32541).
 # IDENTICAL in every respect except `trainer.skip_grad_sync_during_accumulation`,
 # so the only thing that differs between the two measurements is WHEN gradients
 # are reduced -- never what they sum to.
 #
 # What changes. FSDP2 reduce-scatters every gradient at the end of every
-# `loss.backward()`. Across 16 accumulation micro-steps only the last reduce is
-# needed; the other 15 reduce a partial sum that the next micro-step
+# `loss.backward()`. Across 32 accumulation micro-steps only the last reduce is
+# needed; the other 31 reduce a partial sum that the next micro-step
 # immediately adds to. The flag suppresses them.
 #
-#   reduce-scatters per optimizer step:  16 -> 1
-#   fp32 bytes moved per step:           ~202 GB -> ~12.65 GB
+#   reduce-scatters per optimizer step:  32 -> 1
+#   fp32 bytes moved per step:           ~405 GB -> ~12.65 GB
 #
 # (3.163B parameters x 4 bytes = 12.65 GB per reduce-scatter. Estimates from
 # parameter count and dtype, not measurements -- T1.3/O31 is what converts them
@@ -52,7 +52,7 @@ common:
 trainer:
   n_steps: 30
   learning_rate: 0.000244140625 # 2^-12, the audit's value
-  gradient_accumulation_steps: 16 # micro-batch 8 x 2048 at 4 GPUs
+  gradient_accumulation_steps: 32 # micro-batch 4 x 2048 at 4 GPUs
   eval_interval: 0
   eval_dataloader: null
   scheduler:
@@ -67,11 +67,11 @@ compile_blocks_full: true
 infrastructure:
   slurm:
     gres: gpu:h100:4
-    job-name: ame_o9_4g_mb8
+    job-name: ame_o9_4g_mb4
     time: "0-01:00:00"
   metric_logger:
     project_name: nano-ame
-    name: ame_h20_4gpu_mb8_o9
+    name: ame_h20_4gpu_mb4_o9
     tags:
       - ame
       - h20

@@ -87,7 +87,7 @@ it too, or AME collects a gain that is not its own.
 | [main.py](../../main.py) | both optimizer sites build param groups |
 | [src/definitions.py](../../src/definitions.py) | `AttentionSchema.ame` — the options block, typed as `Any` |
 | [configs/_model/h_balanced/base.yaml](../../configs/_model/h_balanced/base.yaml) | `vocab_size` reaches `build_attention` |
-| [configs/ame/h20_smoke.yaml](../../configs/ame/h20_smoke.yaml) | the first GPU run's config |
+| [configs/ame_tests/h20_smoke.yaml](../../configs/ame_tests/h20_smoke.yaml) | the first GPU run's config |
 | [tests/test_ame.py](../../tests/test_ame.py) | 69 tests: the math, the ablation arms, the plumbing, weight decay, instrumentation, the fused kernel |
 
 ### Token ids travel with the activations
@@ -232,7 +232,7 @@ trajectory, which is the check that the kernel change altered speed and not arit
 
 Phase 1 landed on 2026-11-03: `src/core/ame.py` now compiles `flex_attention` itself, so
 the fused Triton kernel no longer depends on a config flag. Re-measured as entropy job
-**32360**, `configs/ame/h20_smoke.yaml`, 1xH100.
+**32360**, `configs/ame_tests/h20_smoke.yaml`, 1xH100.
 
 | h20, 1xH100, 512 x 2048 tok/step | params | micro-batch | tokens/s | MFU | step time |
 |---|---:|---:|---:|---:|---:|
