@@ -1,0 +1,77 @@
+# Stage 1, arm S1-D: the dense h12 baseline (GQA with RoPE, no KV shift), as a
+# learning-rate grid. One submit = 4 runs (one sbatch array), one per
+# learning_rate n, LR = 2^-n.
+#
+#   Plan: documents/notes/ame_experiments.md, "Stage 1 -- first models".
+#   Pair: configs/stage_1/ame_h12_simplest_lr_grid.yaml (S1-A0), the same
+#   recipe with AME attention. The training recipe (steps, batch, schedule,
+#   eval, precision, checkpointing) is identical in all six configs/stage_1 and
+#   configs/stage_2 files; change them together.
+#
+# No /base_schema in the defaults list: the schema would reject the ^ grid key
+# under `trainer` as unknown. run_exp.py schema-checks every expanded grid point
+# instead (check_point, src/definitions.py).
+#
+# Submitting starts all 4 runs at once, unless infrastructure.max_concurrent_jobs
+# is set.
+#
+# Runs on LEM, switched from entropy on 2026-11-05 like every Stage 1-2
+# config, so that all their runs share one hardware. The s/step figures
+# quoted below are entropy's; the LEM smoke runs set LEM's baseline
+# (documents/notes/stage_1_report.md).
+defaults:
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h12
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128; kept equal to the AME arms
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # The arm: dense attention with RoPE (base 10000), the h_balanced default.
+  attention:
+    type: gqa
+
+compile_blocks_full: true
+
+trainer:
+  # Throughput: micro-batch 32 is dense h12's best at 1 GPU (40.32% MFU,
+  # 2.879 s/step, job 33119 on entropy, which ran with FSDP2 on). FSDP2 is off here, as
+  # in the AME arms, so every Stage 1-2 run shares one precision path
+  # (autocast bf16). The cost of that at h12 is unmeasured.
+  gradient_accumulation_steps: 16 # micro-batch 32
+  mem_parallel_size: null # dense attention has no banks
+  distributed: null
+  autocast_bf16: true # bf16 now comes from autocast instead of FSDP2
+
+  # The recipe. Everything not set here is a llama-trainer default:
+  #   - AdamW, weight decay 0.1;
+  #   - cosine schedule, warmup 1% = 38 steps, final LR 10% of peak;
+  #   - eval every 100 steps on 10 batches;
+  #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
+  n_steps: 3815 # D = 4B tokens / 1,048,576 tokens per step
+  ^learning_rate: [10, 11, 12, 13] # n, LR = 2^-n; one run per value
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1). It lands in the
+      # job's cemetery clone, under checkpoint/<job id>/<array task id>/,
+      # at ~2 GB per checkpoint.
+      path: checkpoint
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:1 # LEM's gres syntax; entropy's was gpu:h100:1
+    job-name: s1_d
+    time: "0-05:00:00" # ~3.1 h of training at entropy's benchmark speed, plus margin
+  metric_logger:
+    project_name: nano-ame
+    name: s1_d_h12_lr${trainer.learning_rate}
+    tags:
+      - dense
+      - h12
+      - stage_1
+      - s1_d
+      - lr_grid

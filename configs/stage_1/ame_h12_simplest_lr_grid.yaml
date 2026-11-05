@@ -1,0 +1,82 @@
+# Stage 1, arm S1-A0: the simplest AME at h12, with no positional encoding and no
+# KV shift, as a learning-rate grid. One submit = 4 runs (one sbatch array), one
+# per learning_rate n, LR = 2^-n.
+#
+#   Plan: documents/notes/ame_experiments.md, "Stage 1 -- first models".
+#   Pair: configs/stage_1/dense_h12_lr_grid.yaml (S1-D), the same recipe with
+#   dense attention. The training recipe (steps, batch, schedule, eval,
+#   precision, checkpointing) is identical in all six configs/stage_1 and
+#   configs/stage_2 files; change them together.
+#
+# No /base_schema in the defaults list: the schema would reject the ^ grid key
+# under `trainer` as unknown. run_exp.py schema-checks every expanded grid point
+# instead (check_point, src/definitions.py).
+#
+# Submitting starts all 4 runs at once, unless infrastructure.max_concurrent_jobs
+# is set.
+#
+# Runs on LEM, switched from entropy on 2026-11-05 like every Stage 1-2
+# config, so that all their runs share one hardware. The s/step figures
+# quoted below are entropy's; the LEM smoke runs set LEM's baseline
+# (documents/notes/stage_1_report.md).
+defaults:
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h12
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128, so flex blocks align
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # The arm. Every ALiBi slope is 0, so there is no positional signal and a
+  # score is tau * T[t_i, t_j] alone. shift: false pins alpha and beta to (1, 0).
+  attention:
+    type: ame
+    ame:
+      shift: false
+      slopes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # one per head
+
+compile_blocks_full: true
+
+trainer:
+  # Throughput comes from configs/ame/h12_1gpu.yaml (34.46% MFU, 3.240 s/step,
+  # job 32832 on entropy), with FSDP2 turned off. Under FSDP2 the trainer drops AME's
+  # readouts (tau, attention entropy, alpha/beta); without it they are logged,
+  # and every Stage 1-2 run shares one precision path (autocast bf16). Turning
+  # FSDP2 off cost -2.5% MFU at h16 and gained +4.2% at h20; it is unmeasured at h12.
+  gradient_accumulation_steps: 16 # micro-batch 32; if it OOMs without FSDP2, use 32 (micro-batch 16)
+  mem_parallel_size: 1 # hand-managed bank path (Tier 2), banks unsharded
+  distributed: null
+  autocast_bf16: true # bf16 now comes from autocast instead of FSDP2
+
+  # The recipe. Everything not set here is a llama-trainer default:
+  #   - AdamW, weight decay 0.1 (the AME banks are exempt);
+  #   - cosine schedule, warmup 1% = 38 steps, final LR 10% of peak;
+  #   - eval every 100 steps on 10 batches;
+  #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
+  n_steps: 3815 # D = 4B tokens / 1,048,576 tokens per step
+  ^learning_rate: [10, 11, 12, 13] # n, LR = 2^-n; one run per value
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1). It lands in the
+      # job's cemetery clone, under checkpoint/<job id>/<array task id>/.
+      # AME is ~15-20 GB per checkpoint, banks and their optimizer state included.
+      path: checkpoint
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:1 # LEM's gres syntax; entropy's was gpu:h100:1
+    job-name: s1_a0
+    time: "0-05:00:00" # ~3.4 h of training at entropy's benchmark speed, plus margin
+  metric_logger:
+    project_name: nano-ame
+    name: s1_a0_h12_lr${trainer.learning_rate}
+    tags:
+      - ame
+      - h12
+      - stage_1
+      - s1_a0
+      - lr_grid

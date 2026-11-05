@@ -1,5 +1,333 @@
 # AME — experimental program
 
+**Status: proposed — the live plan since 2026-11-05.**
+- Stage 0 is under way on its own branch.
+- Stages 1 and 2 have not started. Their configs are written and were pre-flighted
+  locally on 2026-11-05, in [configs/stage_1/](../../configs/stage_1/) and
+  [configs/stage_2/](../../configs/stage_2/).
+- **Every Stage 1–2 run is on LEM.** All six configs were switched from entropy on
+  2026-11-05, before the first submit, so that every run shares one hardware. The s/step
+  figures in this plan are entropy's; the LEM smoke runs set LEM's baseline, which
+  [stage_1_report.md](stage_1_report.md) records.
+- Stage 3 will be written once Stages 1 and 2 have results.
+
+This plan was rewritten from the ground up on 2026-11-05. The program it replaces is kept
+at the end, unchanged, as [the previous plan](#appendix-the-previous-plan-superseded-2026-11-05).
+It is there for reference only; nothing in it is scheduled.
+
+**The order of work:**
+1. Train the simplest AME against a dense baseline (Stage 1).
+2. Add AME's positional encoding and its KV shift, one at a time (Stage 2).
+3. Implementation and efficiency work (Stage 0) runs alongside both, and never in front.
+
+## The stages
+
+| Stage | What | Priority | Branch · worktree | Progress goes to |
+|---|---|---|---|---|
+| **0** | Implementation: reading about other methods and baselines; implementing and improving AME; the MFU of AME and of the baselines | Below Stages 1 and 2; continuous and asynchronous | `ame_optimize` · `~/code/nano-ame` | [ame_optimization_report.md](ame_optimization_report.md), which keeps its name |
+| **1** | First models: a dense h12 baseline and the simplest AME h12, 4B tokens each, with a learning-rate grid for both | **Next** | `ame_main` · `~/code/nano` | `stage_1_report.md` |
+| **2** | AME with positional encoding, with the shift, and with both; which is best | After Stage 1 | `ame_main` · `~/code/nano` | `stage_2_report.md` |
+| **3** | Not written yet. It is decided from the results of Stages 1 and 2 | — | — | — |
+
+Rules for every stage:
+- **Stages 1 and 2 never wait for Stage 0.** A Stage 0 improvement reaches `ame_main`
+  between comparisons, never during one.
+- **One commit per comparison.**
+  - Every run of one learning-rate grid, or of Stage 2's arms, uses the same commit and
+    the same recipe.
+  - The stage report records the commit.
+  - If a Stage 0 change can alter the numerics, not only the speed, re-run the reference
+    arm before comparing across it.
+- **Each stage reports in its own file** in `documents/notes/`, created when the stage
+  starts.
+  - The Stage 0 agent writes Stage 0's report,
+    [ame_optimization_report.md](ame_optimization_report.md).
+
+## Stage 0 — implementation (asynchronous)
+
+**Scope, as set on 2026-11-05:**
+- reading about other methods and baselines;
+- implementing and improving AME;
+- raising the MFU of AME and of the baselines.
+
+More efficient code is always welcome, but it is not the priority. The Stage 0 agent
+owns this stage and its report. [ame_implementation.md](ame_implementation.md) lists the
+implementation items found so far, under "Plans and open items" and "Positional encoding,
+and what a dense comparison must control".
+
+Two Stage 0 items touch Stages 1 and 2. Neither one blocks them:
+
+| Item | What it affects | Without it |
+|---|---|---|
+| **AME readouts under FSDP2** (details below) | Only runs that use FSDP2. The Stage 1–2 configs train on 1 GPU without it, so their readouts are logged | Nothing changes for the current configs |
+| **Research on positional encoding for AME** (ALiBi vs RoPE, and alternatives) | What "AME with positional encoding" means in Stage 2 | The implemented ALiBi ladder |
+
+**The readout problem:**
+- `instrumentation()` hits sharded parameters.
+- The trainer then drops it for the rest of the run
+  ([src/core/trainer.py:996](../../src/core/trainer.py#L996)).
+- So under FSDP2, α₂/β₂, τ, the horizons and the attention entropy are never logged.
+- Every `configs/ame/` file runs FSDP2 except `h20_1gpu.yaml`. The Stage 1–2 configs set
+  `distributed: null`, so they are not affected.
+
+## Stage 1 — first models
+
+**Question:** with a tuned learning rate for each, how far is the simplest AME from a dense
+baseline at h12 and 4B tokens?
+
+### Arms
+
+| Arm | Attention | Positional signal | KV shift | Config on top of h_balanced h12 |
+|---|---|---|---|---|
+| **S1-D**, dense baseline | `gqa` → `RoPEAttention` | RoPE, base 10000 | none | `common.attention.type: gqa`, the h_balanced default |
+| **S1-A0**, simplest AME | `ame`: Q/K from id-indexed banks, QK-norm, learned τ, learned sink | **none**: every ALiBi slope is 0 | **off**: α and β pinned to (1, 0) | `common.attention: {type: ame, ame: {shift: false, slopes: [0.0, …]}}`, with 12 zeros |
+
+S1-A0 can be set from config today, with no code change:
+- `slopes` takes one value per head and does not check the sign
+  ([src/core/ame.py:319-325](../../src/core/ame.py#L319-L325)). Twelve zeros remove the
+  distance bias.
+- `shift: false` pins α and β as buffers
+  ([src/core/ame.py:303-304](../../src/core/ame.py#L303-L304)).
+- The horizon readout τ/m then reads ∞. That is expected; check that the logger accepts it.
+
+What S1-A0 can and cannot do *(analysis, not measured)*:
+- Every score is `τ·T[t_i, t_j]`, a function of two token ids.
+- The causal mask still lets the residual stream carry position, as in transformers
+  without positional encoding (Haviv et al. 2022).
+- But no head can attend by position, because AME scores never read the residual stream.
+- So S1-A0 is expected to be the weakest member of the AME family. It is Stage 2's
+  reference cell, not a candidate.
+
+### Recipe — the same for every run in Stages 1 and 2
+
+| Setting | Value | Source |
+|---|---|---|
+| Model | h_balanced h12: 12 blocks, 12 heads (6 KV in dense), d_model 768, d_head 64, SwiGLU d_ff 3072, vocab 50,304 | [configs/_model/h_balanced/](../../configs/_model/h_balanced/) |
+| Data | FineWeb-Edu with seed 123 in every run except S2-N (124), so the runs see the same data in the same order. The seed also sets the initialisation: `main.py` seeds torch from it | [configs/_dataset/fineweb.yaml](../../configs/_dataset/fineweb.yaml), [main.py:370](../../main.py#L370) |
+| Context, batch | 2,048 tokens seen (`sequence_length: 2049`); 512 sequences = 1,048,576 tokens per step | [configs/ame/h12_1gpu.yaml](../../configs/ame/h12_1gpu.yaml) |
+| Tokens | **D = 4B, which is 3,815 steps** | 4·10⁹ / 1,048,576 |
+| Optimizer, schedule | `llama` trainer: AdamW; weight decay 0.1, which the AME banks are exempt from; cosine schedule; 1% warmup (38 steps); final LR 10% of peak | [configs/_trainer/llama.yaml](../../configs/_trainer/llama.yaml) |
+| Eval | Every 100 steps on 10 batches. After training, `final_ce` on the fixed held-out set of 8192 samples × 2048 tokens, which is the same in every run | `llama` trainer and `fineweb` dataset defaults |
+| Checkpoints | The final checkpoint only, written to the job's cemetery clone under `checkpoint/<job id>/<array task id>/`. About 15–20 GB per AME run, banks and their optimizer state included; about 2 GB per dense run | `trainer.checkpoint.save.path: checkpoint` |
+| Hardware, precision | 1 H100 per run, on LEM (`gres: gpu:hopper:1`), micro-batch 32 × 16 accumulation steps. **FSDP2 is off in every arm, dense included** (`distributed: null`, `autocast_bf16: true`), so AME's readouts are logged and every run shares one precision path. Without FSDP2 the throughput at h12 is unmeasured; at h16 it cost −2.5% MFU and at h20 it gained +4.2% | [configs/ame/h12_1gpu.yaml](../../configs/ame/h12_1gpu.yaml); [ame_optimization_report.md](ame_optimization_report.md) §1.16 for dense |
+
+**Model sizes.** These come from the configs and
+[src/core/ame.py:265-288](../../src/core/ame.py#L265-L288) by arithmetic; check them against
+the logged parameter count. The bank figure matches the report's 16.7 GB of bank state at
+18 B/param ([ame_optimization_report.md:343](ame_optimization_report.md#L343)).
+
+| | S1-D, dense | AME arms |
+|---|---:|---:|
+| Backbone, non-embedding | 106.2M | 99.1M: no W_Q or W_K; W_V is 12 heads wide |
+| Q/K banks | — | 927.2M: 2 banks × 50,304 × 768 × 12 layers |
+| Embedding + LM head, untied | 77.3M | 77.3M |
+| **Total** | **183.5M** | **1.10B** |
+
+4B tokens is 21.8 tokens per dense parameter. That is about compute-optimal for the
+baseline by the Chinchilla rule of roughly 20 (Hoffmann et al. 2022).
+
+What the comparison matches:
+
+| Matched | Not matched |
+|---|---|
+| tokens | total parameters: AME has about 6×, almost all of it banks |
+| data order | FLOPs per token: AME skips the W_Q and W_K matmuls |
+| recipe | positional signal: RoPE vs none |
+
+Every result table states this.
+
+### Configs
+
+| Arm | Config | One submit |
+|---|---|---|
+| S1-D | [configs/stage_1/dense_h12_lr_grid.yaml](../../configs/stage_1/dense_h12_lr_grid.yaml) | 4 runs, one per n ∈ {10, 11, 12, 13}, as one sbatch array |
+| S1-A0 | [configs/stage_1/ame_h12_simplest_lr_grid.yaml](../../configs/stage_1/ame_h12_simplest_lr_grid.yaml) | 4 runs, the same way |
+
+- **To submit:**
+  `./.pixi/envs/default/bin/python run_exp.py --config-path configs/stage_1 --config-name <file name without .yaml>`.
+  - Submit from a clean worktree on a named branch, because `run_exp.py` commits every
+    untracked file into its cemetery snapshot.
+  - The runs go to the W&B project `nano-ame`, named `s1_d_h12_lr<n>` and
+    `s1_a0_h12_lr<n>`.
+- **The learning-rate grid is a `^learning_rate` list.** So, by the repo's rule, these
+  two files leave `/base_schema` out of their defaults, and `run_exp.py` schema-checks
+  every expanded grid point instead.
+- **A `^` key cannot be overridden from the command line.** To run fewer points, edit
+  the list.
+
+**Pre-flighted locally on 2026-11-05; nothing was submitted.**
+- All six Stage 1–2 files compose.
+- Every grid point passes `run_exp.py`'s schema check.
+- The training recipe is identical across all six files.
+- The models build at 183.5M parameters (dense) and 1,103.6M (AME), of which 927.2M are
+  banks. That matches the arithmetic above.
+
+**Before the grid:**
+1. **Smoke runs**, with `trainer.n_steps=60 trainer.eval_interval=20`:
+   - **dense:** the S1-D file with `infrastructure.max_concurrent_jobs=1`, which runs
+     4 short runs one at a time;
+   - **AME:** `configs/stage_2/ame_h12_simplest_seed2.yaml` (the S1-A0 code path) and
+     `configs/stage_2/ame_h12_pe_shift.yaml` (ALiBi and the shift, with the α/β
+     readouts), each with `trainer.learning_rate=12`.
+
+   Check that:
+   - micro-batch 32 fits without FSDP2 (if not, set `gradient_accumulation_steps: 32`
+     in all six files);
+   - the s/step is close to the cost table below;
+   - the AME readouts appear in W&B (the horizon reads ∞ where the slopes are 0);
+   - `final_ce` is logged;
+   - the checkpoint is written.
+
+   Delete the smoke checkpoints afterwards. On 1 GPU without FSDP2, these runs also
+   cover the paused readiness review's eval item.
+2. **There are no mid-run checkpoints.** A run that dies starts again from step 0,
+   losing at most about 3.5 h.
+3. **On entropy, probe preemption before each submit.** A grid file starts 4 jobs at once
+   unless `infrastructure.max_concurrent_jobs` is set. *(Since the switch to LEM on
+   2026-11-05, no Stage 1–2 run is submitted to entropy.)*
+
+### S1.1 — the learning-rate grid
+
+| | |
+|---|---|
+| Grid | `learning_rate: n`, LR = 2⁻ⁿ, n ∈ {10, 11, 12, 13}, for both arms: **8 runs** |
+| Why these points | n = 12 is the configs' placeholder, never tuned for AME ([configs/ame/h12_4gpu.yaml:45](../../configs/ame/h12_4gpu.yaml#L45)). Dense models of this size usually train near n ≈ 10–11: GPT-3's 125M model used 6·10⁻⁴ (Brown et al. 2020, Table 2.1) |
+| Selection | The lowest final eval loss. If the best n is at an edge of the grid, add the next n beyond it, until the best lies inside the grid |
+| Steps | Integer n only, i.e. factors of 2, as for every method in this repo |
+
+**Cost.** These figures come from 30-step throughput benchmarks on entropy H100s, run with
+FSDP2 on and eval excluded. Each AME benchmark ran with the shift and ALiBi on. The
+smoke runs measure the real speed of these configs, on LEM, where every Stage 1–2 run
+goes.
+
+| Arm | s/step, 1 GPU | One run, 1 GPU | s/step, 4 GPUs | One run, 4 GPUs | Jobs |
+|---|---:|---:|---:|---:|---|
+| S1-A0 | 3.240 | 3.4 h | 0.930 | 1.0 h (3.9 GPU-h) | 32832, 33076 |
+| S1-D | 2.879 | 3.1 h | 0.738 | 0.8 h (3.1 GPU-h) | 33119, 33116 |
+
+- The grid costs about 26 GPU-h.
+- Run as eight 1-GPU jobs, it is one wave of about 3.5 h, and it fits within entropy's
+  8-GPU cap.
+- 1-GPU runs are also more efficient: AME's MFU is 34.5% on 1 GPU against 30.0% on 4.
+
+**Stage 1 is done when** both arms have their best learning rate inside the grid, and
+`stage_1_report.md` records:
+- the chosen n for each arm;
+- the final eval loss at every grid point;
+- the loss curves;
+- the gap between AME and dense;
+- τ and attention entropy, if logged;
+- the commit, configs and W&B run ids.
+
+## Stage 2 — positional encoding and the shift
+
+**Question:** which AME variant is best at h12 and 4B tokens: with positional encoding,
+with the KV shift, or with both? And how much does each one add?
+
+Stage 2 completes a 2 × 2 design, and Stage 1 supplies one of its cells:
+
+| | no shift | KV shift |
+|---|---|---|
+| **no positional encoding** | S1-A0, from Stage 1 | **S2-S**: `shift: true`, slopes 0 |
+| **positional encoding** | **S2-P**: `shift: false`, default slopes | **S2-PS**: `shift: true`, default slopes |
+
+The run order is as set: S2-P, then S2-S, then S2-PS. The three runs do not depend on
+each other, so they can share one wave of GPUs.
+
+| Arm | Config |
+|---|---|
+| S2-P | [configs/stage_2/ame_h12_pe.yaml](../../configs/stage_2/ame_h12_pe.yaml) |
+| S2-S | [configs/stage_2/ame_h12_shift.yaml](../../configs/stage_2/ame_h12_shift.yaml) |
+| S2-PS | [configs/stage_2/ame_h12_pe_shift.yaml](../../configs/stage_2/ame_h12_pe_shift.yaml) |
+| S2-N | [configs/stage_2/ame_h12_simplest_seed2.yaml](../../configs/stage_2/ame_h12_simplest_seed2.yaml) |
+
+- Each file is one run, submitted with
+  `run_exp.py --config-path configs/stage_2 --config-name <file name without .yaml>`.
+- `learning_rate` is `null` in all four until Stage 1 finds n\*, and `run_exp.py`'s
+  schema check refuses a null learning rate. Set n\* in the four files and commit before
+  submitting.
+- The learning-rate check below uses the winning arm's file with
+  `trainer.learning_rate=<n*−1>`, then `<n*+1>`.
+- The W&B names read `s2_<arm>_h12_lr<n>.0`, because the schema types the learning rate
+  as a float.
+
+| Component | What it is in these runs |
+|---|---|
+| Positional encoding | The implemented ALiBi: `s_ij = τ·T[t_i, t_j] − m_h·(i − j)`. Each head has one fixed slope, `m = τ_init / horizon`, with horizons from 16 to 4 × the context (8,192 at 2,048) ([src/core/ame.py:150-164](../../src/core/ame.py#L150-L164)). Under QK-norm the content logit is at most τ, so each head's horizon is a hard limit on its reach. If the Stage 0 research recommends another form before Stage 2 starts, that form replaces this one, and `stage_2_report.md` says why |
+| KV shift | `K̂ = α₁K + α₂·Shift(K)` on the normalized bank rows, and `V̂ = β₁V + β₂·Shift(V)`. These are four learned scalars per head per layer, initialized α₁ ~ U(0, 1) and α₂ = 1 − α₁ ([ame_implementation.md, "KV shifting in AME"](ame_implementation.md#kv-shifting-in-ame)). The shift is itself a fixed one-step positional signal, so S2-S is not free of position |
+
+For orientation:
+- **S2-PS** is the method as previously specified, called A1 in the previous plan.
+- **S2-P** is its floor without the shift, called A4 there.
+
+**Learning rate:**
+1. All three arms train at S1-A0's best n, written n\*.
+2. Then the best arm also trains at n\* ± 1, which is 2 runs.
+3. If its best n moves, re-run the other two arms at the new n before naming a winner.
+
+**Noise floor.** S1-A0 trains again at n\* with a second seed, in the same wave; this run
+is S2-N. Differences smaller than the gap between S1-A0's two seeds are reported as ties.
+
+**Readouts.** They are logged because every config runs without FSDP2
+(`distributed: null`).
+- α₂ and β₂ per head and layer over training. If they fall to 0, the model rejected the
+  shift.
+- τ per head, and the horizons τ/m, which drift as τ is learned.
+- Attention entropy per head.
+
+**Analysis**, in `stage_2_report.md`:
+- the final eval loss of all four cells;
+- the effect of positional encoding, averaged over the shift on and off;
+- the effect of the shift, averaged over positional encoding on and off;
+- the interaction between the two;
+- every cell against S1-D;
+- **the best AME variant at h12 and 4B tokens**, which is the input to Stage 3.
+
+**Cost:**
+- Wave 1 is S2-P, S2-S, S2-PS and S2-N: four 1-GPU runs, about 14 GPU-h and 3.5 h.
+- Wave 2 is the learning-rate check: 2 runs, about 7 GPU-h.
+
+**Known caveats, deliberately not controlled in Stages 1 and 2:**
+- Any gap between AME and dense mixes three differences:
+  - where Q and K come from;
+  - the positional signal: RoPE, against none or ALiBi;
+  - the shift, which the dense baseline does not have.
+- So a shift arm that beats dense may owe part of the gain to the shift itself, which
+  Xu et al. showed helps dense attention too.
+- The controls that separate these are in
+  [ame_implementation.md](ame_implementation.md#positional-encoding-and-what-a-dense-comparison-must-control).
+  Whether to run them is for Stage 3 to decide.
+
+## Reporting — every stage
+
+- **Every result row carries:**
+  - arm, n, seed, tokens;
+  - total, backbone and bank parameters;
+  - FLOPs per token;
+  - final eval loss;
+  - commit, config path and W&B run id.
+- **The logged W&B config is the truth**, not the config file's name.
+- **Every comparison between AME and dense states the weight-decay difference.** AME's
+  banks are exempt from weight decay, while the dense W_Q and W_K are not
+  ([archive/ame_review_and_fixes.md](archive/ame_review_and_fixes.md) 2.6).
+
+---
+
+## Appendix: the previous plan (superseded 2026-11-05)
+
+> **Superseded on 2026-11-05 by the plan above.** It is kept for reference, unchanged
+> except for two edits: its status block is replaced by this note, and its headings
+> are moved down one level. Nothing in it is scheduled.
+>
+> Its stage names do not mean what they mean in the new plan:
+> - its **Stage 0** is a synthetic copying test;
+> - its **Stage 1** is a study of a 100–300M-parameter language model against baselines;
+> - its **Stage 2** is the decode system.
+>
+> Code comments and tests that cite this file by section number, such as
+> `ame_experiments.md 7` in `src/core/ame.py` and `tests/test_ame.py`, point into this
+> appendix.
+
 The empirical companion to the design record and the baseline standard. Both live
 **outside this repo**, in `~/code/research/ame/` — `ame.md` and `baselines.md`. Those two
 say what the method *is* and what a fair table looks like. This file says **what we are
@@ -10,15 +338,8 @@ Written to be read before any compute is spent. If you read only two sections, r
 **§2 (the claims, as falsifiable statements)** and **§3 (Week 0 — the measurements that
 need no model)**.
 
-**Status: proposed — still unrun as of 2026-11-05, and still the live plan.** Every
-number quoted is an estimate from `ame.md`, carried here so that a measurement can
+Every number quoted is an estimate from `ame.md`, carried here so that a measurement can
 contradict it.
-
-Nothing in the 2026-11-04/05 efficiency work touched this program: those runs measured
-**throughput**, not quality, so "nothing here has been run" is still literally true. Its
-two prerequisites — the weight-decay fix and the α/β instrumentation — are both done
-(`archive/ame_review_and_fixes.md` Phase 2), so **Stage 0 is unblocked**. This is the
-next thing to do with AME.
 
 **Contents**
 0. [Compressed method reference](#0-compressed-method-reference)
@@ -37,7 +358,7 @@ next thing to do with AME.
 
 ---
 
-## 0. Compressed method reference
+### 0. Compressed method reference
 
 Enough to make this file standalone. The authoritative version is `ame.md` §0 and §7.
 
@@ -71,7 +392,7 @@ deliberate ablation (§5, E1.3).
 
 ---
 
-## 1. The shape of the program
+### 1. The shape of the program
 
 Three stages plus a week of model-free measurement. Each stage exists to kill the method
 cheaply if it is going to die.
@@ -93,7 +414,7 @@ change what Stage 1 is for. It can run concurrently with Stage 0.
 
 ---
 
-## 2. The claims under test
+### 2. The claims under test
 
 The method rests on five load-bearing claims. Stated as falsifiable predictions, each
 with the cheapest experiment that could break it. **This table is the spine of the
@@ -121,7 +442,7 @@ Everything else in `ame.md` §8 is downstream of these six.
 
 ---
 
-## 3. Week 0 — what needs no model
+### 3. Week 0 — what needs no model
 
 Six measurements, no training, no checkpoint. Together they decide whether C5 is
 arithmetically reachable before a single GPU-hour is spent. Each quotes the estimate from
@@ -176,7 +497,7 @@ that too, because it is the second reason to keep QK-norm.
 
 ---
 
-## 4. Stage 0 — does the mechanism exist
+### 4. Stage 0 — does the mechanism exist
 
 **Scale:** 2–4 layers, vocab ~1k, context 256. Hours on one GPU.
 
@@ -184,7 +505,7 @@ that too, because it is the second reason to keep QK-norm.
 `baselines.md`'s baselines apply at this scale and none should be run here — if the
 mechanism is inert, the Pareto frontier never comes up (`baselines.md` §0).
 
-### E0 task design
+#### E0 task design
 
 Synthetic in-context copying: repeated random bigrams plus needle retrieval.
 
@@ -202,7 +523,7 @@ Readouts, two not one:
    publishable result and a different finding from "the mechanism doesn't help". Keep
    these scalars in fp32.
 
-### E0.1 — the four-arm ablation
+#### E0.1 — the four-arm ablation
 
 Two arms are not enough. α (key-side mix) and β (value-side mix) are **different
 mechanisms, and only one of them is irreplaceable**: a AME head with a steep enough ALiBi
@@ -233,7 +554,7 @@ fixed-kernel ceiling is real — go to §10's fallback branch.
 does *not* buy content-addressed retrieval (see §9, R1) — it buys the induction/copy
 primitive, which is narrower.
 
-### E0.2 — key-window width (cheap, do it here)
+#### E0.2 — key-window width (cheap, do it here)
 
 p-tap key mix, p = 1, 2, 3. Costs nothing to store, so run it — but **expect nothing**.
 A p-tap mix is an *additive* mix of p copies of one bigram table, not a p-gram table: the
@@ -246,12 +567,12 @@ this question — a genuinely *multiplicative* mix that can score `(t_j, t_{j−
 
 ---
 
-## 5. Stage 1 — does it scale as a language model
+### 5. Stage 1 — does it scale as a language model
 
 **Scale:** 100–300M backbone, 10–30B tokens. The real expense. Baselines per
 `baselines.md`; reporting standard per §11 below.
 
-### E1.1 — the headline comparison (C3)
+#### E1.1 — the headline comparison (C3)
 
 Matched on **training FLOPs and tokens**, with one hostile matched-**total-parameter**
 row (a ~4× larger dense model, or a PKM/Engram model with a comparable bank). Both are
@@ -266,7 +587,7 @@ backward scatters gradients into 4.9B bank parameters. **Expect fewer FLOPs and 
 wall-clock**; a step-time regression needs stating out loud, not hiding inside a
 matched-FLOP table.
 
-### E1.2 — the Zipf tail (C4) — *the most likely place this method fails scientifically*
+#### E1.2 — the Zipf tail (C4) — *the most likely place this method fails scientifically*
 
 4.9B bank parameters over 50k types is ~**98,304 parameters per token type**, spread over
 **768 rows** of width d_head (a q-row and a k-row in each of 384 head-layers). A type seen
@@ -288,7 +609,7 @@ regularize rows toward a frequency-dependent prior. **The joint scaling law — 
 function of bank parameters and tokens-seen-per-type — is the cleanest scientific
 contribution in the project** and the one closest to existing work on PKM scaling.
 
-### E1.3 — Option B vs Option A (C2)
+#### E1.3 — Option B vs Option A (C2)
 
 At matched scale, on tasks needing **in-context sense** rather than copying:
 word-sense disambiguation, topic/register tracking, "how was this token being used
@@ -303,7 +624,7 @@ Two scoping notes that make this experiment interpretable:
   its decayed counts must be kept per bigram — O(n) state, which removes the entire reason
   A was attractive.
 
-### E1.4 — length generalization
+#### E1.4 — length generalization
 
 You will train at 2k–8k and deploy at 100k. ALiBi extrapolates, but the decayed-count
 statistic (A) and top-k selection (B) are long-context machinery that **never ran during
@@ -318,7 +639,7 @@ context. That is precisely StreamingLLM's documented failure mode, on a method t
 StreamingLLM as the floor it must beat. A position-independent learned sink key is the
 cheap insurance — the same key the position-1 note in `ame.md` §7 asks for.
 
-### E1.5 — the rank of `exp(τ·T)` (C0) — *run this the day the first checkpoint lands*
+#### E1.5 — the rank of `exp(τ·T)` (C0) — *run this the day the first checkpoint lands*
 
 One SVD on a sampled submatrix of `exp(τ·T)` per head-layer. No new training run.
 Report the numerical rank spectrum, per layer and per head.
@@ -338,12 +659,12 @@ LoLCATs-style linearization hard.
 
 ---
 
-## 6. Stage 2 — does the deployment claim survive
+### 6. Stage 2 — does the deployment claim survive
 
 Built **against a finished Stage-1 checkpoint**, not before. This is where the table, row
 cache, inverted index and CPU path get written.
 
-### E2.1 — the score path, which is the binding cost
+#### E2.1 — the score path, which is the binding cost
 
 > The cost model in an earlier version of `ame.md` priced only the value reads. Obtaining
 > the row `T[t_i,·]` costs `|U|·d_att·L·2B` ≈ **2.0 GB/token at |U| = 20k ≈ 33 ms on
@@ -367,7 +688,7 @@ Three routes, none measured. Measure all three and report the Pareto among them:
 Also here: per-head vs per-layer tables, and **quantization of rows** — entries pass
 through `exp`, so sensitivity is unknown and must be measured, not assumed.
 
-### E2.2 — end-to-end decode latency (C5)
+#### E2.2 — end-to-end decode latency (C5)
 
 ms/token at batch 1, on named hardware, at a stated context length, reported next to bytes
 of per-sequence state. Estimate to beat: **~11–18 ms desktop batch-1 at 100k** — inside the
@@ -393,7 +714,7 @@ Four things that will show up in the measurement and not in any FLOP model:
   share: 8 sequences at 100k context need **~78 GB** of RAM. Long context and many
   sequences are alternatives on consumer hardware, not a combination.
 
-### E2.3 — the dense→sparse deployment shift
+#### E2.3 — the dense→sparse deployment shift
 
 Training uses the full causal softmax; decode uses top-k. **That distribution shift is
 exactly what NSA and DSA avoid by training *with* their sparsity.** Measure it explicitly —
@@ -403,7 +724,7 @@ report: k per head or per layer (the 200 MB figure assumes per head), and what s
 pruned-out pairs receive, −∞ or 0, which changes the softmax denominator between training
 and decode.
 
-### E2.4 — the bigram index under the key shift
+#### E2.4 — the bigram index under the key shift
 
 Top-k by token type stops working once the score depends on `(t_{j−1}, t_j)`. Index
 distinct bigrams instead; it **cannot be shared across heads**, because α and the slope m
@@ -420,7 +741,7 @@ only the mixture breaks.
 
 ---
 
-## 7. Instrumentation: log these from the first run
+### 7. Instrumentation: log these from the first run
 
 Cheap to add at the start, impossible to recover afterwards.
 
@@ -455,7 +776,7 @@ Cheap to add at the start, impossible to recover afterwards.
 
 ---
 
-## 8. Silent-corruption traps
+### 8. Silent-corruption traps
 
 Each of these produces a *plausible but wrong* result rather than a crash. They are the
 reason a null result here should be re-checked before it is believed.
@@ -501,7 +822,7 @@ reason a null result here should be re-checked before it is believed.
 
 ---
 
-## 9. Risk register
+### 9. Risk register
 
 Ordered by how much it would cost to discover late.
 
@@ -519,7 +840,7 @@ Ordered by how much it would cost to discover late.
 
 ---
 
-## 10. Decision tree
+### 10. Decision tree
 
 ```
 Week 0 ──► E0.3 row-cache hit rate
@@ -558,7 +879,7 @@ Stage 1 ──► E1.5 rank of exp(τ·T)
 
 ---
 
-## 11. Reporting standard
+### 11. Reporting standard
 
 Fixed in `baselines.md` §0; repeated here because every table in this program must obey it.
 
@@ -604,7 +925,7 @@ of the whole method.
 
 ---
 
-## 12. Open questions, mapped to stages
+### 12. Open questions, mapped to stages
 
 `ame.md` §8 in priority order, with the stage that can answer each. Two are deliberately
 out of priority order, marked ⚑.
@@ -627,7 +948,7 @@ out of priority order, marked ⚑.
 
 ---
 
-### Numbers worth keeping at hand
+#### Numbers worth keeping at hand
 
 Reference config: 1.3B backbone · d_att = 2048 · L = 24 · 16×128 heads · |V| = 50k · fp16 ·
 60 GB/s desktop DDR5, 300–400 GB/s server · budget 20–30 ms/token.
