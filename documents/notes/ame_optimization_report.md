@@ -1288,6 +1288,14 @@ approval list became the run's out-of-scope list, §7.8 says how the run
 decides, handles trouble and ends, §7.10 collects what is left for him, and the
 `/goal` text carries the same terms.
 
+### 2026-11-05, 22:19 — the goal points at this report
+
+Maciej: the `/goal` text did not make this report the reference he asked for,
+the record of what was done and planned that the run must read and keep
+updated, and it repeated what §7 already says. §7.9 now holds a short goal
+that sends the run to read the whole report first and to record back into it,
+and points at §7.4 and §7.8 for the rules. §7.1 says the same.
+
 ### Corrections I made to my own earlier claims
 
 Recorded because several changed what was worked on next.
@@ -1464,8 +1472,13 @@ Maciej's instructions, kept here as the plan's terms of reference:
 - **Cluster:** entropy, `h100` partition, as `mstefaniak`. Preempting
   `lukaskoz`'s jobs is expected and accepted: he auto-submits to occupy all
   free GPUs, and the QOS preemption exists for that.
-- **Records:** methods, leads, experiment logs and progress go into this
-  document, updated regularly and precisely, in the same form as §1–§6.
+- **This document is the reference and the record.** Read it in full before
+  starting, and again before each new lead: what was implemented and its
+  measured effect (§1), what was tried and rejected and why (§1, §3, §4 and
+  the corrections table), the open leads (§2), the best configurations (§6).
+  Nothing recorded here is repeated or contradicted without new evidence.
+  Methods, leads, experiment logs and progress go back into it, updated
+  regularly and precisely, in the same form as §1–§6.
 - **Process:** iterative, as in §3–§4: measure, change one thing, A/B it, keep
   or revert, record.
 - **Unattended, overnight** (added 22:11): the plan is expected to run through
@@ -1651,30 +1664,16 @@ In the second case it ends by writing, in this section, the ceiling analysis
 
 ### 7.9 The `/goal` text
 
+Short on purpose: the rules live in §7.4 and §7.8, and the goal points at them.
+
 ```text
-Raise AME h20 training MFU to at least 45% per GPU on entropy H100s, first on 4 GPUs, then on 1 GPU, following §7 of documents/notes/ame_optimization_report.md (plan, rules, and end conditions).
+Raise AME h20 training MFU to at least 45% per GPU on entropy H100s: on 4 GPUs first, then on 1 GPU.
 
-This runs unattended, expected overnight. Maciej is not available and will not answer questions or make decisions during the run. Never stop to ask or wait for confirmation: make every decision the plan leaves open yourself, within the rules below, record it with its reason in §4, and keep going. Anything that would need his approval is out of scope for this run; record it as a proposal in §7.10 instead of doing it or waiting.
+documents/notes/ame_optimization_report.md is the reference and the record for this work. Read it in full before starting: what was already implemented and its measured MFU effect (§1), what was tried and rejected and why (§1, §3, §4, corrections), the open leads (§2), the best configurations (§6), and the plan with its rules (§7). Follow §7, and do not repeat or contradict recorded results without new evidence. Keep the report current as you go: every experiment in §3, every decision in §4, kept methods in §1, leads in §2, progress in §7.7, committed after every experiment block and at least every 2 hours (§7.4).
 
-Scope and setup
-- Model: AME h20 only (base configs configs/ame/h20_4gpu.yaml and configs/ame/h20_1gpu.yaml). No other model sizes.
-- Code: worktree ~/code/nano-ame, branch ame_optimize; commit code there. ~/code/nano (ame_main) stays Maciej's, except .md documents: edit them in ~/code/nano and commit them on ame_main and on ame_optimize, staging only your own changes.
-- Cluster: entropy, partition h100, account mstefaniak only. Run sbatch --test-only before every submit, 1-GPU jobs included. Preempting lukaskoz's jobs is expected and accepted. Never preempt any other user's job; if a probe names one, wait and probe again.
-- Fixed workload and accounting: global batch 512 x 2049 tokens, 30 steps, LR 2^-12, FineWeb, bf16; MFU = mean per-step MFU over steps >= 15 at 3.768 GFLOPs/token and 989 TFLOP/s per GPU.
-- Out of scope for this run (proposals in §7.10 only): changing the model, batch, sequence length, numerics class (e.g. fp8) or FLOPs accounting; O10 (activation checkpointing); O17 (CPU offload); new third-party dependencies; code changes on ame_main.
+This runs unattended overnight; Maciej is not available. Never stop to ask or wait: decide within §7's rules, record why in §4, and put anything that needs his approval in §7.10 instead of doing it (§7.8).
 
-Method
-- Iterate: attribute first (profile AME and its dense twin), take the next lead from §7.5 (4 GPUs) or §7.6 (1 GPU), change one thing, A/B it against the current best, keep or revert.
-- A change counts only if it passes the §7.4 gates: tests/test_ame.py on CUDA, tests/test_memory_parallel.py, the 30-step loss trace within bf16 noise of the base run, and a 300-step loss comparison for anything that changes numerics. A gate failure means revert, record, move on.
-- Finish the 4-GPU phase before the 1-GPU phase, unless every 4-GPU lead has been measured.
-- Handle operational problems yourself as §7.8 says (queue waits, failed or preempted jobs, SSH blocks, disk quota); none of them ends the run.
-
-Records (precisely)
-- After every experiment block, and at least every 2 hours: §3 every job with start time, job ID, what it tested, which improvements it contains, MFU, outcome and conclusion; §4 every decision and plan change with its reason; §1 each kept method with its measured MFU effect; §2 leads re-ranked; §5 and §6 when the best changes; §7.7 progress table. Commit the report each time, so the state is readable in the morning without the transcript.
-
-Done when
-- §6 and §7.7 show a measured AME h20 run at >= 45.00% MFU/GPU on 4 GPUs AND one on 1 GPU, each with job ID and config, both passing the §7.4 gates, with code and report committed; or
-- only after every lead in §7.5 and §7.6 has been implemented and measured, or shown infeasible with evidence: §7.8 holds a ceiling analysis (what each lead delivered, what remains, what it would take) and §7.10 lists the proposals that need Maciej's decision, all committed.
+Done when the report shows a measured AME h20 run at >= 45.00% MFU/GPU on 4 GPUs and one on 1 GPU, both passing the §7.4 gates, with code and report committed (§6, §7.7). Otherwise, only after every lead in §7.5 and §7.6 has been measured or shown infeasible: when §7.8 holds the ceiling analysis and §7.10 the proposals for Maciej, committed.
 ```
 
 ### 7.10 For Maciej — decisions the run leaves to him
