@@ -88,6 +88,7 @@ it too, or AME collects a gain that is not its own.
 | [src/definitions.py](../../src/definitions.py) | `AttentionSchema.ame` — the options block, typed as `Any` |
 | [configs/_model/h_balanced/base.yaml](../../configs/_model/h_balanced/base.yaml) | `vocab_size` reaches `build_attention` |
 | [configs/ame_tests/h20_smoke.yaml](../../configs/ame_tests/h20_smoke.yaml) | the first GPU run's config |
+| [configs/ame/](../../configs/ame/README.md) | six configs, the best measured MFU per model size × GPU count; every other AME config moved to [configs/ame_tests/](../../configs/ame_tests/) on 2026-11-05 |
 | [tests/test_ame.py](../../tests/test_ame.py) | 69 tests: the math, the ablation arms, the plumbing, weight decay, instrumentation, the fused kernel |
 
 ### Token ids travel with the activations
