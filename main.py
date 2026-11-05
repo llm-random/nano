@@ -16,6 +16,10 @@ from src.core.checkpointing import (
     load_training_state,
     get_full_checkpoint_path,
 )
+from src.core.memory_parallel import (
+    MemoryParallelController,
+    get_controller,
+)
 from src.core.metric_loggers import WandbLogger, get_metric_logger
 from src.core.model import Residual, parameter_groups
 
@@ -74,6 +78,52 @@ def check_env_vars():
     assert int(os.environ["RANK"]) < int(os.environ["WORLD_SIZE"])
 
 
+def isolate_triton_cache():
+    """Give every rank its own Triton compile cache, on node-local storage.
+
+    torch.compile hands each rank's generated kernels to Triton, which caches
+    them under TRITON_CACHE_DIR -- defaulting to `$HOME/.triton/cache`. On a
+    cluster that default is wrong twice over, and it fails *during compilation*,
+    before step 1, so a job burns its allocation and produces nothing.
+
+    Every rank writes the same cache keys at the same moment, and Triton
+    publishes each entry with `os.replace(temp, final)`. That is atomic on a
+    local filesystem and is not on NFS, so ranks tear each other's entries
+    apart. Observed on lem, 2026-11-04, jobs 6236712 and 6236713 -- three
+    different symptoms of the one race, none of which names its cause:
+
+        FileNotFoundError [Errno 2]   another rank's rename removed the temp dir
+        OSError [Errno 26]            "Text file busy" -- replacing a .so that a
+                                      rank already has mapped
+        ImportError ... Permission denied
+                                      opening a half-written .so
+
+    Worse, `$HOME` is shared across *jobs*, so two concurrent runs race as well,
+    which is exactly how those two jobs died on separate nodes.
+
+    So: node-local (TMPDIR, which Slurm points at per-job local disk; /tmp
+    otherwise) and per-rank. Set before anything imports or invokes the
+    compiler. Honours an explicit TRITON_CACHE_DIR if the operator set one.
+    """
+    if os.environ.get("TRITON_CACHE_DIR"):
+        return
+    base = os.environ.get("TMPDIR") or "/tmp"
+    job = os.environ.get("SLURM_JOB_ID", "local")
+    rank = os.environ.get("RANK", "0")
+    cache_dir = os.path.join(base, f"triton-cache-{job}-rank{rank}")
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except OSError as exc:
+        # Never fail a run over a cache directory; the default path may still
+        # work on a single-rank job, which is the only case it is safe in.
+        logger.warning(
+            f"Could not create {cache_dir} ({exc}); leaving TRITON_CACHE_DIR unset."
+        )
+        return
+    os.environ["TRITON_CACHE_DIR"] = cache_dir
+    logger.info(f"TRITON_CACHE_DIR={cache_dir}")
+
+
 def setup_enviroment():
     if "WORLD_SIZE" not in os.environ:
         logger.warning("WORLD_SIZE is not set, setting it to 1")
@@ -108,6 +158,8 @@ def setup_enviroment():
         os.environ["MASTER_PORT"] = default_master_port
 
     check_env_vars()
+    # After RANK is known and before any compilation happens.
+    isolate_triton_cache()
 
 
 def distributed_setup():
@@ -141,6 +193,43 @@ def get_device():
     return device
 
 
+def build_memory_parallel_controller(cfg, model):
+    """Tiers 2+3. None unless `trainer.mem_parallel_size` asks for it.
+
+    The compute dtype has to match what the rest of the stack will run in, and
+    nothing downstream casts an embedding: FSDP2's MixedPrecisionPolicy casts
+    the parameters it owns and `torch.autocast` casts nn.Linear, but an
+    nn.Embedding gather returns the bank's own dtype either way. So under FSDP2
+    the banks are held in bf16 (what the policy would have produced) and
+    everywhere else in whatever dtype the model was built in -- which keeps the
+    single-GPU and CPU paths bit-comparable against a run without this flag.
+    """
+    size = cfg.trainer.get("mem_parallel_size", None)
+    if not size:
+        return None
+
+    distributed = cfg.trainer.get("distributed", None)
+    # bf16 whenever the surrounding stack computes in bf16, by either route:
+    # FSDP2's MixedPrecisionPolicy, or torch.autocast under DDP / single GPU.
+    # It matters because nothing downstream casts an embedding -- autocast casts
+    # nn.Linear and leaves a gather alone -- so an fp32 bank under a bf16 stack
+    # gathers twice the bytes and then gets cast anyway.
+    bf16_stack = torch.cuda.is_available() and (
+        bool(distributed is not None and distributed.get("fsdp2"))
+        or bool(cfg.trainer.get("autocast_bf16", False))
+    )
+    reference = next(model.parameters())
+    compute_dtype = torch.bfloat16 if bf16_stack else reference.dtype
+    controller = MemoryParallelController(
+        model, mem_parallel_size=size, compute_dtype=compute_dtype
+    )
+    logger.info(
+        f"Memory-parallel banks enabled: mem_parallel_size={size}, "
+        f"compute dtype {compute_dtype}"
+    )
+    return controller
+
+
 def get_model_optimizer_scheduler(cfg, model, learning_rate):
     if cfg.get("apply_functions", None):
         for fn in instantiate(cfg.apply_functions):
@@ -148,6 +237,13 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
             if res == False:
                 logger.info("Initialization failed, exiting...")
                 return None, None, None
+    # Before every compile and before fully_shard: this swaps each q_bank /
+    # k_bank nn.Embedding for a ShardedBank, and a module swapped in after a
+    # block was compiled would be traced on the next call anyway -- but the
+    # ordering that is actually load-bearing is against fully_shard, which must
+    # see the parameters it is being told to ignore.
+    banks = build_memory_parallel_controller(cfg, model)
+
     if cfg.get("compile_blocks", False):
         # Regional compile, applied before fully_shard wraps the blocks -- the
         # pairing FSDP2 supports. The compiled unit is each block's attention
@@ -204,18 +300,26 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         # compile). Mutually exclusive with compile_blocks by intent.
         model.compile()
         logger.info("torch.compile applied to the whole model")
-    model = setup_distributed_training(model, cfg.trainer.distributed)
+    ignored = banks.ignored_parameters() if banks is not None else None
+    model = setup_distributed_training(model, cfg.trainer.distributed, ignored)
     optimizer = torch.optim.AdamW(
         # Groups rather than a flat parameters(): a layer may declare scales
         # that decoupled decay must not touch (src.core.model.parameter_groups).
         # A model that declares none yields one group holding exactly
         # model.parameters(), so this is a no-op for every existing config.
-        parameter_groups(model, cfg.trainer.weight_decay),
+        parameter_groups(model, cfg.trainer.weight_decay, exclude=ignored),
         lr=learning_rate,
         # The fused kernel exists only for CUDA tensors; CPU runs keep the
         # default path, which also keeps the seeded CPU gates bit-identical.
         fused=torch.cuda.is_available(),
     )
+    if banks is not None:
+        # wd=0 by construction: AMEAttention names both banks in
+        # no_weight_decay_parameters, so the group they would have landed in
+        # above is the wd=0 one. `fused` is deliberately NOT passed -- this is a
+        # single step over up to 2.576B parameters and the foreach/fused paths
+        # are the ones pkmf hit an OOM on. Measure before changing it.
+        banks.build_optimizer(lr=learning_rate, weight_decay=0.0)
     scheduler = instantiate(cfg.trainer.scheduler)(
         optimizer=optimizer, n_steps=cfg.trainer.n_steps
     )
@@ -290,8 +394,18 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
                 # Same grouping as the fresh-start path above. This branch
                 # rebuilds the optimizer from scratch after a weights-only
                 # load, so without it a resume would silently put decay back
-                # on the parameters the model asked to keep out of it.
-                parameter_groups(model, cfg.trainer.weight_decay),
+                # on the parameters the model asked to keep out of it -- or,
+                # with a memory-parallel controller in play, put 2.576B of bank
+                # parameters into two optimizers at once.
+                parameter_groups(
+                    model,
+                    cfg.trainer.weight_decay,
+                    exclude=(
+                        get_controller(model).ignored_parameters()
+                        if get_controller(model) is not None
+                        else None
+                    ),
+                ),
                 lr=learning_rate,
                 fused=torch.cuda.is_available(),
             )

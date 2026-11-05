@@ -100,11 +100,19 @@ class CheckpointSchema:
 
 @dataclass
 class DistributedSchema:
-    """setup_distributed_training dispatches on exactly these two keys; their
-    contents are framework config (FSDP wrapping policy), left untyped."""
+    """setup_distributed_training dispatches on exactly these keys; their
+    contents are framework config (FSDP wrapping policy, DDP bucket options),
+    left untyped.
+
+    `ddp` is checked first: it replicates the backbone instead of sharding it,
+    which is the right trade once src.core.memory_parallel owns the 2.576B of
+    Q/K banks and all that is left to shard is a 587M backbone. A config that
+    sets it should null `fsdp2` too, so the file says what it means.
+    """
 
     fsdp2: Any = None
     fsdp: Any = None
+    ddp: Any = None
 
 
 @dataclass
@@ -136,6 +144,20 @@ class TrainerSchema:
     kernel_profile: bool = False
     compile_loss: bool = False
     compile_ce: bool = False
+    # O11, fused-linear-CE. `fused_ce_chunk_size` is in rows
+    # (micro_batch * seq flattened); None means one chunk, which is the memory
+    # of the unfused path.
+    fused_linear_ce: bool = False
+    fused_ce_chunk_size: Optional[int] = None
+    # O9: reduce gradients once per optimizer step instead of once per
+    # micro-step. FSDP2 only, and it costs memory -- see the long note on
+    # Trainer.skip_grad_sync_during_accumulation before enabling it.
+    skip_grad_sync_during_accumulation: bool = False
+    # Tiers 2+3: ranks per copy of the AME Q/K banks. null/1 keeps the whole
+    # bank on every rank (Tier 2 alone, which does not fit at h20); N > 1
+    # column-shards every bank across contiguous blocks of N ranks. Must divide
+    # world_size, and the model must have q_bank/k_bank embeddings.
+    mem_parallel_size: Optional[int] = None
 
 
 @dataclass
@@ -241,6 +263,21 @@ def validate(cfg) -> None:
     check(
         t.gradient_clipping is None or t.gradient_clipping > 0,
         f"trainer.gradient_clipping must be null or > 0, got {t.gradient_clipping!r}",
+    )
+    check(
+        t.mem_parallel_size is None or t.mem_parallel_size >= 1,
+        f"trainer.mem_parallel_size must be null or >= 1, got {t.mem_parallel_size!r}",
+    )
+    check(
+        t.fused_ce_chunk_size is None or t.fused_ce_chunk_size >= 1,
+        f"trainer.fused_ce_chunk_size must be null or >= 1, got "
+        f"{t.fused_ce_chunk_size!r}",
+    )
+    check(
+        not (t.fused_linear_ce and t.compile_ce),
+        "trainer.fused_linear_ce and trainer.compile_ce both set: compile_ce "
+        "compiles a cross-entropy over logits that fused_linear_ce never "
+        "builds, so the two cannot both apply.",
     )
     check(t.eval_interval >= 0, f"trainer.eval_interval must be >= 0, got {t.eval_interval!r}")
     check(t.n_eval_steps >= 0, f"trainer.n_eval_steps must be >= 0, got {t.n_eval_steps!r}")

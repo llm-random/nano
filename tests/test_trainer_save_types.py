@@ -100,6 +100,9 @@ def _post_init_with(eval_interval, next_step, eval_dataloader=None):
         final_eval = Trainer.final_eval
         SUPPORTED_SAVE_TYPES = Trainer.SUPPORTED_SAVE_TYPES
         FINAL_ONLY_SAVE_TYPES = Trainer.FINAL_ONLY_SAVE_TYPES
+        # A field the real dataclass declares with a default; the borrowed
+        # post-init cross-checks it against the model's bank controller.
+        mem_parallel_size = None
 
     stub = Stub()
     stub.checkpoint = OmegaConf.create({"save": {"type": "nano"}})
