@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from torch.nn.attention import SDPBackend
 from torch.nn.init import trunc_normal_ as trunc_normal_
+from torch.utils.checkpoint import checkpoint
 from torch.nn import (
     LayerNorm as LayerNorm,
 )  # used by FSDP, but it keeps getting removed during file formatting
@@ -402,16 +403,194 @@ class TransformerEncoder(nn.Module):
         return x
 
 
+class _ChunkedLinearCE(torch.autograd.Function):
+    """Cross-entropy over a projection, computed in chunks, gradients and all.
+
+    The first O11 implementation chunked with `torch.utils.checkpoint`, which
+    is correct by construction and **measurably too slow**: it reruns each
+    chunk's projection AND its softmax in backward. Measured at h16/1 GPU
+    (jobs 32825 vs 32862) that cost 447 ms/step, 2.65 MFU points -- more than
+    the larger micro-batch it unlocks was worth.
+
+    The recompute is avoidable. The loss is the final scalar, so this operation
+    is the end of the graph and every gradient below it is linear in the
+    incoming `grad_output`. That means the gradients can be computed in the
+    *forward* pass with `grad_output = 1` and scaled afterwards, which is what
+    this does: each chunk's logits are turned into `dlogits` in place, then
+    contracted straight into `dx` and `dweight` and dropped. One pass, one
+    chunk of logits live at a time, no recompute.
+
+    What is saved for backward is `dx` ([N, d], the size of the input) and
+    `dweight` ([V, d], the size of the weight) -- not the [N, V] logits, which
+    is the whole point.
+    """
+
+    @staticmethod
+    def forward(ctx, x, weight, bias, targets, chunk_size, ignore_index):
+        rows = x.shape[0]
+        valid = (targets != ignore_index).sum().clamp(min=1)
+
+        # fp32 or better, never worse -- `.float()` would silently DOWNCAST a
+        # float64 model, which is exactly the precision the section 1.4 gate
+        # runs at, and the gate would then be measuring float32 reassociation
+        # instead of this function. Caught by that gate rather than in review.
+        acc = torch.promote_types(x.dtype, torch.float32)
+
+        loss = torch.zeros((), device=x.device, dtype=acc)
+        grad_x = torch.zeros_like(x, dtype=acc)
+        grad_w = torch.zeros_like(weight, dtype=acc)
+        grad_b = None if bias is None else torch.zeros_like(bias, dtype=acc)
+
+        for start in range(0, rows, chunk_size):
+            stop = min(start + chunk_size, rows)
+            hidden = x[start:stop]
+            target = targets[start:stop]
+
+            logits = F.linear(hidden, weight, bias).to(acc)
+            keep = (target != ignore_index).to(acc)
+            safe = target.clamp(min=0)
+
+            # log-softmax in fp32, as F.cross_entropy does internally whatever
+            # dtype it is handed -- the vocabulary is 50304 wide and the
+            # log-sum-exp is where bf16 would actually hurt.
+            lse = torch.logsumexp(logits, dim=-1)
+            picked = logits.gather(1, safe[:, None]).squeeze(1)
+            loss = loss + ((lse - picked) * keep).sum()
+
+            # d(sum loss)/d(logits) = softmax - onehot, zeroed on ignored rows,
+            # then divided by the valid count so it matches reduction="mean".
+            #
+            # In place, over the logits buffer: a [chunk, 50304] fp32 tensor is
+            # 824 MB at chunk 4096, and holding the softmax beside the logits
+            # would put two of them live at once -- which is the allocation
+            # this whole function exists to avoid. `loss`, `lse` and `picked`
+            # are already read out above, so nothing below needs the logits.
+            probabilities = logits.sub_(lse[:, None]).exp_()
+            probabilities.scatter_add_(
+                1, safe[:, None], torch.full_like(picked[:, None], -1.0)
+            )
+            probabilities *= (keep / valid)[:, None]
+
+            # The two contractions run in the MODEL's dtype, not in `acc`.
+            #
+            # This is the whole performance story of this function. `acc` is
+            # fp32 for a bf16 model, and an fp32 matmul on an H100 runs at
+            # ~60 TFLOP/s against ~989 for bf16 -- a 16x penalty on the largest
+            # matmul in the step. Measured: casting these two to `acc` put h16
+            # at 20.85% MFU against 37.87% for the unfused path (job 32870).
+            # fp32 is needed for the log-sum-exp above, where 50304 terms are
+            # summed; it is not needed here, where cuBLAS already accumulates
+            # a bf16 product in fp32 internally.
+            gradient = probabilities.to(x.dtype)
+            grad_x[start:stop] = (gradient @ weight).to(acc)
+            grad_w += (gradient.t() @ hidden).to(acc)
+            if grad_b is not None:
+                grad_b += probabilities.sum(0)
+
+        ctx.save_for_backward(grad_x.to(x.dtype), grad_w.to(weight.dtype), grad_b)
+        ctx.has_bias = bias is not None
+        return loss / valid.to(loss.dtype)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_x, grad_w, grad_b = ctx.saved_tensors
+        # Linear in grad_output, which is why computing at 1 and scaling here
+        # is exact rather than an approximation.
+        return (
+            grad_x * grad_output,
+            grad_w * grad_output,
+            (grad_b.to(grad_w.dtype) * grad_output) if ctx.has_bias else None,
+            None,
+            None,
+            None,
+        )
+
+
 class TransformerHead(nn.Module):
     def __init__(self, linear_fn: Callable, norm_fn: Callable):
         super().__init__()
         self.norm = norm_fn()
         self.linear = linear_fn()
 
-    def forward(self, x):
+    def forward(self, x, targets=None, chunk_size=None, ignore_index=-100):
+        """Logits, or -- given `targets` -- the loss, without ever building the
+        logits (O11, fused-linear-CE).
+
+        `targets=None` is the original path and is bit-for-bit what it was.
+
+        With `targets`, the projection and the cross-entropy are computed in
+        chunks of rows and each chunk's logits are dropped as soon as its loss
+        is accumulated. The full `[micro_batch, seq, vocab]` tensor is the
+        largest activation in the step -- 6.14 GiB at h16/micro-batch 32, which
+        is the allocation job 32853 died on -- and it never exists here.
+
+        **Why `targets` is an argument rather than a separate method.** Under
+        FSDP2 this module's parameters are sharded, and `fully_shard` installs
+        a pre-forward hook that all-gathers them. The hook fires on `__call__`.
+        A `head.compute_loss(...)` method would bypass it and read a sharded
+        DTensor as if it were the whole weight -- not an error FSDP2 reports,
+        just a wrong result.
+
+        The chunking uses `torch.utils.checkpoint` per chunk rather than a
+        hand-written `autograd.Function`. The gradient is then correct by
+        construction instead of by my arithmetic, which matters for a path
+        whose failure mode is a silently wrong loss. The cost is that each
+        chunk's projection runs twice, once in forward and once in backward --
+        the head matmul only, not the model. That is O11's actual price and it
+        is why O11 is expected to pay in *memory*, not in step time.
+
+        Returns the mean over non-ignored targets, matching
+        `F.cross_entropy(..., reduction="mean")`.
+        """
         x = self.norm(x)
-        x = self.linear(x)
-        return x
+        if targets is None:
+            return self.linear(x)
+
+        flat = x.reshape(-1, x.shape[-1])
+        flat_targets = targets.reshape(-1)
+        rows = flat.shape[0]
+        if chunk_size is None or chunk_size <= 0:
+            chunk_size = rows
+        linear = self.linear
+
+        def chunk_loss(hidden, target):
+            # reduction="sum": the chunks carry different numbers of valid
+            # targets, so a mean per chunk could not be averaged back.
+            return F.cross_entropy(
+                linear(hidden), target, reduction="sum", ignore_index=ignore_index
+            )
+
+        # `torch.utils.checkpoint` per chunk, NOT the recompute-free
+        # `_ChunkedLinearCE` below it. That ordering is a measurement, not a
+        # preference, and it is the opposite of what the literature suggests:
+        #
+        #     no O11                                    37.96%  (job 32825)
+        #     v1, checkpoint per chunk  (THIS)          35.31%  (job 32862)
+        #     v3, gradients computed in forward         30.38%  (job 32876)
+        #
+        # v3 avoids the recompute entirely -- valid because the loss is the
+        # final scalar, so every gradient below it is linear in `grad_output`
+        # and can be computed at 1 and scaled afterwards. It is still slower,
+        # because a hand-rolled logsumexp + gather + scatter_add + exp over a
+        # [chunk, 50304] buffer costs more than ATen's fused `cross_entropy`
+        # plus the recompute it was meant to save. **The recompute was cheaper
+        # than replacing the kernel.**
+        #
+        # `_ChunkedLinearCE` is kept because it is the right base for anyone
+        # who writes a Triton kernel for that softmax -- at which point the
+        # ordering should flip. Until then it is not the default.
+        # See documents/notes/ame_optimization_report.md §1.13.
+        total = None
+        for start in range(0, rows, chunk_size):
+            hidden = flat[start : start + chunk_size]
+            target = flat_targets[start : start + chunk_size]
+            if torch.is_grad_enabled() and hidden.requires_grad:
+                piece = checkpoint(chunk_loss, hidden, target, use_reentrant=False)
+            else:
+                piece = chunk_loss(hidden, target)
+            total = piece if total is None else total + piece
+        valid = (flat_targets != ignore_index).sum()
+        return total / valid.clamp(min=1).to(total.dtype)
 
 
 class LLM(nn.Module):
@@ -426,14 +605,20 @@ class LLM(nn.Module):
         self.encoder = encoder
         self.head = head
 
-    def forward(self, input_ids):
+    def forward(self, input_ids, targets=None, ce_chunk_size=None):
         x = self.embedding(input_ids)
         x = self.encoder(x, input_ids)
-        x = self.head(x)
-        return x
+        # `targets` threaded through to the head rather than handled here: the
+        # head owns the projection whose output we are refusing to materialise,
+        # and going through `self.head(...)` keeps FSDP2's all-gather hook in
+        # the path (see TransformerHead.forward). `targets=None` is the
+        # original call and returns logits.
+        if targets is None:
+            return self.head(x)
+        return self.head(x, targets=targets, chunk_size=ce_chunk_size)
 
 
-def parameter_groups(model, weight_decay):
+def parameter_groups(model, weight_decay, exclude=None):
     """AdamW param groups: declared scales at wd=0, everything else at `weight_decay`.
 
     AdamW's decay is *decoupled* -- `p <- p*(1 - lr*wd)` runs whether or not the
@@ -447,7 +632,15 @@ def parameter_groups(model, weight_decay):
     `no_weight_decay_parameters` attribute. **A model where nothing declares any
     returns a single group holding exactly `model.parameters()`**, so every
     existing config keeps the optimizer it had and no committed number moves.
+
+    `exclude` drops parameters from the optimizer entirely -- not from decay,
+    from the optimizer. The memory-parallel bank controller
+    (src.core.memory_parallel) steps its own fp32 masters with its own AdamW, so
+    the compute parameters it owns must not also be stepped here; they would be
+    stepped on a gradient that is permanently None, which AdamW silently skips
+    while still counting them in the state it allocates.
     """
+    excluded_ids = {id(parameter) for parameter in (exclude or ())}
 
     def resolve(module, name):
         """`"tau"` or a dotted path like `"q_bank.weight"`."""
@@ -466,11 +659,13 @@ def parameter_groups(model, weight_decay):
             if isinstance(parameter, nn.Parameter):
                 undecayed.add(id(parameter))
 
+    trainable = [p for p in model.parameters() if id(p) not in excluded_ids]
+
     if not undecayed:
-        return [{"params": list(model.parameters()), "weight_decay": weight_decay}]
+        return [{"params": trainable, "weight_decay": weight_decay}]
 
     groups = {True: [], False: []}
-    for parameter in model.parameters():
+    for parameter in trainable:
         groups[id(parameter) in undecayed].append(parameter)
     return [
         {"params": groups[False], "weight_decay": weight_decay},
