@@ -22,6 +22,8 @@ trainer:
       type: nano
       path: checkpoint
 
+compile_blocks_full: true
+
 infrastructure:
   max_concurrent_jobs: 1
 
@@ -32,6 +34,7 @@ infrastructure:
       - remote
       - tiny
       - jm_mfu_benchmarking
+      - compile=true
 
   slurm:
     time: "01:00:00"

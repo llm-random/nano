@@ -1,0 +1,6 @@
+pixi run python run_exp.py --config-path configs/jm --config-name h12_sl512
+pixi run python run_exp.py --config-path configs/jm --config-name h16_sl256
+pixi run python run_exp.py --config-path configs/jm --config-name h16_sl512
+pixi run python run_exp.py --config-path configs/jm --config-name h16_sl1024
+pixi run python run_exp.py --config-path configs/jm --config-name h24_sl256
+pixi run python run_exp.py --config-path configs/jm --config-name h28_sl256
