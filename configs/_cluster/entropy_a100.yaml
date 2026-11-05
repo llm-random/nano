@@ -12,7 +12,7 @@ infrastructure:
 
   script:
     - '${export_env_variables_placeholders:}'
-    - 'export PROJECT_HOME_PATH=/storage_ssd_1/nano'
+    - 'export PROJECT_HOME_PATH=/storage_ssd_1/nano/pretraining'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
 
     # hydra errors

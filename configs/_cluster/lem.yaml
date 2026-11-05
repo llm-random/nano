@@ -8,7 +8,7 @@ infrastructure:
   # $USER is safe here even though this is used on the LOGIN node before exp.job runs:
   # run_exp.py only ever interpolates this into remote shell commands (mkdir -p, test -d,
   # git clone), so the remote shell expands it.
-  cluster_cemetery_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/$USER/llmrandom_cemetery"
+  cluster_cemetery_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/pretraining/$USER/llmrandom_cemetery"
   slurm:
     cpus_per_gpu: 16
     gres: "gpu:hopper:4"
@@ -21,7 +21,7 @@ infrastructure:
 
   script:
     - '${export_env_variables_placeholders:}'
-    - 'export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/nano'
+    - 'export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/nano/pretraining'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
 
     # hydra errors
@@ -36,8 +36,8 @@ infrastructure:
     - 'export USER_HOME_PATH=$PROJECT_HOME_PATH/$USER'
     - 'export HF_DATASETS_CACHE="$USER_HOME_PATH/hf_datasets"'
     - 'export HF_MODULES_CACHE="$USER_HOME_PATH/hf_modules"'
-    # The shared $PROJECT_HOME_PATH/hf_cache is not group-writable and its hub/ holds
-    # only gpt2, so the llama tokenizer load dies with "PermissionError ... Check cache
+    # A shared hf_cache is not group-writable (the old nano/hf_cache held only gpt2 in hub/),
+    # so the llama tokenizer load died with "PermissionError ... Check cache
     # directory permissions" before step 1. Keep the hub cache per-user and writable.
     - 'export HF_HUB_CACHE="$USER_HOME_PATH/hf_cache"'
     - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
