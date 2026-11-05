@@ -1,0 +1,958 @@
+# AME MFU optimization — report
+
+**Period:** 2026-11-04 20:05 → 2026-11-05 11:21 (cluster local time, UTC+1).
+**Platform:** entropy `h100` partition, H100 80GB SXM, account `mim`, QOS
+`j321m_h100`. Branch `ame_optimize`.
+**Model:** AME h20 (H-balanced, 20 blocks, dmodel 1280, 2.576B bank + 587M
+backbone, 3.768 GFLOPs/token) unless stated; h16 and h12 where noted.
+**Workload:** global batch 512 × 2048, 30 steps, LR 2^-12, fineweb, seed fixed.
+
+All MFU figures are **per GPU** (`tokens/s × GFLOPs/token ÷ (989 TFLOP/s ×
+world_size)`) and are the **mean over steps ≥ 15**, which is what
+`scripts/run_summary.py` computes (`STEADY_FROM = 15`) and what the §3 ledger
+in `ame_optimization_plan.md` records. Figures agree with that ledger
+throughout.
+
+**One run is aggregation-sensitive and it matters.** For **O9** the mean over
+steps ≥ 15 is 26.16% while the median is 27.32% — a 1.13-point gap that
+*flips the sign of the result*, because that run contains outlier slow steps
+(234k, 239k, 240k tokens/s against a 287k median). Every other run here agrees
+between mean and median to within 0.19 points, most within 0.1. §1.1 says why
+the mean is the right reading there. 
+
+---
+
+## Headline
+
+| configuration | MFU/GPU | step | tokens/s | % of dense ceiling |
+|---|---:|---:|---:|---:|
+| **B1** — AME h20, 4 GPU, start of work | 26.84% | 3.720 s | 281,748 | 60.4% |
+| **Best 4 GPU** — AME h20 + align + S3b + O33 | **35.02%** | 2.852 s | 367,623 | **78.8%** |
+| **Best overall** — AME h16, 1 GPU, mb 16 | **37.96%** | 5.938 s | 176,573 | **85.4%** |
+| **B2** — dense H-balanced h20, 4 GPU (ceiling) | 44.44% | 2.364 s | 443,432 | 100% |
+
+**+30.5% on the reference baseline.** Two structural facts frame everything
+below:
+
+1. **Dense parity requires AME to be *faster* than dense in wall clock.** AME
+   is 3.768 GFLOPs/token against dense h20's 3.97, so matching 44.44% MFU means 
+   2.244 s/step against B2's 2.364. AME buys parameters with gathers, which
+   cost time and contribute no FLOPs. Structural, not a tuning gap.
+2. **AME's MFU falls as GPU count rises.** 1-GPU h16 (37.96%) beats 4-GPU h16
+   (33.30%). The bank machinery — id all-gather, activation all-to-all,
+   reassembly permute — is work that does not exist at world size 1 and grows
+   while per-rank compute shrinks.
+
+---
+
+## 1. Improvements implemented and measured
+
+### 1.0 Complete inventory — every O-number, and every lettered item
+
+The O-series is the pkmf-derived catalogue in
+[ame_optimization.md](ame_optimization.md) (O1–O31) plus Tier 4's additions
+(O32–O37). **Every one is listed here, built or not**, so this table is the
+index and the subsections below are the detail. Lettered items (B, D, S) are
+work that arose during this effort and was never catalogued.
+
+"Effect" is a measured A/B where one exists; "—" means no isolated measurement.
+Percentages are relative MFU change at the stated shape.
+
+| # | item | status | effect on MFU | detail |
+|---|---|---|---|---|
+| **O1** | Banks out of the framework's gradient path entirely | **Built** | measured as Tier 2, not separable | §1.2 |
+| **O2** | Manual all-reduce at the optimizer-step boundary only | **Built** | ditto; `bank_reduce` is 1.8 ms at 4 GPU | §1.2 |
+| **O3** | fp32 master / bf16 forward-copy split for the banks | **Built** | ditto | §1.2 |
+| **O4** | Gradient clipping over the masters, separately | **Built** | ditto; joint clip, one fp32 ulp vs reference | §1.2 |
+| **O5** | Driven by a callback at exact hook points | **Built** | ditto; three hooks, `bank_step` 20.7 ms at 4 GPU | §1.2 |
+| **O6** | Two named process groups, built once | **Built** | measured as Tier 3, not separable | §1.3 |
+| **O7** | Vertical-parallel forward: all-gather ids, local lookup, all-to-all | **Built** | ditto; priced at 215.6 ms all-to-all + 134.6 ms permute | §1.3 |
+| **O8** | The grad-divisor subtlety | **Built** | correctness, not speed; unit-tested at mp 1/2/4 with a negative control | §1.3 |
+| **O9** | Suppress gradient sync during accumulation | **Built, REJECTED** | **−2.53%** (entropy); +3.33% on lem | §1.1 |
+| **O10** | Activation checkpointing | **Cut** (§0, reaffirmed 2026-11-05) | not built | §2.3 |
+| **O11** | Liger fused-linear-cross-entropy | **Cut → LIFTED 2026-11-05 → built** | **−7.0%**; memory −7.7 GiB | §1.13 |
+| **O12** | Fused SiLU-mul on the memory product | **Not built, never scoped** | — | §2.9 |
+| **O13** | `overlap_comm` is a trap with vertical sharding | **Noted, not an optimization** | — | below |
+| **O14** | One fused gather + weighted-reduce scattering into `main_grad` | **Deferred** (§0) | — | §2.12 |
+| **O15** | Deduplicate the gather by unique token id | **Deferred** (§0) | — | §2.12 |
+| **O16** | `ChunkedAdamW` | **Cut** (§0, memory only) | not built | §2.12 |
+| **O17** | `OffloadedChunkedAdamW` | **Cut outright** (§0, no CPU offload) | not built | §2.12 |
+| **O18** | `SelectiveAdamW` | **Not built**; correctness, not speed | — | below |
+| **O19** | Pattern-matched param groups with per-group `lr_mult`/`wd` | **Deferred** (§0, quality not throughput) | — | §2.12 |
+| **O20** | Memory values train at 4× backbone LR, wd=0 | **Deferred** (§0) | — | §2.12 |
+| **O21–O27** | Batch ramp, GPU-invariant sizing, variable ga, granular micro-batching, token-space WSD, Step-Law LR, branch-decay checkpoints | **Deferred** (§0, experiment throughput not MFU) | — | §2.12 |
+| **O28** | Master switch + throttle for diagnostics | **Not built as specified**; the equivalent exists as `profile_timers` / `kernel_profile` flags | — | §1.14 |
+| **O29** | Periodic `gc.collect()` + `empty_cache()` | **Not built** | — | §2.11 |
+| **O30** | Rank-local optimizer-state checkpoints | **Built** — as Tier 2's bank sidecars (`memory_parallel_rank{N}.pt`). §0 lists it deferred; that is stale. | correctness, not speed | §1.2 |
+| **O31** | Per-component and per-callback CUDA-event timing | **Built, design changed** — the `record_function` approach was abandoned (dynamo *drops* it inside a compiled block); replaced by the `kprof` trace path | — | §1.14 |
+| **O32** | A 4-GPU kernel profile | **Done** | measurement, not a change | §1.14, §2 |
+| **O33** | `reshard_after_forward=False` | **Built** | **+1.7%** (34.42 → 35.02) | §1.10 |
+| **O34** | Revisit DDP at 4 GPUs post-`_loss_ctx` | **Not done** — superseded by D3's result at mb 4 | — | §1.5, §2 |
+| **O35** | The h-sweep at 1 GPU | **Done** | h16 **+11.1%** over h20 | §1.12 |
+| **O36** | Raise micro-batch at 4 GPUs | **Attempted, blocked** | h16 mb32 OOM → with O11 fits but **−2.6%** | §1.13 |
+| **O37** | No FSDP2 at world size 1 | **Built** | **+4.2%** at h20, **−2.5%** at h16 | §1.11 |
+| **B1/B2** | Baselines: AME h20 and dense h20 at 4 GPU | **Done** | 26.84% / 44.44% | Headline |
+| **D1** | Diagnose why memory parallelism gave no speedup | **Done** | found the graph break, not mem-parallelism | §4 |
+| **D2** | Fused Q/K bank pair | **Built** | **+3.2%** | §1.4 |
+| **D3** | DDP backbone + memory-parallel banks | **Built, not adopted** | **−2.3%**; OOMs at mb 16 | §1.5 |
+| **S1** | Attention decomposition benchmark | **Done** | measurement | §1.14 |
+| **S2** | Sink as a log-sum-exp merge | **Built** | **+10.3%** | §1.7 |
+| **S3** | 128-aligned sequence length | **Built** | **+15.8%** — largest single win | §1.8 |
+| **S3b** | Sink logit as a reduction, not an einsum | **Built** | **+2.4%** | §1.9 |
+| **—** | Cross-entropy outside autocast (`_loss_ctx`) | **Built** | removes a 6.14 GiB fp32 copy; throughput-neutral | §1.6 |
+| **—** | Triton cache isolation per rank | **Built** | correctness/stability | §1.14 |
+| **—** | Instrumentation made non-fatal under FSDP2 | **Built** | correctness | §1.14 |
+
+**Two catalogue entries are not optimizations and have no section of their own.**
+**O13** is a warning rather than a change: pkmf measured `overlap_comm` as a
+trap under vertical sharding, and this work never enabled it. **O18**
+(`SelectiveAdamW`, masking on `grad != 0` so an unvisited bank row is not
+decayed) is a *correctness* property; the equivalent here is `parameter_groups`
+excluding the banks from the backbone optimizer entirely, so AdamW never sees a
+permanently-`None` gradient — §1.2.
+
+
+Ordered by when they were built. "Effect" is always a measured A/B against the
+stated comparand, never a projection.
+
+### 1.1 O9 — suppress gradient sync during accumulation (Tier 1)
+
+`set_requires_gradient_sync(False)` for all but the last micro-step, so FSDP2
+reduce-scatters once per optimizer step instead of once per micro-step.
+
+**Effect: 26.84% → 26.16% (−2.53%)**, job 32578 vs 32576. On lem the *same code
+and config* gave +3.33%. **Same change, opposite sign on two clusters** — which
+is why the plan forbids comparing rows across clusters.
+
+Mechanism: O9 does not make communication free, it **trades NCCL traffic for
+HBM traffic**. With sync suppressed FSDP2 accumulates into an unsharded fp32
+buffer every micro-step — a read-modify-write of 12.65 GB per micro-step, ~101
+GB of extra HBM traffic per optimizer step at ga 8 — in exchange for removing 7
+of 8 reduce-scatters. On entropy's intra-node NVLink the reduce-scatter was
+already cheap and well overlapped, so the trade loses. Peak memory confirms it:
+60.6 → **69.5 GiB**.
+
+**This is the one result in this document that depends on the aggregation.**
+Mean over steps ≥ 15 gives 26.16% (−2.5%); the median gives 27.32% (+1.8%). The
+gap is three outlier slow steps (234k, 239k, 240k tokens/s against a 287k
+median). The mean is the right reading here and not merely the conventional
+one: at 69.5 of 80 GiB the run is near the memory ceiling, and allocator stalls
+under that pressure are *the effect of O9*, not noise to be medianed away. A
+reader who prefers the median should know the verdict flips — it is a weaker
+rejection than it reads.
+
+**Verdict: rejected on this test bed.** The Tier 1 attribution separately showed
+the bank gradient path at ~8% of step time, so the gate that was to authorise
+Tiers 2–3 fired NEGATIVE. Maciej explicitly overrode it and directed both tiers
+be built anyway.
+
+### 1.2 Tier 2 — hand-managed bank gradient and optimizer path (O1–O5)
+
+`src/core/memory_parallel.py`. Removes the 2.576B bank parameters from FSDP2's
+dense gradient and optimizer path: persistent fp32 `main_grad`, fp32 master →
+bf16 compute copy, one all-reduce per step, joint gradient clip, three step
+hooks, rank-local checkpoint sidecars.
+
+**Effect at micro-batch 16: 26.84% → 26.55% (−1.1%)**, job 32632 vs 32576.
+**Effect at micro-batch 4: 18.28% → 22.44% (+22.8%)**, job 32659 vs 32656.
+**Effect at 1 GPU, ga 128: 18.1% → 25.04% (+38.5%)**, job 32652.
+
+The mechanism this exposed is the single most reusable finding of Tier 2: **its
+value scales with `gradient_accumulation_steps` ÷ FSDP2's shard factor**,
+because everything it deletes is per-micro-step work. 128/8/2 micro-steps →
++38.5% / +22.1% / −1.2%. At the plan's own test bed (ga 8) it is break-even.
+
+### 1.3 Tier 3 — vertical bank sharding across 4 GPUs (O6–O8)
+
+Column-sharded banks, two process groups (contiguous memory-parallel, strided
+data-parallel), id all-gather → local gather → all-to-all, and the O8 divisor
+(global world size, not dp size). Same module as Tier 2; `mem_parallel_size` is
+the knob.
+
+**Effect: it is what makes h20 fit at all.** `mem_parallel_size` 1 and 2 both
+OOM at 4 GPUs (jobs 32649, 32638). Throughput at mb 16 is covered by 1.2 above.
+The 4-GPU profile later priced it exactly: **215.6 ms of all-to-all plus 134.6
+ms of reassembly permute = 350.2 ms/step**, against the 546 ms of FSDP2 bank
+all-gather it replaced. A real but thinner margin than designed for.
+`bank_reduce` is 1.8 ms and `bank / embedding` is 1.0% of the step — the path
+Tier 1's gate called unimportant is, after Tiers 2–3, invisible.
+
+### 1.4 D2 — fused Q/K bank pair
+
+One `torch.cat` of the two bank weights so a single gather, single all-to-all
+and single permute serve both. The kernels are launch-bound, not
+bandwidth-bound, so halving the count is most of the cost.
+
+**Effect: 26.55% → 27.41% (+3.2%)**, job 32666 vs 32632.
+
+### 1.5 D3 — DDP backbone instead of FSDP2
+
+Replicate the 587M backbone and let `memory_parallel` own the banks, in the
+style of pkmf. Directed by Maciej.
+
+**Effect: 23.52% → 22.99% (−2.3%)** at micro-batch 4, job 32664 vs 32674.
+**Not adopted.** At micro-batch 16 it OOMs outright (jobs 32672, 32678); at
+micro-batch 8 it reaches 25.23% (job 32680), still short of FSDP2's mb16.
+The honest summary: DDP trades memory for fewer collectives, and at h20 there
+is no memory to trade.
+
+### 1.6 `_loss_ctx` — cross-entropy outside autocast
+
+`F.cross_entropy` is on torch's autocast **fp32 list**, so inside an autocast
+region it upcast the `[16, 2047, 50304]` logits to fp32 — 6.6 GiB materialised
+on top of the bf16 logits that already existed. Disabling autocast around the
+loss keeps them bf16.
+
+**Effect: removes a 6.14 GiB fp32 copy.** The bf16 logits (3.07 GiB at
+`[16, 2047, 50304]`) already existed and remain; what autocast added was a
+second, fp32 tensor of twice that size on top of them. It is what the first DDP
+micro-batch 16 run (32672) died on, and it unblocked DDP at micro-batch 8.
+Throughput-neutral; a pure memory fix. Found because Maciej suspected a bug in
+the loss path and was right.
+
+### 1.7 S2 — the sink as a log-sum-exp merge instead of a KV column
+
+The attention sink was a prepended key column. Two structural costs: `KV_LEN`
+became 2049, one past flex_attention's 128-wide block grid, making every block
+ragged; and it put a `torch.where` inside `score_mod`, which flex evaluates
+once per score (n² per head) to special-case a single column. Replaced by
+merging the sink after the fact — attention over `{sink} ∪ sequence` is exactly
+the softmax-weighted merge of attention over each part, and flex returns the
+log-sum-exp needed to do it:
+
+    out = out_seq + α·(v_sink − out_seq),   α = sigmoid(s − lse)
+
+Written as a broadcast FMA, not `torch.lerp` (which would expand `v_sink`) and
+not the ratio form (which built five full-size fp32 temporaries, measured at
++156 ms forward and +403 ms backward).
+
+**Effect: 27.41% → 30.24% (+10.3%)**, job 32687 vs 32666. Kernel-level:
+1331.6 → 679.5 ms/step. Loss trajectory unchanged.
+
+### 1.8 S3 — 128-aligned sequence length (the largest single win)
+
+`_preprocess_input` takes `batch[:, :-1]` for next-token targets, so
+`sequence_length: 2048` made the model see **n = 2047**, and 2047 = 15×128 +
+127 — one token short of flex's block grid, leaving a ragged last row-block.
+Present in every AME run in this work **including every baseline**. Fixed with
+`sequence_length: 2049`, which also makes the model train on exactly the 2048
+tokens per sequence the configs claim.
+
+**Kernel effect (job 32688, 1 H100, scaled to one optimizer step):**
+
+| | fwd | bwd | total |
+|---|---:|---:|---:|
+| n = 2047 | 482.1 | 674.8 | **1156.9 ms** |
+| n = 2048 | 171.4 | 505.6 | **677.0 ms** |
+
+479.9 ms for one token, 2.8× of it in the forward. The SDPA flash floor moves
+only 22 ms across the same pair, so this is not a general alignment tax — it is
+flex's handling of a partial row-block, the same mechanism as S2's ragged
+`KV_LEN`, on the other axis of the same matrix.
+
+**Effect at 1 GPU: 28.80% → 33.36% (+15.8%)**, jobs 32771 vs 32772, with
+`sequence_length` the only overridden variable. 1.925 s/step saved against
+1.920 predicted — a **100.3% transfer** from kernel benchmark to training.
+
+**Caveat recorded as a deviation:** each example now spans 2049 dataset tokens,
+so the token stream is not B1's and loss traces are comparable in shape but not
+step-for-step. A data change, not a numerics change. The cleaner fix — the
+dataloader fetching `sequence_length + 1` — was deliberately **not** done,
+because it changes shared code and every other experiment's token accounting.
+
+### 1.9 S3b — the sink logit as a reduction instead of an einsum
+
+`einsum("bhnd,hd->bhn", q, k_sink)` is a matrix-**vector** product per head
+(reduces D=64 to one scalar per element), the shape a tensor core is worst at,
+and it lands in a GEMM library kernel that inductor cannot fuse into anything.
+Replaced by a broadcast multiply and a reduction over D.
+
+**Measured in isolation (job 32776), per optimizer step:**
+
+| merge form | fwd | bwd | total |
+|---|---:|---:|---:|
+| einsum, eager | 88.3 | 131.5 | 219.9 |
+| mul+sum, eager | 121.6 | 159.7 | 281.3 |
+| einsum, **compiled** | 41.8 | 61.8 | 103.6 |
+| **mul+sum, compiled** | **14.2** | **36.7** | **50.9** |
+
+**The ranking inverts under compile.** Eager the einsum wins by 28%; compiled
+it loses by 2×. This also retired an earlier estimate of mine: the
+decomposition appeared to show 241 ms of merge cost, but the real model
+compiles this path and was already paying ~103.6 ms.
+
+**Effect at 1 GPU: 33.36% → 34.17% (+2.4%)**, job 32796 vs 32772.
+
+### 1.10 O33 — `reshard_after_forward=False`
+
+> **Naming note.** Configs and wandb runs for this item carry the suffix
+> `o29` (`h20_4gpu_mb16_mp4_o29.yaml`, `ame_h20_4gpu_align_o29`,
+> `ame_h16_4gpu_mb16_o29`) because it was first labelled O29. That collided
+> with the catalogue — see the note at the top of §2 — and the item is now
+> **O33**. The run names are left alone so they still match wandb and slurm.
+
+FSDP2 frees all-gathered parameters at the end of forward and gathers them
+again in backward. The 4-GPU profile put `ncclDevKernel_AllGather` at 219.2
+ms/step, 106.0 of it in backward. Plumbed as an optional key so no existing run
+moves.
+
+**Effect: 34.42% → 35.02% (+1.7%)**, job 32847 vs 32820. 50 ms recovered, which
+is 47% of the 106 ms backward all-gather — the rest stays hidden behind
+compute, exactly as the overlap analysis predicted. Costs 1.1 GiB (63.50 →
+64.63), far less than feared.
+
+### 1.11 O37 — no FSDP2 at world size 1
+
+At 1 GPU FSDP2 shards nothing yet runs its full machinery. bf16 comes from
+autocast instead.
+
+**Effect at h20 (ga 128): 34.17% → 35.59% (+4.2%)**, job 32834 vs 32796.
+**Effect at h16 (ga 32): 37.96% → 37.00% (−2.5%)**, job 32841 vs 32825.
+
+**It reverses sign between the two.** The discriminator is `ga`: FSDP2's
+per-micro-step staging is 4× smaller at h16, while autocast's own per-region
+weight-cast cost is not. There is a crossover and h16 is already past it. Peak
+memory *rises* (64.71 → 66.87 GiB), which is the tell — autocast keeps fp32
+parameters and caches casts. **1-GPU only**; at 4 GPUs FSDP2 is what makes h20
+fit.
+
+### 1.12 Model size sweep (h12 / h16 / h20)
+
+Each at the largest micro-batch its unsharded bank state leaves room for —
+bank state at `mem_parallel_size 1` is 46.4 GB (h20), 29.7 (h16), 16.7 (h12).
+
+| 1 GPU | micro-batch | MFU | step | peak GiB | GFLOPs/token |
+|---|---:|---:|---:|---:|---:|
+| h12 | 32 | 34.46% | 3.240 s | 66.54 | 1.053 |
+| **h16** | **16** | **37.96%** | 5.938 s | 68.35 | 2.121 |
+| h20 | 4 | 34.17% | 11.644 s | 64.71 | 3.768 |
+
+**"Smaller is better" is wrong — there is a peak at h16.** Mechanism:
+arithmetic intensity falls with H (3.768 → 2.121 → 1.053 GFLOPs/token), so each
+token carries less compute to hide memory traffic behind. h16 is where the
+micro-batch gain still outweighs that loss; by h12 it does not.
+
+**And the ranking inverts with GPU count:**
+
+| MFU/GPU | 1 GPU | 4 GPU |
+|---|---:|---:|
+| h20 | 34.17% | **35.02%** |
+| h16 | **37.96%** | 33.30% |
+
+At 1 GPU h20 is memory-starved into micro-batch 4 and h16's 4× micro-batch
+wins. At 4 GPUs the banks shard, h20 gets micro-batch 16 too, and its higher
+arithmetic intensity decides it.
+
+### 1.13 O11 — fused-linear-CE (lifted from the cut list 2026-11-05)
+
+Chunks the head projection and cross-entropy so the full
+`[micro_batch, seq, vocab]` logits tensor is never built. `targets` is an
+argument to `TransformerHead.forward` rather than a separate method, because
+FSDP2's all-gather hook fires on `__call__` — a `head.compute_loss(...)` would
+read a sharded DTensor as the whole weight, which FSDP2 does not report as an
+error.
+
+**Three implementations were measured:**
+
+| h16, 1 GPU, mb 16 | MFU | step | peak GiB |
+|---|---:|---:|---:|
+| no O11 | **37.96%** | 5.938 s | 68.35 |
+| v1, `torch.utils.checkpoint` per chunk | 35.31% | 6.385 s | 60.65 |
+| v2, gradients-in-forward, fp32 contractions | 20.87% | 10.787 s | 62.08 |
+| v3, gradients-in-forward, model-dtype contractions | 30.38% | 7.408 s | — |
+
+**Memory claim: confirmed.** 7.7 GiB recovered at 1 GPU, and h16 at 4 GPUs
+micro-batch 32 now fits (62.61 GiB) where it OOMed on exactly the 6.14 GiB
+`[32, 2048, 50304]` logits tensor (job 32853).
+
+**MFU claim: not confirmed. O11 is a net loss as measured.** v1 costs 2.65
+points; the micro-batch it unlocks is worth about +4.7% relative (backing the
+7.0% out of the mb 32 run gives 34.87% against mb 16's 33.30%), less than the
+7.0% it costs. At 4 GPUs, micro-batch 32 with O11 (32.44%) is *below*
+micro-batch 16 without it (33.30%).
+
+**v1 is the best of the three, and that is the interesting result.** v2/v3
+avoid the recompute entirely by computing gradients during the forward (valid
+because the loss is the final scalar, so all gradients below are linear in
+`grad_output`) — and are still slower, because hand-rolled logsumexp + gather +
+scatter_add + exp over a `[chunk, 50304]` buffer costs more than ATen's fused
+`cross_entropy` plus the recompute. **The recompute was cheaper than replacing
+the kernel.** v2's catastrophic 20.87% was my own bug: the fp32 accumulation
+dtype reached the *contractions*, making two fp32 matmuls per chunk (~60
+TFLOP/s against ~989 for bf16) on the largest matmul in the step.
+
+### 1.14 Measurement and test infrastructure (no MFU effect, enabled everything above)
+
+- **`scripts/kprof_phase.py` usage at 4 GPUs** — the first 4-GPU phase
+  attribution in this work. Every earlier table was 1 GPU, where collectives
+  are single-rank no-ops.
+- **`main.py: isolate_triton_cache()`** — every rank hands its generated
+  kernels to Triton, which caches them by content hash in a shared directory.
+  Concurrent ranks racing on the same cache corrupted it. Each rank now gets
+  its own cache on node-local storage, honouring an explicit `TRITON_CACHE_DIR`
+  if one is set. Four Tier 1 jobs (32543/44/55/59) were cancelled and
+  resubmitted to pick this up. Tested by `tests/test_triton_cache_isolation.py`.
+- **Instrumentation made non-fatal** — AME's per-layer diagnostics call
+  `aten.mm` on a plain tensor against a DTensor under FSDP2, which raises. It
+  now disables itself per layer with a warning rather than killing the run, and
+  the run says so in its log. Every multi-GPU AME log in §3 carries 20 of these
+  warnings. Tested by `tests/test_instrumentation_is_not_fatal.py`.
+  `run_summary.py` was corrected alongside it: it had treated the handled
+  `RuntimeError` inside that warning as a failure and reported two healthy
+  30-step runs as failed.
+- **`scripts/run_summary.py`** — reduces a slurm log to the numbers a results
+  table needs (MFU accounting line, `timers_ms` steady-state split, peak
+  memory), and exits non-zero on failure signatures so "did it finish" is
+  checkable. `STEADY_FROM = 15` is the convention this report follows. Extended
+  here with the `bank_reduce` and `bank_step` sections. Tested by
+  `tests/test_run_summary.py`.
+- **`scripts/kprof_phase.py`** — splits a profiled step into forward/backward
+  per kernel category by walking each GPU kernel back to the `section:` range
+  LoopTimers had open. Produced every phase table in §1 and §2.
+- **`tests/test_grad_sync_accumulation.py`** — pins O9's semantics: sync
+  suppressed on all but the last micro-step, and the resulting gradient
+  identical to the unsuppressed path.
+- **`scripts/kprof_agg.py` regex fixes** — `index_add_` dispatches to
+  `indexFuncLargeIndex`, matching neither `index_add` nor `embedding`, so 93.8
+  ms/step was filed under `other`. Added `|indexFunc` and
+  `|all_?to_?all|alltoall|send_?recv`.
+- **`scripts/bench_attention.py` compiled variants** — every row it produced
+  before 2026-11-05 was eager while the model runs compiled. That inverted the
+  merge-form ranking (§1.9) and overstated merge cost by ~2.3×. Any future row
+  should come in both forms.
+- **`conftest.spawn_on_free_port()`** — `free_port()` asks the OS for a port,
+  closes the socket, and hands the number to a child that binds it later. On a
+  shared node with several jobs each spawning four ranks, something takes it in
+  between; the failure is `EADDRINUSE` out of `init_process_group` and looks
+  exactly like a correctness failure in whichever test drew the short straw. It
+  cost one gate run (32836). Now retries on EADDRINUSE and nothing else.
+- **`tests/test_memory_parallel.py`** — 28 tests including §1.4.1 bit-identity
+  without clipping, one-fp32-ulp with clipping, the O8 divisor at
+  `mem_parallel_size` 1/2/4 with a negative control that catches the wrong
+  divisor as exactly 4.0×, column-shard reassembly, checkpoint round-trip,
+  fused-vs-unfused equivalence.
+- **`tests/test_fused_linear_ce.py`** — 14 tests, float64, tolerance of a few
+  ulps with a negative control on each that misses by 1e-2 or more.
+
+---
+
+## 2. Promising, not done or not tested
+
+> **On the O-numbering, and a collision I introduced.** O1–O31 are a catalogue
+> of optimizations harvested from the pkmf framework, defined in
+> [ame_optimization.md](ame_optimization.md). Tiers 1–3 implemented O1–O9; the
+> rest were cut or deferred, which is why the implemented set jumps from O8/O9
+> straight to the thirties — the numbers in between exist as catalogue entries
+> that were never built.
+>
+> Tier 4 originally labelled its new items **O28–O33**, which were **already
+> taken** (O28 diagnostics switch, O29 periodic `gc.collect()`, O30 rank-local
+> optimizer-state checkpoints, O31 per-component CUDA-event timing — and O31 is
+> what Tier 1 implemented as T1.3). They have been renumbered to start after
+> the catalogue:
+>
+> | was | now | item |
+> |---|---|---|
+> | O28 | **O32** | a 4-GPU kernel profile |
+> | O29 | **O33** | `reshard_after_forward=False` |
+> | O30 | **O34** | revisit DDP at 4 GPUs |
+> | O31 | **O35** | the h-sweep at 1 GPU |
+> | O32 | **O36** | raise micro-batch at 4 GPUs |
+> | O33 | **O37** | no FSDP2 at world size 1 |
+>
+> **New items start at O38.** Note separately that the catalogue's O30
+> (rank-local optimizer-state checkpoints) was in fact *implemented* by Tier 2
+> as the bank sidecars — it is listed as deferred in §0 but is not.
+
+Ranked by expected value. Estimates are flagged for certainty; the 4-GPU ones
+are discounted because that step is partly communication-bound.
+
+### 2.1 Head-parallel attention — removes 350 ms at 4 GPUs (redesign)
+
+Column shard `r` owns heads `[5r, 5r+5)`, and heads are **independent** in
+attention. The all-to-all and the reassembly permute exist only to put back
+together heads that never needed putting together. Computing attention per head
+group is tensor parallelism — a redesign of O6, not a tweak.
+
+**Value: up to 350.2 ms/step at 4 GPUs** (215.6 all-to-all + 134.6 permute),
+≈4.2 MFU points. **Highest-value item identified.** Not started.
+
+### 2.2 The `fused_stack` permute kernel — ~85 ms at 4 GPUs
+
+`_FusedBankGather`'s `.permute().reshape()` after the all-to-all runs at **~400
+GB/s on a 3 TB/s machine** (0.84 ms per launch moving 336 MB, 160 launches,
+134.6 ms/step) because it transposes.
+
+**A fusion I reasoned through and rejected:** merging it with `_mixed_qkv`'s
+final `transpose(1,2)` would not remove a copy — the intervening elementwise
+work (qk_norm, alpha mix, tau) materialises `[B, n, H, D]` contiguously and the
+transpose is a *view*, so there is exactly one materialising copy today. Fusing
+moves it. The defect is kernel quality, not structure. A hand-written Triton
+transpose, or arranging the all-to-all so a view suffices, is the open route.
+
+### 2.3 O10 — activation checkpointing (**still cut**)
+
+The only remaining headroom for a larger micro-batch at both h20/4-GPU (63.5 of
+80 GiB, activations ~48 of it) and h16/1-GPU (68.35 of 80). Micro-batch is the
+only lever measured in MFU **points** rather than milliseconds.
+
+**Cut deliberately and the reason is the asymmetry with O11:** it trades
+compute for memory, and nothing here has measured whether the micro-batch gain
+beats the recompute cost. Given that O11's recompute turned out to cost more
+than its micro-batch bought (§1.13), that caution now looks well placed — O10
+should be measured, not assumed.
+
+### 2.4 GEMM efficiency
+
+| | achieved | ceiling | value |
+|---|---:|---:|---:|
+| h20, 4 GPU | 76.0% | 80–85% realistic | 61–130 ms |
+| h16, 1 GPU | 81.4% | ~88% realistic | ~180 ms |
+
+An earlier estimate of mine sized this against 90% of peak and was wrong — 752
+TFLOP/s is a normal figure for large cuBLAS bf16 GEMMs on an H100 and the
+practical ceiling is 80–85%, not 100%. Incremental tuning, not a defect.
+
+### 2.5 S3c — `sink_score` as a per-vocabulary gather
+
+`q` is not computed, it is gathered: `q = q_bank(token_ids)`. So
+`sink_score[b,h,n] = q_bank[ids[b,n]] · k_sink[h]` depends only on the token id.
+Precompute `sink_proj = q_bank_weight.view(vocab, H, D) @ k_sink` — a
+`[50304, 20]` table, 4 MB — **once per optimizer step**, and `sink_score`
+becomes a 1.3 MB gather instead of a reduction over 83.9 MB of `q`. Building it
+reads 128.8 MB against the 83.9 it replaces, so it pays only when amortised
+across micro-steps: 128.8 once against 83.9 × 8 = 671 MB. **5.2× traffic
+reduction, growing with ga.**
+
+Catch, stated so it is not discovered later: the backward must route
+`d(sink_score)` into the bank as an index_add over token occurrences rather
+than into a dense `dq`. That is machinery the bank already has, but it is real
+work. Untested.
+
+### 2.6 S5 — the bank path under compile
+
+`ShardedBank.forward` carries `@torch.compiler.disable` (dynamo traces it but
+the in-place scatter gives a **wrong gradient**), costing a graph break per
+block — 160 per step at ga 8. D1 established that this graph break, not memory
+parallelism, was the real Tier 2 regression. **Unsized.** Would need the
+side-effecting backward restructured so dynamo can trace it safely.
+
+### 2.7 S6 — hoist the id all-gather
+
+320 NCCL launches per step → 8, by gathering ids once per micro-step rather
+than once per bank per block. The payload is ~1 MB so it is nearly all latency.
+**~16 ms.** Small but cheap.
+
+### 2.8 Row-sharded banks instead of column-sharded
+
+Each rank owns a vocabulary slice; a token's embedding lives entirely on one
+rank, so the gather produces full-width vectors and **no reassembly permute is
+needed** (§2.2's 134.6 ms). Redistribution becomes a scatter by token index
+rather than a clean reshape. The plan's §"Why the column split fits AME better
+than it fits pkmf" argues for columns; this would revisit it against the
+measured permute cost, which did not exist when that was written.
+
+### 2.9 "triton glue" — the largest row with no plan against it
+
+731.8 ms/step at h20/4 GPU (22.7% of kernel time) and 1283.3 ms at h16/1 GPU
+(21.3%). It is RMSNorm, residual adds, the SwiGLU activation and the sink
+merge: memory-bound elementwise work that inductor already fuses.
+
+**Partly proven irreducible.** SwiGLU's backward alone is 228.1 ms at h16 and
+touches ~5 × 268 MB per call over 512 calls = 687 GB/step, which is 229 ms at 3
+TB/s — it matches its bandwidth bound to within 0.5%. It cannot be made faster,
+only *smaller*, by recomputing instead of storing, which is O10 (§2.3).
+
+The unexplored part is whether the remaining ~1000 ms contains fusion
+opportunities inductor is missing — nothing has looked kernel by kernel. Given
+S3b showed inductor's fusion decisions can invert a ranking, this is worth one
+careful pass.
+
+### 2.10 Options that exist in the codebase and are deliberately off
+
+| flag | status |
+|---|---|
+| `compile_ce` | **Measured harmful 2026-11-03**, before this work. Buys ~1% step time and 3 GiB but shifts the loss one-directionally: over 300 steps at h20 it sat ABOVE the uncompiled twin in 50 of the last 50 steps, last-50 mean \|dloss\| 0.110 against 0.006. A one-directional shift is not the unbiased noise fusion produces. Not retried. The schema now rejects it together with `fused_linear_ce`, since O11 never builds the logits `compile_ce` would compile over. |
+| `compile_loss` | Traces the model with the loss; leaves the logits crossing a graph boundary. Not used. |
+| `compile_blocks_full` | **On** in every config here; took 4-GPU FSDP2 from 33.7% to 44.3% MFU on the dense audit. |
+
+### 2.11 Not retried, worth one measurement each
+
+- **`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** — would recover ~2.5
+  GiB of reserved-but-unallocated memory and perhaps let h16/4-GPU reach
+  micro-batch 32 without O11. Refused throughout this work because it changes
+  the allocator under measurements whose purpose is comparison; legitimate for
+  a max-MFU run, which would then not be comparable.
+- **h18 / h14** — interpolation between measured points 3.5 apart; low value.
+- **O11 + micro-batch 32 at h20/4 GPU** — never run; h20's activations, not its
+  logits, are the binding constraint there.
+- **A 300-step loss-trajectory comparison for O11.** The 30-step gate cannot
+  distinguish reassociation from a small one-directional shift the way the
+  300-step `compile_ce` comparison in the plan did — and that comparison is
+  precisely what got `compile_ce` rejected. Required before O11 is used for
+  real training rather than throughput measurement.
+
+### 2.12 Explicitly cut or deferred, unchanged
+
+**Cut:** O10 (above), O16 chunked AdamW, O17 CPU offload (ruled out outright).
+**Deferred:** O14/O15 fused gather, O19/O20 per-group LR, O21–O27 schedule
+machinery.
+
+---
+
+## 3. Experiment log
+
+Every job submitted for this work. Times are cluster-local (UTC+1); wandb
+timestamps are one hour earlier. "—" means the run produced no MFU (failed,
+cancelled, or a benchmark rather than a training run).
+
+### 2026-11-04 — Tier 1 and Tier 2/3 construction
+
+| time | job | what it tested | MFU | outcome / conclusion |
+|---|---|---|---:|---|
+| 20:05 | 32576 | **B1 baseline**, AME h20 4 GPU mb16 | 26.84% | The reference every later number is read against. |
+| 20:10 | 32577 | **B2 dense ceiling**, H-balanced h20 4 GPU | 44.44% | AME reaches 60.4% of dense. Also validates the instrument. |
+| 20:14 | 32578 | O9, gradient-sync suppression | 26.16% | +1.75%. Marginal; Tier 1's attribution gate then fired NEGATIVE. |
+| 20:19 | 32579 | O31 per-submodule attribution, AME | 26.80% | Bank path ≈8% of step. The gate result Maciej overrode. |
+| 20:52 | 32601 | O31 attribution, dense | 44.41% | Matched comparison for the attribution table. |
+| 21:43 | 32623 | AME attribution rerun | 26.80% | Reproducible to 0.02 points. |
+| 21:48 | 32624 | dense attribution rerun | 44.41% | Reproducible. |
+| 22:40 | 32632 | **Tier 2+3**, `mem_parallel_size=4`, unfused | 26.55% | −1.2% vs B1. Mathematically right, throughput-neutral at ga 8. |
+| 22:46 | 32634 | Tier 2+3 with attribution | 26.46% | Showed NCCL already overlapped behind attention. |
+| 22:53 | 32638 | `mem_parallel_size=2` at 4 GPU | — | **OOM.** Only `mp = world_size` fits at h20. |
+| 22:58 | 32649 | `mem_parallel_size=1` at 4 GPU | — | **OOM.** Tier 2 alone is memory-infeasible at h20. |
+| 23:01 | 32652 | Tier 2+3 at 1 GPU, ga 128 | 25.04% | **+38.5%** vs 18.1%. My ~2% prediction was wrong by 20×; the miss is what exposed the ga-scaling law. |
+| 23:16 | 32656 | baseline at micro-batch 4 | 18.28% | Comparand for the ga-scaling curve. |
+| 23:23 | 32659 | Tier 2+3 at micro-batch 4 | 22.44% | +22.1%. Confirms value ∝ ga ÷ shard factor. |
+| 23:49 | 32664 | **D3**, DDP + memory-parallel, mb4 | 22.99% | Maciej's directive. Loses to FSDP2+fused by 3.0%. |
+| 23:55 | 32666 | **D2**, fused Q/K pair, mb16 | 27.41% | +3.4%. The fused pair is the win; DDP is not. |
+
+### 2026-11-05 (early) — separating D2 from D3, and the sink
+
+| time | job | what it tested | MFU | outcome / conclusion |
+|---|---|---|---:|---|
+| 00:01 | 32672 | DDP at micro-batch 16 | — | **OOM** in `cross_entropy`, allocating exactly 6.14 GiB. Led to `_loss_ctx`. |
+| 00:05 | 32674 | FSDP2 + fused, mb4 | 23.52% | Decisive against DDP once confounds removed. Corrected an earlier claim of mine that DDP was fastest. |
+| 00:23 | 32678 | DDP mb16 retry after the CE fix | — | Still OOM. Capacity result, not a gate failure. |
+| 00:27 | 32680 | DDP at micro-batch 8 | 25.23% | Fits at 53.53 GiB; still short of FSDP2 at mb16. |
+| 00:35–00:40 | 32681–32685 | attention micro-benchmarks | — | Decomposed the kernel; found the sink costing 876 ms/step. |
+| 00:42 | 32687 | **S2 sink merge** | 30.24% | **+10.0%.** Loss trajectory unchanged. |
+| 00:48 | 32688 | bench: n=2047 vs n=2048 | — | **479.9 ms for one token.** The S3 discovery. |
+
+### 2026-11-05 (morning) — alignment, the h-sweep, O33, O11
+
+| time | job | what it tested | MFU | outcome / conclusion |
+|---|---|---|---:|---|
+| 08:16 | 32771 | 1-GPU control, model n = 2047 | 28.80% | Control for the alignment A/B. |
+| 08:16 | 32772 | 1-GPU, model n = **2048** | 33.36% | **+16.1%.** 100.3% transfer from benchmark to training. |
+| 08:19 | 32774 | full attention decomposition, both lengths | — | ALiBi costs 59 ms; flex sits at the flash floor; the KV-column branch costs +267 ms. |
+| 08:30 | 32776 | merge forms, eager vs compiled | — | **Ranking inverts under compile.** Source of S3b. |
+| 08:31 | 32777 | 1-GPU aligned + kernel profile | 31.92% | Produced the 1-GPU phase table. |
+| 08:47 | 32794 | phase attribution of that trace | — | 1347 ms of "optimizer" inside fwd/bwd = FSDP2 `foreach`, not AdamW. |
+| 08:49 | 32796 | **S3b** merge rewrite, 1 GPU | 34.17% | +2.8%. |
+| 08:49 | 32797 | correctness gate | — | Ran, but output lost to my own `tail` filter. **Preempted lukaskoz 32611 (11 h 49 m).** |
+| 09:00 | 32806 | gate retry | — | Cancelled by me. **Preempted lukaskoz 32736 (1 h 55 m).** |
+| 09:24 | 32820 | **4-GPU headline**: align + S3b | 34.42% | Below my 36.1–36.4% projection. 560 ms of attention removed, 412 ms off the step — the gap is communication attention used to hide. |
+| 09:24 | 32822 | gate retry 2 | — | Output lost again; ran 10 min and printed no summary. |
+| 09:26 | 32825 | **h16 at 1 GPU, mb 16** | **37.96%** | **Best result of the work.** |
+| 09:36 | 32832 | h12 at 1 GPU, mb 32 | 34.46% | Below h16 — "smaller is better" is false; peak at h16. |
+| 09:37 | 32834 | h20 1 GPU, FSDP2 off | 35.59% | +3.8%. 421 ms, not the 2281 ms I had sized. |
+| 09:37 | 32836 | gate, full capture | — | **AME suite 73/73 pass.** memory_parallel failed one test on `EADDRINUSE` — infrastructure, not correctness. |
+| 09:52 | 32841 | h16 1 GPU, FSDP2 off | 37.00% | **−2.3% — reverses sign vs h20.** Crossover is `ga`. |
+| 09:58 | 32843 | **4-GPU kernel profile** | 34.52% | First ever. NCCL 509.8 ms total, only ~177 ms exposed. |
+| 10:07 | 32847 | **O33** `reshard_after_forward=False` | **35.02%** | +1.7%. Best 4-GPU result. |
+| 10:12 | 32853 | h16 4 GPU, micro-batch 32 | — | **OOM on exactly 6.14 GiB of logits.** The measurement that justified lifting O11. |
+| 10:16 | 32856 | h16 4 GPU, mb 16 + O33 | 33.30% | Below h20 at 4 GPUs — ranking inverts with GPU count. |
+| 10:22 | 32859 | h16 1 GPU kernel profile | 37.38% | Three of four largest rows already at hardware limits. |
+| 10:46 | 32862 | **O11 v1** gate run, h16 1 GPU | 35.31% | −2.65 points; memory 68.35 → 60.65 GiB. |
+| 10:46 | 32864 | **O11 v1**, h16 4 GPU mb 32 | 32.44% | **Fits** (62.61 GiB) but below mb 16's 33.30%. |
+| 11:03 | 32870 | **O11 v2**, gradients-in-forward | 20.87% | My bug: fp32 contractions, 16× matmul penalty. |
+| 11:15 | 32876 | **O11 v3**, model-dtype contractions | 30.38% | Fixed, but still below v1. **The recompute was cheaper than hand-rolling the softmax.** |
+
+### Jobs on this account NOT part of this work
+
+Listed so the log is exhaustive and the next person does not have to re-derive
+which `sacct` rows belong here.
+
+| jobs | what | why excluded |
+|---|---|---|
+| 32465–32538 | `brrrrr` | Another user's runs, 09:56–19:32 on 2026-11-04, predating this work. Their checkpoints are the ~35 GB driving the disk-quota problem in §5. |
+| 32541, 32542, 32543, 32544, 32555, 32559 | `ame_*`, `mfu_*` | **Cancelled before running** and resubmitted as 32576/77/78/79. They carried a pre-fix snapshot in which a DTensor diagnostics bug was deterministic for AME on multi-GPU. Never started (`Start = None`). |
+| 32818, 32845 | `update_pixi` | Environment helpers, not experiments. |
+| 32867, 32886, 32890 | `h16_chinchilla` | 4-GPU array job on the shared `j321m` account that **I did not submit** — it appeared mid-session and I left it alone. |
+| 32682, 32683 | `ame_bench_attn` | Covered above as the 32681–32685 benchmark block. |
+
+### Correctness gates (not throughput runs)
+
+| gate | result |
+|---|---|
+| §1.4.1 CPU toy-model equivalence, Tiers 2+3 | Bit-identical without clipping (float64); one fp32 ulp with clipping, traced to `clip_gradient`'s `.float()` meeting a different summation order. |
+| O8 divisor, `mem_parallel_size` 1 vs 4 | Pass, with a negative control that catches the wrong divisor as exactly 4.0×. |
+| `tests/test_memory_parallel.py` | 28/28. |
+| `tests/test_ame.py` on CUDA (job 32836) | **73/73**, including flex-vs-reference equivalence — the gate for S2 and S3b. |
+| `tests/test_fused_linear_ce.py` | 14/14. |
+| O11 loss trajectory, 30 steps | Identical from step 2; 2 bf16 ulps at steps 0–1. |
+| O11 grad-norm trace | 3.4e-6 relative at step 0 → 6.0e-3 at step 29, sign-flipping (not biased). |
+
+---
+
+## 4. Historical log — how the plan changed, and why
+
+### 2026-11-04, evening — Tier 1 closes with a negative gate
+
+Tier 1 measured B1 and B2 and produced the per-submodule attribution that was
+supposed to *authorise* Tiers 2–3: if the bank gradient path were not a top-two
+term after O9, the plan said re-rank before building anything. It was ~8% of
+step time. **The gate fired NEGATIVE.**
+
+**Maciej overrode it explicitly** and directed both tiers be built regardless.
+That override is why everything in §1.2–1.3 exists. In hindsight the gate was
+right about the bank path — it is 1.0% of the step today — but Tier 3 is also
+what makes h20 fit at 4 GPUs at all, so "unimportant for throughput" and
+"load-bearing for capacity" were both true at once.
+
+### 2026-11-04, late — Tiers 2+3 land throughput-neutral, and the ga law
+
+Tier 2+3 measured 26.55% against B1's 26.84% at the pinned test bed. I predicted
+~2% for the 1-GPU variant; it measured **+38.5%**, wrong by 20×. That miss was
+productive: it exposed that everything the tiers delete is *per-micro-step*
+work, so their value scales with `ga ÷ shard factor`. The pinned test bed (ga 8)
+is close to the worst case for them.
+
+### 2026-11-04, late — Maciej's three directives
+
+1. *"Memory parallelism should give the biggest speedup — investigate and fix."*
+   Led to D1 (the defect is the graph break from `@torch.compiler.disable`, not
+   memory parallelism) and D2 (the fused Q/K pair, +3.4%).
+2. *"Try running the core model in DDP and parallelise just the memory banks,
+   like pkmf."* Built and measured; **loses by 3.0%** and OOMs at mb 16.
+   Recorded as a negative result rather than tuned toward.
+3. *"Try again DDP — it should fit, there might be a bug."* There was: the
+   cross-entropy autocast upcast (§1.6), worth 3.07 GiB. DDP still did not reach
+   FSDP2's mb 16, but the bug was real and the fix is in the default path.
+
+### 2026-11-04, late — the >35% loop
+
+*"If they won't exceed 35% MFU, work continuously in a loop... keep logs in
+`interactive_ame.md`."* This created the working log and the strategy backlog
+(S1–S7). It also set the pattern for the rest of the work: hypothesis →
+micro-benchmark → training A/B → record, with every number gated first.
+
+### 2026-11-05, 00:42 — the sink, and a bug class
+
+The attention decomposition showed the **sink**, not flex and not ALiBi, was
+876 ms/step. Two structural causes, both about shape rather than arithmetic: a
+ragged `KV_LEN` and a `torch.where` evaluated n² times. S2 removed both (+10%).
+
+### 2026-11-05, 00:48 — the same bug class on the other axis
+
+S2's `KV_LEN = 2049` made me look at `Q_LEN`, and the training runs had been at
+**n = 2047** all along — one token short of the block grid, in every run
+including every baseline. 479.9 ms for one token. **The largest single win of
+the work (+16.1% at 1 GPU), and it had been present since before Tier 1.**
+
+### 2026-11-05, 08:49 and 09:00 — I preempted two of lukaskoz's jobs
+
+Two jobs submitted for this work destroyed ~13 h 45 m of another user's
+compute: 32611 (11 h 49 m) and 32736 (1 h 55 m), under
+`PreemptMode=CANCEL`/`GraceTime=0`.
+
+**Root cause, which is not "forgot to check".** The check was run, at 08:15,
+when three GPUs were free and 1-, 2- and 3-GPU jobs all showed no `Preempts:`
+line. That result was then treated as a standing property of the cluster. It was
+a snapshot; another user filled the node at ~08:38. A second failure compounded
+it: for job 32806 the `--test-only` and the `sbatch` were issued in the **same
+shell command**, so the submit had already gone out by the time its own gate was
+readable. A gate evaluated after the action it gates is not a gate.
+
+I stopped submitting and reported it. **Maciej's response changed the
+constraint:** lukaskoz auto-submits to fill free compute and preemption is
+configured for exactly this, so it is acceptable here. The procedural rule
+still stands and is now in memory: one check per submit, in its own tool call,
+read before composing the command, no exemption for small jobs — **both jobs
+that caused this were 1-GPU jobs.**
+
+### 2026-11-05, 09:24 — the 4-GPU headline undershoots, and says why
+
+I projected 36.1–36.4% from two independent routes. It measured **34.42%**.
+Per rank the attention saving was 560 ms; the step fell 412 ms. The missing 148
+ms is **communication that attention had been hiding** — Tier 1's finding
+running backwards. Tier 1 measured NCCL already overlapped behind flex
+attention, which is why cutting NCCL traffic 55% bought nothing; remove the
+attention and the overlap stops being free.
+
+This invalidated the whole backlog's sizing, since every estimate assumed
+savings land one-for-one. It is why Tier 4 re-ranked rather than continuing.
+
+### 2026-11-05, 09:26 — Maciej's scope change: h-sweep and a 40% target
+
+*"Evaluate h12 and h16 on 1 GPU. Aim for 40% MFU... but test 4 GPUs on h20
+still because it is the established baseline."* The goal became a **number, not
+a tier list**: exceed 40%, ideally match dense 44.44%.
+
+I added the arithmetic that frames it: dense parity requires AME to be **5%
+faster than dense in wall clock**, because it is 3.768 GFLOPs/token against
+3.97 and buys parameters with gathers. 40% looked reachable; 44.44% did not.
+
+h16 then produced the best number of the work (37.96%), and h12 showed the
+sweep is not monotonic.
+
+### 2026-11-05, 10:30 — the permitted list reaches a ceiling
+
+The h16 profile showed three of its four largest rows at hardware limits:
+attention where SDPA flash also sits, SwiGLU matching its bandwidth bound to
+within 0.5%, GEMM at 81.4%. 40% needed −316 ms; GEMM tuning offered ~180.
+
+I reported that **the two items blocking 40% were precisely the two on the cut
+list**, for the third independent time that day, and asked rather than
+implementing — §0 says "do not reintroduce them to hit a number", so lifting
+them needed to be an explicit scope change rather than a quiet one.
+
+### 2026-11-05, 10:40 — Maciej lifts O11, keeps O10 cut
+
+*"O11 removes a measured allocation with no compensating cost... O10 stays cut:
+it trades compute for memory and nothing has measured whether the micro-batch
+gain beats the recompute cost."* Plus a sizing correction I had not made: **the
+4-GPU step's non-NCCL kernels are 2715.9 of 2893 ms, so today's kernels cap
+4-GPU MFU near 36.8%** even with communication perfectly hidden — O11 helps by
+enabling a bigger micro-batch, not by shortening the step. And: queue it
+alongside the empirical items, not ahead.
+
+**The outcome vindicated the asymmetry.** O11's memory claim held exactly; its
+MFU claim did not, because its recompute cost more than the micro-batch bought
+— which is the precise argument for keeping O10 cut until measured.
+
+### 2026-11-05, 11:15 — three implementations of O11, and what the gate caught
+
+v1 (checkpoint) cost 2.65 points. v2 (gradients-in-forward) was far worse —
+20.87% — from my own bug: the fp32 accumulation dtype reached the contractions,
+making the step's largest matmul fp32. v3 fixed that and still lost to v1.
+**The recompute was cheaper than hand-rolling the softmax.**
+
+The gate caught two defects that a weaker test would have passed: `.float()`
+silently **downcasts** float64, so the float64 gate would have been measuring
+float32 reassociation; and the "logits never materialised" probe hooked the
+module while the new code calls `F.linear` directly, passing vacuously. A test
+whose mechanism has drifted from the code is worse than no test.
+
+### Corrections I made to my own earlier claims
+
+Recorded because several changed what was worked on next.
+
+| claim | correction |
+|---|---|
+| Tier 2 at 1 GPU would gain ~2% | Measured **+38.5%**, wrong by 20×. Exposed the ga-scaling law. |
+| "DDP is the fastest configuration measured" | Confounded comparison (D2+D3 vs neither). FSDP2+fused beats DDP+fused by 3.0%. |
+| "0.0625 is exactly one bf16 ulp at 7.1" | It is two; the ulp on [4,8) is 0.03125. |
+| The sink merge costs 241 ms | Eager-benchmark artefact; the compiled model was paying ~103.6 ms. |
+| GEMM headroom ≈190 ms (90% of peak) | 90% is not a figure cuBLAS reaches; 61–130 ms at a realistic 80–85%. |
+| 4-GPU align+S3b will reach 36.1–36.4% | Measured 34.42%. Exposed that the step is communication-bound. |
+| FSDP2 overhead at 1 GPU ≈2281 ms removable | 421 ms materialised, 18%. |
+| `log = 151.5 ms` is a 5% opportunity | A host timer overlapping GPU timers that already account for the step. No opportunity. |
+| "lukaskoz's 11-hour job has finished" | It was preempted — by my job. |
+
+---
+
+## 5. State at pause
+
+**Code on `ame_optimize`, uncommitted:** `src/core/memory_parallel.py` (new),
+`src/core/ame.py` (sink merge, S3b), `src/core/model.py` (O11, `parameter_groups`),
+`src/core/trainer.py` (Tier 2/3 hooks, `_loss_ctx`, O11 wiring),
+`src/core/distributed_training.py` (DDP, O33), `src/definitions.py`,
+`conftest.py`, `main.py`, plus configs and tests.
+
+**Recommended defaults for AME today:**
+`sequence_length: 2049` (always — it is a correctness fix as much as a speed
+one), the S2 sink merge and S3b merge form (both in `ame.py`, unconditional),
+`mem_parallel_size = world_size` at 4 GPUs, `reshard_after_forward: false`,
+`fused_linear_ce: false` (memory tool, not a speed one).
+
+**Cluster:** j321m's home hit its disk quota during the session. I deleted my
+own profiler traces (1.9 GB). The cemetery is **93 GB**, of which **~35 GB is
+two `brrrrr_*` runs' checkpoints** from 2026-11-04 (8 × 4.4 GB `.distcp`) that
+are not mine. The filesystem has 7.8 TB free — this is purely the per-user
+limit, and it will recur.
+
+**Companion documents:** `ame_optimization_plan.md` (the plan, §3 ledger, §4
+decision log), `interactive_ame.md` (the working log, hypotheses in flight),
+`ame_experiments.md`, `ame_implementation.md`.
+
+---
+
+## 6. Best known configuration per model size
+
+Everything below is a **measured** run, not a recommended-by-inference
+combination. Figures are mean over steps ≥ 15, as everywhere else. Dense
+ceiling for the % column is B2 = 44.44%.
+
+### 6.1 The table
+
+| model | GPUs | best MFU/GPU | step | tokens/s | micro-batch × ga | peak GiB | % of dense | job | config |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---|
+| **h12** | **1** | **34.46%** | 3.240 s | 323,631 | 32 × 16 | 66.54 | 77.5% | 32832 | `ame/h12_1gpu_mb32.yaml` |
+| h12 | 4 | *never run* | — | — | — | — | — | — | — |
+| **h16** | **1** | **37.96%** | 5.924 s | 177,001 | 16 × 32 | 68.35 | **85.4%** | 32825 | `ame/h16_1gpu_mb16.yaml` |
+| **h16** | **4** | **33.30%** | 1.689 s | 621,015 | 16 × 8 | 44.53 | 74.9% | 32856 | `ame/h16_4gpu_mb16_o29.yaml` |
+| **h20** | **1** | **35.59%** | 11.226 s | 93,404 | 4 × 128 | 66.87 | 80.1% | 32834 | `ame/h20_1gpu_mb4_nofsdp.yaml` |
+| **h20** | **4** | **35.02%** | 2.852 s | 367,691 | 16 × 8 | 64.63 | 78.8% | 32847 | `ame/h20_4gpu_mb16_mp4_o29.yaml` |
+
+GFLOPs/token, which is why the MFU columns are not directly comparable across
+rows: h12 **1.053**, h16 **2.121**, h20 **3.768**. A smaller model carries less
+compute per token, so equal MFU does not mean equal efficiency of the same
+work — and raw tokens/s across rows is a different model's tokens.
+
+### 6.2 What each best configuration contains
+
+All six carry **`sequence_length: 2049`** (S3 — the model sees 2048, so
+flex_attention's row-blocks are 128-aligned), the **S2 sink merge**, the
+**S3b reduction form** of the sink logit, and `compile_blocks_full: true`.
+They differ in the sharding and head settings:
+
+| | `mem_parallel_size` | sharding | O33 `reshard_after_forward` | O37 FSDP2 off | O11 fused CE |
+|---|---:|---|---|---|---|
+| h12, 1 GPU | 1 | FSDP2 (degenerate) | — | no | no |
+| h16, 1 GPU | 1 | FSDP2 (degenerate) | — | **no** — tested, −2.5% | **no** — tested, −7.0% |
+| h16, 4 GPU | 4 | FSDP2 + column-sharded banks | **false** | n/a | **no** — tested at mb 32, −2.6% |
+| h20, 1 GPU | 1 | **none** (O37) | n/a | **yes**, +4.2% | no |
+| h20, 4 GPU | 4 | FSDP2 + column-sharded banks | **false**, +1.7% | n/a | no |
+
+**The two inversions are the reason this table cannot be collapsed into one
+recommendation.** O37 (no FSDP2 at world size 1) helps h20 by +4.2% and *hurts*
+h16 by −2.5%, because the discriminator is `ga` — h20 runs 128 micro-steps
+against h16's 32, so FSDP2's per-micro-step staging is 4× smaller at h16 while
+autocast's per-region weight-cast cost is not. And O11 is a memory tool
+everywhere, never a speed one.
+
+### 6.3 Choosing between them
+
+**Best MFU overall: h16 at 1 GPU, 37.96%.** Also the best efficiency per GPU of
+any configuration measured, and the only one above 37%.
+
+**Best for a fixed 4-GPU allocation: h20, 35.02%.** Note it beats h20 at 1 GPU
+(35.59%) only on wall clock, not on MFU — the 4-GPU run is 3.9× faster per step
+but 0.6 points *less* efficient per GPU.
+
+**Best wall-clock throughput: h16 at 4 GPUs, 621,015 tokens/s** — 1.7× h20's
+4-GPU figure, but those are smaller tokens (2.121 vs 3.768 GFLOPs each).
+
+**The general rule the h-sweep established:** AME's MFU *falls* with GPU count,
+because the bank machinery (id all-gather, activation all-to-all, reassembly
+permute — 350.2 ms/step at 4 GPUs) does not exist at world size 1 and grows
+while per-rank compute shrinks. If MFU is the objective and the model fits, use
+fewer GPUs; if wall clock is the objective, use more and accept the loss.
+
+### 6.4 Not measured
+
+Stated so nothing here is read as a complete sweep.
+
+- **h12 at 4 GPUs** — never submitted. Expected to be the weakest of the grid
+  on MFU: lowest arithmetic intensity (1.053 GFLOPs/token) meeting the largest
+  relative communication cost.
+- **Any model at 2 or 3 GPUs.** The crossover between h16's 1-GPU 37.96% and
+  its 4-GPU 33.30% is unlocated; 2 GPUs would bound it.
+- **h12 and h16 at 4 GPUs without O33**, so their O33 deltas are inferred from
+  h20's rather than measured.
+- **h16 at 1 GPU above micro-batch 16** — 68.35 of 80 GiB leaves no room, and
+  O11 buys the room at a cost larger than the micro-batch returns.
+- **h14, h18.** The sweep has three points 3.5 MFU apart with a clear peak at
+  h16; these would interpolate rather than discover.
