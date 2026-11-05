@@ -40,3 +40,36 @@ def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def spawn_on_free_port(fn, make_args, nprocs, attempts=4):
+    """`mp.spawn` on a free port, retrying when the port is taken anyway.
+
+    `free_port()` asks the OS for a port, closes the socket, and hands the
+    number to a child that binds it a moment later. Between those two instants
+    anything else on the machine can take it -- and on a shared node, with
+    several jobs each spawning several ranks, something does. The failure is
+    `DistNetworkError ... EADDRINUSE` out of `init_process_group`, it looks
+    exactly like a correctness failure in whichever test drew the short straw,
+    and it cost one gate run on 2026-11-05 (job 32836, where
+    `test_fusing_the_qk_pair_changes_nothing[4]` "failed" without ever
+    running its assertions).
+
+    The race cannot be closed by holding the socket open -- the child has to
+    bind the same port -- so the honest fix is to notice and retry with a new
+    one. Only EADDRINUSE is retried; every other error propagates on the first
+    attempt, because the point is to stop infrastructure noise masquerading as
+    a test result, not to paper over flaky code.
+
+    `make_args` is a callable taking the port and returning the args tuple, so
+    the port can sit anywhere in the signature.
+    """
+    import torch.multiprocessing as mp
+
+    for attempt in range(attempts):
+        try:
+            mp.spawn(fn, args=make_args(free_port()), nprocs=nprocs, join=True)
+            return
+        except Exception as exc:  # noqa: BLE001 -- re-raised unless EADDRINUSE
+            if "EADDRINUSE" not in str(exc) or attempt == attempts - 1:
+                raise
