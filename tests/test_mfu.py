@@ -165,7 +165,9 @@ def test_the_mfu_denominator_is_the_peak_of_every_gpu(monkeypatch, world_size):
     monkeypatch.setenv("WORLD_SIZE", str(world_size))
     monkeypatch.setattr(trainer_module.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(
-        trainer_module.torch.cuda, "get_device_name", lambda _device: "NVIDIA H100 80GB HBM3"
+        trainer_module.torch.cuda,
+        "get_device_name",
+        lambda _device: "NVIDIA H100 80GB HBM3",
     )
     monkeypatch.setattr(trainer_module, "model_flops_per_token", lambda _m, _s: 2.0e9)
     clock = iter([100.0, 101.0])

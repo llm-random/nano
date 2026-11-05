@@ -476,9 +476,9 @@ def test_run_env_goes_to_wandb_config_and_not_the_history(monkeypatch):
     run_env = {}
     for update in run.config.updates:
         run_env.update(update.get("run_env", {}))
-    assert run_env.get("slurm_job_id") == "4242", (
-        f"run_env did not reach wandb.config; updates were {run.config.updates}"
-    )
+    assert (
+        run_env.get("slurm_job_id") == "4242"
+    ), f"run_env did not reach wandb.config; updates were {run.config.updates}"
     assert run_env.get("slurm_out") == "/somewhere/slurm-4242_7.out"
     assert run.logged == [], (
         "startup facts were written into the run history, where each becomes a "

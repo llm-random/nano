@@ -11,6 +11,7 @@ documents/notes/training_efficiency.md (Parts 4.2 and 4.4) was produced with it.
 
 Dumps cover two profiled steps, hence the /2 in the per-step reductions.
 """
+
 import re
 import sys
 
@@ -20,16 +21,24 @@ CATS = [
     ("gemm", re.compile(r"nvjet|cutlass|gemm|xmma|cublas", re.I)),
     ("compiled(triton)", re.compile(r"^triton_")),
     ("softmax/CE", re.compile(r"SoftMax|cross_entropy|nll", re.I)),
-    ("norm-ish eager (pow/reduce)", re.compile(r"pow_tensor|reduce_kernel|rsqrt|norm", re.I)),
-    ("eager elementwise", re.compile(r"elementwise_kernel|CUDAFunctor|BinaryFunctor|Functor", re.I)),
+    (
+        "norm-ish eager (pow/reduce)",
+        re.compile(r"pow_tensor|reduce_kernel|rsqrt|norm", re.I),
+    ),
+    (
+        "eager elementwise",
+        re.compile(r"elementwise_kernel|CUDAFunctor|BinaryFunctor|Functor", re.I),
+    ),
     ("cat/copy/memcpy", re.compile(r"CatArray|Memcpy|copy_kernel|direct_copy", re.I)),
 ]
+
 
 def categorize(name):
     for cat, rx in CATS:
         if rx.search(name):
             return cat
     return "other"
+
 
 totals, counts, per_kernel = {}, {}, {}
 for line in open(sys.argv[1]):

@@ -555,9 +555,9 @@ def test_static_run_inputs_are_wandb_config_not_wandb_history():
     import main
 
     source = inspect.getsource(main.initialize_training_components)
-    assert "metric_logger.run.config.update(" in source, (
-        "the startup run record no longer goes through wandb's config"
-    )
+    assert (
+        "metric_logger.run.config.update(" in source
+    ), "the startup run record no longer goes through wandb's config"
     assert "metric_logger.run.log(" not in source, (
         "a fixed run input is being logged into the history, where it becomes a "
         "one-point chart instead of a runs-table column"
