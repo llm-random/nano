@@ -1,0 +1,85 @@
+# O29 variant of the aligned config: FSDP2 keeps its gathered parameters.
+#
+# Identical to h20_4gpu_mb16_mp4_align.yaml except trainer.distributed.fsdp2.
+# reshard_after_forward. The 4-GPU profile (job 32843) puts ncclDevKernel_
+# AllGather at 219.2 ms/step -- 113.2 forward, 106.0 backward -- against a step
+# that is only ~177 ms away from pure compute, so the backward half is worth
+# testing. It costs memory, and h20 at micro-batch 16 already sits at 63.5 GiB
+# of 80; if this OOMs, that is the answer rather than a failure.
+#
+# S3: give flex_attention a 128-aligned Q_LEN. Everything else is 32687.
+#
+# `_preprocess_input` takes `batch[:, :-1]` for next-token targets, so a batch
+# width of 2048 makes the model see n = 2047 -- and 2047 = 15*128 + 127, one
+# token short of flex's 128-wide block grid. The last row-block is ragged, and
+# flex pays for raggedness the same way the sink's KV_LEN = 2049 did.
+#
+# Measured on one H100 (job 32688, scripts/bench_attention.py, B=16 H=20 D=64
+# bf16, scaled to the 160 attention calls in one optimizer step):
+#
+#   n = 2047:  fwd 482.1  bwd 674.8  total 1156.9 ms
+#   n = 2048:  fwd 171.4  bwd 505.6  total  677.0 ms
+#
+# 479.9 ms per step, almost all of it in the forward, for one token.
+#
+# The fix is a batch one token wider: sequence_length 2049 makes the model see
+# exactly the 2048 tokens every config in this directory claims it trains on.
+# It is not free of consequence -- each example now spans 2049 dataset tokens
+# instead of 2048, so the token stream is NOT the one B1 saw and the loss trace
+# is comparable in shape but not step-for-step identical. That is a data change,
+# not a numerics change; the section 1.4 gates are unaffected by it.
+#
+# Read against 32687 (sink merge, same code otherwise): 30.23% MFU/GPU,
+# 317,389 tokens/s, 3.302 s/step, 63.50 GiB.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  # 2049, not 2048: the model sees width - 1 = 2048, which is 16 * 128.
+  sequence_length: 2049
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, the audit's value
+  gradient_accumulation_steps: 4 # micro-batch 32 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  mem_parallel_size: 4
+  # O11, lifted from the cut list 2026-11-05. The head projection and the
+  # cross-entropy run in chunks of 1024 rows (the fp32 log-softmax buffer is
+  # [chunk, 50304], 206 MiB at 1024 and 824 at 4096), so the
+  # [micro_batch, seq, vocab] logits tensor is never built.
+  fused_linear_ce: true
+  fused_ce_chunk_size: 1024
+
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: ame_h16_4g32_o11
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h16_4gpu_mb32_o11
+    tags:
+      - ame
+      - h16
+      - multigpu
+      - tier2
+      - tier3
+      - mp4
+      - sinkmerge
+      - align

@@ -1,0 +1,117 @@
+# T1.3/O31 -- where the step time actually goes, at the production shape.
+#
+# The instrumented twin of configs/ame/h20_4gpu_mb16.yaml (baseline B1, job
+# 32543). Same model, same global token schedule, same compile scope; the only
+# additions are two measurement-only flags. Throughput from THIS run is not the
+# baseline -- kernel_profile wraps steps 12-13 in torch.profiler and that costs
+# time. B1 is the throughput number; this run is the attribution.
+#
+# Why not the CUDA-event-annotation scheme the plan originally described.
+# O31 was specified as "CUDA-event pairs around each AME sub-block -- bank
+# gather, QK-norm, the KV-shift mix, flex_attention, v_proj/o_proj". Every one
+# of those sits INSIDE a TransformerBlock, and compile_blocks_full compiles each
+# whole block. Measured on torch 2.7.1 with torch._dynamo.explain:
+#
+#     plain      graphs=1 breaks=0 ops=2
+#     annotated  graphs=1 breaks=0 ops=2
+#     W... Profiler function <class 'torch.autograd.profiler.record_function'>
+#         will be ignored
+#
+# The annotation does not break the graph -- it is silently DROPPED from it. So
+# annotating inside a compiled block yields no attribution at all, with no
+# error and no missing-data signal. That approach would have produced an empty
+# table and looked like a bug in the profiler.
+#
+# What this config measures instead, all of it compile-safe because it lives
+# outside the compiled region:
+#
+#   profile_timers   LoopTimers' CUDA-event pairs around the sections that TILE
+#                    the step -- data_fetch, data_h2d, forward, backward, clip,
+#                    optim, log -- emitted as one `timers_ms:` line per step
+#                    alongside step_total. This is what delivers the gate's
+#                    ">=90% of step time accounted for": the sections are a
+#                    partition of the step by construction, so coverage is a
+#                    property of the instrument, not a hope.
+#
+#   kernel_profile   torch.profiler over steps 12-13, one `kprof_us:` line per
+#                    CUDA kernel (self time, count, name) and `kprof_op:` per
+#                    operator. Inductor fuses pointwise work into opaque
+#                    `triton_poi_fused_*` kernels, but it does NOT fuse away the
+#                    four things this tier actually needs to separate:
+#
+#                      ncclDevKernel_ReduceScatter*   gradient communication
+#                      *adamw* / multi_tensor_apply*  the optimizer step
+#                      *embedding_dense_backward*     the BANK gradient path
+#                      flex attention / *attn*        the score kernel
+#
+#                    Aggregate with scripts/kprof_agg.py.
+#
+# Why this run has O9 OFF, when the plan ranks Tier 2/3 "after O9".
+# Because O9 moves exactly one of the categories. Suppressing gradient sync
+# changes WHEN reduce-scatters happen and nothing else, so it shows up in
+# comm(nccl) and nowhere else -- embedding/bank (the bank gradient computation)
+# and optimizer (AdamW over 3.163B parameters) are bit-for-bit the same work
+# either way. Those two ARE the Tier 2 decision inputs. So an O9-off run gives
+# the correct numbers for both, plus an upper bound on comm, and it is
+# guaranteed to run: the O9 twin (32555) carries ~9.5 GB/GPU of extra resident
+# gradient at this same micro-batch and may OOM. Guaranteed data beats a
+# slightly better-targeted run that might produce none.
+#
+# If 32555 survives, an O9-on attribution run is a one-line follow-up and the
+# only thing it adds is the post-O9 comm figure -- which can also be read
+# straight off 32555's step time against 32543's.
+#
+# The decision this run exists to make (plan section T1.3): if the banks'
+# gradient and optimizer path is not a top-two term, Tiers 2 and 3 get re-ranked
+# before anything is built. Two independent readings should agree --
+# `embedding_dense_backward` + the bank share of the reduce-scatter and AdamW
+# kernels, and the analytic share from parameter counts (the banks are 2.576B of
+# 3.163B = 81.4% of parameters, and both AdamW and reduce-scatter cost scale
+# with element count). If those two disagree, trust neither until they are
+# reconciled.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, the audit's value
+  gradient_accumulation_steps: 8 # micro-batch 16 x 2048 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  # Measurement only. Both are pure observation of an otherwise identical run.
+  profile_timers: true
+  kernel_profile: true
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: ame_attrib_4g
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h20_4gpu_mb16_attrib
+    tags:
+      - ame
+      - h20
+      - multigpu
+      - o31
+      - t1_3

@@ -1,0 +1,75 @@
+# B2 -- dense H-balanced h20 on four entropy H100s, micro-batch 16.
+#
+# The same-architecture ceiling that AME's 4-GPU numbers are read against
+# (documents/notes/ame_optimization_plan.md section 2.3). h20_mgpu.yaml already
+# carries a measured 1/2/4-GPU table, but that table was taken with the
+# GPT-2-arch overrides applied -- GeluFeedForward, n_blocks 25,
+# kv_heads = q_heads -- which make the model 4.122 GFLOPs/token. This file is
+# the SAME recipe with NO overrides, i.e. the H-balanced h20 at
+# 3.97 GFLOPs/token, which is the backbone configs/ame/h20_smoke.yaml is built
+# on and which has never been measured multi-GPU.
+#
+# Why it matters: three denominators are in play -- GPT-2-arch 4.122,
+# H-balanced 3.97, AME 3.77 GFLOPs/token. MFU percentages are comparable across
+# them because each uses its own FLOPs/token; raw tokens/s are NOT. Without this
+# run, every AME-vs-dense tokens/s comparison is against the wrong architecture.
+#
+# Workload is identical to the AME B1 runs: 30 steps, 512 sequences x 2048
+# tokens per global step, eval and checkpointing off.
+#
+#   micro_batch = batch_size / (ngpu * gradient_accumulation_steps)
+#               = 512 / (4 * 8) = 16
+#
+# Compile and precision follow h20_mgpu.yaml exactly:
+#
+#   distributed          FSDP2 from _trainer/llama.yaml (embedding/block/head)
+#   compile_blocks_full  regional compile of each whole TransformerBlock; worth
+#                        ~11 MFU points (documents/notes/multigpu_efficiency.md 7.7)
+#   no autocast_bf16     FSDP2's MixedPrecisionPolicy already computes in bf16
+#   no compile_loss      it traces self.model, so under FSDP2 it is whole-model
+#                        compile -- untested
+#   no compile_ce        measured harmful (multigpu_efficiency.md 7.9)
+#
+# Reference point: GPT-2-arch h20 at 4 GPUs, ga 8, mb 16 = 425,054 tok/s /
+# 44.28% MFU / 2.47 s per step. Expect a similar MFU here and a different
+# tokens/s, because the FLOPs/token denominator differs.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12
+  gradient_accumulation_steps: 8 # micro-batch 16 x 2048 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: mfu_h20_hbal_4g
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: mfu_h20_hbal_4gpu_mb16
+    tags:
+      - mfu_audit
+      - h20
+      - multigpu
+      - baseline_b2

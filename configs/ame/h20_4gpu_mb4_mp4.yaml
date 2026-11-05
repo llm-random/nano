@@ -1,0 +1,69 @@
+# Tier 2+3 at mem_parallel_size 4, micro-batch 4 (ga 32) -- the ga-scaling test.
+#
+# The 1-GPU result (job 32652) measured Tier 2 at **1.385x**, against -1.0% for
+# the same code at 4 GPUs. The difference is not the hardware, it is how much
+# per-micro-step work there is to delete: everything Tier 2 removes -- FSDP2's
+# dtype-converting parameter copy, the reduce-scatter, and the dense
+# `[50304, 1280]` gradient per bank -- happens once per MICRO-step, so what it
+# is worth scales with `gradient_accumulation_steps`, divided by however many
+# ways FSDP2 has already sharded it.
+#
+#   1 GPU,  ga 128, no sharding : 128 x 1   = 128  -> measured +38.5%
+#   4 GPUs, ga 8,   sharded 4x  :   8 x 1/4 =   2  -> measured  -1.0%
+#   4 GPUs, ga 32,  sharded 4x  :  32 x 1/4 =   8  -> this run
+#
+# So this should land between the two, and the sign of the prediction is what is
+# being tested: Tier 2+3's delta must improve monotonically as the micro-batch
+# falls and ga rises. Its A/B twin is `configs/ame/h20_4gpu_mb4.yaml`, the B1
+# sweep point written in Tier 1 and deferred before it ran -- both are submitted
+# together so the pair is measured on the same node in the same hour.
+#
+# The global token schedule is unchanged: 512 x 2048 per optimizer step, exactly
+# as every other run in this plan. Only the physical split varies.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, the audit's value
+  gradient_accumulation_steps: 32 # micro-batch 4 x 2048 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  # The one thing that differs from the baseline twin. Must divide world_size.
+  mem_parallel_size: 4
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: ame_mp4_mb4
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h20_4gpu_mb4_mp4
+    tags:
+      - ame
+      - h20
+      - multigpu
+      - tier2
+      - tier3
+      - mp4
+      - ga_scaling

@@ -1,0 +1,69 @@
+# Tier 2 alone on ONE GPU -- the shape pkmf's 1.43x claim was measured on.
+#
+# Tier 2's Measurement section asks for this specifically: "one 1-GPU run to
+# compare directly against pkmf's 1.43x claim on a shape where no NCCL traffic
+# confounds it". At 4 GPUs the hand-managed path measured -1.03% against B1
+# (job 32632), and that number mixes two effects -- the gradient and optimizer
+# path, and the collectives that replaced FSDP2's. At world_size 1 there are no
+# collectives at all: `mem_parallel_size` can only be 1, `_build_groups` returns
+# (None, None), `reduce()` does no all-reduce and divides by 1, and the bank
+# forward is a plain `F.embedding`. What is left is exactly the mechanism pkmf
+# measured: a persistent fp32 main_grad that is never zeroed between
+# micro-steps, against FSDP2 materialising a dense gradient per micro-step and
+# AdamW stepping 2.576B parameters it did not need to.
+#
+# The A/B twin is configs/ame/h20_smoke.yaml, measured as entropy job 32360:
+# 47,391 tokens/s, 18.1% MFU, 22.1 s/step at ga 128 / micro-batch 4. This file
+# is that config with ONE key added, so the comparison is clean.
+#
+# Memory is the risk and it is close. At world_size 1 FSDP2 shards nothing, so
+# the baseline already holds every parameter whole; the hand-managed path swaps
+# FSDP2's fp32 parameter + fp32 grad + Adam moments for a bf16 compute copy,
+# an fp32 master, an fp32 main_grad and its own Adam moments. The bank share is
+# 5.15 + 10.30 + 10.30 + 20.61 = 46.4 GB either way, give or take the extra
+# bf16 copy. If it OOMs that is the finding, and it costs one GPU for a minute.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, the audit's value
+  gradient_accumulation_steps: 128 # micro-batch 4 x 2048 at 1 GPU, as h20_smoke
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  # The one thing that differs from h20_smoke.yaml.
+  mem_parallel_size: 1
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:1
+    job-name: ame_mp1_1g
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h20_1gpu_mb4_mp1
+    tags:
+      - ame
+      - h20
+      - tier2
+      - mp1
+      - single_gpu

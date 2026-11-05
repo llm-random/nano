@@ -1,0 +1,82 @@
+# Dense H-balanced h20 at 4 GPUs, instrumented -- the ATTRIBUTION TWIN of
+# configs/ame/h20_4gpu_mb16_attrib.yaml.
+#
+# Exists so that "where does AME lose its MFU?" can be answered by subtraction
+# rather than by inference. AME measured 26.84% MFU against this model's 44.44%
+# (jobs 32576 / 32577): a 17.6-point gap whose composition was, until this run,
+# unknown.
+#
+# Why the kernel tables already in documents/notes/training_efficiency.md cannot
+# serve as the dense side of that comparison. Part 4.2's table is:
+#
+#     one GPU, plain module + autocast bf16, NO FSDP2, ga 32
+#
+# and the document says so in as many words -- "nothing in this table measures
+# the FSDP2 path". The AME attribution is four GPUs under FSDP2 with
+# compile_blocks_full. Subtracting one from the other would charge AME for the
+# entire distributed path: all-gather, reduce-scatter, the bf16/fp32 mixed
+# precision policy and a different compile scope. That is not an architecture
+# comparison, it is a configuration comparison wearing one.
+#
+# So this run matches the AME attribution in EVERY respect except the attention
+# type:
+#
+#     same cluster, same node type, same 4xH100
+#     same global batch (512 x 2048) and the same ga 8 / micro-batch 16
+#     same FSDP2 + MixedPrecisionPolicy(bf16, fp32)
+#     same compile_blocks_full, same 30 steps, same profiled window (12-13)
+#     attention: gqa (this file)   vs   ame (the twin)
+#
+# The remaining difference is the FLOPs/token denominator -- 3.964 here against
+# AME's 3.768 -- which is correct and unavoidable: each architecture is scored
+# against its own arithmetic. Compare MFU and per-category MILLISECONDS; do not
+# compare tokens/s across the two.
+#
+# Throughput from this run is NOT the B2 baseline. kernel_profile wraps steps
+# 12-13 in torch.profiler and costs roughly 2.7% (measured: the AME attribution
+# run came in at 26.11% against its own baseline's 26.84%). Job 32577 is the
+# dense throughput number; this one is for the breakdown.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12
+  gradient_accumulation_steps: 8 # micro-batch 16 x 2048 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  # Measurement only -- the two flags that make this the attribution twin.
+  profile_timers: true
+  kernel_profile: true
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: hbal_attrib_4g
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: mfu_h20_hbal_4gpu_mb16_attrib
+    tags:
+      - mfu_audit
+      - h20
+      - multigpu
+      - o31
+      - attribution

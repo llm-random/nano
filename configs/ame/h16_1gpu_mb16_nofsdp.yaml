@@ -1,0 +1,78 @@
+# h20 at 1 GPU with FSDP2 OFF and bf16 from autocast instead.
+#
+# At world_size 1 FSDP2 shards nothing, but it still runs its whole machinery:
+# `chunk_cat` staging, `foreach` copies for the all-gather/reduce-scatter paths,
+# and single-rank NCCL kernels. The phase attribution of job 32794 (1 GPU,
+# ga 128) puts that at:
+#
+#     "optimizer" (multi_tensor_apply, in fwd+bwd)   1347.4 ms/step
+#     FSDP2 packing                                   505.7
+#     copy / memcpy                                   428.5
+#                                                    -------
+#                                                    2281.6 ms, 17.7% of step
+#
+# The "optimizer" row is the giveaway: it is launched inside forward and
+# backward, where the `optim` timer reads 9.9 ms. It is not AdamW, it is FSDP2's
+# foreach staging being caught by the category regex.
+#
+# This config tests the obvious response -- do not wrap a single GPU in a
+# sharding strategy. bf16 then has to come from autocast rather than
+# MixedPrecisionPolicy, which main.py already handles: `bf16_stack` is true by
+# either route, so the memory-parallel controller still picks bf16 compute.
+#
+# NOT a 4-GPU result and must never be quoted as one. At 4 GPUs FSDP2 does real
+# work -- it is what makes h20 fit at all -- so whatever this recovers is a
+# single-GPU win only. It matters because the h12/h16 sweep runs at 1 GPU.
+#
+# Numerics differ from the FSDP2 twin and that is expected, not a regression:
+# autocast keeps fp32 parameters and casts per-op (with torch's within-region
+# cast cache), where MixedPrecisionPolicy holds bf16 compute copies. Both are
+# ordinary bf16 training; the loss trace is comparable in shape, not step-wise.
+#
+# Read against job 32796 (same shape, FSDP2 on): 34.31% MFU, 11.644 s/step.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2049
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12
+  gradient_accumulation_steps: 32 # micro-batch 16 at 1 GPU
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  mem_parallel_size: 1
+  # The two changes. `distributed: null` removes the fsdp2 block the llama
+  # trainer config sets; autocast supplies bf16 in its place.
+  distributed: null
+  autocast_bf16: true
+
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:1
+    job-name: ame_h16_nofsdp
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h16_1gpu_mb16_nofsdp
+    tags:
+      - ame
+      - h16
+      - single_gpu
+      - align
+      - nofsdp2

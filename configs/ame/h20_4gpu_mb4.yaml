@@ -1,0 +1,72 @@
+# B1/mb4 -- AME h20 on four entropy H100s at micro-batch 4.
+#
+# The 4-GPU baseline every Tier 1-3 result is read against
+# (documents/notes/ame_optimization_plan.md section 2.3). It is h20_smoke.yaml
+# with the GPU count raised from 1 to 4 and gradient accumulation lowered to
+# match, so the GLOBAL token schedule is byte-for-byte the schedule the 1-GPU
+# baseline trained:
+#
+#   common.batch_size is the GLOBAL batch -- get_dataloader hands each rank
+#   batch_size // world_size -- so the per-GPU micro-batch is
+#
+#       micro_batch = batch_size / (ngpu * gradient_accumulation_steps)
+#                   = 512 / (4 * 32) = 4
+#
+# which is the same 4 the 1-GPU run used at ga 128. Holding the global batch
+# fixed and varying only the physical split is the pkmf ablation invariant
+# (ame_optimization.md section 5): tokens/s and MFU stay directly comparable
+# across GPU counts and micro-batches because every cell trains the identical
+# 512 x 2048-token optimizer step.
+#
+# This variant is the safe one -- micro-batch 4 is the shape that already fit in
+# 80 GiB on a single GPU, where FSDP2 sharded nothing. At 4 GPUs it shards
+# parameters, fp32 masters, fp32 grads and both Adam moments four ways, so the
+# ~57 GiB of resident state becomes ~14 GiB/GPU and the activation headroom
+# should be large. h20_4gpu_mb8 and h20_4gpu_mb16 test how large.
+#
+# Reference points: AME 1 GPU, ga 128, mb 4 = 47,391 tok/s / 18.1% MFU /
+# 22.1 s per step (entropy job 32360). Dense GPT-2-arch h20 at 4 GPUs =
+# 425,054 tok/s / 44.28% / 2.47 s (mfu_audit/h20_mgpu.yaml). AME is
+# 3.77 GFLOPs/token, so MFU x 262,335 = tokens/s per GPU.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, the audit's value
+  gradient_accumulation_steps: 32 # micro-batch 4 x 2048 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: ame_h20_4g_mb4
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h20_4gpu_mb4
+    tags:
+      - ame
+      - h20
+      - multigpu
+      - baseline_b1

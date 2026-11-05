@@ -1,0 +1,80 @@
+# T1.2/O9 -- AME h20, 4xH100, micro-batch 4, gradient sync suppressed during accumulation.
+#
+# The A/B twin of configs/ame/h20_4gpu_mb4.yaml (baseline B1/mb4, job 32541).
+# IDENTICAL in every respect except `trainer.skip_grad_sync_during_accumulation`,
+# so the only thing that differs between the two measurements is WHEN gradients
+# are reduced -- never what they sum to.
+#
+# What changes. FSDP2 reduce-scatters every gradient at the end of every
+# `loss.backward()`. Across 32 accumulation micro-steps only the last reduce is
+# needed; the other 31 reduce a partial sum that the next micro-step
+# immediately adds to. The flag suppresses them.
+#
+#   reduce-scatters per optimizer step:  32 -> 1
+#   fp32 bytes moved per step:           ~405 GB -> ~12.65 GB
+#
+# (3.163B parameters x 4 bytes = 12.65 GB per reduce-scatter. Estimates from
+# parameter count and dtype, not measurements -- T1.3/O31 is what converts them
+# into attributed time.)
+#
+# What it costs. Not free, and not free in the direction this plan usually cares
+# about. With sync suppressed FSDP2 holds each group's UNSHARDED gradient between
+# micro-steps, upcast to the fp32 reduce dtype
+# (torch/distributed/fsdp/_fully_shard/_fsdp_param.py, to_accumulated_grad_if_needed).
+# Resident gradient per rank goes from P/world_size x 4 bytes to P x 4 bytes:
+# 3.16 GB -> 12.65 GB, about +9.5 GB/GPU. Parameters still reshard after
+# backward; only the gradient stays unsharded. So read peak GiB/GPU next to
+# tokens/s on every one of these runs -- at larger micro-batches the memory may
+# be what decides this, not the saved communication.
+#
+# Correctness gate (plan section 1.4). NOT bit-identical at 4 GPUs, and the plan
+# was corrected on this point: sync-on ends at sum_i shard_r(sum_ranks g_i),
+# sync-off at shard_r(sum_ranks sum_i g_i). Same terms, different association
+# order, so fp32 rounding differs. tests/test_grad_sync_accumulation.py asserts
+# bit-identity at world_size 1 (where there is no cross-rank sum to reassociate)
+# and fp32 tolerance at world_size 2, both over a real FSDP2 CPU/gloo mesh.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, the audit's value
+  gradient_accumulation_steps: 32 # micro-batch 4 x 2048 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  # The one thing that differs from the baseline twin.
+  skip_grad_sync_during_accumulation: true
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: ame_o9_4g_mb4
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h20_4gpu_mb4_o9
+    tags:
+      - ame
+      - h20
+      - multigpu
+      - o9
+      - t1_2

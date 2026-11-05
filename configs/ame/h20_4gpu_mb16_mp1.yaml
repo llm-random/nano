@@ -1,0 +1,67 @@
+# Tier 2 ALONE -- the banks off FSDP2, but still whole on every rank.
+#
+# This run is EXPECTED TO OOM, and is submitted because the claim it tests was
+# until now arithmetic rather than a measurement (plan, "Tier 2 cannot land
+# alone"). Excluding the banks from FSDP2 un-shards them, and the state per rank
+# goes from 11.6 GB to 46.4 GB:
+#
+#   bf16 compute parameter   1.29 -> 5.15 GB
+#   fp32 master              2.58 -> 10.30 GB
+#   fp32 main_grad           2.58 -> 10.30 GB
+#   AdamW moments (2x fp32)  5.15 -> 20.61 GB
+#
+# B1 peaked at 60.6 GiB with everything sharded, so +34.8 GB lands at ~95 GB
+# against an 80 GB H100. If it OOMs, that is the result; if it does not, the
+# accounting above is wrong and everything downstream of it needs re-reading.
+# Either way it costs about two minutes of the allocation.
+#
+# Everything else is configs/ame/h20_4gpu_mb16.yaml (B1/mb16) unchanged:
+# 4xH100, global batch 512 x 2048, ga 8 => micro-batch 16, 30 steps, seed and
+# schedule identical. The ONLY difference from the baseline twin is
+# trainer.mem_parallel_size.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, the audit's value
+  gradient_accumulation_steps: 8 # micro-batch 16 x 2048 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  # The one thing that differs from the baseline twin. Must divide world_size.
+  mem_parallel_size: 1
+
+# Top-level, not a trainer key: main.py reads it off the config root
+# (`cfg.get("compile_blocks_full")`), so on the CLI it keeps its `+`.
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: ame_mp1_4g
+    time: "0-00:20:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h20_4gpu_mb16_mp1
+    tags:
+      - ame
+      - h20
+      - multigpu
+      - tier2
+      - tier3
+      - mp1

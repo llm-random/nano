@@ -1,0 +1,86 @@
+# D3 -- DDP backbone + memory-parallel banks, micro-batch 16 (ga 8).
+#
+# The shape pkmf trained their memory models in, and the one Maciej's directive
+# names as the fastest option (plan section 3b). The argument for it is that
+# FSDP2 is the wrong baseline for measuring memory parallelism: FSDP2 already
+# shards gradients and optimizer state world_size ways, so Tier 3 has nothing
+# left to divide and only the parameter all-gather to remove -- which the
+# attribution showed was already hidden behind flex attention.
+#
+# Under DDP the division is real again:
+#
+#   bank gradient buffer   2.576B/rank -> 644M/rank
+#   bank optimizer step    2.576B/rank -> 644M/rank
+#   bank gradient reduce   2.576B every step -> NONE (dp_size 1 at mp 4)
+#
+# and the backbone -- 587M, the only thing left for a parameter-sharding scheme
+# to shard -- stays resident instead of being all-gathered twice per micro-step.
+#
+# Memory is the question this run answers. Replicating the backbone at fp32
+# costs ~9.4 GB/rank (params 2.35 + grads 2.35 + Adam 4.7) against FSDP2's
+# ~2.35 GB, so about +7 GB on top of the sharded figure, with the banks
+# unchanged at 11.6 GB. At micro-batch 16 that lands near 70 GiB against B1's
+# 60.6; at micro-batch 4 it is comfortable.
+#
+# Read against:
+#   micro-batch 16 baseline       -- job 32576 (26.82% MFU)
+#   micro-batch 16 FSDP2 + mem-par -- job 32632 (26.54% MFU)
+#
+# autocast_bf16 replaces FSDP2's MixedPrecisionPolicy as the source of bf16
+# compute; without it DDP would train the whole model in fp32 and the
+# comparison would be meaningless. The banks follow it -- main.py gives the
+# controller a bf16 compute parameter whenever the stack computes in bf16 by
+# either route -- so the gather moves the same bytes it does under FSDP2.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2048
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, the audit's value
+  gradient_accumulation_steps: 8 # micro-batch 16 x 2048 at 4 GPUs
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  mem_parallel_size: 4
+  # FSDP2's MixedPrecisionPolicy is gone with it; this is what keeps the
+  # forward in bf16.
+  autocast_bf16: true
+  distributed:
+    # Replaces the fsdp2 block from _trainer/llama.yaml. setup_distributed_training
+    # checks ddp first, but fsdp2 is nulled anyway so the config says what it means.
+    fsdp2: null
+    ddp:
+      gradient_as_bucket_view: true
+      find_unused_parameters: false
+
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:4
+    job-name: ame_ddp_mb16
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h20_4gpu_mb16_ddp_mp4
+    tags:
+      - ame
+      - h20
+      - multigpu
+      - ddp
+      - mp4
+      - d3

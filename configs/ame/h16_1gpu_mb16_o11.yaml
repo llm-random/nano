@@ -1,0 +1,77 @@
+# AME at H=16, one H100, micro-batch 16.
+#
+# Part of the h-sweep Maciej asked for on 2026-11-05: does a smaller H reach a
+# higher MFU than h20's 34.31%? The mechanism it would come through is memory,
+# not arithmetic. At `mem_parallel_size: 1` the Q/K banks are unsharded, and
+# they dominate the footprint:
+#
+#     H=12  bank 0.927B params -> 16.7 GB of master+compute+grad+Adam state
+#     H=16  bank 1.648B           29.7 GB
+#     H=20  bank 2.576B           46.4 GB
+#
+# h20 therefore had room for only micro-batch 4 (64.71 GiB peak), and a
+# micro-batch that small is where per-micro-step overheads -- FSDP2 staging,
+# gradient accumulation, optimizer foreach copies -- stop amortising. Freeing
+# bank memory buys micro-batch, and micro-batch is what buys MFU.
+#
+# Estimated peak here: ~66 GiB (bank + backbone fp32 state + activations
+# scaled by n_blocks x dmodel + bf16 logits). If it OOMs, halve the micro-batch
+# and double `gradient_accumulation_steps`; the global batch is held at 512.
+#
+# sequence_length 2049, not 2048: `_preprocess_input` shifts for next-token
+# targets, so the model sees 2048 and flex_attention's row-blocks are
+# 128-aligned. At 2047 the last row-block is ragged and costs 479.9 ms per step
+# at the h20 shape (job 32688). Every config in this sweep carries it.
+#
+# NOT comparable to h20 at equal micro-batch -- the micro-batch differs on
+# purpose, because the question is "what is the best MFU this H can reach", not
+# "what does this H do at h20's shape".
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - _self_
+
+common:
+  sequence_length: 2049
+  batch_size: 512
+  attention:
+    type: ame
+
+trainer:
+  n_steps: 30
+  learning_rate: 0.000244140625 # 2^-12, held at h20's value: this is a
+  # throughput run, and changing two things at once would make it unreadable.
+  gradient_accumulation_steps: 32 # micro-batch 16 at 1 GPU
+  eval_interval: 0
+  eval_dataloader: null
+  scheduler:
+    warmup_steps: 10
+  mem_parallel_size: 1
+  # O11, lifted from the cut list 2026-11-05. The head projection and the
+  # cross-entropy run in chunks of 1024 rows (the fp32 log-softmax buffer is
+  # [chunk, 50304], 206 MiB at 1024 and 824 at 4096), so the
+  # [micro_batch, seq, vocab] logits tensor is never built.
+  fused_linear_ce: true
+  fused_ce_chunk_size: 1024
+
+compile_blocks_full: true
+
+infrastructure:
+  slurm:
+    gres: gpu:h100:1
+    job-name: ame_h16_1g_o11
+    time: "0-01:00:00"
+  metric_logger:
+    project_name: nano-ame
+    name: ame_h16_1gpu_mb16_o11
+    tags:
+      - ame
+      - h16
+      - single_gpu
+      - hsweep
+      - align
