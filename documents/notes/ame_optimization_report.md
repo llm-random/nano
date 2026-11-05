@@ -10,7 +10,7 @@ node) for the evening block. Branch `ame_optimize`.
 backbone, 3.768 GFLOPs/token) unless stated; h16 and h12 where noted.
 **Workload:** global batch 512 × 2048, 30 steps, LR 2^-12, fineweb, seed fixed.
 **Active plan:** §7 — AME h20 to 45% MFU, 4 GPUs first, then 1 GPU (from
-2026-11-05 evening; nothing run under it yet).
+2026-11-05 evening, unattended overnight; nothing run under it yet).
 
 All MFU figures are **per GPU** (`tokens/s × GFLOPs/token ÷ (989 TFLOP/s ×
 world_size)`) and are the **mean over steps ≥ 15**, which is what
@@ -1280,6 +1280,14 @@ AME has to run faster than dense does today. And §2.1's head-parallel attention
 moves as much data as the current exchange, so its 350 ms is an upper bound, not
 an estimate.
 
+### 2026-11-05, 22:11 — the plan runs unattended
+
+Maciej approved §7 with one change: it is expected to run overnight with no
+intervention or decisions from him. §7 now says so. §7.1 records it, §7.4's
+approval list became the run's out-of-scope list, §7.8 says how the run
+decides, handles trouble and ends, §7.10 collects what is left for him, and the
+`/goal` text carries the same terms.
+
 ### Corrections I made to my own earlier claims
 
 Recorded because several changed what was worked on next.
@@ -1460,6 +1468,9 @@ Maciej's instructions, kept here as the plan's terms of reference:
   document, updated regularly and precisely, in the same form as §1–§6.
 - **Process:** iterative, as in §3–§4: measure, change one thing, A/B it, keep
   or revert, record.
+- **Unattended, overnight** (added 22:11): the plan is expected to run through
+  the night with no intervention or decisions from Maciej. §7.8 says how the
+  run decides, handles trouble and ends; §7.10 collects what it leaves to him.
 
 ### 7.2 Where h20 stands, and what 45% means
 
@@ -1522,10 +1533,11 @@ micro-batches, so these are estimates for A0 and B0 to check:
 - **Fixed workload and accounting.** AME h20 as in `configs/ame/`, global batch
   512 sequences of 2049 tokens (the model sees 2048), 30 steps, LR 2^-12,
   FineWeb, bf16. MFU is the mean per-step MFU over steps ≥ 15 at 3.768
-  GFLOPs/token and 989 TFLOP/s per GPU, as everywhere in this report. **Not
-  changed without Maciej's approval:** the model, the batch, the sequence
-  length, the FLOPs accounting, the numerics class (fp8, for example), and the
-  two cut items, O10 (activation checkpointing) and O17 (CPU offload).
+  GFLOPs/token and 989 TFLOP/s per GPU, as everywhere in this report. **Out
+  of scope for this unattended run** (Maciej's decision, so they go to §7.10 as
+  proposals): the model, the batch, the sequence length, the FLOPs accounting,
+  the numerics class (fp8, for example), and the two cut items, O10 (activation
+  checkpointing) and O17 (CPU offload).
 - **One change per A/B**, against the current best, on the same account and
   day. `trainer.profile_timers=true` on every run; `kernel_profile` only in
   dedicated attribution runs, never in an A/B.
@@ -1584,7 +1596,7 @@ assumed.
 | step | what | value (estimate) | status |
 |---|---|---:|---|
 | **B0** | Attribution: time profiler and kernel profile of AME and its dense twin at mb 4, locating the +451 ms fixed and +468 ms per-sequence excess (§7.3). | measurement | not started |
-| **B1** | **Micro-batch 8.** It OOMs today needing about 1.4 GiB more than the card has; by AME's own memory growth (3.4 GiB per sequence) its peak would be ~80.6 GiB. In order: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (§2.11, ~2.5 GiB of fragmentation); then a smaller bank state, **O38**. The bank state is 18 bytes per bank parameter, 43.2 GiB at h20: keep Adam's first moment in bf16 (−4.8 GiB), or gather from the fp32 master and drop the bf16 bank copy (−4.8 GiB, exact numerics), or block-wise 8-bit optimizer states (−14.4 GiB, a new dependency). A bf16 second moment is ruled out: the bank AdamW runs at torch's default β2 = 0.999, so a step moves v by ~0.1%, less than half a bf16 step (0.2–0.4%), and v would stop changing. Micro-batch 16 would need ~108 GiB by the same growth: out of reach. | +2.2% (AME's decay, §2.13) to +5.8% (dense mb 4 → 8, §1.16): 0.24–0.62 s | not started |
+| **B1** | **Micro-batch 8.** It OOMs today needing about 1.4 GiB more than the card has; by AME's own memory growth (3.4 GiB per sequence) its peak would be ~80.6 GiB. In order: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (§2.11, ~2.5 GiB of fragmentation); then a smaller bank state, **O38**. The bank state is 18 bytes per bank parameter, 43.2 GiB at h20: keep Adam's first moment in bf16 (−4.8 GiB), or gather from the fp32 master and drop the bf16 bank copy (−4.8 GiB, exact numerics), or block-wise 8-bit optimizer states (−14.4 GiB; a new dependency, so a §7.10 proposal, not part of the run). A bf16 second moment is ruled out: the bank AdamW runs at torch's default β2 = 0.999, so a step moves v by ~0.1%, less than half a bf16 step (0.2–0.4%), and v would stop changing. Micro-batch 16 would need ~108 GiB by the same growth: out of reach. | +2.2% (AME's decay, §2.13) to +5.8% (dense mb 4 → 8, §1.16): 0.24–0.62 s | not started |
 | **B2** | **Fixed cost per micro-step** (12.16 ms against dense's 8.64, × 128): S5 (2,560 graph breaks per step at ga 128); CUDA graphs (`mode="reduce-overhead"`), which O37's FSDP2-free setup makes plausible once the graph breaks are gone. | up to ~0.45 s AME-specific, plus part of the shared 1.1 s | not started |
 | **B3** | **Per-sequence backward excess** (+0.92 ms per sequence), located in B0 among: the bank scatter (`index_add_` after an fp32 cast; duplicate ids contend for the same rows, and pre-reducing by id is O14/O15), the sink backward and the KV-shift backward. | up to ~0.47 s | not started |
 | **B4** | Shared backbone, as A7. | unsized | not started |
@@ -1594,7 +1606,8 @@ they are not additive: B1 halves the micro-steps B2 acts on. 45% at 1 GPU needs
 another ~0.8–1.2 s. That has to come from shared-backbone work (B4), or from
 micro-batch 16, which is reachable only if Maciej lifts O10 (selective
 checkpointing of the memory-heavy, compute-light glue would be the variant to
-propose) or O17 (CPU offload of the bank optimizer state).
+propose) or O17 (CPU offload of the bank optimizer state). Both are §7.10 proposals, not
+part of the run.
 
 ### 7.7 Progress
 
@@ -1602,36 +1615,75 @@ propose) or O17 (CPU offload of the bank optimizer state).
 |---|---|---:|---:|---|
 | 2026-11-05 | plan written | 35.02% | 35.59% | nothing run under this plan yet |
 
-### 7.8 When to stop and ask Maciej
+### 7.8 Running unattended
 
-- Before anything on the "not changed without approval" list in §7.4.
-- When every step in §7.5, then §7.6, has been measured or shown infeasible with
-  evidence and 45% is not reached: write the ceiling analysis here (what each
-  lead delivered, what is left, what it would take) and ask how to proceed.
-- When a gate fails in a way that points to a bug in code already on `ame_main`.
+**The plan runs overnight with no input from Maciej.** No questions, no waiting
+for confirmation. Every choice it leaves open (which lead next, which A3 design,
+keep or revert, whether to repeat a run) is mine to make by §7.4's rules, and
+each one goes into §4 with its reason.
+
+**Out of scope for the run.** These need Maciej's decision, so they are written
+up in §7.10 as proposals and not done: the items on §7.4's out-of-scope list; new
+third-party dependencies (the 8-bit optimizer states in B1, for example); any
+code change on `ame_main`.
+
+**Operational trouble is handled, not escalated:**
+
+| situation | response |
+|---|---|
+| jobs pending in the queue | wait, with a background watcher on one SSH connection; do not resubmit |
+| a probe names a job of any user other than `lukaskoz` | do not submit; wait and probe again |
+| my job fails for an infrastructure reason (node, NCCL timeout, preemption) | resubmit once, record both jobs in §3 |
+| new SSH connections time out or are refused | back off at least 15 minutes, then try a single connection; a new IP (VPN) needs Maciej, so it is not an option |
+| home or cemetery disk quota | delete only my own profiler traces and scratch output |
+| a gate fails | revert the change, record it as a failed experiment (§1, §3, §4), move to the next lead |
+| a failure points to a bug in code already on `ame_main` | record it prominently in §4 and §7.10, leave `ame_main` alone, work around it on `ame_optimize` if the fix is local, continue |
+
+**Keeping the record current.** The report is updated and committed on both
+branches after every experiment block and at least every 2 hours, so the state
+can be read in the morning without the transcript.
+
+**The run ends only when** 45% is reached on both 4 GPUs and 1 GPU, or when
+every step in §7.5 and §7.6 has been measured or shown infeasible with evidence.
+In the second case it ends by writing, in this section, the ceiling analysis
+(what each lead delivered, what is left, what it would take) and completing
+§7.10. One failed lead, a long queue or an SSH block is not an end condition.
 
 ### 7.9 The `/goal` text
 
 ```text
-Raise AME h20 training MFU to at least 45% per GPU on entropy H100s, first on 4 GPUs, then on 1 GPU, following §7 of documents/notes/ame_optimization_report.md (plan, rules, and stop conditions).
+Raise AME h20 training MFU to at least 45% per GPU on entropy H100s, first on 4 GPUs, then on 1 GPU, following §7 of documents/notes/ame_optimization_report.md (plan, rules, and end conditions).
+
+This runs unattended, expected overnight. Maciej is not available and will not answer questions or make decisions during the run. Never stop to ask or wait for confirmation: make every decision the plan leaves open yourself, within the rules below, record it with its reason in §4, and keep going. Anything that would need his approval is out of scope for this run; record it as a proposal in §7.10 instead of doing it or waiting.
 
 Scope and setup
 - Model: AME h20 only (base configs configs/ame/h20_4gpu.yaml and configs/ame/h20_1gpu.yaml). No other model sizes.
 - Code: worktree ~/code/nano-ame, branch ame_optimize; commit code there. ~/code/nano (ame_main) stays Maciej's, except .md documents: edit them in ~/code/nano and commit them on ame_main and on ame_optimize, staging only your own changes.
-- Cluster: entropy, partition h100, account mstefaniak only. Run sbatch --test-only before every submit, 1-GPU jobs included. Preempting lukaskoz's jobs is expected and accepted. Never preempt any other user's job; if a probe names one, wait.
-- Fixed workload and accounting: global batch 512 x 2049 tokens, 30 steps, LR 2^-12, FineWeb, bf16; MFU = mean per-step MFU over steps >= 15 at 3.768 GFLOPs/token and 989 TFLOP/s per GPU. Ask Maciej before changing the model, batch, sequence length, numerics class (e.g. fp8) or FLOPs accounting, or before using O10 (activation checkpointing) or O17 (CPU offload).
+- Cluster: entropy, partition h100, account mstefaniak only. Run sbatch --test-only before every submit, 1-GPU jobs included. Preempting lukaskoz's jobs is expected and accepted. Never preempt any other user's job; if a probe names one, wait and probe again.
+- Fixed workload and accounting: global batch 512 x 2049 tokens, 30 steps, LR 2^-12, FineWeb, bf16; MFU = mean per-step MFU over steps >= 15 at 3.768 GFLOPs/token and 989 TFLOP/s per GPU.
+- Out of scope for this run (proposals in §7.10 only): changing the model, batch, sequence length, numerics class (e.g. fp8) or FLOPs accounting; O10 (activation checkpointing); O17 (CPU offload); new third-party dependencies; code changes on ame_main.
 
 Method
 - Iterate: attribute first (profile AME and its dense twin), take the next lead from §7.5 (4 GPUs) or §7.6 (1 GPU), change one thing, A/B it against the current best, keep or revert.
-- A change counts only if it passes the §7.4 gates: tests/test_ame.py on CUDA, tests/test_memory_parallel.py, the 30-step loss trace within bf16 noise of the base run, and a 300-step loss comparison for anything that changes numerics.
+- A change counts only if it passes the §7.4 gates: tests/test_ame.py on CUDA, tests/test_memory_parallel.py, the 30-step loss trace within bf16 noise of the base run, and a 300-step loss comparison for anything that changes numerics. A gate failure means revert, record, move on.
 - Finish the 4-GPU phase before the 1-GPU phase, unless every 4-GPU lead has been measured.
+- Handle operational problems yourself as §7.8 says (queue waits, failed or preempted jobs, SSH blocks, disk quota); none of them ends the run.
 
-Records (after every experiment block, precisely)
-- §3: every job with start time, job ID, what it tested, which improvements it contains, MFU, outcome and conclusion.
-- §4: how the plan changed and why, including every instruction from Maciej.
-- §1: each kept method with its measured MFU effect; §2: leads re-ranked; §5 and §6 when the best changes; §7.7 progress table.
+Records (precisely)
+- After every experiment block, and at least every 2 hours: §3 every job with start time, job ID, what it tested, which improvements it contains, MFU, outcome and conclusion; §4 every decision and plan change with its reason; §1 each kept method with its measured MFU effect; §2 leads re-ranked; §5 and §6 when the best changes; §7.7 progress table. Commit the report each time, so the state is readable in the morning without the transcript.
 
 Done when
 - §6 and §7.7 show a measured AME h20 run at >= 45.00% MFU/GPU on 4 GPUs AND one on 1 GPU, each with job ID and config, both passing the §7.4 gates, with code and report committed; or
-- only after every lead in §7.5 and §7.6 has been implemented and measured, or shown infeasible with evidence: §7 holds a ceiling analysis (what each lead delivered, what remains, what it would take) and Maciej has been asked how to proceed.
+- only after every lead in §7.5 and §7.6 has been implemented and measured, or shown infeasible with evidence: §7.8 holds a ceiling analysis (what each lead delivered, what remains, what it would take) and §7.10 lists the proposals that need Maciej's decision, all committed.
 ```
+
+### 7.10 For Maciej — decisions the run leaves to him
+
+The run adds to this list instead of waiting. Each entry says what it would buy,
+why it needs a decision, and where the evidence is.
+
+| proposal | why it needs a decision | expected value | source |
+|---|---|---|---|
+| Lift O10 for selective checkpointing of the glue at h20, 1 GPU | O10 is cut | a route to micro-batch 16 at 1 GPU, where dense measures 44.98% (40.97% at mb 4) | §7.6 |
+| O17: CPU offload of the bank optimizer state | O17 is cut | the other route to micro-batch 16 at 1 GPU | §7.6 |
+| Block-wise 8-bit optimizer states for the banks (an O38 variant) | a new third-party dependency | −14.4 GiB at h20, 1 GPU | §7.6 B1 |
