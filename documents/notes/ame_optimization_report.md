@@ -9,6 +9,8 @@ node) for the evening block. Branch `ame_optimize`.
 **Model:** AME h20 (H-balanced, 20 blocks, dmodel 1280, 2.576B bank + 587M
 backbone, 3.768 GFLOPs/token) unless stated; h16 and h12 where noted.
 **Workload:** global batch 512 × 2048, 30 steps, LR 2^-12, fineweb, seed fixed.
+**Active plan:** §7 — AME h20 to 45% MFU, 4 GPUs first, then 1 GPU (from
+2026-11-05 evening; nothing run under it yet).
 
 All MFU figures are **per GPU** (`tokens/s × GFLOPs/token ÷ (989 TFLOP/s ×
 world_size)`) and are the **mean over steps ≥ 15**, which is what
@@ -108,6 +110,7 @@ Percentages are relative MFU change at the stated shape.
 | **O35** | The h-sweep at 1 GPU | **Done** | h16 **+11.1%** over h20 | §1.12 |
 | **O36** | Raise micro-batch at 4 GPUs | **Attempted, blocked** | h16 mb32 OOM → with O11 fits but **−2.6%** | §1.13 |
 | **O37** | No FSDP2 at world size 1 | **Built** | **+4.2%** at h20, **−2.5%** at h16 | §1.11 |
+| **O38** | Smaller bank optimizer state: bf16 first moment, or no bf16 bank copy, or 8-bit states | **Proposed 2026-11-05, not built** | — (target: micro-batch 8 at h20, 1 GPU) | §7.6 B1 |
 | **B1/B2** | Baselines: AME h20 and dense h20 at 4 GPU | **Done** | 26.84% / 44.44% | Headline |
 | **B3** | Dense control: the §1.15 micro-batch sweep with dense attention, all 24 cells | **Done** (2026-11-05 evening) | measurement, not a change; AME at 76–86% of dense | §1.16 |
 | **D1** | Diagnose why memory parallelism gave no speedup | **Done** | found the graph break, not mem-parallelism | §4 |
@@ -649,6 +652,12 @@ group is tensor parallelism — a redesign of O6, not a tweak.
 
 **Value: up to 350.2 ms/step at 4 GPUs** (215.6 all-to-all + 134.6 permute),
 ≈4.2 MFU points. **Highest-value item identified.** Not started.
+
+> **Correction (2026-11-05, §7.5 A3).** Head-parallel attention moves as much
+> data as the current exchange: V slices to the head owners and attention
+> outputs back are T × 1920 values per rank per block per micro-step, the same
+> as today's Q/K all-to-all. Only the permute (134.6 ms) goes away outright; the
+> 350 ms is an upper bound, reached only if the exchange hides behind compute.
 
 ### 2.2 The `fused_stack` permute kernel — ~85 ms at 4 GPUs
 
@@ -1258,6 +1267,19 @@ belongs here is the measured micro-batch tables. I dropped a new §2 proposal I
 had prepared (a smaller bank optimizer state, to fit micro-batch 8 at h20 on 1
 GPU), and added §1.16, the dense rows in §3 and these entries.
 
+### 2026-11-05, 21:11 — Maciej: a plan to 45% at h20, 4 GPUs first
+
+Iterative work pauses for a plan. The brief: AME h20 only; at least 45% MFU on 4
+GPUs and on 1 GPU; 4 GPUs first, because there the banks and their backward are
+spread over the GPUs; `ame_optimize` in its own worktree; entropy `h100`, with
+`lukaskoz`'s jobs expected to be preempted; methods, leads, logs and progress
+recorded here, regularly and precisely; nothing implemented or tested yet. I
+wrote §7 and the text for `/goal`. Writing it turned up two things the plan has
+to carry. 45% is above dense's own MFU on this recipe (44.47% and 44.98%), so
+AME has to run faster than dense does today. And §2.1's head-parallel attention
+moves as much data as the current exchange, so its 350 ms is an upper bound, not
+an estimate.
+
 ### Corrections I made to my own earlier claims
 
 Recorded because several changed what was worked on next.
@@ -1273,6 +1295,7 @@ Recorded because several changed what was worked on next.
 | FSDP2 overhead at 1 GPU ≈2281 ms removable | 421 ms materialised, 18%. |
 | `log = 151.5 ms` is a 5% opportunity | A host timer overlapping GPU timers that already account for the step. No opportunity. |
 | "lukaskoz's 11-hour job has finished" | It was preempted — by my job. |
+| Head-parallel attention removes 350.2 ms at 4 GPUs (§2.1) | It moves the same volume as the Q/K exchange it replaces; only the 134.6 ms permute goes away outright. §7.5 A3. |
 
 ---
 
@@ -1410,3 +1433,205 @@ Stated so nothing here is read as a complete sweep.
   h20's rather than measured.
 - **h14, h18.** The sweep has three points 3.5 MFU apart with a clear peak at
   h16; these would interpolate rather than discover.
+
+---
+
+## 7. Plan — AME h20 to 45% MFU, 4 GPUs first (from 2026-11-05 evening)
+
+*Written 2026-11-05 from Maciej's brief at 21:11. Nothing in it has been
+implemented or run yet. Progress is recorded where §1–§6 record it, and
+summarized in §7.7.*
+
+### 7.1 The brief
+
+Maciej's instructions, kept here as the plan's terms of reference:
+
+- **Target: AME h20 at ≥ 45% MFU/GPU, on 4 GPUs and on 1 GPU.** h20 only; no
+  other model size is tested under this plan.
+- **4 GPUs first, then 1 GPU.** His reasoning: at 4 GPUs the memory banks'
+  parameters and their backward are spread over the GPUs, so 4-GPU training has
+  more room to parallelize the bank work and can potentially beat 1 GPU's MFU.
+- **Code:** branch `ame_optimize`, in its own worktree (`~/code/nano-ame`).
+  `~/code/nano` on `ame_main` stays Maciej's.
+- **Cluster:** entropy, `h100` partition, as `mstefaniak`. Preempting
+  `lukaskoz`'s jobs is expected and accepted: he auto-submits to occupy all
+  free GPUs, and the QOS preemption exists for that.
+- **Records:** methods, leads, experiment logs and progress go into this
+  document, updated regularly and precisely, in the same form as §1–§6.
+- **Process:** iterative, as in §3–§4: measure, change one thing, A/B it, keep
+  or revert, record.
+
+### 7.2 Where h20 stands, and what 45% means
+
+| | best measured | step | micro-batch × ga | step needed for 45% | to remove | dense h20, same recipe (§1.16) |
+|---|---:|---:|---:|---:|---:|---|
+| **4 GPUs** | 35.02% (32847); 34.91% re-measured (33067) | 2.852 s | 16 × 8 | 2.219 s | 633 ms (22.2%) | 44.47% at 2.363 s, mb 16 |
+| **1 GPU** | 35.59% (32834); 35.45% re-measured (33051) | 11.226 s | 4 × 128 | 8.879 s | 2.347 s (20.9%) | 44.98% at 9.347 s, mb 16; 40.97% at mb 4 |
+
+Configs: `configs/ame/h20_4gpu.yaml` and `configs/ame/h20_1gpu.yaml`.
+
+**45% is above dense's own MFU on this recipe.** AME does 5.0% fewer FLOPs per
+token than dense (3.768 vs 3.965 GFLOPs), so matching dense's wall clock would
+give it 42.26% at 4 GPUs, and 42.75% against dense's best at 1 GPU. Reaching 45%
+takes two kinds of work, and neither suffices alone:
+
+1. **Remove AME's excess over dense:** about 0.50 s per step at 4 GPUs, and
+   about 1.0 s at 1 GPU at equal micro-batch (§7.3).
+2. **Make the shared backbone faster than dense runs it today:** GEMM
+   efficiency, the memory-bound "glue", the loss path, launch overhead. These
+   would lift dense too, and nothing in §1 has tried them.
+
+### 7.3 Where AME's extra time goes — what the existing timers already say
+
+The time profiler's forward and backward totals (§1.15, §1.16), fitted per
+micro-step as a fixed cost plus a cost per sequence. Each fit uses two
+micro-batches, so these are estimates for A0 and B0 to check:
+
+| | fixed per micro-step, fwd + bwd | per sequence, fwd | per sequence, bwd |
+|---|---:|---:|---:|
+| AME, 4 GPUs (mb 8 → 16) | 10.75 + 4.50 ms | 5.97 ms | 15.16 ms |
+| dense, 4 GPUs (mb 8 → 16) | 11.38 + 7.75 ms | 5.09 ms | 12.11 ms |
+| AME, 1 GPU (mb 2 → 4) | 4.59 + 7.58 ms | 5.57 ms | 13.19 ms |
+| dense, 1 GPU (mb 4 → 8) | 2.20 + 6.44 ms | 5.58 ms | 12.27 ms |
+
+- **4 GPUs: the excess scales with tokens, and 78% of it is in the backward.**
+  Per sequence AME costs 0.88 ms more forward and 3.05 ms more backward. Over the
+  128 sequences each GPU processes per step that is +112 ms and +390 ms, which
+  accounts for the measured 498 ms gap (2.861 vs 2.363 s). AME's fixed cost per
+  micro-step is no worse than dense's. The kernel profile names the candidates:
+  the dQ/dK all-to-all (215.6 ms per step, forward and backward), the reassembly
+  permute (134.6 ms), and the FSDP2 parameter all-gather. That all-gather was
+  219.2 ms of kernel time before O33, which removed its 106 ms backward half;
+  113.2 ms of forward all-gather remains, and how much of it is exposed is
+  unmeasured.
+- **What this means for 4 GPUs first.** The bank backward itself is already
+  split by columns and is about 1% of the 4-GPU step (`bank / embedding`, §1.3),
+  because gradients go into `main_grad` with `index_add_` and no dense
+  per-micro-step gradient exists. What 4 GPUs adds is the exchange around the
+  banks, and that is where the gain is. What 4 GPUs already gives is memory: each
+  GPU holds a quarter of the 43.2 GiB of bank state, so h20 runs micro-batch 16
+  there (4 at 1 GPU), the regime where dense reaches 44.5%.
+- **1 GPU: two roughly equal parts.** AME's fixed cost per micro-step is
+  12.16 ms against dense's 8.64 ms, +451 ms over 128 micro-steps. Its per-sequence
+  backward is 0.92 ms more, +468 ms over 512 sequences. Together that is 0.92 s
+  of the measured 1.01 s gap at micro-batch 4. Micro-batch 4 itself also costs:
+  dense goes from 40.97% at mb 4 to 44.98% at mb 16.
+
+### 7.4 Rules for every step
+
+- **Fixed workload and accounting.** AME h20 as in `configs/ame/`, global batch
+  512 sequences of 2049 tokens (the model sees 2048), 30 steps, LR 2^-12,
+  FineWeb, bf16. MFU is the mean per-step MFU over steps ≥ 15 at 3.768
+  GFLOPs/token and 989 TFLOP/s per GPU, as everywhere in this report. **Not
+  changed without Maciej's approval:** the model, the batch, the sequence
+  length, the FLOPs accounting, the numerics class (fp8, for example), and the
+  two cut items, O10 (activation checkpointing) and O17 (CPU offload).
+- **One change per A/B**, against the current best, on the same account and
+  day. `trainer.profile_timers=true` on every run; `kernel_profile` only in
+  dedicated attribution runs, never in an A/B.
+- **Gates before a change is kept:** `tests/test_ame.py` on CUDA (73/73 today),
+  `tests/test_memory_parallel.py` (28/28), the 30-step loss trace within bf16
+  noise of the base run, and a 300-step loss comparison for anything that
+  changes numerics (the standard that rejected `compile_ce`, §2.10). A faster
+  run that fails a gate is a failed experiment.
+- **Cluster.** `mstefaniak` only. `sbatch --test-only` before every submit, 1
+  GPU included. Preempting `lukaskoz` is expected and accepted. No other user's
+  job is to be preempted (`wojszalek`'s were not preemptable in every probe so
+  far); if a probe names one, wait. Keep new SSH connections few: one session
+  where possible, ≥ 20 s between submits (§4, ~17:49).
+- **Submission.** `run_exp.py` with the main checkout's env python
+  (`~/code/nano/.pixi/envs/default/bin/python`), never through `pixi run`; never
+  kill it mid-flight; never edit the worktree while it runs, because it commits,
+  pushes and checks out.
+- **Records, after every experiment block:** jobs in §3 (start time, job, what
+  it tested, which improvements it carries, MFU, outcome and conclusion); the
+  decision in §4, with any instruction from Maciej; the method in §1 when a
+  change is kept, with its measured effect; leads re-ranked in §2; §5 and §6 when
+  the best changes; the progress table in §7.7. Documents are edited in
+  `~/code/nano` and committed on `ame_main` and `ame_optimize`, staging only my
+  own changes. Code is committed on `ame_optimize`.
+
+### 7.5 Phase A — h20 at 4 GPUs
+
+Base: `configs/ame/h20_4gpu.yaml`. Needed: −633 ms per step.
+
+| step | what | value (estimate) | status |
+|---|---|---:|---|
+| **A0** | **Attribution first.** Kernel profile (steps 12–13) and time profiler of the current best and of its dense twin, the same config with `common.attention.type=gqa trainer.mem_parallel_size=null`. Output: a per-kernel table of AME minus dense, so every lead below gets a measured cost instead of an estimate, and the exposed (not overlapped) part of each NCCL collective. | measurement | not started |
+| **A1** | S6, hoist the id all-gather (§2.7): 320 NCCL launches per step → 8. | ~16 ms | not started |
+| **A2** | The reassembly permute (§2.2): a Triton transpose, or an all-to-all layout in which a view suffices. | ~85 ms (≤ 134.6) | not started |
+| **A3** | **The bank exchange, redesigned.** Three candidates, compared on paper and in a microbenchmark before any is built. **(a)** Deduplicate by token id before the exchange (O15, deferred so far): a micro-batch of 32,768 tokens holds fewer distinct ids than tokens, and only distinct rows need to move, in both directions. The value scales with tokens ÷ distinct ids, which is the first thing to measure on FineWeb. **(b)** Row-sharded banks (§2.8): full-width rows, so a scatter by token index replaces the transposing permute; rows balanced across ranks by `id mod 4`. **(c)** Head-parallel attention (§2.1), which moves the same volume as today (T × 1920 values per rank per block per micro-step, 125.8 MB at mb 16), so its value is the permute plus whatever exchange it can overlap with compute. | 85–350 ms, with A2 | not started |
+| **A4** | FSDP2 forward all-gather: whatever A0 shows exposed; explicit forward prefetch. | ≤ ~113 ms | not started |
+| **A5** | S5, the bank path under compile (§2.6): 160 graph breaks per step. | unsized (A0) | not started |
+| **A6** | S3c, `sink_score` as a per-vocabulary gather (§2.5). | unsized (A0) | not started |
+| **A7** | Shared backbone: GEMM efficiency (§2.4); one kernel-by-kernel pass over the "triton glue" (§2.9, 731.8 ms, partly at its bandwidth bound); a Liger-style fused linear + cross-entropy kernel (§2.13). | 61–130 ms + unsized | not started |
+
+Micro-batch 32 is out of reach at 4 GPUs without O10: at mb 16 activations are
+~48 GiB of the 64.6 GiB peak (§2.3), and dense h20 OOMs at mb 32 on 4 GPUs too.
+
+**Arithmetic, stated now so it is not discovered late.** The sized items at
+their upper bounds (A1 + A2/A3 + A4 + A7's GEMMs: 16 + 350.2 + 113.2 + 130 ms)
+remove 609 ms, which gives 44.5%: still short of 45%. At central values they
+remove about 300–450 ms (39–42%). So 45% at 4 GPUs also needs the unsized items
+(A5, A6, the glue) to deliver.
+
+### 7.6 Phase B — h20 at 1 GPU
+
+Base: `configs/ame/h20_1gpu.yaml` (no FSDP2, O37). Needed: −2.347 s per step.
+Whatever A1–A7 changes in shared code applies here too; it is re-measured, not
+assumed.
+
+| step | what | value (estimate) | status |
+|---|---|---:|---|
+| **B0** | Attribution: time profiler and kernel profile of AME and its dense twin at mb 4, locating the +451 ms fixed and +468 ms per-sequence excess (§7.3). | measurement | not started |
+| **B1** | **Micro-batch 8.** It OOMs today needing about 1.4 GiB more than the card has; by AME's own memory growth (3.4 GiB per sequence) its peak would be ~80.6 GiB. In order: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (§2.11, ~2.5 GiB of fragmentation); then a smaller bank state, **O38**. The bank state is 18 bytes per bank parameter, 43.2 GiB at h20: keep Adam's first moment in bf16 (−4.8 GiB), or gather from the fp32 master and drop the bf16 bank copy (−4.8 GiB, exact numerics), or block-wise 8-bit optimizer states (−14.4 GiB, a new dependency). A bf16 second moment is ruled out: the bank AdamW runs at torch's default β2 = 0.999, so a step moves v by ~0.1%, less than half a bf16 step (0.2–0.4%), and v would stop changing. Micro-batch 16 would need ~108 GiB by the same growth: out of reach. | +2.2% (AME's decay, §2.13) to +5.8% (dense mb 4 → 8, §1.16): 0.24–0.62 s | not started |
+| **B2** | **Fixed cost per micro-step** (12.16 ms against dense's 8.64, × 128): S5 (2,560 graph breaks per step at ga 128); CUDA graphs (`mode="reduce-overhead"`), which O37's FSDP2-free setup makes plausible once the graph breaks are gone. | up to ~0.45 s AME-specific, plus part of the shared 1.1 s | not started |
+| **B3** | **Per-sequence backward excess** (+0.92 ms per sequence), located in B0 among: the bank scatter (`index_add_` after an fp32 cast; duplicate ids contend for the same rows, and pre-reducing by id is O14/O15), the sink backward and the KV-shift backward. | up to ~0.47 s | not started |
+| **B4** | Shared backbone, as A7. | unsized | not started |
+
+**Arithmetic.** B1–B3 at their estimates remove 1.16–1.53 s (39.7–41.2%), and
+they are not additive: B1 halves the micro-steps B2 acts on. 45% at 1 GPU needs
+another ~0.8–1.2 s. That has to come from shared-backbone work (B4), or from
+micro-batch 16, which is reachable only if Maciej lifts O10 (selective
+checkpointing of the memory-heavy, compute-light glue would be the variant to
+propose) or O17 (CPU offload of the bank optimizer state).
+
+### 7.7 Progress
+
+| date | step | best, 4 GPUs | best, 1 GPU | note |
+|---|---|---:|---:|---|
+| 2026-11-05 | plan written | 35.02% | 35.59% | nothing run under this plan yet |
+
+### 7.8 When to stop and ask Maciej
+
+- Before anything on the "not changed without approval" list in §7.4.
+- When every step in §7.5, then §7.6, has been measured or shown infeasible with
+  evidence and 45% is not reached: write the ceiling analysis here (what each
+  lead delivered, what is left, what it would take) and ask how to proceed.
+- When a gate fails in a way that points to a bug in code already on `ame_main`.
+
+### 7.9 The `/goal` text
+
+```text
+Raise AME h20 training MFU to at least 45% per GPU on entropy H100s, first on 4 GPUs, then on 1 GPU, following §7 of documents/notes/ame_optimization_report.md (plan, rules, and stop conditions).
+
+Scope and setup
+- Model: AME h20 only (base configs configs/ame/h20_4gpu.yaml and configs/ame/h20_1gpu.yaml). No other model sizes.
+- Code: worktree ~/code/nano-ame, branch ame_optimize; commit code there. ~/code/nano (ame_main) stays Maciej's, except .md documents: edit them in ~/code/nano and commit them on ame_main and on ame_optimize, staging only your own changes.
+- Cluster: entropy, partition h100, account mstefaniak only. Run sbatch --test-only before every submit, 1-GPU jobs included. Preempting lukaskoz's jobs is expected and accepted. Never preempt any other user's job; if a probe names one, wait.
+- Fixed workload and accounting: global batch 512 x 2049 tokens, 30 steps, LR 2^-12, FineWeb, bf16; MFU = mean per-step MFU over steps >= 15 at 3.768 GFLOPs/token and 989 TFLOP/s per GPU. Ask Maciej before changing the model, batch, sequence length, numerics class (e.g. fp8) or FLOPs accounting, or before using O10 (activation checkpointing) or O17 (CPU offload).
+
+Method
+- Iterate: attribute first (profile AME and its dense twin), take the next lead from §7.5 (4 GPUs) or §7.6 (1 GPU), change one thing, A/B it against the current best, keep or revert.
+- A change counts only if it passes the §7.4 gates: tests/test_ame.py on CUDA, tests/test_memory_parallel.py, the 30-step loss trace within bf16 noise of the base run, and a 300-step loss comparison for anything that changes numerics.
+- Finish the 4-GPU phase before the 1-GPU phase, unless every 4-GPU lead has been measured.
+
+Records (after every experiment block, precisely)
+- §3: every job with start time, job ID, what it tested, which improvements it contains, MFU, outcome and conclusion.
+- §4: how the plan changed and why, including every instruction from Maciej.
+- §1: each kept method with its measured MFU effect; §2: leads re-ranked; §5 and §6 when the best changes; §7.7 progress table.
+
+Done when
+- §6 and §7.7 show a measured AME h20 run at >= 45.00% MFU/GPU on 4 GPUs AND one on 1 GPU, each with job ID and config, both passing the §7.4 gates, with code and report committed; or
+- only after every lead in §7.5 and §7.6 has been implemented and measured, or shown infeasible with evidence: §7 holds a ceiling analysis (what each lead delivered, what remains, what it would take) and Maciej has been asked how to proceed.
+```
