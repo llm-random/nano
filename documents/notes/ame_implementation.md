@@ -443,3 +443,82 @@ likely way to waste a month, and nothing in Stages 0–1 needs it. Also absent: 
    memory headroom or an explicit decision to compare at equal micro-batch.
 4. **Bank-size levers**, before any run above H4 (see the table above).
 5. **`d_bank < d_head`** is accepted as a constructor argument (`dhead=`) but untested.
+
+## The h20 dense baseline next to AME: architecture and active parameters
+
+*Written 2026-11-05, from the evening micro-batch sweep on entropy. Every run, with job
+IDs, is in [ame_microbatch_sweep.md](ame_microbatch_sweep.md).*
+
+**The like-for-like dense model is the H-balanced h20 with `gqa` attention.** It has the
+same feed-forward, shape, embeddings and training recipe as AME; only the attention layer
+differs. No dense config file exists. The dense runs are the AME configs plus two
+overrides: `common.attention.type=gqa`, and `trainer.mem_parallel_size=null`, because
+that is the bank knob and the trainer rejects it when there are no banks. The sweep's
+bases differ from [configs/ame/h20_1gpu.yaml](../../configs/ame/h20_1gpu.yaml) and
+[h20_4gpu.yaml](../../configs/ame/h20_4gpu.yaml) only in run names and tags, so the best
+dense points reproduce from those two files:
+
+```bash
+./.pixi/envs/default/bin/python run_exp.py --config-path configs/ame --config-name h20_1gpu \
+    common.attention.type=gqa trainer.mem_parallel_size=null \
+    trainer.gradient_accumulation_steps=32 trainer.profile_timers=true \
+    infrastructure.metric_logger.name=dense_h20_1gpu
+# 4 GPUs: --config-name h20_4gpu with the same overrides minus gradient_accumulation_steps
+# (already 8, i.e. micro-batch 16), named dense_h20_4gpu.
+```
+
+| h20 | dense, H-balanced `gqa` (best of the sweep) | AME, `configs/ame/h20_1gpu.yaml` / `h20_4gpu.yaml` |
+|---|---|---|
+| MFU, 1 GPU | 44.98%, micro-batch 16 (job 33129) | 35.45%, micro-batch 4 (job 33051) |
+| MFU, 4 GPUs | 44.47%, micro-batch 16 (job 33107) | 34.91%, micro-batch 16 (job 33067) |
+| Attention | GQA: 20 query heads, 10 KV heads, head dim 64; RoPE (base 10000, no Llama scaling); causal; PyTorch SDPA | Q and K gathered from per-layer banks indexed by token id; all 20 heads for K/V (`kv_heads` ignored); ALiBi slopes, no RoPE ([above](#positional-encoding-and-what-a-dense-comparison-must-control)); KV shift and a learned sink; `flex_attention` |
+| Feed-forward | SwiGLU (`GatedFeedForward`): 3 bias-free matrices, dff 5120 = 4 × dmodel (Llama would use ~8/3) | identical |
+| Shape | 20 blocks, dmodel 1280, vocab 50304, RMSNorm before each sublayer, untied input and output embeddings | identical |
+| Total params | 620,350,720 | 3,163,200,720 |
+| **Active params per token** | **620.35M** (all of them) | **587.69M** |
+| GFLOPs/token (MFU accounting) | 3.965 | 3.768 |
+
+At h20, AME runs at 78.8% (1 GPU) and 78.5% (4 GPUs) of the dense MFU. Total params and
+GFLOPs/token come from the `Model LLM created with … trainable parameters` and
+`MFU accounting` log lines of jobs 33129 and 33051.
+
+**Active parameters** are counted the way MoE papers count experts: a parameter is active
+for a token if that token's forward pass reads it. The banks are lookup tables, so a token
+reads one row of the Q bank and one of the K bank per layer (2 × 1,280 values, 51,200
+over the 20 layers), and the other 2.58B bank parameters are idle for it. Earlier
+tokens' keys reach a query as cached activations, as in dense attention, so each row is
+counted once, for the token that reads it. The input embedding is counted in full, as
+MoE papers usually do. Counting it as one row too, the same way as the banks, gives
+**555.96M dense vs 523.30M AME**.
+
+**Why AME has 32.66M fewer active parameters.** Per layer it drops the Q and K
+projections (−2.46M: 1280×1280 + 1280×640), but its V projection is twice as wide, 20
+heads instead of 10 (+0.82M). That nets −1.64M per layer and −32.77M over 20 layers, of
+which 0.10M of bank rows, temperatures, shift coefficients and sinks win back a little.
+
+**Both totals check exactly against the logs.**
+
+| per layer | dense | AME |
+|---|---:|---:|
+| Q/K: projections (dense) or banks (AME, 2 × 50304 × 1280) | 2,457,600 | 128,778,240 |
+| V, O | 2,457,600 | 3,276,800 |
+| feed-forward | 19,660,800 | 19,660,800 |
+| norms | 2,560 | 2,560 |
+| `tau` (20), shift α/β (`[20, 2]` each, 80), sinks `k_sink`/`v_sink` (2,560) | — | 2,660 |
+| **layer total** | **24,578,560** | **151,721,060** |
+
+Both models also hold 128,779,520 outside the blocks: the embedding (64,389,120), and the
+head (64,389,120) with its final norm (1,280). So 20 × 24,578,560 + 128,779,520 =
+620,350,720, and 20 × 151,721,060 + 128,779,520 = 3,163,200,720.
+
+**The 45.57% `gqa` baseline earlier in this note is a different model.** The step-time
+table in [Step time, after the kernel was fixed](#step-time-after-the-kernel-was-fixed),
+and the "Which baseline" paragraph after it, quote `mfu_audit/h20_mgpu.yaml` at 45.57%.
+That config's measured table was taken with the GPT-2-arch overrides: GELU feed-forward
+(2 matrices), MHA (`kv_heads = q_heads`) and 25 blocks, at 4.122 GFLOPs/token. Its own
+numbers confirm it: 109,361 tokens/s × 4.122 GFLOPs is 45.6% of 989 TFLOP/s, and
+× 3.965 would give 43.8%. The parameter count cannot tell the two apart: 25 such blocks
+hold about as much as 20 H-balanced ones, ~620M either way. For AME vs dense, quote the
+H-balanced numbers above, or B2
+([configs/mfu_audit/h20_hbal_4gpu.yaml](../../configs/mfu_audit/h20_hbal_4gpu.yaml),
+44.44% at 4 GPUs), which this sweep reproduces at 44.47%.

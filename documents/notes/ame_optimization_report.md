@@ -1,7 +1,8 @@
 # AME MFU optimization — report
 
 **Period:** 2026-11-04 20:05 → 2026-11-05 11:21 (cluster local time, UTC+1),
-then a reproduction and micro-batch sweep 2026-11-05 17:11 → 18:27.
+then a reproduction and micro-batch sweep 2026-11-05 17:11 → 18:27, and the
+same sweep with dense attention as a control 18:49 → 19:32 (§1.16).
 **Platform:** entropy `h100` partition, H100 80GB SXM, account `mim`, QOS
 `j321m_h100` until 11:21; QOS `mstefaniak_h100` (Maciej's own account, same
 node) for the evening block. Branch `ame_optimize`.
@@ -53,6 +54,12 @@ time (30.00%). A 24-run sweep then showed every best configuration already sits
 at the largest micro-batch that fits: MFU rises at every doubling until OOM,
 and at global batch 512 there is no micro-batch in between.
 
+**Dense control, same 24 cells (2026-11-05 evening, §1.16).** AME runs at
+76–86% of dense MFU, best against best. At equal micro-batch on 1 GPU it is at
+85–87%; h20 drops to 78.8% best against best only because its banks' memory
+holds it to micro-batch 4 where dense fits 16. Going from 1 to 4 GPUs dense
+loses 1.1–2.7%, so AME's larger loss at h12 and h16 is its own.
+
 ---
 
 ## 1. Improvements implemented and measured
@@ -102,6 +109,7 @@ Percentages are relative MFU change at the stated shape.
 | **O36** | Raise micro-batch at 4 GPUs | **Attempted, blocked** | h16 mb32 OOM → with O11 fits but **−2.6%** | §1.13 |
 | **O37** | No FSDP2 at world size 1 | **Built** | **+4.2%** at h20, **−2.5%** at h16 | §1.11 |
 | **B1/B2** | Baselines: AME h20 and dense h20 at 4 GPU | **Done** | 26.84% / 44.44% | Headline |
+| **B3** | Dense control: the §1.15 micro-batch sweep with dense attention, all 24 cells | **Done** (2026-11-05 evening) | measurement, not a change; AME at 76–86% of dense | §1.16 |
 | **D1** | Diagnose why memory parallelism gave no speedup | **Done** | found the graph break, not mem-parallelism | §4 |
 | **D2** | Fused Q/K bank pair | **Built** | **+3.2%** | §1.4 |
 | **D3** | DDP backbone + memory-parallel banks | **Built, not adopted** | **−2.3%**; OOMs at mb 16 | §1.5 |
@@ -536,6 +544,69 @@ the submit timestamp. The h12/4-GPU base is the one new config,
 `configs/ame_tests/h12_4gpu_mb16_o29.yaml`; every other point is a §6.1 config with
 `trainer.gradient_accumulation_steps` overridden on the command line.
 
+### 1.16 Dense control — the same sweep with dense attention (2026-11-05 evening)
+
+Not an optimization: a per-cell dense reference for §1.15, in place of the
+single B2. The 24 cells were rerun on the same configs with two overrides,
+`common.attention.type=gqa` and `trainer.mem_parallel_size=null` (the bank
+knob, which the trainer rejects when there are no banks). Everything else is
+identical, including sequence length 2049, `compile_blocks_full`, O33 at 4 GPUs
+and O37 for h20 at 1 GPU, so only the attention layer differs: GQA with 20
+query and 10 KV heads, RoPE, SDPA. Dense was not tuned on its own; these are its
+numbers on AME's recipe. Each ladder starts one doubling higher than AME's (two
+for h20 at 1 GPU, none for h12 at 4 GPUs) because dense carries no bank state.
+Jobs 33106–33131 (§3), wandb `dense_<model>_<GPUs>g_mb<N>_entr`, same
+aggregation as §1.15. Step, tokens/s, peak memory and forward/backward time per
+run are in [ame_microbatch_sweep.md](ame_microbatch_sweep.md).
+
+**Dense MFU/GPU, %** (bold = best in the row):
+
+| model | GPUs | mb 4 | mb 8 | mb 16 | mb 32 | mb 64 | mb 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| h12 | 1 | | | 38.77 | **40.32** | OOM | OOM |
+| h16 | 1 | | 40.84 | 43.31 | **44.91** | OOM | |
+| h20 | 1 | 40.97 | 43.33 | **44.98** | OOM | | |
+| h12 | 4 | | 33.57 | 37.75 | **39.34** | OOM | |
+| h16 | 4 | | 39.73 | 42.78 | **43.68** | OOM | |
+| h20 | 4 | | 41.96 | **44.47** | OOM | OOM | |
+
+**AME against dense, per cell** (AME from §1.15):
+
+| cell | AME best | dense best | AME % of dense MFU | AME % of dense tokens/s | AME % of dense at equal micro-batch |
+|---|---:|---:|---:|---:|---|
+| h12, 1 GPU | 34.57% (mb 32) | 40.32% (mb 32) | 85.7% | 89.1% | 85.1% (mb 16), 85.7% (mb 32) |
+| h16, 1 GPU | 37.73% (mb 16) | 44.91% (mb 32) | 84.0% | 88.0% | 85.5% (mb 8), 87.1% (mb 16) |
+| h20, 1 GPU | 35.45% (mb 4) | 44.98% (mb 16) | 78.8% | 82.9% | 86.5% (mb 4) |
+| h12, 4 GPU | 30.04% (mb 32) | 39.34% (mb 32) | 76.4% | 79.4% | 73.5% (mb 8), 75.6% (mb 16), 76.4% (mb 32) |
+| h16, 4 GPU | 33.29% (mb 16) | 43.68% (mb 32) | 76.2% | 79.9% | 76.4% (mb 8), 77.8% (mb 16) |
+| h20, 4 GPU | 34.91% (mb 16) | 44.47% (mb 16) | 78.5% | 82.6% | 79.8% (mb 8), 78.5% (mb 16) |
+
+**1. Dense obeys the same rule: in all six cells the best micro-batch is the
+largest that fits.** Four of the six first OOMs die allocating the logits
+tensor (12.28 GiB at mb 64, 6.14 GiB at mb 32); h16's at mb 64 fail on 128–256
+MiB with the card full. h12 at 1 GPU and mb 128, and h20 at 4 GPUs and mb 64,
+were redundant second brackets.
+
+**2. AME's tokens/s ratio runs 3–4 points above its MFU ratio**, because AME
+does 3.8–5.0% fewer FLOPs per token (h12 1.053 vs 1.095, h16 2.121 vs 2.222,
+h20 3.768 vs 3.965 GFLOPs).
+
+**3. On 1 GPU at equal micro-batch, AME runs at 85–87% of dense.** h20's lower
+78.8% best against best is memory: AME's best micro-batch is 4, dense's 16. At
+mb 4 AME peaks at 66.87 GiB and dense at 21.47 GiB, and the banks' state
+accounts for most of the 45.4 GiB difference: 18 bytes per bank parameter (bf16
+compute copy, fp32 master, fp32 gradient accumulator, two fp32 Adam moments),
+43.2 GiB at h20. At h16 dense also fits twice AME's micro-batch, on both GPU
+counts.
+
+**4. The 1→4-GPU loss is AME's own.** Going from 1 to 4 GPUs dense loses 2.4%
+(h12), 2.7% (h16) and 1.1% (h20); AME loses 13.1%, 11.8% and 1.5% (§1.15,
+finding 4). The difference at h12 and h16 is the bank machinery, as §6.3
+attributes it. At equal micro-batch on 4 GPUs AME is at 73.5–79.8% of dense.
+
+**5. Dense h20 at 4 GPUs and mb 16 reproduces B2**: 44.47% against 44.44% (job
+32577), on the new account and at sequence length 2049 instead of 2048.
+
 ---
 
 ## 2. Promising, not done or not tested
@@ -830,6 +901,48 @@ varied (shown as micro-batch × ga). **Times here are job start**; the sweep's
 Each OOM is a `torch.OutOfMemoryError` on a 79.18 GiB card, with nothing else
 wrong in the log; all six are the intended upper brackets.
 
+### 2026-11-05 (evening) — the dense control (§1.16)
+
+Same account and node, `trainer.profile_timers=true` on every run. Configs are
+the §6.1 files plus `common.attention.type=gqa trainer.mem_parallel_size=null`,
+with the micro-batch × ga shown. Each run keeps the §6.2 settings that are not
+AME-specific: sequence length 2049, `compile_blocks_full`, O33 at 4 GPUs, O37
+for h20 at 1 GPU. Submitted serially 18:49:53–19:04:46 with 20 s gaps. One
+`--test-only` probe per shape at 18:49:07 found five GPUs free (lukaskoz's
+33098 on 1 GPU and wojszalek's 32991 on 2 were running), so both shapes could
+start at once and neither probe named a job to preempt. **Times here are job
+start.**
+
+| time | job | what it tested | MFU | outcome / conclusion |
+|---|---|---|---:|---|
+| 18:49 | 33106 | dense h20, 4 GPU, 8 × 16 | 41.96% | |
+| 18:53 | 33107 | dense h20, 4 GPU, 16 × 8 | **44.47%** | **Best dense h20 at 4 GPUs**, same micro-batch as AME's best. Reproduces B2 (32577, 44.44%). |
+| 18:56 | 33108 | dense h20, 4 GPU, 32 × 4 | — | **OOM**: 6.14 GiB (the logits) with 73.05 GiB in use. |
+| 18:57 | 33118 | dense h12, 1 GPU, 16 × 32 | 38.77% | |
+| 18:58 | 33119 | dense h12, 1 GPU, 32 × 16 | **40.32%** | **Best dense h12 at 1 GPU**, same micro-batch as AME's best. |
+| 18:58 | 33120 | dense h12, 1 GPU, 64 × 8 | — | **OOM**: 12.28 GiB (the logits) with 72.62 GiB in use. |
+| 18:59 | 33122 | dense h12, 1 GPU, 128 × 4 | — | **OOM**: 384 MiB with 78.85 GiB in use. Redundant second bracket. |
+| 19:00 | 33123 | dense h16, 1 GPU, 8 × 64 | 40.84% | |
+| 19:00 | 33124 | dense h16, 1 GPU, 16 × 32 | 43.31% | AME's best micro-batch; AME is at 87.1% of this. |
+| 19:01 | 33125 | dense h16, 1 GPU, 32 × 16 | **44.91%** | **Best dense h16 at 1 GPU**: twice AME's best micro-batch, which OOMs for AME. |
+| 19:02 | 33126 | dense h16, 1 GPU, 64 × 8 | — | **OOM**: 128 MiB with 79.13 GiB in use. |
+| 19:02 | 33127 | dense h20, 1 GPU, 4 × 128 | 40.97% | AME's best micro-batch; AME is at 86.5% of this. |
+| 19:03 | 33128 | dense h20, 1 GPU, 8 × 64 | 43.33% | |
+| 19:04 | 33129 | dense h20, 1 GPU, 16 × 32 | **44.98%** | **Best dense run of the sweep**: four times AME's best micro-batch. |
+| 19:05 | 33131 | dense h20, 1 GPU, 32 × 16 | — | **OOM**: 6.14 GiB (the logits) with 74.24 GiB in use. |
+| 19:09 | 33109 | dense h20, 4 GPU, 64 × 2 | — | **OOM**: 320 MiB with 79.10 GiB in use. Redundant second bracket. |
+| 19:11 | 33110 | dense h16, 4 GPU, 8 × 16 | 39.73% | |
+| 19:14 | 33111 | dense h16, 4 GPU, 16 × 8 | 42.78% | AME's best micro-batch; AME is at 77.8% of this. |
+| 19:17 | 33112 | dense h16, 4 GPU, 32 × 4 | **43.68%** | **Best dense h16 at 4 GPUs**: twice AME's best micro-batch. |
+| 19:20 | 33113 | dense h16, 4 GPU, 64 × 2 | — | **OOM**: 256 MiB with 78.98 GiB in use. |
+| 19:22 | 33114 | dense h12, 4 GPU, 8 × 16 | 33.57% | |
+| 19:25 | 33115 | dense h12, 4 GPU, 16 × 8 | 37.75% | |
+| 19:27 | 33116 | dense h12, 4 GPU, 32 × 4 | **39.34%** | **Best dense h12 at 4 GPUs**, same micro-batch as AME's best. |
+| 19:30 | 33117 | dense h12, 4 GPU, 64 × 2 | — | **OOM**: 12.28 GiB (the logits) with 72.73 GiB in use. |
+
+All eight failures are `torch.OutOfMemoryError` with nothing else wrong in the
+log; the last job ended at 19:32.
+
 ### Jobs on this account NOT part of this work
 
 Listed so the log is exhaustive and the next person does not have to re-derive
@@ -848,6 +961,10 @@ which `sacct` rows belong here.
 32982 (`envcheck`, failed in 1 s and rerun as 32983), and 32987 `mfu_h4` and
 32990 `ame_h20` (1-GPU smoke tests, 15:48 and 15:52). These were account
 bring-up, not this work.
+
+**Inside the dense range:** 33121 and 33130 are not this account's jobs, and
+33104 and 33105 are the IDs the two `--test-only` probes printed (no job was
+created).
 
 ### Correctness gates (not throughput runs)
 
@@ -1064,6 +1181,83 @@ The result changes no recommended setting. It changes where the next gain has
 to come from: a memory saving cheaper than the next micro-batch doubling
 returns (§2.13), or the forward and backward kernels themselves.
 
+### 2026-11-05, 18:46 — Maciej: save the tables, and the same sweep for dense
+
+"Save that results to .md, now do the same experiments but for dense not ame",
+then at 18:47 "save exactly those two tables 1:1". The two AME tables went
+verbatim into [ame_microbatch_sweep.md](ame_microbatch_sweep.md), indexed in
+`documents/README.md`. For dense I reused the 24 configs with two overrides
+instead of writing dense configs, so the control differs from AME in the
+attention layer only (§1.16), and moved each ladder up one doubling where dense's
+missing bank state left room. Probes at 18:49:07, then 24 serial submits
+18:49:53–19:04:46 with 20 s gaps, to stay under the connection rate that
+tripped the firewall at ~17:49.
+
+### 2026-11-05, 19:38 — "what 8 GPU cap?"
+
+At 19:05 I had reported the remaining jobs as "queued behind my 8-GPU cap".
+Maciej asked whether that meant 8 physical GPUs and whether jobs simply pend.
+Both hold: h100a has 8 GPUs, and QOS `mstefaniak_h100` lets one user hold 8 at
+a time (`MaxTRESPerUser gres/gpu=8`, up to 128 jobs submitted); the rest pend as
+`QOSMaxGRESPerUser`. Everything had already been submitted at once, so nothing
+changed.
+
+### 2026-11-05, 19:41 — the dense sweep closes
+
+All 24 had ended by 19:32: 16 completed and 8 OOM, every cell bracketed, no
+reruns needed. Results in §1.16. While polling I once misread the clock and took
+an empty queue for jobs that had vanished, and first counted 15 completed and 9
+OOM; both were caught before reporting. The dense tables went into a separate
+`dense_microbatch_sweep.md`. Two slips of mine in `~/code/nano`: I copied my
+README over the main tree's (it held only my own earlier row, so nothing was
+lost; doc changes there have been patches on top since), and
+`git checkout-index --temp` left a stray `.merge_file_*` in the repo root (a copy
+of the README, removed). That tree had been reorganized while the jobs ran
+(test configs to `configs/ame_tests/`, six best-MFU configs in `configs/ame/`);
+I left it alone.
+
+### 2026-11-05, 19:57 — one file for both sweeps
+
+"Have you appended dense tables also to the same .md doc?" (no, a separate
+file), then at 19:58 "Merge them together into one .md". Both sweeps now sit in
+`ame_microbatch_sweep.md`, all four tables unchanged, and
+`dense_microbatch_sweep.md` is gone. Commits 03510a74, ce4dcad0 and dec338f3
+(20:05–20:07, from Maciej's checkout) put the sweep docs, this report's §1.15 and
+the config reorganization on `ame_main`. 20:11 "Tldr", answered. 20:17 the
+session's context was compacted.
+
+### 2026-11-05, 20:28 — what the dense model is
+
+"What h20 dense models have you tested and created configs for? What
+feed-forward and attention?" No dense config files exist; the dense runs are the
+AME configs with overrides. Both models are the H-balanced h20 with SwiGLU
+(dff = 4 × dmodel); only the attention differs. While checking
+`configs/mfu_audit/` I found that the 45.57% `ame_implementation.md` quotes as
+the `gqa` h20 baseline was measured with GPT-2-arch overrides (4.122
+GFLOPs/token), not on this model. At 20:31 Maciej narrowed the check to the
+best-MFU dense run and the `configs/ame/` files. At 20:35 he asked for active
+parameters (MoE-style, a bank counting one row per token): 620.35M dense,
+587.69M AME. At 20:37 that table went into `ame_implementation.md` as its last
+section.
+
+### 2026-11-05, 20:42 — where documents live and get committed
+
+I had written that section only in `~/code/nano`. "You know where is your
+worktree and branch you should work on?", then at 20:43 "find your worktree":
+`~/code/nano-ame` on `ame_optimize`, and the section went there too. 20:44
+"commit what?", then at 20:45 the rule: ".md documents always read and commit on
+ame_main", "you can also commit on ame_optimize", "so both". Also at 20:45 a
+stop-hook check of this report's brief found nothing here after 18:27.
+
+### 2026-11-05, 20:55 — the update stays lean
+
+"What are you doing?" and "two commits shouldn't take that long" (20:55): I had
+spent the time collecting inputs before writing anything. At 20:58 Maciej set
+the scope: no MFU improvement has been tested since the last update, so what
+belongs here is the measured micro-batch tables. I dropped a new §2 proposal I
+had prepared (a smaller bank optimizer state, to fit micro-batch 8 at h20 on 1
+GPU), and added §1.16, the dense rows in §3 and these entries.
+
 ### Corrections I made to my own earlier claims
 
 Recorded because several changed what was worked on next.
@@ -1110,7 +1304,9 @@ limit, and it will recur.
 **Companion documents:**
 [ame_implementation.md](ame_implementation.md) — what the AME layer is;
 [ame_experiments.md](ame_experiments.md) — the scientific program, unrun, and the next
-thing to do.
+thing to do;
+[ame_microbatch_sweep.md](ame_microbatch_sweep.md) — all 48 micro-batch runs, AME and
+dense, with step, tokens/s, peak memory and forward/backward time.
 
 **Archived, but still the source for two things.**
 [archive/ame_optimization_plan.md](archive/ame_optimization_plan.md) §3 is the ledger
