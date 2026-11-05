@@ -268,6 +268,11 @@ class AMEAttention(nn.Module):
         # as the vocab-sized lookups they are rather than as matmul weights.
         self.q_bank = nn.Embedding(vocab_size, datt)
         self.k_bank = nn.Embedding(vocab_size, datt)
+        # Set by src.core.memory_parallel to a module returning BOTH banks'
+        # rows from one gather. None in every ordinary run, including every
+        # measurement in ame_implementation.md, so the default path is the one
+        # those numbers were taken on.
+        self.qk_bank = None
         with torch.no_grad():
             for bank in (self.q_bank, self.k_bank):
                 if not bank.weight.is_meta:
@@ -419,8 +424,21 @@ class AMEAttention(nn.Module):
         batch, seq_len = token_ids.shape
         heads, dhead = self.q_heads, self.dhead
 
-        q = self.q_bank(token_ids).view(batch, seq_len, heads, dhead)
-        k = self.k_bank(token_ids).view(batch, seq_len, heads, dhead)
+        # One call when a memory-parallel controller has fused the pair. The two
+        # banks are gathered on the SAME ids and their results are used
+        # identically, so under column sharding they are one gather, one
+        # all-to-all and one permute instead of two of each -- and those kernels
+        # are launch-bound, not bandwidth-bound, so halving the count is most of
+        # the cost (documents/notes/ame_optimization_plan.md, D1/D2). Absent the
+        # controller `qk_bank` is None and this is the original two-lookup path,
+        # unchanged.
+        if self.qk_bank is not None:
+            q, k = self.qk_bank(token_ids)
+            q = q.view(batch, seq_len, heads, dhead)
+            k = k.view(batch, seq_len, heads, dhead)
+        else:
+            q = self.q_bank(token_ids).view(batch, seq_len, heads, dhead)
+            k = self.k_bank(token_ids).view(batch, seq_len, heads, dhead)
         v = self.v_proj(x).view(batch, seq_len, heads, dhead)
 
         if self.qk_norm:
@@ -564,7 +582,104 @@ class AMEAttention(nn.Module):
         return mask
 
     def _attend_flex(self, q, k, v):
-        k, v, offset = self._with_sink(k, v)
+        """Flex over the sequence, with the sink merged in afterwards.
+
+        **The sink used to be a kv column and it cost 876 ms per step.** Measured
+        at the h20 shape (`scripts/bench_attention.py`, one H100, 20 layers x 8
+        micro-steps):
+
+            flex, ALiBi + sink as kv column 0    1331.6 ms/step
+            flex, ALiBi, no sink                  455.8 ms/step
+            flex, no score_mod at all             397.5 ms/step
+            SDPA flash, causal, no bias           447.5 ms/step
+
+        So the distance bias costs 58 ms and flex with it already matches the
+        flash floor; prepending one key to make room for the sink costs **more
+        than the whole rest of attention**. Two reasons, both structural rather
+        than arithmetic: it makes `KV_LEN` 2049, which is one past flex's
+        128-wide block alignment and turns every block ragged, and it puts a
+        `torch.where` inside `score_mod`, which flex evaluates once per score --
+        n^2 per head, to special-case a single column.
+
+        Neither is necessary. Attention over `{sink} u sequence` is exactly the
+        softmax-weighted merge of attention over each part, and flex will return
+        the log-sum-exp needed to do it:
+
+            numerator   = out_seq * exp(lse_seq) + exp(q . k_sink) * v_sink
+            denominator = exp(lse_seq)           + exp(q . k_sink)
+
+        shifted by the running max for stability. That is O(B*H*n*D) elementwise
+        work -- no n^2 term -- against 876 ms of kernel. The sink keeps its exact
+        semantics: no distance bias, visible to every query, `tau` already folded
+        into `q` by `_mixed_qkv`.
+        """
+        if not self.use_sink:
+            return self._attend_flex_sequence(q, k, v)
+
+        out_seq, lse_seq = self._attend_flex_sequence(q, k, v, return_lse=True)
+
+        # The sink's logit: one score per query, no bias, scale 1 (tau is in q).
+        #
+        # Written as a broadcast multiply and a reduction over D rather than as
+        # `einsum("bhnd,hd->bhn", q, k_sink)`, which is the same value for 2x
+        # the time. The einsum is a matrix-VECTOR product per head -- it reduces
+        # 64 elements down to one scalar per (b, h, n) -- which is the shape a
+        # tensor core is worst at, and it blocks the surrounding fusion because
+        # it lands in a GEMM library kernel. Measured per optimizer step at the
+        # h20 shape (`scripts/bench_attention.py`, job 32776, merge in
+        # isolation with out_seq/lse_seq as leaves):
+        #
+        #     einsum,  eager      88.3 fwd + 131.5 bwd = 219.9 ms
+        #     mul+sum, eager     121.6 fwd + 159.7 bwd = 281.3 ms
+        #     einsum,  compiled   41.8 fwd +  61.8 bwd = 103.6 ms
+        #     mul+sum, compiled   14.2 fwd +  36.7 bwd =  50.9 ms
+        #
+        # Note the inversion: eager, the einsum WINS, because a reduction over
+        # the last axis of a [B, H, n, D] tensor really does cost more than a
+        # library GEMM when nothing fuses it. Compiled -- which is how this
+        # actually runs, inside `compile_blocks_full` -- inductor folds the
+        # multiply, the reduction, the sigmoid and the final FMA into the
+        # neighbouring pointwise kernels, and the einsum cannot be folded into
+        # anything. **Optimising this eagerly would have picked the wrong form.**
+        #
+        # fp32 for the product, not bf16: the summands are a bf16 q against a
+        # bf16 k_sink, and accumulating 64 of them in bf16 would be strictly
+        # worse than the fp32 accumulation cuBLAS gave the einsum for free.
+        # inductor fuses the upcast into the reduction, so no [B, H, n, D] fp32
+        # temporary is ever materialised.
+        k_sink = self.k_sink.to(q.dtype).view(1, self.q_heads, 1, self.dhead)
+        sink_score = (q.to(torch.float32) * k_sink.to(torch.float32)).sum(-1)
+
+        # The merge, written as a LERP rather than as the ratio it comes from.
+        #
+        #     out = (out_seq * e_seq + v_sink * e_sink) / (e_seq + e_sink)
+        #         = out_seq + alpha * (v_sink - out_seq),  alpha = sigmoid(s - lse)
+        #
+        # Identical arithmetic, very different cost. The ratio form needs the
+        # full `[B, H, n, D]` output in fp32 and builds five tensors that size;
+        # measured at the h20 shape that was 156 ms forward and 403 ms backward
+        # per step, which ate most of what taking the sink out of the kernel had
+        # just saved. This form touches `[B, H, n]` for the weight -- 1/64th the
+        # elements -- and leaves the one big tensor in its own dtype for a
+        # single fused multiply-add.
+        #
+        # `sigmoid` is computed in fp32 because `s - lse` is an unbounded logit
+        # difference; `alpha` itself lives in [0, 1] and is cast down, which is
+        # the precision the surrounding bf16 attention already works in.
+        # `sink_score` is already fp32 from the reduction above; only `lse_seq`
+        # needs the cast, and flex returns it fp32 anyway on every path we use.
+        alpha = torch.sigmoid(sink_score - lse_seq.to(torch.float32)).to(out_seq.dtype)
+        v_sink = self.v_sink.to(out_seq.dtype).view(1, self.q_heads, 1, self.dhead)
+        # Written as the fused multiply-add rather than torch.lerp: lerp wants
+        # its three arguments the same shape, so `v_sink` would be expanded to
+        # the full [B, H, n, D] first. This broadcasts instead, and inside
+        # `compile_blocks_full` inductor fuses the whole tail -- sigmoid, sub,
+        # mul, add -- into the kernel that produced `out_seq`.
+        return out_seq + alpha.unsqueeze(-1) * (v_sink - out_seq)
+
+    def _attend_flex_sequence(self, q, k, v, return_lse=False):
+        """flex over the sequence alone: plain causal mask, ALiBi score_mod."""
+        offset = 0
         slopes = self.slopes.to(device=q.device, dtype=torch.float32)
 
         def score_mod(score, b, h, q_idx, kv_idx):
@@ -574,14 +689,18 @@ class AMEAttention(nn.Module):
             # the softmax -- while tau is only ~11. The final logit is cast
             # back, where bf16's resolution is the same one standard attention
             # already lives with.
-            distance = (q_idx - (kv_idx - offset)).to(torch.float32)
-            biased = (score.to(torch.float32) - slopes[h] * distance).to(score.dtype)
-            if offset:
-                return torch.where(kv_idx < offset, score, biased)
-            return biased
+            distance = (q_idx - kv_idx).to(torch.float32)
+            return (score.to(torch.float32) - slopes[h] * distance).to(score.dtype)
 
         # The block mask is built outside the kernel call and cached, so the
-        # compiled path never traces create_block_mask.
+        # compiled path never traces create_block_mask. offset is 0 here, so
+        # KV_LEN == Q_LEN == seq_len -- square, but square is not the same as
+        # aligned. flex blocks are 128 wide, and a seq_len that is not a
+        # multiple of 128 leaves a ragged last row-block that costs far more
+        # than its size: measured at B=16 H=20 D=64 (job 32688), seq_len 2047
+        # takes 1156.9 ms per optimizer step against 677.0 at 2048. The caller
+        # owns that -- `_preprocess_input` shifts for next-token targets, so a
+        # batch 2049 wide is what puts seq_len at 2048.
         block_mask = self._block_mask(q.shape[2], offset, q.device)
         return _flex_attention(
             q,
@@ -590,6 +709,7 @@ class AMEAttention(nn.Module):
             score_mod=score_mod,
             block_mask=block_mask,
             scale=1.0,
+            return_lse=return_lse,
         )
 
     # ---- instrumentation -----------------------------------------------------

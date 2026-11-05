@@ -823,6 +823,9 @@ def _instrumentation_stub(model, heavy=True, token_ids=None):
     stub.model = model
     stub.metric_logger = Logger()
     stub._last_input_ids = token_ids
+    # What __attrs_post_init__ sets and _log_layer_instrumentation reads: the
+    # set of modules whose readout raised, warned about once and skipped after.
+    stub._instrumentation_failures = set()
     return stub
 
 
