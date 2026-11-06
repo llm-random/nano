@@ -1,7 +1,8 @@
 # Stage 2b — positional encoding and the shift at h16: report
 
-**Status: wave 1 (S2b-P, S2b-S, S2b-PS, S2b-N at n = 9) submitted 2026-11-06 12:29 on LEM,
-by Maciej's call, with Stage 1b concluded at n\* = 9.**
+**Status: wave 1 (S2b-P, S2b-S, S2b-PS at n = 9) submitted 2026-11-06 12:29 on LEM, by
+Maciej's call, with Stage 1b concluded at n\* = 9. The noise-floor run S2b-N was cancelled
+at his request.**
 
 The plan is [ame_experiments.md, "Stage 2b — positional encoding and the shift at h16"](ame_experiments.md#stage-2b--positional-encoding-and-the-shift-at-h16).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -36,6 +37,14 @@ at h12, is [stage_2_report.md](stage_2_report.md).
    decision 2). The run names read `s2b_<arm>_h16_lr9.0`, and `run_exp.py`'s tmux step
    fails on the dot. Each clone was complete, with the secrets in `exp.job`, so
    `cd <clone> && sbatch exp.job` on LEM is the step that was skipped.
+3. **S2b-N cancelled by Maciej (2026-11-06, about 12:40): "we dont need that S2b-N,
+   cancel that one".** Job 6255248 was cancelled while still pending and never ran; its
+   clone stays on disk, unused.
+   - **Consequence.** Stage 2b has no noise floor of its own: no second seed of S1b-A0
+     at h16, so a tie cannot be measured at this scale.
+   - **How the analysis handles it.** It takes Stage 2's h12 seed gap, S1-A0 against S2-N
+     at n = 9, as a stated proxy. It reports every Stage 2b difference with that proxy
+     beside it, instead of calling ties at h16.
 
 ## Wave 1 — the three arms and the noise floor, at n = 9
 
@@ -44,7 +53,7 @@ at h12, is [stage_2_report.md](stage_2_report.md).
 | S2b-P | ALiBi | off | 6255245 | `9c9e37c3` | `s2b_p_h16_lr9.0_2026-11-06_12-27-59` |
 | S2b-S | none (16 zero slopes) | on | 6255246 | `10b6a080` | `s2b_s_h16_lr9.0_2026-11-06_12-28-20` |
 | S2b-PS | ALiBi | on | 6255247 | `aa0aa401` | `s2b_ps_h16_lr9.0_2026-11-06_12-28-40` |
-| S2b-N | none | off, seed 124 | 6255248 | `d8a407e3` | `s2b_n_h16_lr9.0_seed124_2026-11-06_12-29-01` |
+| ~~S2b-N~~ | none | off, seed 124 | 6255248 — **cancelled before it ran** (decision 3) | `d8a407e3` | `s2b_n_h16_lr9.0_seed124_2026-11-06_12-29-01` |
 
 Every cemetery commit has `89975bbf` as its parent and adds only `exp.job` and
 `generated_configs/config_0.yaml`. The plan's order (S2b-P, S2b-S, S2b-PS, then S2b-N)
