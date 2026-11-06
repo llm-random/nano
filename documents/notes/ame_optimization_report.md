@@ -2,16 +2,19 @@
 
 **Period:** 2026-11-04 20:05 → 2026-11-05 11:21 (cluster local time, UTC+1),
 then a reproduction and micro-batch sweep 2026-11-05 17:11 → 18:27, and the
-same sweep with dense attention as a control 18:49 → 19:32 (§1.16).
+same sweep with dense attention as a control 18:49 → 19:32 (§1.16), and the
+unattended §7 run 2026-11-05 23:55 → 2026-11-06 ~05:00 (§1.17 onward).
 **Platform:** entropy `h100` partition, H100 80GB SXM, account `mim`, QOS
 `j321m_h100` until 11:21; QOS `mstefaniak_h100` (Maciej's own account, same
 node) for the evening block. Branch `ame_optimize`.
 **Model:** AME h20 (H-balanced, 20 blocks, dmodel 1280, 2.576B bank + 587M
 backbone, 3.768 GFLOPs/token) unless stated; h16 and h12 where noted.
 **Workload:** global batch 512 × 2048, 30 steps, LR 2^-12, fineweb, seed fixed.
-**Active plan:** §7 — AME h20 to 45% MFU, 4 GPUs first, then 1 GPU. The
-unattended run started 2026-11-05 23:55; its experiments are §1.17 onward and
-the night block of §3, its progress §7.7.
+**Plan §7 (AME h20 to 45% MFU, 4 GPUs first, then 1 GPU):** run unattended
+2026-11-05 23:55 → 2026-11-06 ~05:00. Ended at **40.00% on 4 GPUs** (40.05%
+repeated) and **40.23% on 1 GPU**, from 35.06% and 35.45%; 45% not reached.
+Experiments §1.17–§1.26 and the night block of §3; ceiling analysis in §7.8;
+decisions left to Maciej in §7.10.
 
 All MFU figures are **per GPU** (`tokens/s × GFLOPs/token ÷ (989 TFLOP/s ×
 world_size)`) and are the **mean over steps ≥ 15**, which is what
@@ -36,8 +39,8 @@ the mean is the right reading there.
 | **B1** — AME h20, 4 GPU, start of work | 26.84% | 3.720 s | 281,748 | 60.4% |
 | **Best 4 GPU** — AME h20 + align + S3b + O33 | **35.02%** | 2.852 s | 367,623 | **78.8%** |
 | **Best overall** — AME h16, 1 GPU, mb 16 | **37.96%** | 5.938 s | 176,573 | **85.4%** |
-| **Best 4 GPU, §7 run** — + O39 v2 + whole-block graphs + O45 (Triton CE) + O47 + autotune | **39.40%** | 2.535 s | 413,620 | 88.7% |
-| **Best 1 GPU, §7 run** — h20 + O41 + O42 + O38(b), mb 8, compile autotune | **40.09%** | 9.966 s | 105,213 | 90.2% |
+| **Best 4 GPU, §7 run** — + O39 v2 + whole-block graphs + O45 (Triton CE) + O47 + O40 + autotune | **40.00%** (40.05% repeated) | 2.497 s | 419,939 | 90.0% |
+| **Best 1 GPU, §7 run** — h20 + O41 + O42 + O38(b), mb 8, compile autotune, O45 | **40.23%** | 9.931 s | 105,583 | 90.5% |
 | **B2** — dense H-balanced h20, 4 GPU (ceiling) | 44.44% | 2.364 s | 443,432 | 100% |
 
 **+30.5% on the reference baseline.** Two structural facts frame everything
@@ -120,9 +123,9 @@ Percentages are relative MFU change at the stated shape.
 | **O43** | Bank exchange on FSDP2's process group | **Built, opt-in, not kept** (`trainer.bank_default_group`) | no change (16.49% in the collapsed regime) | §1.21 |
 | **O45** | Triton cross-entropy inside `_ChunkedLinearCE` (gradients in the forward, softmax in one kernel, no recompute); frees the logits so whole-block graphs fit at mb 16 on 4 GPUs | **Built**, gate passed (`+fused_ce_impl=triton`) | with O39 v2 + O41 + O42: **38.74%** at 4 GPUs (+3.7%); + autotune 39.27% | §1.23 |
 | **O46** | KV shift: normalize the shifted raw key row instead of shifting the normalized key | **Built, opt-in, not kept** (`+o46=true`) | **−0.9%** / **−1.4%** at 1 GPU | §1.24 |
-| **O47** | Bank exchange of distinct ids only (A3a, O15): fixed-cap dedup, expansion and fp32 per-id reduction on the bank stream | **Built** (`trainer.bank_dedup_cap=0.3`) | v1 −12% (bf16 atomics in the block); v2/v3 **+0.3–0.4%** | §1.25 |
+| **O47** | Bank exchange of distinct ids only (A3a, O15): fixed-cap dedup, expansion and fp32 per-id reduction on the bank stream | **Built** (`trainer.bank_dedup_cap=0.3`) | v1 −12% (bf16 atomics in the block); v2/v3 +0.3–0.4%; v4 (no cat) **+0.7%** more | §1.25, §1.26 |
 | **O44** | CPU at most N blocks ahead of the compute stream | **Built, opt-in, not kept** (`trainer.bank_prefetch_cpu_lead`) | no change (17.90% in the collapsed regime) | §1.21 |
-| **O40** | FSDP2 parameters kept unsharded across micro-steps (`set_reshard_after_backward(False)` until the last) | **Built, opt-in, not kept** | **−0.9%** by the mean, +0.6% by the median | §1.19 |
+| **O40** | FSDP2 parameters kept unsharded across micro-steps (`set_reshard_after_backward(False)` until the last) | **Built, kept** in the 4-GPU best (opt-in flag) | first −0.9% (memory pressure, §1.19); on the best configuration **+0.8%** | §1.19, §1.26 |
 | **A0** | §7 attribution: 4-GPU best and its dense twin, kernel profiles | **Done** | measurement; the target is the bank path + AME glue | §1.17 |
 | **B1/B2** | Baselines: AME h20 and dense h20 at 4 GPU | **Done** | 26.84% / 44.44% | Headline |
 | **B3** | Dense control: the §1.15 micro-batch sweep with dense attention, all 24 cells | **Done** (2026-11-05 evening) | measurement, not a change; AME at 76–86% of dense | §1.16 |
@@ -1031,6 +1034,28 @@ The gain is small because, with the exchange already off the critical path
 contention it relieves; the profile of O45 put that at ~100 ms of GEMM and
 ~35 ms of flex time, and a 0.3× exchange removes part of it.
 
+### 1.26 The last steps: O40 again, O47 v4, O45 at 1 GPU
+
+- **O40 on the best configuration (job 34524): 39.40% → 39.73% (+0.8%)**, mean
+  equal to median, zero allocator retries. Its first measurement (§1.19) was
+  taken with no memory to spare, and its two forward spikes were the allocator;
+  with O45's headroom it is a plain gain. Kept.
+- **O47 v4 (job 34611): 39.73% → 40.00% (+0.7%).** The kernel profile of the
+  best configuration (34580) still showed an eager `torch.cat` of the q and k
+  gradients on the bank stream, 101.4 ms per step, feeding O47's reduction; the
+  compute stream waited on the bank stream for 70 ms of each step. v4 reduces
+  each gradient straight into its half of the fp32 buffer inside the compiled
+  reduction (`_reduce_pair`). **New 4-GPU best.**
+- **Bank NCCL CTA cap 8 (job 34549): neutral** (39.66%). Not kept.
+- **O45 at 1 GPU** first OOMed (jobs 34554, 34559): with `fused_linear_ce` the
+  trainer ran the whole model inside `_loss_ctx()`, which turns autocast off, so
+  at 1 GPU -- where bf16 comes from autocast, not FSDP2 -- the model ran in fp32.
+  The Triton path needs no autocast-off region (it never calls
+  `F.cross_entropy`); the trainer now leaves autocast on for it and the head
+  casts its own inputs to the autocast dtype. Then **40.09% → 40.23% (+0.3%)**
+  with autotune (34590), 39.54% → 39.62% without (34593); peak −2.8 GiB.
+  **New 1-GPU best.**
+
 ---
 
 ## 2. Promising, not done or not tested
@@ -1447,7 +1472,15 @@ session). **Times are submit times** (cluster clock).
 | 03:57 | 34457 | **O47 v2**: expansion and its fp32 reduction on the bank stream, block graph unchanged | best + O47 v2 | **39.44%** | +0.4%, step 2.533 s; loss trace within 0.001 of the base (§1.25). |
 | 04:04 | 34490 | gate (2 GPUs): O47 v3 | — | — | 2/2. |
 | 04:05 | 34496 | **O47 v3**: per-id gradient sums exchanged in fp32 | best + O47 v3 | **39.40%** | Same as v2 within noise; a pure reassociation of the old sum, so this is the kept form. **4-GPU best configuration.** |
-| 04:11 | 34524 | O40 on the best configuration | best + O40 | | running |
+| 04:11 | 34524 | **O40** on the best configuration | best + O40 | **39.73%** | **+0.8%**, step 2.514 s, mean = median, 0 retries: O40's earlier spikes (§1.19) were the memory pressure, not O40. Kept. |
+| 04:16 | 34549 | best + O40 + bank NCCL CTA cap 8 | | 39.66% | Neutral (−0.2%). Not kept. |
+| 04:17 | 34554, 34559 | 1 GPU: O45 (two variants) | | — | Both OOM: with `fused_linear_ce` the trainer ran the whole model inside `_loss_ctx()` (autocast off), i.e. in fp32 at 1 GPU. Fixed: the Triton path keeps autocast and casts the head's inputs itself. |
+| 04:22 | 34580 | kernel profile of the best configuration | best + O40 | — | Remaining 295 ms to 45%: compute-stream gaps 144 ms (70 on the bank stream), contention (GEMM +83, flex +49 over A0), AME glue +175 over dense, exposed NCCL ~35 ms. The bank stream's eager `torch.cat` of the gradients: 101.4 ms. |
+| 04:24 | 34590 | **1 GPU**: best + O45 (fixed) | B1 + autotune + O45 | **40.23%** | **+0.3%**, step 9.931 s, peak 74.58 GiB (−2.8). **New 1-GPU best.** |
+| 04:24 | 34593 | 1 GPU: B1 + O45 (fixed), no autotune | | 39.62% | +0.2% over 39.54%. |
+| 04:28 | 34611 | **O47 v4**: per-id reduction straight from the two gradients, no cat | best + O40 + O47 v4 | **40.00%** | **+0.7%**, step 2.497 s. **New 4-GPU best.** |
+| 04:34 | 34639 | gate (2 GPUs): the full GPU set on the final code | — | — | **16/16** (Triton CE ×3, bank compile ×2, compiled prefetch with and without dedup, the AME CUDA suite). |
+| 04:35 | 34645 | repeat of the 4-GPU best | best + O40 + O47 v4 | **40.05%** | Reproduces 40.00% within 0.05 points; 0 retries, peak 60.45 GiB. |
 
 ### Jobs on this account NOT part of this work
 
@@ -1953,6 +1986,21 @@ outputs overwritten by later replays. A6 was sized from the profile at ≤ 0.8%
 and not built. The 1-GPU dense twin on AME's recipe measured 44.58%: AME's
 40.09% is 89.9% of it.
 
+### 2026-11-06, 04:15 — the last gains, and stopping
+
+O40, inconclusive at 00:15, gave +0.8% on the final configuration: its spikes
+had been the memory pressure, not O40. The final profile showed the bank
+stream still running an eager `torch.cat` and the compute stream waiting on it;
+removing it (O47 v4) gave +0.7%, 40.00%, repeated at 40.05%. O45 at 1 GPU had
+OOMed on a trainer path that disabled autocast for the whole model; fixed, it
+gave +0.3%, 40.23%. The CTA cap was neutral. With every §7.5/§7.6 lead
+measured or shown not worth building, the remaining distance (295 ms at 4
+GPUs, 1.05 s at 1) breaks into three pieces of engineering -- a fused AME glue
+kernel, a contention-free exchange, a micro-step-boundary prefetch -- none of
+them a configuration change, and at 1 GPU also micro-batch 16, which needs
+O10/O17. That is where §7.8 says the run ends: ceiling analysis written,
+proposals in §7.10, everything committed.
+
 ### Corrections I made to my own earlier claims
 
 Recorded because several changed what was worked on next.
@@ -2031,8 +2079,8 @@ ceiling for the % column is B2 = 44.44%.
 | **h12** | **4** | **30.00%** | 0.930 s | 1,127,285 | 32 × 4 | 53.22 | 67.5% | 33076 | `ame_tests/h12_4gpu_mb16_o29.yaml` + `trainer.gradient_accumulation_steps=4` |
 | **h16** | **1** | **37.96%** | 5.924 s | 177,001 | 16 × 32 | 68.35 | **85.4%** | 32825 | `ame_tests/h16_1gpu_mb16.yaml` |
 | **h16** | **4** | **33.30%** | 1.689 s | 621,015 | 16 × 8 | 44.53 | 74.9% | 32856 | `ame_tests/h16_4gpu_mb16_o29.yaml` |
-| **h20** | **1** | **40.09%** | 9.966 s | 105,213 | 8 × 64 | 77.37 | 90.2% | 33927 | `ame/h20_1gpu.yaml` + `trainer.bank_compute_copy=false trainer.gradient_accumulation_steps=64 +cuda_alloc_conf=expandable_segments:True +compile_mode=max-autotune-no-cudagraphs` (O41+O42 on, the default since 2026-11-06; O46 off, its default) |
-| **h20** | **4** | **39.40%** | 2.535 s | 413,620 | 16 × 8 | 60.57 | 88.7% | 34496 | `ame/h20_4gpu.yaml` + `trainer.bank_prefetch_depth=2 trainer.bank_dedup_cap=0.3 trainer.fused_linear_ce=true trainer.fused_ce_chunk_size=8192 +fused_ce_impl=triton +compile_mode=max-autotune-no-cudagraphs` (O39 v2 + O41 + O42 + O45 + O47 v3 + autotune; v2 of O47 measured 39.44%, job 34457) |
+| **h20** | **1** | **40.23%** | 9.931 s | 105,583 | 8 × 64 | 74.58 | 90.5% | 34590 | `ame/h20_1gpu.yaml` + `trainer.bank_compute_copy=false trainer.gradient_accumulation_steps=64 +cuda_alloc_conf=expandable_segments:True +compile_mode=max-autotune-no-cudagraphs trainer.fused_linear_ce=true trainer.fused_ce_chunk_size=8192 +fused_ce_impl=triton` (O41+O42 on, O46 off: the defaults) |
+| **h20** | **4** | **40.00%** (40.05% repeated, 34645) | 2.497 s | 419,939 | 16 × 8 | 60.46 | 90.0% | 34611 | `ame/h20_4gpu.yaml` + `trainer.bank_prefetch_depth=2 trainer.bank_dedup_cap=0.3 trainer.fused_linear_ce=true trainer.fused_ce_chunk_size=8192 +fused_ce_impl=triton +compile_mode=max-autotune-no-cudagraphs trainer.keep_params_unsharded_during_accumulation=true` (O39 v2 + O41 + O42 + O45 + O47 v4 + O40 + autotune) |
 
 GFLOPs/token, which is why the MFU columns are not directly comparable across
 rows: h12 **1.053**, h16 **2.121**, h20 **3.768**. A smaller model carries less
@@ -2243,11 +2291,11 @@ Base: `configs/ame/h20_4gpu.yaml`. Needed: −633 ms per step.
 | **A0** | **Attribution first.** Kernel profile (steps 12–13) and time profiler of the current best and of its dense twin, the same config with `common.attention.type=gqa trainer.mem_parallel_size=null`. Output: a per-kernel table of AME minus dense, so every lead below gets a measured cost instead of an estimate, and the exposed (not overlapped) part of each NCCL collective. | measurement | **done** (§1.17): bank path ≈ 500 ms of critical path, AME glue ≈ 160 ms, attention at parity, AME GEMMs 172.7 ms cheaper than dense |
 | **A1** | S6, hoist the id all-gather (§2.7): 320 NCCL launches per step → 8. | ~16 ms | **done** inside O39 (§1.20) |
 | **A2** | The reassembly permute (§2.2): a Triton transpose, or an all-to-all layout in which a view suffices. | ~85 ms (≤ 134.6) | **done** inside O39: a view, folded into the consumer (§1.20) |
-| **A3** | **The bank exchange, redesigned.** Three candidates, compared on paper and in a microbenchmark before any is built. **(a)** Deduplicate by token id before the exchange (O15, deferred so far): a micro-batch of 32,768 tokens holds fewer distinct ids than tokens, and only distinct rows need to move, in both directions. The value scales with tokens ÷ distinct ids, which is the first thing to measure on FineWeb. **(b)** Row-sharded banks (§2.8): full-width rows, so a scatter by token index replaces the transposing permute; rows balanced across ranks by `id mod 4`. **(c)** Head-parallel attention (§2.1), which moves the same volume as today (T × 1920 values per rank per block per micro-step, 125.8 MB at mb 16), so its value is the permute plus whatever exchange it can overlap with compute. | 85–350 ms, with A2 | **in progress** as O39: the overlap route, which (c) cannot match because AME's q/k need no activations (§1.20) |
-| **A4** | FSDP2 forward all-gather: whatever A0 shows exposed; explicit forward prefetch. | ≤ ~113 ms | O40 tried (§1.19): inconclusive, retest on O39 |
+| **A3** | **The bank exchange, redesigned.** Three candidates, compared on paper and in a microbenchmark before any is built. **(a)** Deduplicate by token id before the exchange (O15, deferred so far): a micro-batch of 32,768 tokens holds fewer distinct ids than tokens, and only distinct rows need to move, in both directions. The value scales with tokens ÷ distinct ids, which is the first thing to measure on FineWeb. **(b)** Row-sharded banks (§2.8): full-width rows, so a scatter by token index replaces the transposing permute; rows balanced across ranks by `id mod 4`. **(c)** Head-parallel attention (§2.1), which moves the same volume as today (T × 1920 values per rank per block per micro-step, 125.8 MB at mb 16), so its value is the permute plus whatever exchange it can overlap with compute. | 85–350 ms, with A2 | done: the overlap route is O39 (§1.20); (a) is O47, +0.7% (§1.25–§1.26); (b) and (c) not built, superseded (§7.8) |
+| **A4** | FSDP2 forward all-gather: whatever A0 shows exposed; explicit forward prefetch. | ≤ ~113 ms | **done**: O40 +0.8% on the best configuration (§1.26); explicit prefetch not needed (9.4 ms exposed) |
 | **A5** | S5, the bank path under compile (§2.6): 160 graph breaks per step. | unsized (A0) | **retired**: no graph break since D2, and correct on CUDA (§1.18) |
-| **A6** | S3c, `sink_score` as a per-vocabulary gather (§2.5). | unsized (A0) | not started |
-| **A7** | Shared backbone: GEMM efficiency (§2.4); one kernel-by-kernel pass over the "triton glue" (§2.9, 731.8 ms, partly at its bandwidth bound); a Liger-style fused linear + cross-entropy kernel (§2.13). | 61–130 ms + unsized | not started |
+| **A6** | S3c, `sink_score` as a per-vocabulary gather (§2.5). | unsized (A0) | sized ≤ 0.8% from the profile, not built (§1.24) |
+| **A7** | Shared backbone: GEMM efficiency (§2.4); one kernel-by-kernel pass over the "triton glue" (§2.9, 731.8 ms, partly at its bandwidth bound); a Liger-style fused linear + cross-entropy kernel (§2.13). | 61–130 ms + unsized | autotune +1.4%; O45 +3.7% with whole-block graphs; glue: O41/O42 built, O46 rejected, fused kernel not built (§7.8) |
 
 Micro-batch 32 is out of reach at 4 GPUs without O10: at mb 16 activations are
 ~48 GiB of the 64.6 GiB peak (§2.3), and dense h20 OOMs at mb 32 on 4 GPUs too.
@@ -2266,11 +2314,11 @@ assumed.
 
 | step | what | value (estimate) | status |
 |---|---|---:|---|
-| **B0** | Attribution: time profiler and kernel profile of AME and its dense twin at mb 4, locating the +451 ms fixed and +468 ms per-sequence excess (§7.3). | measurement | not started |
-| **B1** | **Micro-batch 8.** **Done 2026-11-06: 39.54%** (§1.22) — It OOMs today needing about 1.4 GiB more than the card has; by AME's own memory growth (3.4 GiB per sequence) its peak would be ~80.6 GiB. In order: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (§2.11, ~2.5 GiB of fragmentation); then a smaller bank state, **O38**. The bank state is 18 bytes per bank parameter, 43.2 GiB at h20: keep Adam's first moment in bf16 (−4.8 GiB), or gather from the fp32 master and drop the bf16 bank copy (−4.8 GiB, exact numerics), or block-wise 8-bit optimizer states (−14.4 GiB; a new dependency, so a §7.10 proposal, not part of the run). A bf16 second moment is ruled out: the bank AdamW runs at torch's default β2 = 0.999, so a step moves v by ~0.1%, less than half a bf16 step (0.2–0.4%), and v would stop changing. Micro-batch 16 would need ~108 GiB by the same growth: out of reach. | +2.2% (AME's decay, §2.13) to +5.8% (dense mb 4 → 8, §1.16): 0.24–0.62 s | not started |
-| **B2** | **Fixed cost per micro-step** (12.16 ms against dense's 8.64, × 128): S5 (2,560 graph breaks per step at ga 128); CUDA graphs (`mode="reduce-overhead"`), which O37's FSDP2-free setup makes plausible once the graph breaks are gone. | up to ~0.45 s AME-specific, plus part of the shared 1.1 s | not started |
-| **B3** | **Per-sequence backward excess** (+0.92 ms per sequence), located in B0 among: the bank scatter (`index_add_` after an fp32 cast; duplicate ids contend for the same rows, and pre-reducing by id is O14/O15), the sink backward and the KV-shift backward. | up to ~0.47 s | not started |
-| **B4** | Shared backbone, as A7. | unsized | not started |
+| **B0** | Attribution: time profiler and kernel profile of AME and its dense twin at mb 4, locating the +451 ms fixed and +468 ms per-sequence excess (§7.3). | measurement | **done** (§1.22) |
+| **B1** | **Micro-batch 8.** **Done 2026-11-06: 39.54%** (§1.22) — It OOMs today needing about 1.4 GiB more than the card has; by AME's own memory growth (3.4 GiB per sequence) its peak would be ~80.6 GiB. In order: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (§2.11, ~2.5 GiB of fragmentation); then a smaller bank state, **O38**. The bank state is 18 bytes per bank parameter, 43.2 GiB at h20: keep Adam's first moment in bf16 (−4.8 GiB), or gather from the fp32 master and drop the bf16 bank copy (−4.8 GiB, exact numerics), or block-wise 8-bit optimizer states (−14.4 GiB; a new dependency, so a §7.10 proposal, not part of the run). A bf16 second moment is ruled out: the bank AdamW runs at torch's default β2 = 0.999, so a step moves v by ~0.1%, less than half a bf16 step (0.2–0.4%), and v would stop changing. Micro-batch 16 would need ~108 GiB by the same growth: out of reach. | +2.2% (AME's decay, §2.13) to +5.8% (dense mb 4 → 8, §1.16): 0.24–0.62 s | **done**: +5.6% (§1.22) |
+| **B2** | **Fixed cost per micro-step** (12.16 ms against dense's 8.64, × 128): S5 (2,560 graph breaks per step at ga 128); CUDA graphs (`mode="reduce-overhead"`), which O37's FSDP2-free setup makes plausible once the graph breaks are gone. | up to ~0.45 s AME-specific, plus part of the shared 1.1 s | **done**: O41/O42 (+5.6%); CUDA graphs failed (§7.8) |
+| **B3** | **Per-sequence backward excess** (+0.92 ms per sequence), located in B0 among: the bank scatter (`index_add_` after an fp32 cast; duplicate ids contend for the same rows, and pre-reducing by id is O14/O15), the sink backward and the KV-shift backward. | up to ~0.47 s | the AME glue; fused kernel not built (§7.8) |
+| **B4** | Shared backbone, as A7. | unsized | autotune +1.4%, O45 +0.3% |
 
 **Arithmetic.** B1–B3 at their estimates remove 1.16–1.53 s (39.7–41.2%), and
 they are not additive: B1 halves the micro-steps B2 acts on. 45% at 1 GPU needs
@@ -2294,6 +2342,8 @@ part of the run.
 | 2026-11-06 02:45 | O45 (Triton CE) + whole-block graphs | **38.74%** (34099), gate pending | 40.09% | §1.23 |
 | 2026-11-06 03:35 | O45 300-step gate passed; + autotune | **39.27%** (34317) | 40.09% | §1.23 |
 | 2026-11-06 04:10 | O47 (distinct-id exchange), O46 rejected | **39.40%** (34496) | 40.09% | §1.24–§1.25 |
+| 2026-11-06 04:35 | O40 on the best, O47 v4, O45 at 1 GPU | **40.00%** (34611; 40.05% repeated) | **40.23%** (34590) | §1.26 |
+| 2026-11-06 05:00 | run ended: every §7.5/§7.6 lead measured or shown not worth building | 40.00% | 40.23% | §7.8 ceiling analysis |
 
 ### 7.8 Running unattended
 
@@ -2329,6 +2379,82 @@ In the second case it ends by writing, in this section, the ceiling analysis
 (what each lead delivered, what is left, what it would take) and completing
 §7.10. One failed lead, a long queue or an SSH block is not an end condition.
 
+#### Ceiling analysis — where the run ended (2026-11-06, ~05:00)
+
+**45% was not reached on either target.** Every §7.5 and §7.6 lead was measured
+or shown not worth building, with evidence (table below), and the two best
+configurations passed the §7.4 gates.
+
+**Phase A, h20 on 4 GPUs, cumulative (one change per step, mb 16):**
+
+| configuration | job | MFU/GPU | step | Δ |
+|---|---|---:|---:|---:|
+| §6.1 best (A0 re-measure) | 33502 | 35.06% | 2.849 s | — |
+| + O39 v2, bank exchange on a side stream | 33530 | 37.35% | 2.674 s | +6.5% |
+| + O41 + O42 + O45 (whole-block graphs, Triton CE) | 34099 | 38.74% | 2.579 s | +3.7% |
+| + compile autotune | 34317 | 39.27% | 2.544 s | +1.4% |
+| + O47 v3, distinct-id exchange | 34496 | 39.40% | 2.535 s | +0.3% |
+| + O40, parameters unsharded across micro-steps | 34524 | 39.73% | 2.514 s | +0.8% |
+| + O47 v4, no cat before the reduction | 34611 | **40.00%** | 2.497 s | +0.7% |
+
+**+14.1% over where the run started.** The dense twin on its own recipe is
+44.51% (job 33507); AME is at 89.9% of it.
+
+**Phase B, h20 on 1 GPU, cumulative:**
+
+| configuration | job | MFU/GPU | step | Δ |
+|---|---|---:|---:|---:|
+| §6.1 best (mb 4, no FSDP2) | 33051 | 35.45% | 11.27 s | — |
+| + O41 + O42 | 33644 | 37.45% | 10.667 s | +5.6% |
+| + O38(b) + mb 8 + `expandable_segments` (B1) | 33695 | 39.54% | 10.104 s | +5.6% |
+| + compile autotune | 33927 | 40.09% | 9.966 s | +1.4% |
+| + O45 (with the autocast fix) | 34590 | **40.23%** | 9.931 s | +0.3% |
+
+**+13.5%.** The dense twin on the same recipe (mb 8, autotune, whole-block
+graphs) is 44.58% (job 34322); AME is at 90.2% of it.
+
+**Every lead, and what became of it:**
+
+| lead | outcome |
+|---|---|
+| A0 attribution | done (§1.17) |
+| A1 hoist the id all-gather | done inside O39 |
+| A2 the reassembly permute | done inside O39 (a view, folded into the consumer) |
+| A3a deduplicate by token id (O15) | built, O47: v1 −12%, v4 +0.7% |
+| A3b row-sharded banks | not built: its point was avoiding the permute, which O39 already removed; same exchange volume |
+| A3c head-parallel attention | not built: same volume as the q/k exchange (§2.1 correction), and its V/output exchange depends on activations, so unlike q/k it cannot be prefetched |
+| A4 FSDP2 all-gather | O40: +0.8% once memory allowed; explicit prefetch not needed (all-gather exposed 9.4 ms in 34580) |
+| A5 S5 graph breaks | retired: no break since D2 (§1.18); the breaks that did exist were O41/O42's |
+| A6 S3c sink score per vocabulary id | sized from the profile at ≤ 0.8%, not built (§1.24) |
+| A7 GEMMs / glue / fused CE | autotune +1.4%; O45 +3.7% (with whole-block graphs); glue: O41/O42 built, O46 rejected, a fused kernel not built (below) |
+| B0 attribution | done (§1.22) |
+| B1 micro-batch 8 | done: O38(b) + `expandable_segments`, +5.6% |
+| B2 fixed cost per micro-step | O41/O42 (the eager `create_block_mask` per layer per micro-step was most of it); CUDA graphs failed (outputs overwritten by later replays) |
+| B3 per-sequence backward excess | the AME glue; see below |
+| B4 shared backbone | autotune +1.4%; O45 +0.3% |
+
+**What is left at 4 GPUs** (job 34580, the best configuration before O47 v4;
+2.514 s against the 2.219 s that 45% needs, −295 ms):
+
+| item | ms/step | what would remove it |
+|---|---:|---|
+| compute-stream gaps | 144 | 70 wait on the bank stream (v4 then removed its 101 ms eager cat: −17 ms of step); ~29 on FSDP2's collectives; ~43 fully idle at micro-step boundaries, where layer 0's exchange queues behind the previous backward's |
+| contention from the side stream | ~132 | GEMMs +83 and flex +49 over A0, where nothing ran beside them. Moving the all-to-all off the SMs (copy-engine or symmetric-memory collectives, not in this torch) or a still smaller exchange |
+| AME's glue beyond dense's | ~175 | normalize, KV shift, tau, sink merge and the per-head parameter-gradient reductions: six forward kernels where two or three would do (§1.24). A hand-fused prep kernel, forward and backward, might recover half |
+| exposed NCCL | ~35 | |
+
+Each of those three is engineering, not configuration, and all three together
+add up to roughly the 295 ms. So 45% at 4 GPUs is not ruled out by anything
+measured -- but it needs a fused AME glue kernel, a contention-free exchange and
+the micro-step-boundary prefetch, together.
+
+**What is left at 1 GPU** (9.931 s against 8.879, −1.05 s): AME's excess over
+dense on the same recipe is mostly glue (+90 ms per 131k tokens, ~0.7 s per
+step, §1.22). A fused glue kernel might give ~0.35 s (to ~41.7%); micro-batch 16
+(dense: +3.8% from mb 8 to 16) needs ~13 GiB this card does not have without
+O10 or O17. 45% at 1 GPU is out of reach inside this plan's rules; with the
+glue kernel and micro-batch 16 it would be ~43–44%.
+
 ### 7.9 The `/goal` text
 
 Short on purpose: the rules live in §7.4 and §7.8, and the goal points at them.
@@ -2353,6 +2479,9 @@ why it needs a decision, and where the evidence is.
 | Lift O10 for selective checkpointing of the glue at h20, 1 GPU | O10 is cut | a route to micro-batch 16 at 1 GPU, where dense measures 44.98% (40.97% at mb 4) | §7.6 |
 | O17: CPU offload of the bank optimizer state | O17 is cut | the other route to micro-batch 16 at 1 GPU | §7.6 |
 | Block-wise 8-bit optimizer states for the banks (an O38 variant) | a new third-party dependency | −14.4 GiB at h20, 1 GPU | §7.6 B1 |
+| A hand-fused AME prep kernel (normalize + KV shift + tau, and the per-head parameter gradients, forward and backward) | Engineering, not a decision -- listed because it is the largest lead this run left unbuilt | ~175 ms of AME glue over dense at 4 GPUs, ~0.7 s at 1 GPU; half of it is ~+3.5% at either | §1.24, §7.8 |
+| Copy-engine or symmetric-memory all-to-all for the bank exchange | Needs a torch/NCCL newer than the pinned 2.7.1 build: a dependency change | up to ~130 ms of contention at 4 GPUs (+5%) | §7.8 |
+| `trainer.bank_dedup_cap=0.3` as a default | It turns a data property into a crash: a micro-batch with more than 30% distinct ids fails a device assert (FineWeb measured 22.1%, max 23.2%) | +0.7% at 4 GPUs (O47 v4) | §1.25 |
 | Sign-off on O45's numerics before real training | Its 300-step twin comparison shows a consistent ~0.3% *lower* loss than ATen's bf16 cross-entropy (§1.23); I judged that a pass (the opposite direction from `compile_ce`'s rejection), but a systematic shift of either sign is a numerics change | — | §1.23 |
 | Compiler-chosen activation recompute: `+functorch_config.activation_memory_budget=0.9` (AOTAutograd's partitioner recomputes cheap activations to stay within 90% of the default saved memory) | It trades compute for memory, which is what O10 means; O10 is cut, and the run stayed out of it after one measurement | At h20, 4 GPUs, mb 16 with O41 + O42 + O39 v2 (job 33956): peak **67.73 → 49.00 GiB**, allocator retries 231 → 0, **37.41%** (O39 v2 without it: 37.35%). It is what makes whole-block graphs usable at mb 16 on 4 GPUs, and the ~30 GiB it frees is the first route to mb 32 at 4 GPUs and mb 16 at 1 GPU seen in this work. Measured once; mb 32 / mb 16 with it not tried. | §1.21, §3 |
 
