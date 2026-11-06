@@ -1,7 +1,11 @@
 # Does AME's efficiency work cost it quality? A parity audit against dense at h12: plan
 
-**Status (2026-11-06, 21:30 CET): plan only, nothing run.** The `/goal` that executes it
-is [the last section](#9-the-goal-text).
+**Status (2026-11-06, 22:00 CET): plan only, nothing run.** The `/goal` that executes it
+is [the last section](#10-the-goal-text).
+
+- **Revised the same evening, before anything ran.** No model training: short entropy
+  jobs and local CPU tests only. The agent works alone and records its questions for
+  Maciej as it goes.
 
 - **The run's record** will be
   [ame_efficiency_parity_report.md](ame_efficiency_parity_report.md), created by the run.
@@ -35,8 +39,8 @@ than from what AME is?
 - (a) computes the same training step as a plain implementation of the same AME design
   under dense's mixed-precision policy, up to rounding no larger than dense's own
   production rounding; and
-- (b) switched off, all together, moves S2-PS's `final_ce` by no more than run-to-run
-  noise.
+- (b) switched off, singly or all together, does not move a short training run's loss
+  one-directionally beyond run-to-run noise.
 
 Dense's mixed-precision policy: fp32 master weights, matmuls in bf16 under autocast,
 everything else in its input's dtype.
@@ -47,11 +51,19 @@ everything else in its input's dtype.
 |---|---|
 | **bug** | computes a different function or gradient than its reference, beyond rounding |
 | **numerical** | differs from its reference by more than dense's rounding budget, with no detectable training effect |
-| **harmful** | a one-directional training effect beyond the noise floor, sized in nats at 4B tokens |
-| **cleared** | none of the above |
+| **harmful** | a one-directional training effect beyond the noise floor within a 300-step gate |
+| **cleared** | none of the above, as far as checks and 300-step gates reach |
 
-**The answer** is a decomposition: 0.143 = the implementation's share, measured or
-bounded, plus the rest.
+**What this audit can deliver** is everything short of a full training:
+
+- the bugs, at the production shape and precision;
+- the numerics, against dense's rounding budget;
+- the training effects visible within 300 steps.
+
+From those, the report states the implementation's share of the 0.143: measured, bounded,
+or "no evidence of any". The full-length runs that would size an effect at 4B tokens are
+prepared and proposed, not run
+([Proposed full-length runs](#proposed-full-length-runs-prepared-not-run)).
 
 ## 2. Scope
 
@@ -76,6 +88,9 @@ efficiency decision, whether AME-only or shared.
 - **Multi-GPU machinery**: Tier 3 (O6–O8), D3, O33, O40 and FSDP2. Both runs use one GPU
   with `distributed: null`.
 - **Stages 1–2 and 1b–2b and their jobs.** Another session runs them.
+- **Model training.** Nothing past 300 optimizer steps or 45 minutes per job (section 6).
+- **Jobs on LEM.** LEM is used only to copy the two checkpoints and read the two runs'
+  logs.
 
 ## 3. The two runs
 
@@ -174,59 +189,91 @@ implementation to explain or rule out:
 - **F4 and H5:** AME's gradient norm runs at about 0.8× dense's after warmup, and the
   residual-stream explanation was rejected.
 
-## 6. Method
+## 6. Where the work runs, and what it may not do
+
+- **Local CPU**, in this machine's pixi env, for unit tests and the harness's own tests.
+  Two things can never be concluded on CPU:
+  - whether compiled code is correct: inductor miscompiles the bank scatter on CPU
+    (§1.18);
+  - anything about the flex backward: compiled flex with gradients cannot even lower on
+    CPU.
+- **Entropy, in short GPU jobs on one GPU or several.** These cover:
+  - the GPU tests;
+  - the numerics harness;
+  - training gates of at most 300 steps;
+  - throughput probes of about 60 steps.
+- **No model training.** No job runs past 300 optimizer steps or 45 minutes of wall time.
+  The full-length A/Bs that would size an effect at 4B tokens are prepared, not run: see
+  [Proposed full-length runs](#proposed-full-length-runs-prepared-not-run).
+- **No jobs on LEM.** LEM is read once, to copy the two final checkpoints.
+
+## 7. Method
 
 **Order:**
 
 1. Phase 0;
-2. submit wave 1 (Phase 2);
-3. Phase 1 while wave 1 trains;
-4. read wave 1;
-5. Phase 3 only if needed;
-6. Phase 4 only for harmful items;
-7. Phase 5.
+2. Phase 1;
+3. Phase 2;
+4. Phase 3, only if a gate flags;
+5. Phase 4, only for harmful items;
+6. Phase 5.
 
-### Phase 0: set up, with no training
+While an entropy job runs, do CPU work locally. Phases 1 and 2 may interleave.
 
-- **0.1 Work branch.** Create `parity_lem` at `f9680709` in a clean worktree,
-  `~/code/nano-parity`. Configs and any opt-in code go there. Docs go on `ame_main`.
+### Phase 0: set up
+
+- **0.1 Work branch.** Create `parity_audit` at `f9680709` in a clean worktree,
+  `~/code/nano-parity`. Code, configs and the harness go there; docs go on `ame_main`.
+  - Every job runs a committed state of `parity_audit`, and its log records that commit.
 - **0.2 Re-derive the inventory** from the code at `f9680709` and the two logged configs
   in W&B. Add anything missing; confirm each "active" by the code path the run took.
-- **0.3 Configs** in `configs/parity/`, one per run of Phase 2. Each copies the S2-PS or
-  S1-D recipe with:
-  - `learning_rate: 8`;
-  - a literal run name without a dot (see section 7);
-  - the tag `parity`;
-  - the final checkpoint on.
+- **0.3 Baseline the local CPU suite** at `f9680709` with
+  `pytest -m "not gpu and not slow"`, so that a later failure is known to be new.
+- **0.4 Configs** in `configs/parity/`:
+  - **The entropy gate configs.** Each copies the S2-PS or S1-D recipe with:
+    - `_cluster: entropy` and gres `gpu:h100:1`;
+    - n = 8 and the gate schedule (Phase 2);
+    - a literal run name without a dot (section 8);
+    - the tag `parity`.
+  - **The LEM configs for the proposed full-length runs**, written but not submitted.
 
   Schema-check each locally.
-- **0.4 Smoke runs**, 60 steps each on LEM, for P1 and P-REF. They set:
-  - s/step, as the median over steps ≥ 15, and peak memory;
-  - P-REF's micro-batch: the largest power of two that fits, with
-    `gradient_accumulation_steps` adjusted so the batch stays 512;
-  - every job's time limit, at 1.5× its projection.
+- **0.5 Copy the two final checkpoints from LEM to entropy**, verifying sizes and
+  checksums: AME's 13 GB with its bank sidecar, and dense's 2 GB.
+  - `/storage_nvme_*` is mounted only on entropy's GPU nodes, and `/home` is NFS. Pick
+    the destination with that in mind, and record it.
+  - If the copy cannot be done, use the init weights and the final state of a saved
+    300-step gate instead, and record the limitation.
 
-### Phase 1: offline numerics, on one LEM GPU per job, with no training
+### Phase 1: offline numerics (short entropy jobs, no training)
 
 **The harness** (`documents/scripts/parity_numerics.py`):
 
 - builds either model from its config, with switches for `mem_parallel_size`, `backend`,
   compile, autocast and dtype;
 - loads either checkpoint format into either path. AME's production format puts the
-  banks in the sidecar; P1 and P-REF put them in the state dict;
+  banks in the sidecar; with `mem_parallel_size: null` they sit in the state dict;
 - runs forward and backward on fixed batches: the held-out set's first micro-batches and
   the first training micro-batches of seed 123;
 - works from two states: init (seed 123) and the two final checkpoints.
 
 **The checks, in priority order:**
 
-- **1.0 The existing CUDA gates, on LEM, at `f9680709`.** Run
+- **1.0 The existing GPU tests, on entropy, at `f9680709`.** Run
   `pytest -m gpu tests/test_ame.py tests/test_memory_parallel.py`. Port the mp-1 case of
   `tests/test_bank_compile.py` from `ame_optimize` if it runs against `f9680709`'s bank
   path; otherwise write its equivalent.
 - **1.1 Reproduce `final_ce` from each checkpoint**: 3.1250 and 2.9824, within 0.001.
-  This validates the harness and the sidecar load. Then evaluate both again with the fp32
-  reference path. This pair of evaluators is the **common evaluator** Phase 2 uses.
+  This validates the harness and the sidecar load.
+  - **First confirm that entropy's FineWeb copy holds the same data as LEM's.** The
+    paths differ, and LEM's says `fineweb-edu`: compare the row count and the first
+    held-out batch's token fingerprint. If the data differ, `final_ce` cannot be
+    reproduced on entropy. Every other check compares two paths on the same batches,
+    so it does not depend on this.
+  - Entropy and LEM are both H100s on torch 2.7.1+cu128. If entropy still differs on
+    the same data, record its value and use it as the reference for entropy.
+  - Then evaluate both checkpoints again with the fp32 reference path. This pair of
+    evaluators is the **common evaluator** used everywhere below.
 - **1.2 The attention backward (A4–A7)** for one AME layer at the production shape: 32 ×
   2,048, 12 heads of 64, with the trained layer's weights.
   - Compare flex (bf16, compiled, as run) with the reference (fp32).
@@ -262,7 +309,9 @@ implementation to explain or rule out:
   - The cached `BlockMask` equals a freshly built one for every shape the run used:
     train, eval and `final_ce`.
   - AME's instrumentation consumes no RNG and touches no parameter, buffer or cache.
-  - Neither run's `output.log` shows a recompile-limit fallback.
+  - Neither LEM run's `output.log` shows a recompile-limit fallback (read over SSH).
+
+Several checks may share one multi-GPU job.
 
 **Flag rules.** These are defaults; departing from one needs a recorded reason.
 
@@ -275,63 +324,66 @@ implementation to explain or rule out:
   - its signed projection exceeds 1e-3 in magnitude;
   - its loss difference exceeds twice dense's.
 - **A structural flag in 1.2 or 1.3 is a bug.** Characterize it fully before anything
-  else: which shapes, which layers, what size. Record it for Maciej at once.
+  else: which shapes, which layers, what size. Add it to "Questions for Maciej" at once.
 
-### Phase 2: full-length training A/Bs (wave 1, submitted together)
+### Phase 2: training gates (entropy, at most 300 steps each)
 
-Every run: 3,815 steps, n = 8, seed 123, the code of `f9680709`, final checkpoint saved.
+**The gate recipe:**
 
-| Run | What | Why |
+- S2-PS or S1-D at n = 8, seed 123, micro-batch 32 × 16;
+- 300 steps: the 38-step warmup, then a cosine down to 10% at step 300;
+- `final_ce` at the end; no checkpoint unless 0.5 needs one;
+- about 25–35 minutes per gate, startup included.
+
+| Gate | What | Why |
 |---|---|---|
-| **P0** | S2-PS, identical | The run-to-run floor at 4B tokens. It also shows whether the production path is deterministic |
-| **P0b** | S2-PS at micro-batch 16 × 32 | A reassociation floor: the same function with different rounding. The floor to use if P0 turns out bit-identical |
-| **P1** | S2-PS with `mem_parallel_size: null` | A1, A2 and A3 off |
-| **P-REF** | S2-PS with `mem_parallel_size: null` and `backend: reference`, at the micro-batch from 0.4 | Every AME-only efficiency change off, A1–A7. The closest thing to AME implemented the way dense is |
-| **D0** | S1-D at n = 8, identical | Dense's floor |
+| **G0a, G0b** | S2-PS production, twice | The run-to-run floor. It also shows whether the production path is deterministic |
+| **G0c** | S2-PS at micro-batch 16 × 32 | A reassociation floor: the same function with different rounding |
+| **G1** | `mem_parallel_size: null` | A1, A2 and A3 off |
+| **G-REF** | `mem_parallel_size: null` and `backend: reference`, at the largest micro-batch a 20-step probe fits | Every AME-only efficiency change off, A1–A7 |
+| **GD0a, GD0b** | S1-D, twice | Dense's floor, and whether AME is more sensitive to rounding than dense |
 
-**Fallback.** If P-REF projects past 22 h, run screens instead: 1,000 steps on a
-1,000-step schedule, beside a production run on the same schedule and its twin. The
-attention items then rest on Phase 1.
+**Reading the gates:**
 
-**Reading the results.**
+- **Paired per-step train-loss gap**, each gate against G0a, on the same batches.
+- **The floor F**: the larger of |G0b − G0a| and |G0c − G0a|, as the mean over the last
+  50 steps, and the same for `final_ce`.
+- **Harmful at 300 steps** means all three:
+  - the mean gap over the last 50 steps is at least max(3F, 0.005);
+  - at least 45 of those 50 steps have its sign;
+  - the gate's `final_ce` agrees.
 
-- **Paired train-loss gap**: each run against `doi36p8k` on the same batches, as
-  50-step means.
-- **Both evaluations of every final checkpoint**: `final_ce` as logged, and the common
-  evaluator (1.1) in both modes. A difference in evaluation numerics must not read as a
-  training effect.
-- **The floor F**: the largest |Δ `final_ce`| of P0 and P0b against `doi36p8k`, under
-  either evaluator. D0 gives dense's.
-- **Harmful** means |Δ `final_ce`| ≥ max(3F, 0.005) *and* the 50-step paired gap keeps
-  one sign in at least 90% of the last 1,000 steps. Below that the result is "no
-  effect detectable", with the bound |effect| < max(3F, 0.005).
-- **The gradient-norm traces of P0, P1 and P-REF.** Check whether the reference paths
-  change F3's step-10 spike or F4's 0.8× ratio. If they do, the implementation shapes
-  AME's gradient.
+  That is the rule that rejected `compile_ce` (§2.10).
+- **The gradient-norm traces.** Check whether the reference paths change ame_comparison_h12.md's
+  F3 (the step-10 spike, 46.5 against dense's 15.9) or F4 (about 0.8× dense after
+  warmup).
+- **A clean gate clears an item only for the first 300 steps.** Effects that need
+  thousands of steps stay open, for the proposed full-length runs.
+- **If G-REF cannot finish 300 steps within 45 minutes**, shorten it, and every gate it
+  is compared with, to the same step count, but not below 150 steps. Record the choice.
 
-### Phase 3: bisect, only for a harmful P1 or P-REF
+### Phase 3: bisect, only if G1 or G-REF flags
 
-- **If P1 is harmful:**
+- **If G1 flags:**
   - separate A2 from A1 with an opt-in `trainer.bank_compute_dtype: float32` on the Tier
     2 path;
-  - separate A3 with an opt-in eager bank path;
-  - then run the culprit at full length.
-- **If P-REF is harmful and P1 is not:** test the attention items, guided by 1.2 and 1.4:
+  - separate A3 with an opt-in eager bank path.
+- **If G-REF flags and G1 does not:** test the attention items, guided by 1.2 and 1.4:
   - for A5, an opt-in flex path with the sink as a column, as before S2, taken from git
     history;
   - for A7, τ applied in fp32.
-- **Screens may rank the candidates.** A screen is a 1,000-step schedule run beside a
-  production screen and its twin. The final attribution is always full length.
+- **Every candidate gets a gate**, run beside a fresh production gate.
 - **New code is opt-in only**: off by default, with a test proving the default
-  bit-identical, on `parity_lem`.
+  bit-identical, on `parity_audit`.
 
 ### Phase 4: fix and price, only for harmful items
 
 - **The fix** is the cheapest one that keeps the throughput gain, for example the prep in
   fp32 inside the compiled graph.
-- **Its throughput cost**: a 60-step run on LEM, median s/step over steps ≥ 15.
-- **Its quality**: a full-length run.
-- **Leave every default unchanged** and recommend in "For Maciej".
+- **Its throughput cost**: a 60-step job on entropy against production on the same node,
+  median s/step over steps ≥ 15.
+- **Its quality**: a gate.
+- **Leave every default unchanged.** The recommendation goes to "Questions for Maciej".
 
 ### Phase 5: report
 
@@ -340,7 +392,10 @@ attention items then rest on Phase 1.
 - the inventory, with a verdict and its evidence for every item;
 - every check and every job;
 - the floors;
-- the decomposition of 0.143, with its uncertainty.
+- what the evidence says about the implementation's share of the 0.143: measured,
+  bounded at 300 steps, or "no evidence of any";
+- the proposed full-length runs that would settle what the gates cannot, with their
+  configs ready.
 
 **Also:**
 
@@ -348,61 +403,92 @@ attention items then rest on Phase 1.
   status of the hypotheses it bears on.
 - Do not edit [ame_implementation.md](ame_implementation.md) or
   [ame_optimization_report.md](ame_optimization_report.md); other sessions own them. Put
-  the pointers in "For Maciej" instead.
+  the pointers in "Questions for Maciej" instead.
 
-## 7. Budget, cluster and rules
+### Proposed full-length runs: prepared, not run
 
-**Budget.**
+These size an effect at 4B tokens. They need about 30 GPU-h on LEM, where the two runs
+trained, and they run only on Maciej's answer. Their configs go on `parity_audit` and
+their exact submit commands into the report.
 
-- **Projected cost, about 30 GPU-h for wave 1:**
-  - P0: 4.2 h;
-  - P0b: about 4.4 h;
-  - P1: about 5 h;
-  - P-REF: about 12 h;
-  - D0: 3.7 h.
+| Run | What | Why |
+|---|---|---|
+| **P0** | S2-PS, identical | The run-to-run floor at 4B |
+| **P0b** | S2-PS at micro-batch 16 × 32 | The reassociation floor |
+| **P1** | `mem_parallel_size: null` | A1, A2 and A3 off |
+| **P-REF** | `mem_parallel_size: null` and `backend: reference` | A1–A7 off |
+| **D0** | S1-D at n = 8, identical | Dense's floor |
 
-  The smoke runs set the P1 and P-REF figures.
-- **Phase 1**: about 3 GPU-h.
-- **Phases 3 and 4, if needed**: 10–30 GPU-h.
-- **The cap is 80 GPU-h.** Past it, record the case in "For Maciej" and submit nothing
-  more.
+**Their rule, for when they run.** A run is harmful if |Δ `final_ce`| ≥ max(3F, 0.005),
+where F is the largest |Δ `final_ce`| of P0 and P0b against `doi36p8k` under either
+evaluator, *and* the 50-step paired train-loss gap keeps one sign in at least 90% of the
+last 1,000 steps.
 
-**Cluster.**
+## 8. Budget, clusters and rules
 
-- **LEM**, one H100 per job. Partition, account and gres are as in the memory note
+**Entropy.**
+
+- **Submit as `mstefaniak` only**, through `ssh entropy`: partition `h100`, gres
+  `gpu:h100:N`, QOS `mstefaniak_h100`. The 8-GPU cap is Maciej's alone. See the memory
+  notes `reference_cluster_entropy.md`, `feedback_entropy_account.md` and
   `reference_experiment_submission.md`.
-- **Exclude node r16-11** with `+infrastructure.slurm.exclude=r16-11`.
-- **Startup** takes about 15 minutes of dataset indexing.
-- **At most 5 concurrent jobs.** The Stage 1–2 and 1b–2b session runs on the same
-  account: never cancel or touch a job you did not submit.
+- **Preempting other users is allowed and expected.** Entropy is mainly our group's
+  cluster, and our jobs are meant to preempt other users' jobs when we need the GPUs
+  (Maciej, 2026-11-06). Submit without a preemption probe and without asking. Never
+  cancel another user's job by hand.
+- **Jobs may run in parallel**, up to the 8-GPU cap.
+- **Limits per job**: at most 45 minutes of wall time, a time limit of at most 1 h, and
+  at most 300 training steps.
+- **Total budget: 25 GPU-h.** Past it, add a question and submit nothing more.
+- **SSH**: fail2ban locks out rapid failures, so retry at most once a minute and never in
+  parallel.
+- **Submitting gates**: through `run_exp.py`, from the clean worktree, because
+  `version_code` commits `git add -A` to a cemetery branch.
+  - No dot in a run name: `run_exp.py`'s tmux step fails on one. If it happens, run
+    `cd <clone> && sbatch exp.job` by hand.
+  - Clear `generated_configs/` after every submit.
+  - The GitHub push from this laptop uses the 443 rewrite in `reference_run_exp_gotchas.md`.
 
-**Rules.**
+**LEM**: no jobs. Only the checkpoint copy (0.5), and reading the two runs' logs (1.7).
 
-- **Submit from the clean worktree.** `run_exp.py`'s `version_code` commits `git add -A`
-  to a cemetery branch.
-- **No dot in a run name.** `run_exp.py`'s tmux step fails on one. If it happens, run
-  `cd <clone> && sbatch exp.job` by hand.
-- **Clear `generated_configs/`** after every submit.
-- **Keep SSH connections few.** Use one persistent ControlMaster with keepalives: many
-  new connections got LEM's port 22 blocked for 15 minutes on 2026-11-06.
-- **Disk**: four AME checkpoints at 13 GB each, plus dense's 2 GB.
+**Everywhere.**
+
 - **Commit only your own files.** Other sessions' uncommitted edits stay out. At the
   time of writing those are `documents/notes/ame_implementation.md`,
   `documents/notes/pretraining_stage2_plan.md` and `scripts/free_gpus.sh`.
 - **Never delete branches, never message other sessions, never persist secrets.**
 
-## 8. What the outcome means
+**Working alone, and questions.**
 
-- **All cleared.** The efficiency work is quality-neutral at h12. The 0.143 is the method
-  plus the design choices C1–C4, and the next step is ame_comparison_h12.md's angles
-  A1–A6.
-- **Something harmful.** Its size, its mechanism, its fix and that fix's price; the gap
-  restated with the fix applied.
+- **The audit runs without user interaction.** Never stop or wait for an answer.
+- **A decision that needs Maciej becomes a question** in "Questions for Maciej", at the
+  end of the report. Each question is numbered and dated, and gives:
+  - the context;
+  - the options;
+  - the default you are taking.
+
+  Then carry on with that default.
+- **Maciej answers periodically**, when available: in the session, or by editing that
+  section. Check for answers whenever you commit, apply each one, and record what it
+  changed.
+- **These always need his answer:**
+  - submitting any full-length or long training;
+  - changing a default;
+  - going past the budget.
+
+## 9. What the outcome means
+
+- **All cleared.** No evidence that the efficiency work costs quality: bugs and
+  numerics are ruled out at the production shape, and training effects up to 300 steps.
+  The 0.143 is then the method plus the design choices C1–C4, unless the proposed
+  full-length runs say otherwise. The next step is ame_comparison_h12.md's angles A1–A6.
+- **Something harmful.** Its size at 300 steps, its mechanism, its fix and that fix's
+  price; the full-length runs that would size it at 4B are proposed.
 - **A bug.** It supersedes everything else. Every AME number since the change that
   introduced it carries it, and the report must name the runs affected.
 
-## 9. The `/goal` text
+## 10. The `/goal` text
 
 ```text
-/goal Run the AME efficiency-parity audit in documents/notes/ame_efficiency_parity_plan.md on the LEM cluster: find out whether the MFU optimizations applied to AME, and not to the dense baseline, cost AME model quality, using the two best h12 runs, S2-PS (W&B doi36p8k) and S1-D (x0xlqroj), at n = 8. That document is the plan; read it in full before starting, and follow it. documents/notes/ame_efficiency_parity_report.md is the record: every check, job, result and decision with its reason, committed on ame_main after every wave and at least every 3 hours. Code and configs live on branch parity_lem, in a clean worktree at f9680709, so every run shares the code of the runs it tests; submission on LEM is as in memory reference_experiment_submission.md. This runs unattended; Maciej is not available. Never stop to ask or wait for confirmation: decide what the plan leaves open, record why, and keep going. Queue waits, failed jobs, OOM, time limits and disk space are yours to handle; none of them ends the run. When a check fails, dig until its mechanism is understood and its size measured; a first anomaly is a lead, not a result. Out of scope: changing the default behavior of AME, dense or the trainer (new code only as opt-in flags whose default a test proves bit-identical), the AME design and its hyperparameters, the §7 optimizations that are not in these runs' code, Stages 1-2 and 1b-2b and their jobs, and cancelling jobs you did not submit. Stay within the plan's budget: 80 GPU-hours, at most 5 concurrent jobs. Anything beyond it, any default you think should change, and anything else that needs Maciej's decision goes to a "For Maciej" section at the end of the report. Done when every item in the plan's inventory has a verdict with its evidence, the report states how much of the 0.143-nat gap the implementation explains or bounds it, ame_comparison_h12.md carries the result, both are committed, and none of your jobs is queued or running.
+/goal Run the AME efficiency-parity audit in documents/notes/ame_efficiency_parity_plan.md: find out whether the MFU optimizations applied to AME, and not to the dense baseline, cost AME model quality, using the two best h12 runs, S2-PS (W&B doi36p8k) and S1-D (x0xlqroj), at n = 8. That document is the plan; read it in full before starting, and follow it. documents/notes/ame_efficiency_parity_report.md is the record: every check, job, result and decision with its reason, committed on ame_main after every phase and at least every 3 hours. Code, configs and the harness live on branch parity_audit, in a clean worktree at f9680709, so everything you test is the code those two runs used. You may run CPU tests locally, and submit short jobs, on one GPU or several, to entropy to test things: GPU tests, numerical checks on the two final checkpoints, training gates of at most 300 steps, throughput probes. Do not run model trainings, because they would take too long: no job past 300 optimizer steps or 45 minutes of wall time, and no jobs on LEM, which you use only to copy the two checkpoints. Prepare the full-length runs the plan proposes, but do not submit them. On entropy, submit as mstefaniak (memory notes reference_cluster_entropy.md and reference_experiment_submission.md). Preempting other users' jobs there is allowed and expected, so submit whenever you need GPUs, up to the 8-GPU cap, without a preemption probe and without asking. Work alone, without user interaction: never stop or wait for an answer. If you need Maciej's decision, add a question to the "Questions for Maciej" section at the end of the report, with the context, the options and the default you are taking, and carry on with that default. He answers periodically, when available, in that section or in this session, so check for answers whenever you commit, apply them, and record what changed. When a check fails, dig until its mechanism is understood and its size measured; a first anomaly is a lead, not a result. Out of scope: changing the default behavior of AME, dense or the trainer (new code only as opt-in flags whose default a test proves bit-identical), the AME design and its hyperparameters, the §7 optimizations that are not in these runs' code, Stages 1-2 and 1b-2b and their jobs, and cancelling jobs you did not submit. Stay within the plan's budget of 25 GPU-hours. Done when every item in the plan's inventory has a verdict with its evidence, the report states what the evidence says about the implementation's share of the 0.143-nat gap and lists the full-length runs that would settle what the short gates cannot, with their configs ready, ame_comparison_h12.md carries the result, everything is committed, and none of your jobs is queued or running.
 ```
