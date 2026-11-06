@@ -282,6 +282,25 @@ the **signed projection** ⟨Δ, g⟩/‖g‖², which measures a systematic shr
 along the true gradient. Every comparison runs on 256 sequences: the first training batch
 of seed 123 ("train") and the start of the held-out set ("heldout").
 
+### 1.0 The existing GPU tests, at the runs' code (job 36381)
+
+`pytest -m gpu tests/test_ame.py tests/test_bank_compile.py` on one entropy H100:
+**10 passed**, plus the CPU `aot_eager` case of `test_bank_compile.py`.
+
+- **`test_ame.py`'s nine GPU tests** cover:
+  - flex against the reference path;
+  - bf16 autocast against fp32 within bf16 resolution;
+  - the shift and the sink through the compiled kernel;
+  - token ids reaching a whole compiled block;
+  - no materialized score matrix.
+- **`test_bank_compile.py`'s mp-1 cases**, ported from `ame_optimize` (`922838c1`) to
+  `parity_audit` (`79bd8c86`):
+  - the compiled fused gather's `main_grad` equals eager on CUDA within 1e-4 relative;
+  - `aot_eager` keeps the `main_grad` mutation exactly.
+- The NCCL case was not ported: it depends on an `ame_optimize`-only conftest helper, and
+  both runs used `mem_parallel_size` 1.
+- `test_memory_parallel.py` has no GPU-marked tests. Its CPU suite passed in Phase 0.3.
+
 ### 1.1 `final_ce` reproduced; the common evaluator
 
 | | LEM `final_ce` | entropy, `Trainer.final_eval` on the checkpoint | production forward, fp32 CE, fp64 sum | fp32 reference path (the common evaluator) |
