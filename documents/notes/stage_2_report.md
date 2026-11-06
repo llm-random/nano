@@ -1,8 +1,9 @@
 # Stage 2 — positional encoding and the shift: report
 
-**Status: the plan's Stage 2 is complete (23:51). The best AME variant at h12 and 4B tokens
-is S2-PS, ALiBi with the KV shift: `final_ce` 3.1250 at n = 8, best in the 2 × 2 at both
-n = 8 and n = 9. Still training: S2-PS at n = 7 and 6, which Maciej asked for, around 01:00.**
+**Status: complete (2026-11-07 00:32). The best AME variant at h12 and 4B tokens is S2-PS,
+ALiBi with the KV shift: `final_ce` 3.1250 at n = 8. It is best in the 2 × 2 at both n = 8
+and n = 9, and its own learning-rate curve (n = 6–10) bottoms out at n = 8. No Stage 2 job
+is queued or running.**
 
 The plan is [ame_experiments.md, "Stage 2 — positional encoding and the shift"](ame_experiments.md#stage-2--positional-encoding-and-the-shift).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -362,8 +363,28 @@ it names it only after re-running the other two arms there (wave 3). Done:
 - **What the shift costs.** 3.75 against 3.59 s/step on LEM, about 4% slower, plus four
   scalars per head per layer.
 
-S2-PS at n = 7 and 6 (decisions 5 and 6) are still training. They map the winner's
-learning-rate curve beyond n = 8; their results go below.
+### S2-PS at n = 7 and 6 (finished 00:27–00:32): n = 8 stays the best
+
+| n | `final_ce` | Loss spikes (train) | s/step | τ | Attention entropy | α₂, mean \|·\| | β₂, mean \|·\| | Shortest horizon | Job | W&B run |
+|---:|---:|---|---:|---:|---:|---:|---:|---:|---|---|
+| 6 | 3.1348 | none | 3.782 | 7.74 | 0.493 | 0.630 | 0.774 | 11.5 | 6259085 | `egvqspym` |
+| 7 | 3.2031 | steps 1,374–1,400: 3.61 → 8.62; 1,580 → 4.69 | 3.768 | 8.43 | 0.489 | 0.527 | 0.606 | 14.6 | 6259084 | `zdlmmz7n` |
+| 8 | **3.1250** | none | 3.746 | 8.47 | 0.523 | 0.504 | 0.708 | 15.1 | 6256577 | `doi36p8k` |
+| 9 | 3.1865 | none | 3.777 | 8.18 | 0.576 | 0.399 | 0.680 | 15.3 | 6253467 | `ublx3ion` |
+| 10 | 3.2959 | none | 3.779 | | | | | | 6256578 | `p1oslt5b` |
+
+**The winner's learning-rate curve is flat from n = 6 to n = 8, and n = 8 is its lowest
+point.**
+- **n = 6** ends within 0.010 of n = 8.
+- **n = 7** ends 0.078 above, after a loss spike at step ~1,390. No other S2-PS run spiked.
+
+So the best n does not move, the plan's rule needs no further re-runs, and the winner
+stands: **S2-PS at n = 8**. The spike at n = 7 is the instability Maciej cited in preferring
+n = 9 ([stage_1_report.md](stage_1_report.md), decision 9). Between n = 6 and 8 the losses
+are within one spike of each other, and n = 9 costs 0.06.
+
+Across n, the readouts move together: the higher the learning rate, the sharper the
+attention (normalized entropy 0.58 at n = 9 down to 0.49 at n = 6–7) and the larger α₂.
 
 ## For Maciej
 
@@ -397,6 +418,6 @@ Items that need your decision. None blocks a Stage 1–2 run.
    of ALiBi is real. The plan's noise floor (0.232) comes from S1-A0's two seeds, and is
    mostly one loss spike. None of the ALiBi runs spiked, so their own seed spread is
    unmeasured and probably far smaller. Two runs at n = 8 with seed 124: about 8.7 GPU-h.
-6. **If S2-PS at n = 7 or 6 beats n = 8**, the plan's rule would re-run S2-P and S2-S
-   there before the winner stands. I have not done that automatically, given your
-   preference for stability (decision 5).
+6. **S2-PS at n = 7 and 6 did not beat n = 8** (3.2031 and 3.1348 against 3.1250), so
+   nothing further is needed for the winner. If you want a learning rate with more margin
+   against spikes, n = 9 costs S2-PS 0.06 nats.
