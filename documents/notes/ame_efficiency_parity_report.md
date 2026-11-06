@@ -818,8 +818,42 @@ path:
 - a bias adds up linearly over tokens, while, late in training near a stationary point,
   the true scalar gradient grows only like √N;
 - √(256/8) ≈ 5.7, which turns 0.5-1.4% into 3-8%;
-- Stage A's t-statistics over 16 groups of 512 test exactly this (running: jobs 36414,
-  36415).
+- Stage A's t-statistics over 16 groups of 512 test exactly this (jobs 36414, 36415).
+
+**Step 2, Stages A and B** (`scalars`, jobs 36414-36415; `parity_scalars.py`). These are
+the scalars' gradients on each of the 16 held-out groups of 512 sequences, at the final
+checkpoint, against the fp32 oracle. Stage B replays 16 AdamW updates (one per group) from
+the checkpoint's own moments, at the final LR 3.9e-4.
+
+| | tau | alpha | beta |
+|---|---|---|---|
+| **production**: one group's relative error | 7.2% | 10.0% | 18.5% |
+| production: the same over all 16 summed | 7.6% | 10.6% | 19.9% |
+| production: \|bias\| / RMS of the true gradient, median (max) | 0.015 (0.47) | 0.014 (0.92) | 0.021 (1.08) |
+| production: \|t\| median; share with \|t\| > 4 | 9.4; 75% | 8.0; 69% | 23.4; 90% |
+| production: summed-error projection | +0.018 | +0.024 | +0.013 |
+| production, 16 AdamW updates: update error; sign agreement | 3.4%; 99.3% | 3.2%; 99.0% | 3.6%; 99.3% |
+| **AME-F**: one group's relative error | 0.6% | 0.6% | 1.2% |
+| AME-F: \|t\| median | 4.6 | 3.3 | 8.5 |
+| AME-F, 16 AdamW updates: update error; sign agreement | 0.8%; 99.3% | 0.8%; 99.3% | 0.6%; 99.7% |
+
+- **The errors are systematic, not noise.** Most elements have |t| > 4, and production's
+  scalar gradients are stretched 1-2.4% along the true direction. beta's bias is real.
+- **They do not grow with the batch.** One group's error is 7.2% and the sum of 16 groups'
+  7.6%, for tau. True gradient and error both add up linearly, so the √N idea above is
+  ruled out.
+- **Adam absorbs most of it.** Over 16 updates from the trained moments, production moves
+  the scalars in the oracle's direction for 99.0-99.3% of the 720 numbers, and its update
+  size is off by 3.2-3.6%. fp32 attention brings both 5× closer.
+- **Where it comes from is not settled.**
+  - Not the kernel's dq/dk/dv rounding: ≤ 1.4% at the layer level (the mechanism check).
+  - Not the bank prep: `ame_std`, with an fp32 prep, has it as well.
+  - It disappears with AME-F's other changes: v upcast before the beta mix (so beta is
+    not rounded to bf16), q and k kept fp32, and the merge in fp32. The bf16-rounded beta
+    in the forward is one candidate. Pinning it down would need those changes as separate
+    switches, which the plan does not ask for.
+- What matters for Q-X2 is that AME-F removes the error at every scale measured: per
+  group, summed, and through Adam.
 
 ## Proposed full-length runs: prepared, not run
 
