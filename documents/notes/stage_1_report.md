@@ -173,9 +173,9 @@ expected parameter count, and there was no error in the log.
 | S1-A0 | 9 | 2⁻⁹ | 6251816_0 | `p5u294hj` | r16-7 |
 | S1-D | 8 | 2⁻⁸ = 3.91e-3 | 6252398_0 | `x0xlqroj` | r12-3 |
 | S1-A0 | 8 | 2⁻⁸ | 6252402_0 | `tuvcps1y` | r10-7 |
-| S1-A0 | 7 | 2⁻⁷ = 7.81e-3 | 6253086_0 | | |
-| S1-A0 | 6 | 2⁻⁶ = 1.56e-2 | 6253086_1 | | |
-| S1-D | 7 | 2⁻⁷ | 6253087_0 | | |
+| S1-A0 | 7 | 2⁻⁷ = 7.81e-3 | 6253086_0 | `5bvmqr0l` | r10-4 |
+| S1-A0 | 6 | 2⁻⁶ = 1.56e-2 | 6253086_1 | `lr528luy` | r10-7 |
+| S1-D | 7 | 2⁻⁷ | 6253087_0 | `6ldjhbyd` | r12-3 |
 
 The n = 9 runs (decision 6) were submitted at 01:41 from the same worktree. The only change
 was each grid file's `^learning_rate` list, edited to `[9]` and left uncommitted, as the
