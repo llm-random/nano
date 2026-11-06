@@ -223,6 +223,12 @@ class Trainer:
     # this value, so a config that sets one and a model that was built without
     # the other fails loudly instead of silently training the baseline.
     mem_parallel_size: Optional[int] = None
+    # The training length in billions of tokens, when the config gave it that
+    # way. Read by nobody here: src.definitions.resolve_n_steps has already
+    # turned it into n_steps before this class is built. Declared because
+    # every trainer config key reaches the constructor, and kept so the run
+    # record shows what was asked for beside the steps it became.
+    n_tokens_b: Optional[float] = None
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
     # anything outside it is rejected before training starts.

@@ -239,12 +239,24 @@ def submit_experiment(
     # out-of-range value fails here, on the laptop, naming the point.
     for point_dict, point_overrides in configs_grid:
         try:
-            check_point(point_dict)
+            checked = check_point(point_dict)
         except Exception as exc:
             raise RuntimeError(
                 f"grid point {point_overrides or '(no overrides)'} failed the "
                 f"schema check: {exc}"
             ) from exc
+        # check_point resolved a token budget into steps on its own copy; show
+        # the result before anything is queued. The dumped point keeps
+        # n_tokens_b, and main.run resolves it the same way on the cluster.
+        if checked.trainer.n_tokens_b is not None:
+            per_step = checked.common.batch_size * checked.common.sequence_length
+            print(
+                f"grid point {point_overrides or '(no overrides)'}: "
+                f"trainer.n_tokens_b={checked.trainer.n_tokens_b} -> "
+                f"trainer.n_steps={checked.trainer.n_steps} "
+                f"({checked.trainer.n_steps * per_step:,} tokens at {per_step:,} "
+                "per step, rounded down)"
+            )
     dump_grid_configs(configs_grid, cfg.infrastructure.generated_configs_path)
 
     script = cfg.infrastructure.get("script", None)
