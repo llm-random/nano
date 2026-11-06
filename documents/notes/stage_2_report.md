@@ -278,6 +278,17 @@ lowest AME result so far, 0.10 behind S1-D at n = 8 (2.9824).
 |---|---:|---|---|---|
 | S2-P | 8 | 6259007 | `245e3f04` | `s2_p_h12_lr8.0_2026-11-06_19-29-09` |
 | S2-S | 8 | 6259008 | `bffa50c6` | `s2_s_h12_lr8.0_2026-11-06_19-29-31` |
+| S2-PS | 7 | 6259084 | `55f8c08c` | `s2_ps_h12_lr7.0_2026-11-06_20-15-42` |
+
+5. **S2-PS at n = 7 as well (submitted 20:16).**
+   - **Why.** Maciej asked whether h12 AME with ALiBi and the shift was training at
+     n = 7. Its best n, 8, sits at the edge of the plan's ±1 check. And S1-A0's own
+     optimum is n = 6 ([stage_1_report.md](stage_1_report.md)).
+   - **What the plan asks.** Nothing beyond ±1. This run answers whether the winner's
+     optimum lies further out, for about 4.4 GPU-h.
+   - **If n = 7 beats n = 8.** The same rule ("re-run the other two arms at the new n")
+     would apply again. That would be a call for Maciej, given his preference for
+     stability over the last few hundredths.
 
 Results: pending, around 00:00.
 
