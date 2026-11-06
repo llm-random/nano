@@ -1,6 +1,6 @@
 # Stage 1 — first models: report
 
-**Status: n\* = 9 for both arms, by Maciej's decision (decision 9); n = 8–13 are complete, and n = 7 (both arms) and n = 6 (AME) finish around 11:45.**
+**Status: n\* = 9 for both arms, by Maciej's decision (decision 9). Dense's best (n = 8) is inside its grid. AME improves all the way to n = 6, so n = 5 and 4 run (job 6255094, from 11:52).**
 
 The plan is [ame_experiments.md, "Stage 1 — first models"](ame_experiments.md#stage-1--first-models).
 This file is its record: every job, every result, and every decision the plan left open,
@@ -157,6 +157,19 @@ Each one is a point the plan left open, or a change forced by the switch to LEM.
    - **n = 7 and 6 still finish.** Maciej asked for AME n = 7 "just to be sure". It was
      already training as job 6253086_0, so it was not submitted twice. Their final
      losses complete the grid record.
+10. **AME n = 5 and n = 4, submitted together at 11:52 (job 6255094).** n = 7 and 6
+    finished at 11:51 with AME still improving: 4.3262 at n = 7, 4.2656 at n = 6. So n = 6
+    is the best AME point and sits at the grid's edge. The plan's done-criterion needs the
+    best inside the grid, so its rule calls for n = 5. The gain did not shrink from 8→7
+    (0.045) to 7→6 (0.061), so n = 4 runs beside n = 5 in the same wave, as in
+    decision 8.
+    - **Cost.** About 8 GPU-h. If n = 5 wins, this saves the next 4 h wave.
+    - **What it does not change.** Maciej's n\* = 9 (decision 9) still governs Stage 2;
+      these runs only complete the grid record.
+    - **The divergence question.** If n = 5 and 4 diverge or end worse, n = 6 is inside
+      the grid and the AME arm is done.
+    - **Dense is done.** Its best, n = 8, is already inside the grid: n = 7 ended at
+      4.2734, far behind.
 
 Two facts for whoever reads the checkpoints:
 - The checkpoint path uses each array task's own Slurm job id, not the array id: dense
@@ -196,6 +209,8 @@ expected parameter count, and there was no error in the log.
 | S1-A0 | 7 | 2⁻⁷ = 7.81e-3 | 6253086_0 | `5bvmqr0l` | r10-4 |
 | S1-A0 | 6 | 2⁻⁶ = 1.56e-2 | 6253086_1 | `lr528luy` | r10-7 |
 | S1-D | 7 | 2⁻⁷ | 6253087_0 | `6ldjhbyd` | r12-3 |
+| S1-A0 | 5 | 2⁻⁵ = 3.13e-2 | 6255094_0 | | |
+| S1-A0 | 4 | 2⁻⁴ = 6.25e-2 | 6255094_1 | | |
 
 The n = 9 runs (decision 6) were submitted at 01:41 from the same worktree. The only change
 was each grid file's `^learning_rate` list, edited to `[9]` and left uncommitted, as the
@@ -218,6 +233,7 @@ as `run_exp.py` always does.
 | `76bd1630` | S1-A0 n = 8, 6252402 | both grid lists read `[8]` |
 | `04316cd4` | S1-A0 n = 7 and 6, 6253086 | AME list `[7, 6]`, dense list `[7]` |
 | `66ececd1` | S1-D n = 7, 6253087 | the same |
+| `4941a4d6` | S1-A0 n = 5 and 4, 6255094 | AME list `[5, 4]` |
 
 The two n = 9 snapshots also carry stale `generated_configs/config_1–3.yaml` left in the
 worktree by the grid submit. Their `exp.job` runs `--array=0-0`, so only `config_0`
@@ -352,6 +368,38 @@ against 4.4316). So the best n is still at the edge, and decision 8 extends the 
 | S1-A0 | **4.3711** | 4.4316 | 4.5137 | 4.6387 | 4.7715 | 4.9844 |
 
 At n = 8, S1-A0 is 1.411 nats behind S1-D.
+
+### n = 7 and 6 (11:51): dense's best is inside the grid; AME's is still at the edge
+
+| Arm | n | `final_ce` | Last 10-batch eval | Loss spike (train) | s/step | MFU | Peak GiB | Job | W&B run | Commit |
+|---|---:|---:|---:|---|---:|---:|---:|---|---|---|
+| S1-D | 7 | 4.2734 | 4.2812 | stuck near 6.0 from step ~280 to ~1,200, then learning as the LR decayed | 3.279 | 35.4% | 46.99 | 6253087_0 | `6ldjhbyd` | `8a240816` + list `[7]` (`66ececd1`) |
+| S1-A0 | 7 | 4.3262 | 4.3125 | | 3.623 | 30.8% | 65.89 | 6253086_0 | `5bvmqr0l` | `8a240816` + list `[7, 6]` (`04316cd4`) |
+| S1-A0 | 6 | **4.2656** | 4.2500 | | 3.604 | 31.0% | 65.89 | 6253086_1 | `lr528luy` | the same |
+
+Seed, tokens, parameters and FLOPs per token are as above. Train loss over steps
+1,900–2,099 already ranked AME as n = 6 < 8 < 7 < 9 (4.639, 4.704, 4.751, 4.764), with
+n = 7 trailing n = 8 mid-run before passing it by the end.
+
+`final_ce` by n, every finished point:
+
+| Arm | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| S1-D | — | 4.2734 | **2.9824** | 3.0244 | 3.2002 | 3.3027 | 3.5215 | 3.8301 |
+| S1-A0 | **4.2656** | 4.3262 | 4.3711 | 4.4316 | 4.5137 | 4.6387 | 4.7715 | 4.9844 |
+
+- **S1-D: done by the plan's rule.** Its lowest loss is n = 8, with a worse point on
+  each side. n = 7 is the instability the spikes at n ≤ 10 hinted at.
+- **S1-A0: not done.** It improves monotonically all the way to n = 6, so n = 5 and 4
+  were started (decision 10).
+- **The learning rates point apart.** AME prefers a far higher learning rate than dense:
+  ≥ 4× (n ≤ 6 against dense's n = 8). Part of this may be the banks. Each bank row only
+  updates when its token appears in the batch, so it sees few updates, and its weight
+  decay is exempt.
+- **The cost of n\* = 9.** At Maciej's n\* = 9, S1-A0 sits 0.166 nats above its best
+  measured point (4.4316 against 4.2656), and S1-D 0.042 above its best.
+- **The AME–dense gap depends on the n compared.** At the best measured points it is
+  4.2656 − 2.9824 = **1.283 nats**; at n = 9 it is 1.407.
 
 ## W&B runs to ignore
 

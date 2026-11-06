@@ -118,9 +118,18 @@ Results: pending; about 4.3 h for each AME arm and 3.9 h for S2-D0 once running.
 
 Items that need your decision. None blocks a Stage 1–2 run.
 
-1. **n\* = 9, settled.** You set n = 9 for h12 at about 10:00 (decision 1). The plan's
-   selection rule would have taken n = 8 or lower. n = 7 and 6 still finish, for the
-   record; if either one changes your view, Stage 2's wave can re-run at the new n.
+1. **n\* = 9, settled, but AME's own optimum is far higher.** You set n = 9 for h12 at
+   about 10:00 (decision 1). Since then:
+   - **AME:** n = 7 and 6 finished, with S1-A0 still improving: 4.3262 at n = 7, 4.2656
+     at n = 6, against 4.4316 at n = 9.
+   - **Dense:** its best is n = 8 (2.9824); n = 7 broke down (4.2734).
+
+   So n = 9 costs S1-A0 0.166 nats, and dense 0.042. Stage 2 compares its four AME cells
+   at a learning rate that is clearly sub-optimal for AME, though the same for all four
+   ([stage_1_report.md](stage_1_report.md), decision 10). AME n = 5 and 4 are running to
+   find where the AME curve turns. If the comparison should sit at AME's optimum, the
+   plan's original rule (n\* = S1-A0's best n) means re-running wave 1 at that n, about
+   17 GPU-h.
 2. **`run_exp.py` and run names with a dot** (decision 2). A one-line fix would be to
    sanitize the tmux session name, e.g.
    `tmux_name = experiment_branch_name.replace(".", "_").replace(":", "_")`, and use it
