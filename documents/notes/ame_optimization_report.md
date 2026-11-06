@@ -36,6 +36,8 @@ the mean is the right reading there.
 | **B1** — AME h20, 4 GPU, start of work | 26.84% | 3.720 s | 281,748 | 60.4% |
 | **Best 4 GPU** — AME h20 + align + S3b + O33 | **35.02%** | 2.852 s | 367,623 | **78.8%** |
 | **Best overall** — AME h16, 1 GPU, mb 16 | **37.96%** | 5.938 s | 176,573 | **85.4%** |
+| **Best 4 GPU, §7 run** — + O39 v2 (bank exchange on a side stream) | **37.35%** | 2.674 s | 392,107 | 84.0% |
+| **Best 1 GPU, §7 run** — h20 + O41 + O42 + O38(b), mb 8 | **39.54%** | 10.104 s | 103,780 | 89.0% |
 | **B2** — dense H-balanced h20, 4 GPU (ceiling) | 44.44% | 2.364 s | 443,432 | 100% |
 
 **+30.5% on the reference baseline.** Two structural facts frame everything
@@ -111,8 +113,12 @@ Percentages are relative MFU change at the stated shape.
 | **O35** | The h-sweep at 1 GPU | **Done** | h16 **+11.1%** over h20 | §1.12 |
 | **O36** | Raise micro-batch at 4 GPUs | **Attempted, blocked** | h16 mb32 OOM → with O11 fits but **−2.6%** | §1.13 |
 | **O37** | No FSDP2 at world size 1 | **Built** | **+4.2%** at h20, **−2.5%** at h16 | §1.11 |
-| **O38** | Smaller bank optimizer state: bf16 first moment, or no bf16 bank copy, or 8-bit states | **(b) built 2026-11-06**, opt-in (`trainer.bank_compute_copy=false`, bit-identical); (a) not built; 8-bit is a §7.10 proposal | — (target: micro-batch 8 at h20, 1 GPU) | §7.6 B1 |
-| **O39** | Bank exchange off the critical path: ids all-gathered once per micro-step, each layer's gather + all-to-all on a side stream two layers ahead, reassembly folded into the compiled block, backward exchange + scatter on the side stream | **Built 2026-11-06** (`trainer.bank_prefetch_depth`) | v1 **+2.1%** (35.06 → 35.79); v2 in progress | §1.20 |
+| **O38** | Smaller bank optimizer state: bf16 first moment, or no bf16 bank copy, or 8-bit states | **(b) built 2026-11-06**, opt-in (`trainer.bank_compute_copy=false`, bit-identical); (a) not built; 8-bit is a §7.10 proposal | (b) alone −0.7% at 1 GPU; with mb 8 + `expandable_segments` **39.54%** (B1) | §1.22 |
+| **O39** | Bank exchange off the critical path: ids all-gathered once per micro-step, each layer's gather + all-to-all on a side stream two layers ahead, reassembly folded into the compiled block, backward exchange + scatter on the side stream | **Built 2026-11-06** (`trainer.bank_prefetch_depth`) | v1 **+2.1%**; v2 (compiled side-stream kernels, one all-to-all) **+6.5%** (35.06 → 37.35) | §1.20 |
+| **O41** | Residual metrics hook only on heavy-metric steps (two graph breaks per block per micro-step, dense too) | **Built**, default on (`+o41=false` restores) | with O42: **+5.6%** at 1 GPU; at 4 GPUs mb 16 a collapse to ~16% (memory pressure), 37.06% at mb 8 | §1.21 |
+| **O42** | AME's flex block mask built eagerly before the compiled block (8 graph breaks and an eager `create_block_mask` per layer per call) | **Built**, default on (`+o42=false` restores) | as O41 | §1.21 |
+| **O43** | Bank exchange on FSDP2's process group | **Built, opt-in, not kept** (`trainer.bank_default_group`) | no change (16.49% in the collapsed regime) | §1.21 |
+| **O44** | CPU at most N blocks ahead of the compute stream | **Built, opt-in, not kept** (`trainer.bank_prefetch_cpu_lead`) | no change (17.90% in the collapsed regime) | §1.21 |
 | **O40** | FSDP2 parameters kept unsharded across micro-steps (`set_reshard_after_backward(False)` until the last) | **Built, opt-in, not kept** | **−0.9%** by the mean, +0.6% by the median | §1.19 |
 | **A0** | §7 attribution: 4-GPU best and its dense twin, kernel profiles | **Done** | measurement; the target is the bank path + AME glue | §1.17 |
 | **B1/B2** | Baselines: AME h20 and dense h20 at 4 GPU | **Done** | 26.84% / 44.44% | Headline |
@@ -776,6 +782,112 @@ on two small functions, CUDA only), and q and k back in one buffer and one
 all-to-all per layer. An optional cap on the bank group's NCCL CTAs
 (`trainer.bank_nccl_max_ctas`) to bound what the exchange takes from compute.
 
+**v2 (job 33530): 35.06% → 37.35% (+6.5%), step 2.849 → 2.674 s, tokens/s
+392,107, peak 64.61 GiB (unchanged).** The new 4-GPU best. Loss trace: equal
+to the base through step 17, one bf16 ulp apart at step 18, equal after; the
+grad-norm trace is v1's step for step, so the departure from the base is
+deterministic -- the compiled block now takes the rows as inputs and inductor
+fuses and tiles its normalize differently, rounding fp32 reductions
+differently -- not atomic-order noise. Step 0 identical.
+
+### 1.21 O41 + O42 — `compile_blocks_full` never compiled whole blocks
+
+O39 v2's profile still showed 480 `direct_copy` kernels per step in the
+backward (61.8 ms), all issued by `aten::contiguous` at the top of
+`CompiledFunctionBackward` -- AOTAutograd making each incoming gradient
+contiguous at a graph boundary -- and 1280 compiled functions per step:
+**8 graphs per AME block per micro-step**, 4 per dense block. A block that
+`compile_blocks_full` compiles "whole" should be one. Counted on the real h4
+stack with a counting backend, steady state (third call):
+
+| | dense | AME |
+|---|---:|---:|
+| as run (Residual metric logger set, cold mask cache at first trace) | 4 | 10 |
+| no metric logger | 1 | 9 |
+| O41 + O42 | **1** | **1** |
+| O41 + O42 on a heavy-metric step | 4 | 4 |
+
+Two independent causes:
+
+- **O41, the residual metrics, both models.** main.py hands every `Residual`
+  the metric logger, so every forward called `_accumulate_intermediate_metrics`
+  -- `@torch.compiler.disable`d to keep a per-block string out of the trace --
+  and every call to a disabled function is a graph break: two per block, on
+  every micro-step, although the function does nothing except on one step in
+  `heavy_metrics_calculation_interval` (100). Fix: the logger publishes a
+  plain bool, `heavy_active`, refreshed in `set_step`; `Residual` calls the
+  hook only when it is set. Compiled code branches on a bool that flips at most
+  twice per interval instead of guarding on `step`.
+- **O42, AME's flex block mask.** Each layer caches its `BlockMask`, built on
+  first use -- inside the compiled block, so the first trace of the shared
+  block code ran `create_block_mask` through dynamo (three `call_id` breaks in
+  its `inspect` calls), and dynamo did not guard on the cache filling: every
+  later call reused that code, breaks included, and ran `create_block_mask`
+  eagerly in the gaps -- per layer, per micro-step. Fix: the encoder asks each
+  layer to `prepare_for_shape` (build the mask, eagerly, compiler-disabled)
+  before its compiled block runs, so the first trace already sees a warm cache.
+  With a warm cache the block traces as 1 graph, 0 breaks.
+
+Both are pure scheduling: the same operations, fewer graph boundaries. The
+metrics are still logged on heavy steps (`tests/test_training_smoke.py`
+exercises interval 1).
+
+**Effect at 1 GPU (job 33644): 35.45–35.59% → 37.45% (+5.6%)**, step 11.27 →
+10.667 s, the backward 527 ms shorter; peak 66.87 → 67.69 GiB. At 1 GPU there
+are 128 micro-steps per step and 20 eager `create_block_mask` calls per
+micro-step, which was most of the "fixed cost per micro-step" §7.3 had fitted
+(12.16 ms against dense's 8.64).
+
+**At 4 GPUs it first made things much worse (jobs 33588, 33639, 33688):
+15.6–16.5%**, the forward 4–5 s instead of 0.82. Not compute -- the profiled
+rerun (33639) shows compute busy *down* to 2537.9 ms -- but the forward's NCCL
+kernels busy for ~2 s each (FSDP2 all-gather 1985 ms, bank all-to-all 1997 ms)
+and the GPU fully idle 1833 ms per step. Peak memory rose 3 GiB. Putting the
+bank exchange on FSDP2's own process group (O43, 33688) changed nothing, which
+rules out the two communicators reaching the GPUs in different orders. O41+O42
+without the prefetcher (33725) then OOMed at step 1 on the 3.07 GiB logits,
+with 64.7 GiB allocated and **9.4 GiB reserved but unallocated**: the
+whole-block graphs fragment the caching allocator, and an allocator that is
+out of room frees cached blocks and retries, synchronising the device each
+time -- in the forward, where the large allocations are, on every rank, with
+the collectives then waiting for the slowest. The `create_block_mask` that O42
+removed had been a per-block CPU-GPU sync that kept the CPU from running ahead;
+with it gone, nothing paced the allocator either.
+
+### 1.22 Phase B — h20 at 1 GPU: O41+O42, O38(b), micro-batch 8
+
+Base for Phase B: `configs/ame/h20_1gpu.yaml` (no FSDP2, autocast, mb 4 × 128),
+35.45–35.59% (jobs 33051, 32834).
+
+| job | change | MFU | step | peak GiB | note |
+|---|---|---:|---:|---:|---|
+| 33644 | + O41 + O42 | **37.45%** | 10.667 s | 67.69 | +5.6%; backward −527 ms |
+| 33700 | + O38(b) | 37.18% | 10.746 s | — | −0.7%: the fp32 gathers |
+| 33648 | + O38(b), mb 8 × 64 | — | — | — | OOM: 1.54 GiB with 74.36 allocated + 2.94 reserved-unallocated |
+| 33695 | + O38(b), mb 8 × 64, `expandable_segments:True` | **39.54%** | 10.104 s | — | **best 1-GPU** (B1) |
+
+So B1 is done: O38(b) frees 4.7 GiB exactly as sized (§7.6), fragmentation
+swallowed it until expandable segments returned it, and micro-batch 8 is worth
++5.6% here (dense's own mb 4 → 8 was +5.8%).
+
+**Attribution at the new best (jobs 33747, 33753; batch 64 × ga 8, mb 8, per
+131,072 tokens).** AME 1309.2 ms of kernels against dense's 1170.5:
+
+| | AME | dense | Δ |
+|---|---:|---:|---:|
+| GEMM | 559.3 | 614.9 | −55.6 |
+| glue | 332.9 | 242.8 | **+90.1** (fwd +22.0, bwd +68.1) |
+| attention | 242.4 | 234.1 | +8.3 |
+| bank gather (fused into the q/k normalize) | 15.3 | — | +15.3 |
+| other eager | 46.8 | 32.1 | +14.7 |
+
+(The "optimizer" rows, 76.2 against 9.9 ms, are the per-step clip norm and the
+bank AdamW, amortised over 64 micro-steps in the real run; not per-token cost.)
+At the real batch that is ~0.6 s of AME-specific kernel time in a 10.1 s step,
+most of it the glue: the k-normalize/shift backward fused with the bank
+scatter, and the reductions for the per-head parameters' gradients (alpha,
+beta, tau, the sinks).
+
 ---
 
 ## 2. Promising, not done or not tested
@@ -1146,8 +1258,26 @@ session). **Times are submit times** (cluster clock).
 | 00:19 | 33515 | gate (2 GPUs) of O39 v1: + `test_bank_prefetch.py`, O40 tests | — | — | 15 passed (CPU bit-identity of O39 at mp 2 and 4, O40, O9). Two CUDA tests failed: the new prefetch test by my own bug (an `import torch._dynamo` inside the worker shadowed `torch`), and `test_bank_compile`'s NCCL test with a `c10::Error` whose traceback my output filter cut. AME suite 73/73. Cancelled at 19 min in the memory_parallel suite: superseded by 33533. |
 | 00:24, 00:25 | — | O39 kernel profile, two submits | — | — | **Not submitted**: GitHub rejected the cemetery push (`remote: fatal error in commit_refs_rules`) twice, while reporting no incident. run_exp restored the tree both times; nothing was queued. |
 | 00:29 | 33527 | **O39 v1 kernel profile** | base + O39 v1 | — | Exposed all-to-all 196.6 → 59.6 ms and the backward copy gone, but the side stream ran eager gathers (169.8 ms) and scatters (158.6 + 86.0 ms), 3–11× slower than the compiled kernels they replaced, and the compute stream's GEMMs ran 178.6 ms slower beside them (§1.20). |
-| 00:37 | 33530 | **O39 v2**: side-stream gather and scatter compiled, one all-to-all per layer | base + O39 v2 | | running |
-| 00:38 | 33533 | gate (2 GPUs) of O39 v2 + O38(b), full logs kept | — | — | running |
+| 00:37 | 33530 | **O39 v2**: side-stream gather and scatter compiled, one all-to-all per layer | base + O39 v2 | **37.35%** | **+6.5%**, step 2.674 s, peak 64.61 GiB. New 4-GPU best (§1.20). |
+| 00:38 | 33533 | gate (2 GPUs) of O39 v2 + O38(b), full logs | — | — | Hung in `test_bank_compile`'s NCCL test, one GPU at 100% and the other idle: my gate script exported one `TRITON_CACHE_DIR` for every spawned rank, the race `isolate_triton_cache` exists to prevent (and most likely 33515's `c10::Error`, via NCCL's watchdog). Cancelled at 6 min. Workers now isolate their caches (`conftest.isolate_compile_caches`). |
+| 00:43 | 33543 | O39 v2 kernel profile | base + O39 v2 | — | 216 ms of compute-stream gaps, 378 ms of all-to-all beside compute, GEMMs still 96.7 ms slower than A0, and 480 `direct_copy` kernels per step at graph boundaries: **8 graphs per AME block** (§1.21). |
+| 00:46 | 33557 | gate (2 GPUs), caches isolated | — | — | Fused-pair NCCL test passes again. The compiled-prefetch test failed on backbone parameters after two AdamW steps (6.6e-3; masters 6.7e-6, losses 2.4e-6): Adam's sign sensitivity on near-zero gradients, not the exchange. Test restated on gradients. Cancelled after the GPU part (CPU suites run locally). |
+| 00:53 | 33588 | **O41 + O42** on O39 v2: whole-block graphs | O39 v2 + O41 + O42 | 15.62% | **Collapse**: forward 4–5 s (§1.21). |
+| 00:54 | 33597 | gate (2 GPUs), GPU tests only | — | — | **12/12**: bank compile (CUDA, NCCL), compiled prefetch vs eager fused, the AME CUDA suite. |
+| 01:01 | 33629 | diagnostic (1 GPU): one h20 block, cold vs warm mask cache | — | — | Warm: forward 2.23 → 1.32 ms, backward 3.32 → 3.13 ms, 7 → 1 compiled graphs, flex on its Triton template in both. O42 is right at block level. |
+| 01:02 | 33639 | O41 + O42 kernel profile | O39 v2 + O41 + O42 | — | Compute busy down to 2537.9 ms; GPU fully idle 1833 ms/step; forward all-gather and all-to-all busy ~2 s each, waiting on peers. |
+| 01:03 | 33644 | **1 GPU**, base config + O41 + O42 | §6.1 h20/1 GPU + O41 + O42 | **37.45%** | **+5.6%** over 35.45–35.59%; step 10.667 s; peak 67.69 GiB. |
+| 01:04 | 33648 | 1 GPU, O38(b) + micro-batch 8 | + O38(b), mb 8 × 64 | — | OOM at step 1: 1.54 GiB (logits) with 74.36 GiB allocated and 2.94 GiB reserved but unallocated. O38(b) freed what it should; fragmentation did the rest. |
+| 01:12 | 33688 | **O43**: bank exchange on FSDP2's process group | O39 v2 + O41 + O42 + O43 | 16.49% | No better: rules out cross-communicator ordering. |
+| 01:13 | 33695 | **1 GPU, B1**: O38(b) + mb 8 + `expandable_segments` | + O38(b), mb 8 × 64, alloc conf | **39.54%** | **New 1-GPU best**, step 10.104 s. |
+| 01:14 | 33700 | 1 GPU, O38(b) alone at mb 4 | + O38(b) | 37.18% | −0.7% against 37.45%: fp32 gathers cost a little; what O38(b) buys is the memory. |
+| 01:20 | 33725 | O41 + O42 without the prefetcher | §6.1 h20/4 GPU + O41 + O42 | — | OOM at step 1: 3.07 GiB (logits) with 64.7 GiB allocated and **9.4 GiB reserved but unallocated**. |
+| 01:24 | 33742 | O41 + O42 + prefetch + `expandable_segments` | | 8.27% | Worse: segments mapped and unmapped at the memory limit. |
+| 01:24 | 33747 | 1 GPU attribution, AME (batch 64, ga 8, mb 8) | 1-GPU best | — | AME vs dense per 131k tokens: GEMM −56, glue +90, attention +8, embedding +15 ms (§1.22). |
+| 01:25 | 33753 | 1 GPU attribution, dense twin, same shape | | — | |
+| 01:34 | 33793 | **O44**: CPU at most 2 blocks ahead of the compute stream | O39 v2 + O41 + O42 + O44 | 17.90% | No better: not the CPU running ahead. |
+| 01:43 | 33832 | O41 + O42 + prefetch at **micro-batch 8** | O39 v2 + O41 + O42, mb 8 × 16 | **37.06%** | `num_alloc_retries=0`, peak 40.98 GiB: **the collapse is memory pressure at mb 16.** +10.7% over the old mb 8 (33.48%). |
+| 01:48 | 33859 | O41 + O42 + prefetch + O38(b) at mb 16 | | | running |
 
 ### Jobs on this account NOT part of this work
 
@@ -1554,6 +1684,52 @@ meanwhile for Phase B: bit-identical on CPU after a bug of mine where
 `materialize()` rebound the master each step and left the bank optimizer
 stepping a tensor that never got a gradient.
 
+### 2026-11-06, 00:43 — O39 v2 lands; the profile finds 8 graphs per block
+
+O39 v2 measured 37.35% (+6.5%), the new 4-GPU best. Its profile still showed
+216 ms of compute-stream gaps and 480 `aten::contiguous` copies per step at the
+top of `CompiledFunctionBackward`; counting compiled functions in the trace
+gave 8 graphs per AME block per micro-step, 4 per dense block. A local count
+named the two causes (§1.21) and both looked like pure wins.
+
+### 2026-11-06, 00:44–00:58 — the gate jobs, and a cache race of my own
+
+The O39 gates kept failing in the NCCL tests, and the cause was my gate
+script: it exported one `TRITON_CACHE_DIR` for all spawned ranks, which is the
+race `isolate_triton_cache` was written to prevent; one rank stalled in a
+compile while the other spun in a collective. Fixed in the tests
+(`conftest.isolate_compile_caches`). A third failure was the test's own
+design (Adam's sign sensitivity after two steps); it now compares gradients.
+Gate 33597: 12/12 on CUDA. I stopped running the CPU suites on the cluster's
+contended CPUs (15 min a gate) and ran them locally on the same torch build.
+
+### 2026-11-06, 00:59 — O41 + O42 collapse at 4 GPUs and gain at 1
+
+Whole-block graphs took the 4-GPU run to 15.6% and the 1-GPU run to 37.45%
+(+5.6%). A single-block diagnostic on one GPU showed O42 itself correct and
+faster (forward −41%). Four hypotheses then went through the queue, each one
+run: the two communicators reaching the GPUs in different orders (O43: no
+change), the CPU running ahead of the GPU (O44, a two-block bound: no change),
+fragmentation (`expandable_segments`: worse, 8.3%; `max_split_size_mb:1024`:
+no change), and memory pressure (micro-batch 8: **37.06% with zero allocator
+retries**, against 231–260 retries at micro-batch 16). It is memory pressure:
+whole-block graphs need about 3 GiB more at micro-batch 16, the caching
+allocator then frees and retries about once per micro-step, and every retry
+synchronises the device, which in a 4-rank job means every rank waits. The
+trainer now logs `num_alloc_retries` next to peak memory, so this failure names
+itself in the log. `whole_block_graphs`, `o41` and `o42` are now switches,
+default on: `+whole_block_graphs=false` reproduces O39 v2's 37.35%.
+
+### 2026-11-06, 01:13 — Phase B starts beside Phase A
+
+With the 4-GPU slot taken by the diagnosis, the free GPUs ran Phase B: O41+O42
+at 1 GPU (37.45%), O38(b) (−0.7% on its own; frees 4.7 GiB), and with it
+micro-batch 8 — OOM by fragmentation (2.94 GiB reserved but unallocated), then
+**39.54%** with `expandable_segments`, the new 1-GPU best. At 1 GPU expandable
+segments help (headroom is ample at 75.9 of 79 GiB once fragmentation is gone);
+at 4 GPUs, with no headroom, they hurt. A 1-GPU attribution against dense
+(§1.22) leaves AME's glue as the main excess there.
+
 ### Corrections I made to my own earlier claims
 
 Recorded because several changed what was worked on next.
@@ -1632,8 +1808,8 @@ ceiling for the % column is B2 = 44.44%.
 | **h12** | **4** | **30.00%** | 0.930 s | 1,127,285 | 32 × 4 | 53.22 | 67.5% | 33076 | `ame_tests/h12_4gpu_mb16_o29.yaml` + `trainer.gradient_accumulation_steps=4` |
 | **h16** | **1** | **37.96%** | 5.924 s | 177,001 | 16 × 32 | 68.35 | **85.4%** | 32825 | `ame_tests/h16_1gpu_mb16.yaml` |
 | **h16** | **4** | **33.30%** | 1.689 s | 621,015 | 16 × 8 | 44.53 | 74.9% | 32856 | `ame_tests/h16_4gpu_mb16_o29.yaml` |
-| **h20** | **1** | **35.59%** | 11.226 s | 93,404 | 4 × 128 | 66.87 | 80.1% | 32834 | `ame_tests/h20_1gpu_mb4_nofsdp.yaml` |
-| **h20** | **4** | **35.02%** | 2.852 s | 367,691 | 16 × 8 | 64.63 | 78.8% | 32847 | `ame_tests/h20_4gpu_mb16_mp4_o29.yaml` |
+| **h20** | **1** | **39.54%** | 10.104 s | 103,780 | 8 × 64 | — | 89.0% | 33695 | `ame/h20_1gpu.yaml` + `trainer.bank_compute_copy=false trainer.gradient_accumulation_steps=64 +cuda_alloc_conf=expandable_segments:True` (O41+O42 on, the default since 2026-11-06) |
+| **h20** | **4** | **37.35%** | 2.674 s | 392,107 | 16 × 8 | 64.61 | 84.0% | 33530 | `ame/h20_4gpu.yaml` + `trainer.bank_prefetch_depth=2 +whole_block_graphs=false` (O39 v2; measured before O41/O42 existed, which the switch turns off) |
 
 GFLOPs/token, which is why the MFU columns are not directly comparable across
 rows: h12 **1.053**, h16 **2.121**, h20 **3.768**. A smaller model carries less
@@ -1868,7 +2044,7 @@ assumed.
 | step | what | value (estimate) | status |
 |---|---|---:|---|
 | **B0** | Attribution: time profiler and kernel profile of AME and its dense twin at mb 4, locating the +451 ms fixed and +468 ms per-sequence excess (§7.3). | measurement | not started |
-| **B1** | **Micro-batch 8.** It OOMs today needing about 1.4 GiB more than the card has; by AME's own memory growth (3.4 GiB per sequence) its peak would be ~80.6 GiB. In order: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (§2.11, ~2.5 GiB of fragmentation); then a smaller bank state, **O38**. The bank state is 18 bytes per bank parameter, 43.2 GiB at h20: keep Adam's first moment in bf16 (−4.8 GiB), or gather from the fp32 master and drop the bf16 bank copy (−4.8 GiB, exact numerics), or block-wise 8-bit optimizer states (−14.4 GiB; a new dependency, so a §7.10 proposal, not part of the run). A bf16 second moment is ruled out: the bank AdamW runs at torch's default β2 = 0.999, so a step moves v by ~0.1%, less than half a bf16 step (0.2–0.4%), and v would stop changing. Micro-batch 16 would need ~108 GiB by the same growth: out of reach. | +2.2% (AME's decay, §2.13) to +5.8% (dense mb 4 → 8, §1.16): 0.24–0.62 s | not started |
+| **B1** | **Micro-batch 8.** **Done 2026-11-06: 39.54%** (§1.22) — It OOMs today needing about 1.4 GiB more than the card has; by AME's own memory growth (3.4 GiB per sequence) its peak would be ~80.6 GiB. In order: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (§2.11, ~2.5 GiB of fragmentation); then a smaller bank state, **O38**. The bank state is 18 bytes per bank parameter, 43.2 GiB at h20: keep Adam's first moment in bf16 (−4.8 GiB), or gather from the fp32 master and drop the bf16 bank copy (−4.8 GiB, exact numerics), or block-wise 8-bit optimizer states (−14.4 GiB; a new dependency, so a §7.10 proposal, not part of the run). A bf16 second moment is ruled out: the bank AdamW runs at torch's default β2 = 0.999, so a step moves v by ~0.1%, less than half a bf16 step (0.2–0.4%), and v would stop changing. Micro-batch 16 would need ~108 GiB by the same growth: out of reach. | +2.2% (AME's decay, §2.13) to +5.8% (dense mb 4 → 8, §1.16): 0.24–0.62 s | not started |
 | **B2** | **Fixed cost per micro-step** (12.16 ms against dense's 8.64, × 128): S5 (2,560 graph breaks per step at ga 128); CUDA graphs (`mode="reduce-overhead"`), which O37's FSDP2-free setup makes plausible once the graph breaks are gone. | up to ~0.45 s AME-specific, plus part of the shared 1.1 s | not started |
 | **B3** | **Per-sequence backward excess** (+0.92 ms per sequence), located in B0 among: the bank scatter (`index_add_` after an fp32 cast; duplicate ids contend for the same rows, and pre-reducing by id is O14/O15), the sink backward and the KV-shift backward. | up to ~0.47 s | not started |
 | **B4** | Shared backbone, as A7. | unsized | not started |
@@ -1888,6 +2064,9 @@ part of the run.
 | 2026-11-05 | plan written | 35.02% | 35.59% | nothing run under this plan yet |
 | 2026-11-06 00:05 | A0 | 35.06% (re-measured, 33502) | — | dense twin 44.51% |
 | 2026-11-06 00:25 | O40, O39 v1 | **35.79%** (O39 v1, 33512) | — | O40 not kept |
+| 2026-11-06 00:42 | O39 v2 | **37.35%** (33530) | — | |
+| 2026-11-06 01:11 | O41 + O42 | collapse at mb 16 (memory pressure); 37.06% at mb 8 | **37.45%** (33644) | §1.21 |
+| 2026-11-06 01:20 | B1: O38(b) + mb 8 + expandable segments | 37.35% | **39.54%** (33695) | §1.22 |
 
 ### 7.8 Running unattended
 
