@@ -1,7 +1,7 @@
 # Stage 2 — positional encoding and the shift: report
 
-**Status: wave 1 (S2-P, S2-S, S2-PS, S2-N at n = 9) submitted 2026-11-06 09:33–09:35 on LEM,
-by Maciej's call, before Stage 1 settled.**
+**Status: wave 1 (S2-P, S2-S, S2-PS, S2-N at n = 9) training on LEM since 09:34–09:37, by
+Maciej's call, before Stage 1 settled. The extra dense NoPE arm S2-D0 was submitted at 09:55.**
 
 The plan is [ame_experiments.md, "Stage 2 — positional encoding and the shift"](ame_experiments.md#stage-2--positional-encoding-and-the-shift).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -46,6 +46,37 @@ S1-D, is [stage_1_report.md](stage_1_report.md).
    complete, with the secrets substituted into `exp.job`. So `cd <clone> && sbatch exp.job`
    on LEM is exactly the step that was skipped. No code was changed. The fix is for
    Maciej ("For Maciej" below).
+3. **An extra arm, S2-D0: dense h12 with no positional encoding, at Maciej's request
+   (2026-11-06, about 09:45).** His words: "Run also as a baseline dense h12 for 4B
+   tokens, but without any positional encoding - no rope or anything."
+   - **Why it matters.** S2-D0 is S1-D with RoPE removed, so the causal mask is its only
+     positional signal. It is the dense counterpart of S1-A0 and S2-S, which have no
+     positional encoding either. So S1-A0 against S2-D0 isolates "Q and K from
+     id-indexed banks" from "no position". This is one of the controls the plan defers
+     to [ame_implementation.md](ame_implementation.md#positional-encoding-and-what-a-dense-comparison-must-control).
+   - **A code change was needed.** `RoPEAttention` always applied RoPE, and no
+     `rope_base` switches it off: the first frequency pair rotates at 1 rad/token at any
+     base. The change gives gqa an options block, as ame has:
+     `attention: {type: gqa, gqa: {rope: false}}`, in commit **`c4cb1ef6`**.
+   - **The default is untouched.** With `rope: true`, or with no block at all, the
+     layer is the S1-D layer bit for bit, and the state dict is unchanged, since RoPE has
+     no parameters. So no existing dense run is affected, and S1-D needs no re-run.
+     Tests cover it. Unknown options are rejected; `rope: true` equals the default bit
+     for bit; and `rope: false` changes no parameter and makes a later token's output
+     blind to the order of the tokens before it. The repo's CI test selection passes.
+   - **Learning rate.** n = 9, Maciej's working n\* for every h12 model
+     (decision 1). It is the S1-D point S2-D0 is compared at: S1-D scored 3.0244 at
+     n = 9.
+   - **Pre-flight.** The config composes, passes the schema check, and builds at
+     S1-D's 183,454,464 parameters and 1.095 GFLOP/token, with RoPE gone from all 12
+     attention layers.
+   - **No separate smoke run.** The only GPU path that changed is two skipped function
+     calls. The two-minute check and the first logged steps catch a compile or runtime
+     failure at the same cost as a 60-step smoke. The end of the run (`final_ce`, the
+     checkpoint) is S1-D's path, already exercised by 6 runs.
+   - **Where it ran.** Its own worktree, `~/code/nano-s2d0` (branch `s2d0_lem`, at
+     `c4cb1ef6`). Its run name has the same `lr9.0`, so `sbatch` was again run by hand
+     (decision 2).
 
 ## Wave 1 — the three arms and the noise floor, at n = 9
 
@@ -60,14 +91,20 @@ S1-D, is [stage_1_report.md](stage_1_report.md).
 |---|---:|---|---|---|---:|
 | S2-P | 9 | 6253416_0 | `0rbp1bju` | r12-9 | 1,103,598,480 |
 | S2-S | 9 | 6253417_0 | `r6lxbmtd` | r12-9 | 1,103,599,056 |
-| S2-PS | 9 | 6253467_0 | — (starting at 09:37) | r12-12 | |
-| S2-N | 9 | 6253468_0 | — (starting at 09:37) | r12-12 | |
+| S2-PS | 9 | 6253467_0 | `ublx3ion` | r12-12 | 1,103,599,056 |
+| S2-N | 9 | 6253468_0 | `fqzr01mh` | r12-12 | 1,103,598,480 |
 
 Every cemetery commit has `f9680709` as its parent and adds only `exp.job` and
 `generated_configs/config_0.yaml`. The plan's run order (S2-P, then S2-S, then S2-PS) was
 kept for submission; the four runs do not depend on each other.
 
-Results: pending; about 4.3 h each once running.
+**S2-D0, the extra dense arm** (decision 3):
+
+| Arm | Attention | n | Job | Commit | Cemetery commit | Cemetery clone | W&B run |
+|---|---|---:|---|---|---|---|---|
+| S2-D0 | gqa without RoPE (NoPE) | 9 | 6253574 | `c4cb1ef6` | `26867619` | `s2_d0_h12_lr9.0_2026-11-06_09-54-52` | pending at 09:55 |
+
+Results: pending; about 4.3 h for each AME arm and 3.9 h for S2-D0 once running.
 
 ## For Maciej
 
