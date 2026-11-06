@@ -37,7 +37,7 @@ their commit or worktree.
   ([stage_1_report.md](stage_1_report.md)). So the h16 optima are probably also beyond
   n = 9, and the gap between each arm's true optimum is unmeasured here.
 - **Readouts.** S1b-A0's attention stays near uniform (normalized entropy about 0.93),
-  and τ falls further in the middle layers than at h12 (decision 3 below).
+  and τ falls further in the middle layers than at h12 ("S1b-A0 results" below).
 
 ![Stage 1b learning-rate sweep](stage_figures/stage_1b_lr_sweep.png)
 
