@@ -50,6 +50,7 @@ will test, how fast it runs. Everything else is in `notes/archive/`.
 | [stage_1b_report.md](notes/stage_1b_report.md) | **Stage 1b, on LEM (from 2026-11-06)**: Stage 1 at h16 and 8B tokens — the learning-rate grids for dense h16 and the simplest AME h16 |
 | [stage_2b_report.md](notes/stage_2b_report.md) | **Stage 2b, on LEM (from 2026-11-06)**: Stage 2 at h16 and 8B tokens — the 2 × 2 of ALiBi × KV shift, the noise floor, the learning-rate check |
 | [ame_comparison_h12.md](notes/ame_comparison_h12.md) | **The best AME against the best dense at h12 (from 2026-11-06)**: S2-PS against S1-D, both n = 8, 4B tokens — the training logs compared (loss gap over time, gradient norm, residual stream and sublayer writes by depth), with hypotheses and the next angles |
+| [ame_efficiency_parity_plan.md](notes/ame_efficiency_parity_plan.md) | **Plan, not started (2026-11-06)**: does AME's MFU work cost it quality? An audit of every AME-only efficiency change active in the best h12 run against dense's standard stack: the inventory, offline numerics, full-length A/Bs, and the `/goal` text that runs it |
 
 **AME configs** (layout since 2026-11-05): `configs/ame/` holds six configs, the
 best measured MFU per model size × GPU count. Every other AME config — benchmarks,
