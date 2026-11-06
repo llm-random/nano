@@ -1,3 +1,5 @@
+import math
+
 import torch
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, ConstantLR
 
@@ -58,23 +60,78 @@ class TrapezoidalLR(SequentialLR):
             self.step()
 
 
+class CosineAnnealingToFraction(torch.optim.lr_scheduler.CosineAnnealingLR):
+    """CosineAnnealingLR with one floor per param group: `final_lr_fraction` of
+    that group's own base lr, where torch's class takes one `eta_min` for all.
+
+    Groups at different learning rates need it -- the AME banks run at
+    trainer.bank_lr_ratio x the backbone's (src.core.model.parameter_groups).
+    With one absolute floor a group at 4x would anneal down to the backbone's
+    floor and lose its ratio over the run; with a floor per group every group
+    keeps its ratio at every step (exactly, for a power-of-two ratio).
+
+    The formulas are torch 2.7.1's `CosineAnnealingLR.get_lr` and
+    `_get_closed_form_lr`, copied term for term with `eta_min` indexed per
+    group. With one learning rate across groups each floor is the old scalar,
+    computed by the same multiplication, so the schedule is bit-identical to
+    the torch class -- tests/test_bank_lr_ratio.py pins that, and will catch a
+    torch upgrade that changes the upstream formulas.
+    """
+
+    def __init__(self, optimizer, T_max, final_lr_fraction, last_epoch=-1):
+        # Before super().__init__: its initial step already calls get_lr.
+        self.final_lr_fraction = final_lr_fraction
+        super().__init__(optimizer, T_max=T_max, eta_min=0.0, last_epoch=last_epoch)
+
+    def _floors(self):
+        return [self.final_lr_fraction * base_lr for base_lr in self.base_lrs]
+
+    def get_lr(self):
+        groups = self.optimizer.param_groups
+        floors = self._floors()
+        if self.last_epoch == 0:
+            return [group["lr"] for group in groups]
+        elif self._step_count == 1 and self.last_epoch > 0:
+            return [
+                eta_min
+                + (base_lr - eta_min)
+                * (1 + math.cos((self.last_epoch) * math.pi / self.T_max))
+                / 2
+                for base_lr, eta_min in zip(self.base_lrs, floors)
+            ]
+        elif (self.last_epoch - 1 - self.T_max) % (2 * self.T_max) == 0:
+            return [
+                group["lr"]
+                + (base_lr - eta_min) * (1 - math.cos(math.pi / self.T_max)) / 2
+                for base_lr, eta_min, group in zip(self.base_lrs, floors, groups)
+            ]
+        return [
+            (1 + math.cos(math.pi * self.last_epoch / self.T_max))
+            / (1 + math.cos(math.pi * (self.last_epoch - 1) / self.T_max))
+            * (group["lr"] - eta_min)
+            + eta_min
+            for group, eta_min in zip(groups, floors)
+        ]
+
+    def _get_closed_form_lr(self):
+        return [
+            eta_min
+            + (base_lr - eta_min)
+            * (1 + math.cos(math.pi * self.last_epoch / self.T_max))
+            / 2
+            for base_lr, eta_min in zip(self.base_lrs, self._floors())
+        ]
+
+
 def get_cosine_scheduler_with_warmup(
     optimizer, warmup_steps: int, n_steps: int, final_lr_fraction: float
 ):
-    # One *learning rate*, not one group. eta_min below is a single scalar handed
-    # to every group, so groups at different lrs would silently get the wrong
-    # floor -- that is what this guard is really for. Groups that differ only in
-    # weight decay (src.core.model.parameter_groups, which AME needs so decoupled
-    # decay cannot walk its temperature and shift coefficients toward zero) share
-    # an lr and are fine.
-    learning_rates = {group["lr"] for group in optimizer.param_groups}
-    assert len(learning_rates) == 1, (
-        f"Cosine scheduler needs one learning rate across all param groups, got "
-        f"{sorted(learning_rates)}. eta_min is one value for all of them, so a "
-        f"second lr would be floored at the wrong fraction."
-    )
-    # Read before the scheduler runs: param_groups changes when it is applied.
-    optimizer_lr = learning_rates.pop()
+    # Param groups may run at different learning rates (AME's banks at
+    # trainer.bank_lr_ratio x the rest). Warmup and the constant step are
+    # multiplicative, so they keep every ratio as it is; the cosine floors each
+    # group at final_lr_fraction of its OWN lr (CosineAnnealingToFraction), so
+    # it keeps them too. With one lr across groups this is the schedule it
+    # always was, bit for bit.
     warmup = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=0.1,
@@ -94,10 +151,10 @@ def get_cosine_scheduler_with_warmup(
     constant_scheduler = torch.optim.lr_scheduler.ConstantLR(
         optimizer, factor=1.0
     )  # TODO this is only because of a bug in llm-random
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    cosine_scheduler = CosineAnnealingToFraction(
         optimizer,
         T_max=after_warmup_steps,
-        eta_min=final_lr_fraction * optimizer_lr,
+        final_lr_fraction=final_lr_fraction,
     )
     training_scheduler = torch.optim.lr_scheduler.SequentialLR(
         optimizer,

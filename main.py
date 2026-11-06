@@ -25,7 +25,12 @@ from src.core.model import Residual, parameter_groups
 
 # Importing src.definitions registers `base_schema` in Hydra's ConfigStore, which
 # every runnable config's defaults list references -- it must happen before compose.
-from src.definitions import RootSchema, check_point, resolve_n_steps
+from src.definitions import (
+    DEFAULT_BANK_LR_RATIO,
+    RootSchema,
+    check_point,
+    resolve_n_steps,
+)
 import platform
 
 logger = logging.getLogger(__name__)
@@ -230,6 +235,12 @@ def build_memory_parallel_controller(cfg, model):
     return controller
 
 
+def _bank_lr_ratio(cfg):
+    """trainer.bank_lr_ratio, defaulted for a config composed without the
+    schema (the composed ones always carry it)."""
+    return cfg.trainer.get("bank_lr_ratio", DEFAULT_BANK_LR_RATIO)
+
+
 def get_model_optimizer_scheduler(cfg, model, learning_rate):
     if cfg.get("apply_functions", None):
         for fn in instantiate(cfg.apply_functions):
@@ -302,12 +313,21 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         logger.info("torch.compile applied to the whole model")
     ignored = banks.ignored_parameters() if banks is not None else None
     model = setup_distributed_training(model, cfg.trainer.distributed, ignored)
+    bank_lr_ratio = _bank_lr_ratio(cfg)
     optimizer = torch.optim.AdamW(
         # Groups rather than a flat parameters(): a layer may declare scales
         # that decoupled decay must not touch (src.core.model.parameter_groups).
         # A model that declares none yields one group holding exactly
         # model.parameters(), so this is a no-op for every existing config.
-        parameter_groups(model, cfg.trainer.weight_decay, exclude=ignored),
+        # AME's banks get a group of their own at bank_lr_ratio x the lr --
+        # unless the controller below owns them, and then it applies the ratio.
+        parameter_groups(
+            model,
+            cfg.trainer.weight_decay,
+            exclude=ignored,
+            lr=learning_rate,
+            bank_lr_ratio=bank_lr_ratio,
+        ),
         lr=learning_rate,
         # The fused kernel exists only for CUDA tensors; CPU runs keep the
         # default path, which also keeps the seeded CPU gates bit-identical.
@@ -318,8 +338,9 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         # no_weight_decay_parameters, so the group they would have landed in
         # above is the wd=0 one. `fused` is deliberately NOT passed -- this is a
         # single step over up to 2.576B parameters and the foreach/fused paths
-        # are the ones pkmf hit an OOM on. Measure before changing it.
-        banks.build_optimizer(lr=learning_rate, weight_decay=0.0)
+        # are the ones pkmf hit an OOM on. Measure before changing it. The lr
+        # is the bank ratio's; Trainer._bank_lr keeps it on the schedule.
+        banks.build_optimizer(lr=learning_rate * bank_lr_ratio, weight_decay=0.0)
     scheduler = instantiate(cfg.trainer.scheduler)(
         optimizer=optimizer, n_steps=cfg.trainer.n_steps
     )
@@ -405,6 +426,8 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
                         if get_controller(model) is not None
                         else None
                     ),
+                    lr=learning_rate,
+                    bank_lr_ratio=_bank_lr_ratio(cfg),
                 ),
                 lr=learning_rate,
                 fused=torch.cuda.is_available(),

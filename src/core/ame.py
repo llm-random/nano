@@ -221,6 +221,12 @@ class AMEAttention(nn.Module):
         "k_bank.weight",
     )
 
+    # The memory banks, named for the optimizer: src.core.model.parameter_groups
+    # gives them a group of their own at trainer.bank_lr_ratio x the base lr
+    # (src.core.memory_parallel's controller applies the same ratio when it
+    # steps them instead).
+    bank_parameters = ("q_bank.weight", "k_bank.weight")
+
     def __init__(
         self,
         dmodel,

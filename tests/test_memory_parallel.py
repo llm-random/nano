@@ -110,17 +110,26 @@ def clip_through_trainer(model, clip, banks):
     return Trainer.clip_gradient(stub)
 
 
-def train(model, batches, banks=None, clip=CLIP, steps=STEPS, lr=LR):
+def train(model, batches, banks=None, clip=CLIP, steps=STEPS, lr=LR, bank_lr_ratio=1.0):
     """One faithful copy of Trainer.train's optimizer section.
 
     Baseline when `banks is None`: one AdamW over everything, one clip.
+    `bank_lr_ratio` reaches the banks the way main.py and Trainer._bank_lr
+    route it: a param group of their own, or the controller's lr.
     """
     ignored = banks.ignored_parameters() if banks is not None else None
     optimizer = torch.optim.AdamW(
-        parameter_groups(model, weight_decay=0.1, exclude=ignored), lr=lr
+        parameter_groups(
+            model,
+            weight_decay=0.1,
+            exclude=ignored,
+            lr=lr,
+            bank_lr_ratio=bank_lr_ratio,
+        ),
+        lr=lr,
     )
     if banks is not None:
-        banks.build_optimizer(lr=lr, weight_decay=0.0)
+        banks.build_optimizer(lr=lr * bank_lr_ratio, weight_decay=0.0)
 
     norms, losses = [], []
     model.train()
@@ -144,7 +153,7 @@ def train(model, batches, banks=None, clip=CLIP, steps=STEPS, lr=LR):
         optimizer.step()
         optimizer.zero_grad()
         if banks is not None:
-            banks.step(lr=lr)
+            banks.step(lr=bank_lr_ratio * optimizer.param_groups[0]["lr"])
             banks.zero_grad()
     train.last_losses = losses
     return norms
@@ -216,6 +225,42 @@ def test_toy_model_parameter_equivalence_without_clipping():
         if not torch.equal(expected[name], actual[name])
     }
     assert not differing, f"the hand-managed path is not bit-identical: {differing}"
+
+
+def test_bank_lr_ratio_is_one_function_on_both_paths():
+    """trainer.bank_lr_ratio reaches the banks by two routes -- a 4x param group
+    in the backbone AdamW, or the controller's own AdamW stepped at 4x the
+    backbone lr -- and they must compute the same thing: bit-identical, in the
+    strict no-clip form of the gate above. And the ratio must do something, or
+    the equality would hold for a ratio both paths ignore."""
+    batches = micro_batches()
+
+    baseline = build_model()
+    train(baseline, batches, clip=None, bank_lr_ratio=4.0)
+
+    managed = build_model()
+    banks = MemoryParallelController(managed, 1, compute_dtype=torch.float64)
+    train(managed, batches, banks=banks, clip=None, bank_lr_ratio=4.0)
+
+    expected, actual = named_tensors(baseline), named_tensors(managed)
+    differing = [
+        name for name in expected if not torch.equal(expected[name], actual[name])
+    ]
+    assert not differing, f"the two routes for the ratio diverged on {differing}"
+
+    # One step, so nothing downstream has seen a changed bank yet: the ratio
+    # must move exactly the banks and leave every other parameter alone.
+    after_one_step = {}
+    for ratio in (1.0, 4.0):
+        model = build_model()
+        train(model, batches, clip=None, steps=1, bank_lr_ratio=ratio)
+        after_one_step[ratio] = named_tensors(model)
+    for name, unscaled in after_one_step[1.0].items():
+        moved = not torch.equal(unscaled, after_one_step[4.0][name])
+        assert moved == ("bank" in name), (
+            f"{name}: the ratio should move exactly the banks, "
+            f"{'moved' if moved else 'did not move'}"
+        )
 
 
 @pytest.mark.parametrize(

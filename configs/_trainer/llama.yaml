@@ -11,6 +11,9 @@ trainer:
   # floor(n_tokens_b * 1e9 / (common.batch_size * common.sequence_length)) steps.
   n_tokens_b: null
   learning_rate: null
+  # AME memory banks (q_bank/k_bank) train at this multiple of learning_rate,
+  # for the whole schedule. Ignored by a model without banks.
+  bank_lr_ratio: 4.0
   weight_decay: 0.1
 
   scheduler:

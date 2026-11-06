@@ -663,7 +663,7 @@ class LLM(nn.Module):
         return self.head(x, targets=targets, chunk_size=ce_chunk_size)
 
 
-def parameter_groups(model, weight_decay, exclude=None):
+def parameter_groups(model, weight_decay, exclude=None, *, lr=None, bank_lr_ratio=1.0):
     """AdamW param groups: declared scales at wd=0, everything else at `weight_decay`.
 
     AdamW's decay is *decoupled* -- `p <- p*(1 - lr*wd)` runs whether or not the
@@ -684,6 +684,14 @@ def parameter_groups(model, weight_decay, exclude=None):
     the compute parameters it owns must not also be stepped here; they would be
     stepped on a gradient that is permanently None, which AdamW silently skips
     while still counting them in the state it allocates.
+
+    `bank_lr_ratio` (trainer.bank_lr_ratio) moves the parameters a module names
+    in `bank_parameters` -- AME's Q/K memory banks -- into a group of their own
+    at `lr * bank_lr_ratio`, keeping their decay setting. The scheduler holds
+    the ratio for the whole run (src.core.schedulers.CosineAnnealingToFraction).
+    At 1.0, with no banks in the model, or with every bank excluded because a
+    memory-parallel controller steps them (it applies the ratio itself), the
+    groups are exactly the ones described above.
     """
     excluded_ids = {id(parameter) for parameter in (exclude or ())}
 
@@ -695,27 +703,49 @@ def parameter_groups(model, weight_decay, exclude=None):
                 return None
         return module
 
-    undecayed = set()
-    for module in model.modules():
-        for name in getattr(module, "no_weight_decay_parameters", ()):
-            parameter = resolve(module, name)
-            # Buffers answer getattr too -- a pinned alpha is a buffer, not a
-            # parameter -- and must never reach the optimizer.
-            if isinstance(parameter, nn.Parameter):
-                undecayed.add(id(parameter))
+    def declared(attribute):
+        ids = set()
+        for module in model.modules():
+            for name in getattr(module, attribute, ()):
+                parameter = resolve(module, name)
+                # Buffers answer getattr too -- a pinned alpha is a buffer, not
+                # a parameter -- and must never reach the optimizer.
+                if isinstance(parameter, nn.Parameter):
+                    ids.add(id(parameter))
+        return ids
 
+    undecayed = declared("no_weight_decay_parameters")
     trainable = [p for p in model.parameters() if id(p) not in excluded_ids]
 
-    if not undecayed:
-        return [{"params": trainable, "weight_decay": weight_decay}]
+    banks = []
+    if bank_lr_ratio != 1.0:
+        bank_ids = declared("bank_parameters")
+        banks = [p for p in trainable if id(p) in bank_ids]
+        if banks and lr is None:
+            raise ValueError(
+                "parameter_groups: bank_lr_ratio needs the base `lr` to set the "
+                "bank group's learning rate"
+            )
+        trainable = [p for p in trainable if id(p) not in bank_ids]
 
-    groups = {True: [], False: []}
-    for parameter in trainable:
-        groups[id(parameter) in undecayed].append(parameter)
-    return [
-        {"params": groups[False], "weight_decay": weight_decay},
-        {"params": groups[True], "weight_decay": 0.0},
-    ]
+    if not undecayed:
+        groups = [{"params": trainable, "weight_decay": weight_decay}]
+    else:
+        split = {True: [], False: []}
+        for parameter in trainable:
+            split[id(parameter) in undecayed].append(parameter)
+        groups = [
+            {"params": split[False], "weight_decay": weight_decay},
+            {"params": split[True], "weight_decay": 0.0},
+        ]
+
+    for is_undecayed, decay in ((False, weight_decay), (True, 0.0)):
+        params = [p for p in banks if (id(p) in undecayed) == is_undecayed]
+        if params:
+            groups.append(
+                {"params": params, "weight_decay": decay, "lr": lr * bank_lr_ratio}
+            )
+    return groups
 
 
 def attention_mechanism(

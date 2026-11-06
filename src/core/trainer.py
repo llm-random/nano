@@ -229,6 +229,11 @@ class Trainer:
     # every trainer config key reaches the constructor, and kept so the run
     # record shows what was asked for beside the steps it became.
     n_tokens_b: Optional[float] = None
+    # The AME memory banks train at this multiple of the backbone lr. main.py
+    # applies it when it builds the optimizer (a group of their own); here it
+    # only matters for a memory-parallel controller, which this class steps
+    # with the backbone's lr every step -- see _bank_lr.
+    bank_lr_ratio: float = 4.0
 
     # Checkpoint save types this trainer can actually write. Subclasses widen this;
     # anything outside it is rejected before training starts.
@@ -488,7 +493,7 @@ class Trainer:
                 # read as a partition of the step, and a nested pair would have
                 # the bank step counted twice.
                 with self._timers.gpu("bank_step"):
-                    self._banks.step(lr=self.optimizer.param_groups[0]["lr"])
+                    self._banks.step(lr=self._bank_lr())
                     self._banks.zero_grad()
             self.scheduler.step()
 
@@ -953,6 +958,14 @@ class Trainer:
                     self._banks.clip_(self.gradient_clipping, total_norm)
                 return total_norm
 
+    def _bank_lr(self):
+        """The lr a memory-parallel controller steps the banks at this step:
+        trainer.bank_lr_ratio x the backbone's. Read off param group 0 (the
+        backbone's decayed group) rather than the scheduler: scheduler.step()
+        has not run yet when the banks step, so this is the lr the backbone
+        step was just taken at."""
+        return self.bank_lr_ratio * self.optimizer.param_groups[0]["lr"]
+
     def _update_processed_tokens(self, batch):
         self.processed_tokens += batch.numel() * int(os.environ["WORLD_SIZE"])
 
@@ -967,9 +980,7 @@ class Trainer:
             # O5 hook 3. The banks are stepped by their own optimizer, so "the
             # LR" is no longer one number by construction -- log the one they
             # were actually stepped at.
-            self._banks.log_metrics(
-                self.metric_logger, self.optimizer.param_groups[0]["lr"]
-            )
+            self._banks.log_metrics(self.metric_logger, self._bank_lr())
 
         self.loss_averaged_100.log(
             self.metric_logger, loss_metrics.reported_loss.item()

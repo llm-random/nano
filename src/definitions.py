@@ -34,6 +34,12 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf, open_dict
 
 
+# trainer.bank_lr_ratio when a config leaves it out (a sweep config composed
+# without base_schema). TrainerSchema and src.core.trainer.Trainer carry the
+# same literal; tests/test_typed_config.py holds the pair together.
+DEFAULT_BANK_LR_RATIO = 4.0
+
+
 @dataclass
 class AttentionSchema:
     type: str = MISSING
@@ -139,6 +145,11 @@ class TrainerSchema:
     # before anything reads n_steps.
     n_tokens_b: Optional[float] = None
     learning_rate: Optional[float] = MISSING
+    # The AME memory banks (q_bank/k_bank) train at this multiple of
+    # learning_rate, in their own param group or in the memory-parallel
+    # controller's optimizer, for the whole schedule. No effect on a model
+    # without banks; 1.0 is the old single-lr behavior.
+    bank_lr_ratio: float = 4.0  # == DEFAULT_BANK_LR_RATIO
     weight_decay: float = MISSING
     gradient_accumulation_steps: int = MISSING
     gradient_clipping: Optional[float] = MISSING
@@ -338,6 +349,11 @@ def validate(cfg) -> None:
         "(the n = 2**-n convention still means a positive number)",
     )
     check(t.weight_decay >= 0, f"trainer.weight_decay must be >= 0, got {t.weight_decay!r}")
+    bank_lr_ratio = getattr(t, "bank_lr_ratio", DEFAULT_BANK_LR_RATIO)
+    check(
+        bank_lr_ratio is not None and bank_lr_ratio > 0,
+        f"trainer.bank_lr_ratio must be > 0, got {bank_lr_ratio!r}",
+    )
     check(
         t.gradient_accumulation_steps >= 1,
         f"trainer.gradient_accumulation_steps must be >= 1, got {t.gradient_accumulation_steps!r}",
