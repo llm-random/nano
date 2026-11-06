@@ -1,6 +1,6 @@
 # Stage 1 — first models: report
 
-**Status: n = 9–13 are complete in both arms, and n = 9 is best in both, at the grid's edge; n = 8 has been training since 03:36 and finishes around 07:40.**
+**Status: n = 8–13 are complete in both arms, and n = 8 is best in both, at the edge again; n = 7 (both arms) and n = 6 (AME) were submitted at 07:42.**
 
 The plan is [ame_experiments.md, "Stage 1 — first models"](ame_experiments.md#stage-1--first-models).
 This file is its record: every job, every result, and every decision the plan left open,
@@ -130,6 +130,13 @@ Each one is a point the plan left open, or a change forced by the switch to LEM.
    S1-A0's n\*. Starting it now saves about 2.7 h if it is needed; otherwise it costs about
    4.5 GPU-h. Dense n = 8 is off that path, but its case is strong, and it finishes Stage 1
    sooner.
+8. **After n = 8 won both arms (07:41): dense gets n = 7; AME gets n = 7 and n = 6 at
+   once.** The rule needs n = 7 in both arms. For dense, n = 7 is all the rule asks, and
+   dense is off Stage 2's critical path. For AME, the gain per step of n is shrinking
+   slowly: 0.212, 0.133, 0.125, 0.082 and 0.061, from n = 13 down to n = 8. Extrapolated,
+   that leaves the optimum around n = 6–7, which could take two more waves before Stage 2
+   can start. Running n = 6 beside n = 7 brackets it in one wave, for about 4 GPU-h. If
+   n = 6 is not needed, it is simply an extra grid point.
 
 Two facts for whoever reads the checkpoints:
 - The checkpoint path uses each array task's own Slurm job id, not the array id: dense
@@ -165,7 +172,10 @@ expected parameter count, and there was no error in the log.
 | S1-D | 9 | 2⁻⁹ = 1.95e-3 | 6251812_0 | `ovy19sqp` | r16-5 |
 | S1-A0 | 9 | 2⁻⁹ | 6251816_0 | `p5u294hj` | r16-7 |
 | S1-D | 8 | 2⁻⁸ = 3.91e-3 | 6252398_0 | `x0xlqroj` | r12-3 |
-| S1-A0 | 8 | 2⁻⁸ | 6252402_0 | pending at 03:40 | |
+| S1-A0 | 8 | 2⁻⁸ | 6252402_0 | `tuvcps1y` | r10-7 |
+| S1-A0 | 7 | 2⁻⁷ = 7.81e-3 | 6253086_0 | | |
+| S1-A0 | 6 | 2⁻⁶ = 1.56e-2 | 6253086_1 | | |
+| S1-D | 7 | 2⁻⁷ | 6253087_0 | | |
 
 The n = 9 runs (decision 6) were submitted at 01:41 from the same worktree. The only change
 was each grid file's `^learning_rate` list, edited to `[9]` and left uncommitted, as the
@@ -186,6 +196,8 @@ as `run_exp.py` always does.
 | `539eddce` | S1-A0 n = 9, 6251816 | both grid lists read `[9]` |
 | `489342e2` | S1-D n = 8, 6252398 | both grid lists read `[8]` |
 | `76bd1630` | S1-A0 n = 8, 6252402 | both grid lists read `[8]` |
+| `04316cd4` | S1-A0 n = 7 and 6, 6253086 | AME list `[7, 6]`, dense list `[7]` |
+| `66ececd1` | S1-D n = 7, 6253087 | the same |
 
 The two n = 9 snapshots also carry stale `generated_configs/config_1–3.yaml` left in the
 worktree by the grid submit. Their `exp.job` runs `--array=0-0`, so only `config_0`
@@ -300,6 +312,26 @@ falls further the higher the learning rate, most in the middle layers: at n = 9 
 per-layer means form a U, 8.1 in layer 0, 5.4 in layer 5 and 8.5 in layer 11. That fits
 the plan's analysis that S1-A0 cannot attend by position. Its attention is a weighted
 average over the previous tokens, where the weights depend only on the token-id pair.
+
+### n = 8 (07:41): best in both arms, at the edge again
+
+| Arm | n | `final_ce` | Last 10-batch eval | Loss spike (train) | s/step | MFU | Peak GiB | Job | W&B run | Commit |
+|---|---:|---:|---:|---|---:|---:|---:|---|---|---|
+| S1-D | 8 | **2.9824** | 2.9844 | none | 3.272 | 35.5% | 46.99 | 6252398_0 | `x0xlqroj` | `8a240816` + list `[8]` (`489342e2`) |
+| S1-A0 | 8 | **4.3711** | 4.3750 | steps 1,117–1,141: 4.88 → 7.50 | 3.595 | 31.1% | 66.08 | 6252402_0 | `tuvcps1y` | `8a240816` + list `[8]` (`76bd1630`) |
+
+Seed, tokens, parameters and FLOPs per token are as in the table above. n = 8 beats n = 9
+in both arms: by 0.042 in dense (2.9824 against 3.0244) and by 0.061 in AME (4.3711
+against 4.4316). So the best n is still at the edge, and decision 8 extends the grid.
+
+`final_ce` so far, by n:
+
+| Arm | 8 | 9 | 10 | 11 | 12 | 13 |
+|---|---:|---:|---:|---:|---:|---:|
+| S1-D | **2.9824** | 3.0244 | 3.2002 | 3.3027 | 3.5215 | 3.8301 |
+| S1-A0 | **4.3711** | 4.4316 | 4.5137 | 4.6387 | 4.7715 | 4.9844 |
+
+At n = 8, S1-A0 is 1.411 nats behind S1-D.
 
 ## W&B runs to ignore
 
