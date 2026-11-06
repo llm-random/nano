@@ -1,0 +1,45 @@
+defaults:
+  # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 256
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 30_000
+  learning_rate: 10
+
+  checkpoint:
+    save:
+      type: nano
+      # job uses the cluster's PROJECT_HOME_PATH; the fallback only satisfies run_exp.py's laptop-side check
+      path: ${oc.env:PROJECT_HOME_PATH,/storage_nvme_4/nano/pretraining}/${oc.env:USER}/checkpoints
+      interval: -1
+
+compile_blocks_full: true
+
+infrastructure:
+  max_concurrent_jobs: -1
+
+  metric_logger:
+    name: h16_chinchilla
+    tags:
+      - nano
+      - remote
+      - h16
+      # - lr_tune
+      - chinchilla
+      - branch_compare
+
+  slurm:
+    time: "08:00:00"
+    gres: gpu:4
+    job-name: ${infrastructure.metric_logger.name}
