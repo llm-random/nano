@@ -147,5 +147,25 @@ The three dense runs started at 09:12 and the three AME runs at 09:14. All six p
 the two-minute check: dense built with 354,714,624 parameters and AME with 1,986,331,904,
 with no error in any log.
 
-Results: pending; about 13.4 h dense and 14.5 h AME after each run starts.
+### S1b-D results (22:27): n = 9 is best, at the grid's edge
+
+All three dense runs finished their 7,630 steps in 13 h 10–15 m. Each logged `final_ce` and
+wrote its 4.0 GB final checkpoint. Every row has seed 123, 8.00B tokens, 354.71M parameters
+(251.7M backbone, no banks), 2.222 GFLOP/token, and commit `31cbc268` (cemetery
+`8a6f9f5d`), from [dense_h16_lr_grid.yaml](../../configs/stage_1b/dense_h16_lr_grid.yaml).
+
+| n | LR | `final_ce` | Last 10-batch eval | Loss spike (train) | s/step | MFU | Peak GiB | Job | W&B run |
+|---:|---:|---:|---:|---|---:|---:|---:|---|---|
+| 9 | 1.95e-3 | **2.7441** | 2.7344 | none | 5.964 | 39.5% | 37.75 | 6253313_0 | `eh2sjsh7` |
+| 10 | 9.77e-4 | 2.8438 | 2.8438 | steps 262–286: 4.53 → 10.44 | 5.950 | 39.6% | 37.75 | 6253313_1 | `8jm0qkjs` |
+| 11 | 4.88e-4 | 2.9600 | 2.9531 | steps 2,297–2,324: 3.31 → 14.38 | 5.933 | 39.7% | 37.75 | 6253313_2 | `7rd0xax5` |
+
+- **n = 9 is best, and it sits at the grid's edge.** The plan's rule would add n = 8.
+  Maciej concluded Stage 1b at n\* = 9 (decision 3), so no further point was run.
+- **The scaling gain at n = 9.** Dense h16 at 8B tokens is 0.280 nats below dense h12 at
+  4B tokens: 2.7441 against 3.0244.
+- **The same trend as at h12.** Every step of n towards a higher learning rate helps:
+  0.116 from 11 to 10, and 0.100 from 10 to 9. h12 kept improving down to n = 8.
+
+S1b-A0 results: pending, around 23:35.
 

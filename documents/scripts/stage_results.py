@@ -32,9 +32,10 @@ import sys
 PROJECT = "ideas_cv/nano-ame"
 TOKENS_PER_STEP = 512 * 2048
 H100_SXM_PEAK = 989e12
-# Training FLOPs per token at seq 2048, as the trainer logged them on LEM
-# (stage_1_report.md, smoke runs). AME is the same for every Stage 1-2 arm.
-GFLOPS_PER_TOKEN = {"gqa": 1.095, "ame": 1.053}
+# Training FLOPs per token at seq 2048, as the trainer logged them on LEM, keyed by
+# (attention type, h): stage_1_report.md (h12) and stage_1b_report.md (h16) smoke runs.
+# Every AME arm of one size has the same; NoPE dense has the same as RoPE dense.
+GFLOPS_PER_TOKEN = {("gqa", 12): 1.095, ("ame", 12): 1.053, ("gqa", 16): 2.222, ("ame", 16): 2.121}
 
 # First step plotted by `curves`: the first evals are far above the rest and would
 # flatten every curve. STAGE_CURVES_FROM overrides it (e.g. 0 for a smoke run).
@@ -79,6 +80,7 @@ def describe(run):
         "att": att_type,
         "n": trainer.get("learning_rate"),
         "seed": dataset.get("seed"),
+        "h": (cfg.get("common") or {}).get("h"),
         "n_steps": trainer.get("n_steps"),
         "ga": trainer.get("gradient_accumulation_steps"),
         "distributed": trainer.get("distributed"),
@@ -99,10 +101,11 @@ def summarize(run):
     ]
     times.sort()
     d["s_per_step"] = times[len(times) // 2] if times else None
-    if d["s_per_step"] and d["att"] in GFLOPS_PER_TOKEN:
+    key = (d["att"], d["h"])
+    if d["s_per_step"] and key in GFLOPS_PER_TOKEN:
         tps = TOKENS_PER_STEP / d["s_per_step"]
         d["tokens_per_s"] = tps
-        d["mfu"] = tps * GFLOPS_PER_TOKEN[d["att"]] * 1e9 / H100_SXM_PEAK
+        d["mfu"] = tps * GFLOPS_PER_TOKEN[key] * 1e9 / H100_SXM_PEAK
     else:
         d["tokens_per_s"] = d["mfu"] = None
     return d
