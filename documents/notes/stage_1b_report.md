@@ -1,12 +1,51 @@
 # Stage 1b — Stage 1 at h16 and 8B tokens: report
 
-**Status: concluded by Maciej's decision: n\* = 9 for both arms (decision 3). The 6 grid runs finish around 22:40–23:50 for the record and for Stage 2b's reference cells.**
+**Status: complete (2026-11-06 23:46). All six grid runs finished; n\* = 9 for both arms by Maciej's decision (decision 3), which is also each arm's lowest `final_ce`, at the grid's high-LR edge. No Stage 1b job is queued or running.**
 
 The plan is [ame_experiments.md, "Stage 1b — Stage 1 at h16 and 8B tokens"](ame_experiments.md#stage-1b--stage-1-at-h16-and-8b-tokens).
 This file is its record: every job, result and decision, each with its reason. Times are
 CET. Stage 1b runs alongside Stages 1 and 2, whose record is
 [stage_1_report.md](stage_1_report.md). Stage 1b shares their cluster and recipe, but not
 their commit or worktree.
+
+## Result
+
+| | S1b-D, dense h16 with RoPE | S1b-A0, simplest AME h16 |
+|---|---|---|
+| Learning rates trained | n = 9, 10, 11 | n = 9, 10, 11 |
+| `final_ce` | **2.7441** / 2.8438 / 2.9600 | **3.9746** / 4.0664 / 4.2227 |
+| Best | n = 9, at the grid's high-LR edge | n = 9, at the same edge |
+| n\* used downstream (Stage 2b) | **9**, by Maciej's decision (decision 3) | **9**, the same |
+| The AME–dense gap at n = 9 | | **1.231 nats**: 3.9746 − 2.7441 |
+
+**Against Stage 1 (h12, 4B tokens)**, at n = 9, the n\* of both stages:
+
+| | Stage 1, h12, 4B | Stage 1b, h16, 8B | Change |
+|---|---:|---:|---:|
+| Dense, `final_ce` | 3.0244 | 2.7441 | −0.280 |
+| Simplest AME, `final_ce` | 4.4316 | 3.9746 | −0.457 |
+| **The AME–dense gap** | **1.407** | **1.231** | **−0.177** |
+| AME / dense loss ratio | 1.465 | 1.448 | |
+
+- **The gap shrinks with scale, by 0.18 nats.** At n = 9 the simplest AME gains more
+  from h12/4B to h16/8B than dense does: 0.46 against 0.28.
+- **What the comparison compounds.** As the plan notes, model size and tokens change
+  together, at almost the same tokens per dense parameter (21.8 and 22.6). So this is a
+  scaling result, not the effect of either change alone.
+- **What the plan's rule would still ask.** Both arms' best n sits at the high-LR edge,
+  so the rule would add n = 8 (decision 3). At h12, dense's best was n = 8 and AME's n = 6
+  ([stage_1_report.md](stage_1_report.md)). So the h16 optima are probably also beyond
+  n = 9, and the gap between each arm's true optimum is unmeasured here.
+- **Readouts.** S1b-A0's attention stays near uniform (normalized entropy about 0.93),
+  and τ falls further in the middle layers than at h12 (decision 3 below).
+
+![Stage 1b learning-rate sweep](stage_figures/stage_1b_lr_sweep.png)
+
+![Stage 1b eval loss](stage_figures/stage_1b_eval_loss.png)
+
+*Top: `final_ce` against n. Bottom: eval loss on 10 batches by step, from step 300, with the
+y-axis cut at 6. Dense n = 11 spiked to 10.9 at step ~2,300, and AME n = 11 to 7.3 at step
+~3,000. Both were made with [documents/scripts/stage_results.py](../scripts/stage_results.py).*
 
 ## Setup
 
@@ -93,7 +132,8 @@ Stage 1's decisions carry over where they apply
 Points specific to Stage 1b:
 
 1. **The configs' 24 h limit stays.** The smoke runs put a whole run at 13.4–15.1 h, which
-   leaves more than 8 h of margin.
+   leaves more than 8 h of margin. The real runs took 13 h 10–15 m (dense) and 14 h 20–30 m
+   (AME).
 2. **LEM's SSH went unreachable at 08:56.** The TCP connection to `ui.wcss.pl:22` timed
    out while the internet and W&B worked, and the jobs kept running and logging. The
    likely cause is a firewall rate limit on new connections from this machine. After a
@@ -167,5 +207,37 @@ wrote its 4.0 GB final checkpoint. Every row has seed 123, 8.00B tokens, 354.71M
 - **The same trend as at h12.** Every step of n towards a higher learning rate helps:
   0.116 from 11 to 10, and 0.100 from 10 to 9. h12 kept improving down to n = 8.
 
-S1b-A0 results: pending, around 23:35.
+### S1b-A0 results (23:46): n = 9 is best, at the grid's edge
+
+All three AME runs finished their 7,630 steps in 14 h 20–30 m. Each logged `final_ce` and
+wrote its 23 GB final checkpoint, bank state included. Every row has seed 123, 8.00B tokens,
+1,986.33M parameters (234.9M backbone, 1,648.36M banks), 2.121 GFLOP/token, and commit
+`31cbc268` (cemetery `843af3b8`), from
+[ame_h16_simplest_lr_grid.yaml](../../configs/stage_1b/ame_h16_simplest_lr_grid.yaml).
+
+| n | LR | `final_ce` | Last 10-batch eval | Loss spikes (train) | s/step | MFU | Peak GiB | Job | W&B run |
+|---:|---:|---:|---:|---|---:|---:|---:|---|---|
+| 9 | 1.95e-3 | **3.9746** | 3.9688 | steps 380 → 6.66; 1,600–1,622 → 7.00 | 6.540 | 34.4% | 68.17 | 6253317_0 | `n15qni7a` |
+| 10 | 9.77e-4 | 4.0664 | 4.0625 | steps 1,041–1,067 → 8.69; 2,205–2,231 → 8.00; 5,170–5,174 → 4.81 | 6.524 | 34.5% | 68.17 | 6253317_1 | `v76wb0e1` |
+| 11 | 4.88e-4 | 4.2227 | 4.2188 | steps 408–436 → 10.38; 920–943 → 6.66; 2,983–3,006 → 10.44 | 6.488 | 34.7% | 68.17 | 6253317_2 | `7ujg1z77` |
+
+**Readouts at the end of training**, averaged over the 16 layers:
+
+| n | τ, mean | τ, per-layer means, min – max | Attention entropy, normalized | Top-8 mass |
+|---:|---:|---|---:|---:|
+| 9 | 5.88 | 3.59 – 8.72 | 0.930 | 0.113 |
+| 10 | 6.10 | 4.74 – 8.15 | 0.932 | 0.111 |
+| 11 | 6.60 | 5.91 – 7.96 | 0.936 | 0.105 |
+
+- **The same U as at h12, deeper.** τ falls most in the middle layers, to about 3.6–3.8 in
+  layers 4–8 at n = 9, against 5.4–6.0 at h12.
+- **Attention is close to uniform, as at h12 for n ≥ 9.** The 8 strongest keys hold about
+  11% of the mass.
+
+**Every Stage 1b run** (`final_ce`):
+
+| Arm | 9 | 10 | 11 |
+|---|---:|---:|---:|
+| S1b-D | **2.7441** | 2.8438 | 2.9600 |
+| S1b-A0 | **3.9746** | 4.0664 | 4.2227 |
 

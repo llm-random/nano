@@ -238,7 +238,12 @@ def cmd_curves(out, title, panels):
     axes[0][0].set_ylabel("eval loss (10 batches)", fontsize=9, color="#52514e")
     if lo < hi:
         pad = (hi - lo) * 0.05
-        axes[0][0].set_ylim(lo - pad, hi + pad)
+        top = hi + pad
+        # A loss spike can stretch the axis and flatten every curve; STAGE_CURVES_YMAX
+        # cuts the axis there (say so in the caption).
+        if os.environ.get("STAGE_CURVES_YMAX"):
+            top = min(top, float(os.environ["STAGE_CURVES_YMAX"]))
+        axes[0][0].set_ylim(lo - pad, top)
     # End labels, pushed apart so close final losses stay readable: sorted by
     # value, each at least `gap` above the one below it. Only on panels of at most
     # four series; past that they collide, and the legend carries identity alone.
