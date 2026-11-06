@@ -10,7 +10,9 @@
   figures in this plan are entropy's; the LEM smoke runs set LEM's baseline, which
   [stage_1_report.md](stage_1_report.md) records.
 - **Stages 1b and 2b repeat Stages 1 and 2 at h16 and 8B tokens**, also on LEM with 1 GPU
-  per run. Their configs are not written yet.
+  per run. Their configs were written on 2026-11-06, in
+  [configs/stage_1b/](../../configs/stage_1b/) and [configs/stage_2b/](../../configs/stage_2b/).
+  The agent that runs them pre-flights and commits them first.
 - Stage 3 will be written once Stages 1 and 2 have results.
 
 This plan was rewritten from the ground up on 2026-11-05. The program it replaces is kept
@@ -312,7 +314,8 @@ is the simplest AME from a dense baseline at h16 and 8B tokens? And does the gap
 from Stage 1's?
 
 Stage 1b needs nothing from Stage 1, because it tunes its own learning rate. It can start
-at once and run alongside Stages 1 and 2. Section numbers (§) in Stages 1b and 2b refer to
+at once. Its own agent runs Stages 1b and 2b alongside the agent running Stages 1 and 2.
+Section numbers (§) in Stages 1b and 2b refer to
 [ame_optimization_report.md](ame_optimization_report.md).
 
 **Arms.** S1b-D and S1b-A0 are S1-D and S1-A0 on h_balanced h16. S1b-A0 needs 16 zero
@@ -362,14 +365,21 @@ bf16, seed 123, the same eval and held-out set, and the final checkpoint only.
 | | |
 |---|---|
 | Grid | n ∈ {9, 10, 11}, LR = 2⁻ⁿ, for both arms: **6 runs** |
-| Why these points | Maciej, 2026-11-06: n = 10 is optimal at this model size. The grid brackets it one step each way. At h12, Stage 1 found n = 9 best in both arms, with n = 8 still training, so the low edge may fire here too |
+| Why these points | Maciej, 2026-11-06: n = 10 is optimal at this model size. The grid brackets it one step each way. At h12, Stage 1's best n fell past its grid's low edge, to n = 8 or below ([stage_1_report.md](stage_1_report.md)), so the low edge may fire here too |
 | Selection | As in Stage 1: the lowest `final_ce`, extending past an edge until the best lies inside. Starting the next n early, once the edge leads mid-run, saves a wave of about 15 h ([stage_1_report.md](stage_1_report.md), decisions 6–7) |
 
-**Before the grid**, smoke runs as in Stage 1 (`trainer.n_steps=60
-trainer.eval_interval=20`) for S1b-D, S1b-A0 and S2b-PS. S2b-PS is the heaviest arm in
-memory: at h12, S2-PS peaked 4.5 GiB above S1-A0. Check that micro-batch 16 fits without
-FSDP2, the s/step against the table below, the readouts, `final_ce` and the checkpoint.
-Then delete the smoke checkpoints.
+**Before the grid:**
+1. **Pre-flight the six Stage 1b–2b configs locally**, as Stage 1's were: they compose,
+   every grid point passes `run_exp.py`'s schema check, and the models build at the sizes
+   above.
+2. **Smoke runs**, with `trainer.n_steps=60 trainer.eval_interval=20`, as in Stage 1:
+   - **dense:** the S1b-D grid file;
+   - **AME:** `configs/stage_2b/ame_h16_simplest_seed2.yaml` (the S1b-A0 code path) and
+     `configs/stage_2b/ame_h16_pe_shift.yaml`, each with `trainer.learning_rate=10`.
+     S2b-PS is the heaviest arm in memory: at h12, S2-PS peaked 4.5 GiB above S1-A0.
+
+   Check that micro-batch 16 fits without FSDP2, the s/step against the table below, the
+   readouts, `final_ce` and the checkpoint. Then delete the smoke checkpoints.
 
 **Cost — estimated; h16 has not run on LEM.** These scale entropy's 1-GPU, micro-batch-16
 benchmarks (FSDP2 on; §1.12 for AME, §1.16 for dense) by how much slower LEM ran Stage 1's
@@ -390,13 +400,20 @@ configs than entropy's h12 benchmarks: ×1.14 dense, ×1.11 S1-A0, ×1.16 S2-PS
   step 0 and loses up to about 16 h.
 - Check that the partition allows a 24 h limit before the first submit.
 
-**Configs — not written yet.** `configs/stage_1b/dense_h16_lr_grid.yaml` and
-`configs/stage_1b/ame_h16_simplest_lr_grid.yaml` are to be the Stage 1 files with the
-changes above: `_model/h_balanced` h16, `n_steps: 7630`, `gradient_accumulation_steps: 32`,
-`^learning_rate: [9, 10, 11]`, 16 zero slopes and `time: "1-00:00:00"`. They are named
-`s1b_d_h16_lr<n>` and `s1b_a0_h16_lr<n>` and tagged `stage_1b`. Submit them as Stage 1's
-are, from a clean worktree and excluding the node Stage 1 found faulty
-([stage_1_report.md](stage_1_report.md), decision 3).
+**Configs**, written on 2026-11-06: the Stage 1 files with the changes above.
+
+| Arm | Config | One submit |
+|---|---|---|
+| S1b-D | [configs/stage_1b/dense_h16_lr_grid.yaml](../../configs/stage_1b/dense_h16_lr_grid.yaml) | 3 runs, one per n ∈ {9, 10, 11}, as one sbatch array |
+| S1b-A0 | [configs/stage_1b/ame_h16_simplest_lr_grid.yaml](../../configs/stage_1b/ame_h16_simplest_lr_grid.yaml) | 3 runs, the same way |
+
+- Submit with
+  `run_exp.py --config-path configs/stage_1b --config-name <file name without .yaml>`, as
+  Stage 1's are. Use a clean worktree of Stage 1b's own, not Stage 1–2's
+  `~/code/nano-stage12`, and exclude the node Stage 1 found faulty
+  ([stage_1_report.md](stage_1_report.md), decision 3).
+- The runs go to W&B `nano-ame`, named `s1b_d_h16_lr<n>` and `s1b_a0_h16_lr<n>` and tagged
+  `stage_1b`.
 
 **Stage 1b is done when** both arms have their best n inside the grid, and
 `stage_1b_report.md` records what Stage 1's report records, with the AME–dense gap set
@@ -437,10 +454,20 @@ result, not the effect of either change alone.
 - Wave 1 is S2b-P, S2b-S, S2b-PS and S2b-N: four 1-GPU runs, about 62 GPU-h and 16 h.
 - Wave 2 is the learning-rate check: 2 runs, about 31 GPU-h and 16 h.
 
-**Configs — not written yet.** `configs/stage_2b/ame_h16_pe.yaml`, `ame_h16_shift.yaml`,
-`ame_h16_pe_shift.yaml` and `ame_h16_simplest_seed2.yaml` are to be the Stage 2 files with
-Stage 1b's changes. Their `learning_rate` stays `null` until Stage 1b has n\*. They are
-named `s2b_<arm>_h16_lr<n>.0` and tagged `stage_2b`.
+**Configs**, written on 2026-11-06: the Stage 2 files with Stage 1b's changes. Each file is
+one run, submitted with
+`run_exp.py --config-path configs/stage_2b --config-name <file name without .yaml>`.
+
+| Arm | Config |
+|---|---|
+| S2b-P | [configs/stage_2b/ame_h16_pe.yaml](../../configs/stage_2b/ame_h16_pe.yaml) |
+| S2b-S | [configs/stage_2b/ame_h16_shift.yaml](../../configs/stage_2b/ame_h16_shift.yaml) |
+| S2b-PS | [configs/stage_2b/ame_h16_pe_shift.yaml](../../configs/stage_2b/ame_h16_pe_shift.yaml) |
+| S2b-N | [configs/stage_2b/ame_h16_simplest_seed2.yaml](../../configs/stage_2b/ame_h16_simplest_seed2.yaml) |
+
+- `learning_rate` is `null` in all four until Stage 1b has n\*, and `run_exp.py` refuses a
+  null learning rate. Set n\* in the four files and commit before submitting.
+- The W&B names read `s2b_<arm>_h16_lr<n>.0`, tagged `stage_2b`.
 
 ## Reporting — every stage
 
