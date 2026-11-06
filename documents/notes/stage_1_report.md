@@ -1,6 +1,6 @@
 # Stage 1 — first models: report
 
-**Status: n = 8–13 are complete in both arms, and n = 8 is best in both, at the edge again; n = 7 (both arms) and n = 6 (AME) were submitted at 07:42.**
+**Status: n\* = 9 for both arms, by Maciej's decision (decision 9); n = 8–13 are complete, and n = 7 (both arms) and n = 6 (AME) finish around 11:45.**
 
 The plan is [ame_experiments.md, "Stage 1 — first models"](ame_experiments.md#stage-1--first-models).
 This file is its record: every job, every result, and every decision the plan left open,
@@ -137,6 +137,26 @@ Each one is a point the plan left open, or a change forced by the switch to LEM.
    that leaves the optimum around n = 6–7, which could take two more waves before Stage 2
    can start. Running n = 6 beside n = 7 brackets it in one wave, for about 4 GPU-h. If
    n = 6 is not needed, it is simply an extra grid point.
+9. **n\* = 9 for both h12 arms, by Maciej's decision (2026-11-06, about 10:00).** His
+   words: "lets set lr = 9 for h12 as a optimal, it is very close to lr 8 but i prefere
+   lr 9 for stability".
+   - **This overrides the plan's selection rule**, which takes the lowest `final_ce`. On
+     that rule n = 8 led: by 0.042 in dense (2.9824 against 3.0244) and by 0.061 in AME
+     (4.3711 against 4.4316), with n = 7 and 6 still running.
+   - **The stability record:**
+
+     | Arm | n = 9 | n = 8 |
+     |---|---|---|
+     | Dense | no spike | no spike |
+     | AME | one spike, steps 609–635, peak 14.69 | one spike, steps 1,117–1,141, peak 7.50 |
+
+     Every n ≤ 11 AME run spiked once early, as did dense n = 10.
+   - **Consequences.** Stage 2 already runs at n = 9 (stage_2_report.md, decision 1),
+     so no re-run is needed. n = 9 lies inside the measured grid, with n = 8 and n = 10
+     on either side.
+   - **n = 7 and 6 still finish.** Maciej asked for AME n = 7 "just to be sure". It was
+     already training as job 6253086_0, so it was not submitted twice. Their final
+     losses complete the grid record.
 
 Two facts for whoever reads the checkpoints:
 - The checkpoint path uses each array task's own Slurm job id, not the array id: dense

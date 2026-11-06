@@ -37,6 +37,10 @@ S1-D, is [stage_1_report.md](stage_1_report.md).
    re-run: Stage 2's three arms and S2-N go again at Stage 1's n\*. Until then, the
    learning-rate check of Stage 2 itself (the best arm at n\* ± 1 = 8 and 10) still runs
    as the plan says. It measures directly whether n = 8 beats n = 9 for the winning arm.
+
+   **Confirmed at about 10:00.** Maciej set n = 9 as the h12 optimum ("very close to lr 8
+   but i prefere lr 9 for stability"; [stage_1_report.md](stage_1_report.md),
+   decision 9). So n\* = 9 is final, and wave 1 stands as submitted.
 2. **`run_exp.py` cannot finish a submit whose run name contains a dot, so `sbatch` was
    run by hand.** The W&B names read `s2_<arm>_h12_lr9.0`, as the plan predicts, because
    the schema types the learning rate as a float. `run_exp.py` uses the same string as a
@@ -102,7 +106,11 @@ kept for submission; the four runs do not depend on each other.
 
 | Arm | Attention | n | Job | Commit | Cemetery commit | Cemetery clone | W&B run |
 |---|---|---:|---|---|---|---|---|
-| S2-D0 | gqa without RoPE (NoPE) | 9 | 6253574 | `c4cb1ef6` | `26867619` | `s2_d0_h12_lr9.0_2026-11-06_09-54-52` | pending at 09:55 |
+| S2-D0 | gqa without RoPE (NoPE) | 9 | 6253574 | `c4cb1ef6` | `26867619` | `s2_d0_h12_lr9.0_2026-11-06_09-54-52` | `b93tal8j` |
+
+S2-D0 started at about 09:57. By step 39 its loss fell from 11.19 to 6.66, at 3.20 s/step,
+slightly faster than S1-D's 3.27 without the RoPE ops. So the NoPE path compiles and
+trains.
 
 Results: pending; about 4.3 h for each AME arm and 3.9 h for S2-D0 once running.
 
@@ -110,10 +118,9 @@ Results: pending; about 4.3 h for each AME arm and 3.9 h for S2-D0 once running.
 
 Items that need your decision. None blocks a Stage 1–2 run.
 
-1. **n\* = 9 against Stage 1's data.** Stage 2 runs at your n = 9. Stage 1 had n = 8 ahead
-   of n = 9 in both arms when it started (decision 1), and n = 7 and 6 were still running.
-   If Stage 1 ends with n\* ≠ 9, the plan re-runs Stage 2's wave at the new n\*. That costs
-   about 17 GPU-h and one 4.5 h wave.
+1. **n\* = 9, settled.** You set n = 9 for h12 at about 10:00 (decision 1). The plan's
+   selection rule would have taken n = 8 or lower. n = 7 and 6 still finish, for the
+   record; if either one changes your view, Stage 2's wave can re-run at the new n.
 2. **`run_exp.py` and run names with a dot** (decision 2). A one-line fix would be to
    sanitize the tmux session name, e.g.
    `tmux_name = experiment_branch_name.replace(".", "_").replace(":", "_")`, and use it
