@@ -375,12 +375,12 @@ Items that need your decision. None blocks a Stage 1–2 run.
      at n = 6, against 4.4316 at n = 9.
    - **Dense:** its best is n = 8 (2.9824); n = 7 broke down (4.2734).
 
-   So n = 9 costs S1-A0 0.166 nats, and dense 0.042. Stage 2 compares its four AME cells
-   at a learning rate that is clearly sub-optimal for AME, though the same for all four
-   ([stage_1_report.md](stage_1_report.md), decision 10). AME n = 5 and 4 are running to
-   find where the AME curve turns. If the comparison should sit at AME's optimum, the
-   plan's original rule (n\* = S1-A0's best n) means re-running wave 1 at that n, about
-   17 GPU-h.
+   So n = 9 costs S1-A0 0.166 nats, and dense 0.042. AME n = 5 and 4 then ended worse
+   than n = 6 (4.4512 and 4.5215), so S1-A0's optimum is n = 6
+   ([stage_1_report.md](stage_1_report.md)). The learning-rate check moved the 2 × 2 to
+   n = 8, where the order of the cells is unchanged. If you want the 2 × 2 at S1-A0's own
+   optimum (n = 6) as well, that is S2-P and S2-S at n = 6, about 8.7 GPU-h; S2-PS at n = 6
+   is already running.
 2. **`run_exp.py` and run names with a dot** (decision 2). A one-line fix would be to
    sanitize the tmux session name, e.g.
    `tmux_name = experiment_branch_name.replace(".", "_").replace(":", "_")`, and use it
@@ -393,3 +393,10 @@ Items that need your decision. None blocks a Stage 1–2 run.
 4. **Node r16-11 on LEM has a bad GPU.** Two jobs died there within seconds with
    `CUDA-capable device(s) is/are busy or unavailable`, so every Stage 1–2 job excludes it.
    It may be worth reporting to WCSS.
+5. **A second seed for S2-P and S2-PS** would settle whether the shift's 0.11–0.12 on top
+   of ALiBi is real. The plan's noise floor (0.232) comes from S1-A0's two seeds, and is
+   mostly one loss spike. None of the ALiBi runs spiked, so their own seed spread is
+   unmeasured and probably far smaller. Two runs at n = 8 with seed 124: about 8.7 GPU-h.
+6. **If S2-PS at n = 7 or 6 beats n = 8**, the plan's rule would re-run S2-P and S2-S
+   there before the winner stands. I have not done that automatically, given your
+   preference for stability (decision 5).
