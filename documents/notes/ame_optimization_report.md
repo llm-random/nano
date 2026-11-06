@@ -36,8 +36,8 @@ the mean is the right reading there.
 | **B1** — AME h20, 4 GPU, start of work | 26.84% | 3.720 s | 281,748 | 60.4% |
 | **Best 4 GPU** — AME h20 + align + S3b + O33 | **35.02%** | 2.852 s | 367,623 | **78.8%** |
 | **Best overall** — AME h16, 1 GPU, mb 16 | **37.96%** | 5.938 s | 176,573 | **85.4%** |
-| **Best 4 GPU, §7 run** — + O39 v2 (bank exchange on a side stream) | **37.35%** | 2.674 s | 392,107 | 84.0% |
-| **Best 1 GPU, §7 run** — h20 + O41 + O42 + O38(b), mb 8 | **39.54%** | 10.104 s | 103,780 | 89.0% |
+| **Best 4 GPU, §7 run** — + O39 v2 + whole-block graphs + O45 (Triton CE) | **38.74%** | 2.579 s | 406,652 | 87.2% |
+| **Best 1 GPU, §7 run** — h20 + O41 + O42 + O38(b), mb 8, compile autotune | **40.09%** | 9.966 s | 105,213 | 90.2% |
 | **B2** — dense H-balanced h20, 4 GPU (ceiling) | 44.44% | 2.364 s | 443,432 | 100% |
 
 **+30.5% on the reference baseline.** Two structural facts frame everything
@@ -118,6 +118,8 @@ Percentages are relative MFU change at the stated shape.
 | **O41** | Residual metrics hook only on heavy-metric steps (two graph breaks per block per micro-step, dense too) | **Built**, default on (`+o41=false` restores) | with O42: **+5.6%** at 1 GPU; at 4 GPUs mb 16 a collapse to ~16% (memory pressure), 37.06% at mb 8 | §1.21 |
 | **O42** | AME's flex block mask built eagerly before the compiled block (8 graph breaks and an eager `create_block_mask` per layer per call) | **Built**, default on (`+o42=false` restores) | as O41 | §1.21 |
 | **O43** | Bank exchange on FSDP2's process group | **Built, opt-in, not kept** (`trainer.bank_default_group`) | no change (16.49% in the collapsed regime) | §1.21 |
+| **O45** | Triton cross-entropy inside `_ChunkedLinearCE` (gradients in the forward, softmax in one kernel, no recompute); frees the logits so whole-block graphs fit at mb 16 on 4 GPUs | **Built** (`+fused_ce_impl=triton`) | with O39 v2 + O41 + O42: **38.74%** at 4 GPUs (+3.7%); 300-step gate in progress | §1.23 |
+| **O46** | KV shift: normalize the shifted raw key row instead of shifting the normalized key | **Built**, default on (`+o46=false` restores) | 1-GPU A/B in progress | §1.24 |
 | **O44** | CPU at most N blocks ahead of the compute stream | **Built, opt-in, not kept** (`trainer.bank_prefetch_cpu_lead`) | no change (17.90% in the collapsed regime) | §1.21 |
 | **O40** | FSDP2 parameters kept unsharded across micro-steps (`set_reshard_after_backward(False)` until the last) | **Built, opt-in, not kept** | **−0.9%** by the mean, +0.6% by the median | §1.19 |
 | **A0** | §7 attribution: 4-GPU best and its dense twin, kernel profiles | **Done** | measurement; the target is the bank path + AME glue | §1.17 |
@@ -854,6 +856,19 @@ the collectives then waiting for the slowest. The `create_block_mask` that O42
 removed had been a per-block CPU-GPU sync that kept the CPU from running ahead;
 with it gone, nothing paced the allocator either.
 
+
+**Which half costs the memory, and what it is not (jobs 33921, 33956).** O42
+alone (`+o41=false`) collapses the same way: 15.33%, peak 67.73 GiB, 204
+retries. So the extra 3.1 GiB comes from compiling the q/k/v prep, flex and
+the sink merge as one graph. On CPU, AOTAutograd's min-cut partitioner saves
+*less* for the whole block than for the broken one (no fp32 activation either
+way), so it is most likely transient working memory of the larger backward,
+not saved activations. Letting the partitioner recompute
+(`+functorch_config.activation_memory_budget=0.9`, 33956) removes the pressure
+outright -- peak **49.00 GiB**, zero retries, **37.41%** -- but that is
+compiler-chosen activation recompute, i.e. O10, which §7.4 keeps out of this
+run: measured once, not adopted, proposed in §7.10.
+
 ### 1.22 Phase B — h20 at 1 GPU: O41+O42, O38(b), micro-batch 8
 
 Base for Phase B: `configs/ame/h20_1gpu.yaml` (no FSDP2, autocast, mb 4 × 128),
@@ -887,6 +902,40 @@ At the real batch that is ~0.6 s of AME-specific kernel time in a 10.1 s step,
 most of it the glue: the k-normalize/shift backward fused with the bank
 scatter, and the reductions for the per-head parameters' gradients (alpha,
 beta, tau, the sinks).
+
+### 1.23 O45 — a Triton cross-entropy that makes whole-block graphs fit
+
+The other way to buy back the memory is the logits: `[16, 2048, 50304]` in
+bf16 is 3.07 GiB at mb 16, plus its gradient, and it is one contiguous block
+the allocator has to find every micro-step. O11 v1 (chunked, checkpointed --
+already gated, §1.13) with whole-block graphs at mb 16 (job 34069): peak
+**61.02 GiB**, 10 retries in 30 steps, 37.27% -- the memory wall gone, and v1's
+recompute costing about what the whole-block graphs gained.
+
+O45 removes the recompute. `_ChunkedLinearCE` (O11 v3) already computed the
+gradients during the forward -- valid because the loss is the final scalar --
+and lost to v1 only because its softmax was hand-rolled from PyTorch ops over
+`[chunk, 50304]` in fp32 (§1.13). O45 replaces that softmax with one Triton
+kernel per chunk (`src/core/model.py`, `_xent_grad_inplace`): an online
+log-sum-exp pass in fp32, then a pass that overwrites the bf16 logits with
+`(softmax - onehot) / valid` in place; `dx` and `dW` follow as two bf16 GEMMs.
+Each logits row is read twice and written once; nothing is recomputed; only one
+`[8192, 50304]` chunk exists at a time. `+fused_ce_impl=triton` with
+`trainer.fused_linear_ce=true trainer.fused_ce_chunk_size=8192`.
+
+Gate: `test_triton_xent_matches_cross_entropy_in_bf16` (CUDA; three chunk
+sizes; ignored rows; loss, `dx`, `dW` against fp32 `F.cross_entropy`; a
+counter proving the kernel ran per chunk) -- job 34093, passed with the full
+GPU set (15/15).
+
+**Effect (job 34099), with O39 v2 and whole-block graphs at mb 16: 37.35% →
+38.74% (+3.7%)**, step 2.674 → 2.579 s, tokens/s 406,652, peak 60.57 GiB,
+allocator retries 0–1. The new 4-GPU best. Loss: within one bf16 ulp of the
+base at every step (the logged loss is now the fp32 sum, so step 0 reads
+11.2163 where the bf16 path read 11.1875 -- the same value rounded); grad norm
+identical at step 0 (4.0043), drifting up to 7% by step 27. A numerics change,
+so §7.4's 300-step twin comparison against v1 (ATen cross-entropy per chunk,
+everything else equal) is required before it is kept: jobs in §3.
 
 ---
 
@@ -1277,7 +1326,23 @@ session). **Times are submit times** (cluster clock).
 | 01:25 | 33753 | 1 GPU attribution, dense twin, same shape | | — | |
 | 01:34 | 33793 | **O44**: CPU at most 2 blocks ahead of the compute stream | O39 v2 + O41 + O42 + O44 | 17.90% | No better: not the CPU running ahead. |
 | 01:43 | 33832 | O41 + O42 + prefetch at **micro-batch 8** | O39 v2 + O41 + O42, mb 8 × 16 | **37.06%** | `num_alloc_retries=0`, peak 40.98 GiB: **the collapse is memory pressure at mb 16.** +10.7% over the old mb 8 (33.48%). |
-| 01:48 | 33859 | O41 + O42 + prefetch + O38(b) at mb 16 | | | running |
+| 01:48 | 33859 | O41 + O42 + prefetch + O38(b) at mb 16 | | 16.86% | Still collapsed: 231 allocator retries (0 at mb 8), peak 66.55 GiB, reserved peak 75.88. One retry per micro-step: the 3.07 GiB logits. |
+| 01:55 | 33889 | same + `max_split_size_mb:1024` | | 16.00% | Retries moved into the backward (~255). Not fragmentation of the big block alone. |
+| 02:02 | 33921 | **O42 alone** (`+o41=false`) | O39 v2 + O42 | 15.33% | Same collapse, 204 retries, 67.73 GiB: the 3.1 GiB is O42's, i.e. the q/k/v prep, flex and sink in one graph. |
+| 02:03 | 33927 | **1 GPU**: B1 + `max-autotune-no-cudagraphs` | B1 + autotune | **40.09%** | **+1.4%**, new 1-GPU best; peak 77.37 GiB, 0 retries (expandable segments). |
+| 02:10 | 33956 | whole-block + O39 v2 + `activation_memory_budget=0.9` | | 37.41% | Peak **49.00 GiB**, 0 retries. **O10-class (compiler recompute): measured once, not adopted, §7.10.** |
+| 02:21 | 34007 | 4 GPU: O39 v2 + autotune | | 30.34% | Collapse: 192 retries. Autotuned kernels need workspace the 4-GPU mb 16 run does not have. |
+| 02:22 | 34012 | 1 GPU: + `coordinate_descent_tuning` | | 40.07% | Neutral. Not kept. |
+| 02:35 | 34069 | whole-block + O39 v2 + O11 v1 (chunked CE, checkpointed) at mb 16 | | 37.27% | Peak **61.02 GiB**, 10 retries: freeing the logits lifts the wall; v1's recompute eats the gain. |
+| 02:40 | 34093 | gate (2 GPUs): Triton CE test + the GPU set | — | — | **15/15**, the new kernel at three chunk sizes. |
+| 02:41 | 34099 | **O45**: whole-block + O39 v2 + Triton fused CE at mb 16 | | **38.74%** | **+3.7%** over 37.35%, step 2.579 s, peak 60.57 GiB, retries 0–1. New 4-GPU best, pending the 300-step gate. |
+| 02:47 | 34125 | 300-step gate, O45 (v4) | | — | twin of 34227 (§1.23) |
+| 02:48 | 34130 | 1 GPU: B1 + autotune + O45 | | — | OOM at step 1 (82 MiB short at 79.11 GiB): autotune already ran the 1-GPU card to 77.4 GiB. Not pursued: at mb 8 O45 frees only 2 × 1.54 GiB. |
+| 02:58 | 34173 | inductor code dump of one block (1 GPU) | — | — | Forward AME prep is 6 kernels; the KV shift's padded copies are materialised (§1.24). |
+| 03:04 | 34204 | O45 kernel profile | | — | GEMMs 1238 ms (+100 over A0, contention), flex 515 (+38), CE kernel 26.3 ms, compute-stream gaps 165 ms. |
+| 03:09 | 34227 | 300-step gate twin: O11 v1 (ATen CE per chunk), else equal | | | running |
+| 03:11 | 34237 | 1 GPU: best + **O46** (shifted key normalized from the shifted raw row) | | | running |
+| 03:11 | 34242 | 1 GPU: B1 + O46 (no autotune) | | | running |
 
 ### Jobs on this account NOT part of this work
 
@@ -1730,6 +1795,34 @@ segments help (headroom is ample at 75.9 of 79 GiB once fragmentation is gone);
 at 4 GPUs, with no headroom, they hurt. A 1-GPU attribution against dense
 (§1.22) leaves AME's glue as the main excess there.
 
+### 2026-11-06, 02:10 — the memory wall, and a fix I did not adopt
+
+With memory pressure established, the question was which half of the
+whole-block change costs the 3 GiB and how to get it back. O42 alone carries
+it (33921). `activation_memory_budget=0.9` got it back and more -- 49 GiB,
+37.41% -- but it does so by recomputing activations, which is O10, and O10 is
+cut for this run (§7.4). I took one measurement, stopped there, and wrote it up
+for Maciej (§7.10) instead of building on it; it is the most consequential
+open decision this run has produced, because the memory it frees is also the
+first route seen to micro-batch 32 on 4 GPUs and 16 on 1.
+
+### 2026-11-06, 02:20 — autotuning: yes at 1 GPU, no at 4
+
+`max-autotune-no-cudagraphs` gave +1.4% at 1 GPU (40.09%) and collapsed the
+4-GPU run (30.34%, allocator retries again): the autotuned kernels' workspace
+is memory the 4-GPU mb 16 run does not have. Coordinate-descent tuning on top
+was neutral.
+
+### 2026-11-06, 02:35 — O45: buying the memory back from the logits
+
+The permitted route to the same memory is O11 (lifted by Maciej on
+2026-11-05). v1 with whole-block graphs fitted (61 GiB, 37.27%), confirming
+the logits are enough, but its recompute cost what whole-block graphs gained.
+So I wrote the Triton softmax that `_ChunkedLinearCE`'s own docstring said it
+was waiting for (O45): 38.74%, the new 4-GPU best. It changes the loss
+arithmetic, so it is held at "pending" until the 300-step twin comparison
+against v1 (34125/34227) is in.
+
 ### Corrections I made to my own earlier claims
 
 Recorded because several changed what was worked on next.
@@ -1808,8 +1901,8 @@ ceiling for the % column is B2 = 44.44%.
 | **h12** | **4** | **30.00%** | 0.930 s | 1,127,285 | 32 × 4 | 53.22 | 67.5% | 33076 | `ame_tests/h12_4gpu_mb16_o29.yaml` + `trainer.gradient_accumulation_steps=4` |
 | **h16** | **1** | **37.96%** | 5.924 s | 177,001 | 16 × 32 | 68.35 | **85.4%** | 32825 | `ame_tests/h16_1gpu_mb16.yaml` |
 | **h16** | **4** | **33.30%** | 1.689 s | 621,015 | 16 × 8 | 44.53 | 74.9% | 32856 | `ame_tests/h16_4gpu_mb16_o29.yaml` |
-| **h20** | **1** | **39.54%** | 10.104 s | 103,780 | 8 × 64 | — | 89.0% | 33695 | `ame/h20_1gpu.yaml` + `trainer.bank_compute_copy=false trainer.gradient_accumulation_steps=64 +cuda_alloc_conf=expandable_segments:True` (O41+O42 on, the default since 2026-11-06) |
-| **h20** | **4** | **37.35%** | 2.674 s | 392,107 | 16 × 8 | 64.61 | 84.0% | 33530 | `ame/h20_4gpu.yaml` + `trainer.bank_prefetch_depth=2 +whole_block_graphs=false` (O39 v2; measured before O41/O42 existed, which the switch turns off) |
+| **h20** | **1** | **40.09%** | 9.966 s | 105,213 | 8 × 64 | 77.37 | 90.2% | 33927 | `ame/h20_1gpu.yaml` + `trainer.bank_compute_copy=false trainer.gradient_accumulation_steps=64 +cuda_alloc_conf=expandable_segments:True +compile_mode=max-autotune-no-cudagraphs` (O41+O42 on, the default since 2026-11-06; measured before O46, so `+o46=false` reproduces it exactly) |
+| **h20** | **4** | **38.74%** | 2.579 s | 406,652 | 16 × 8 | 60.57 | 87.2% | 34099 | `ame/h20_4gpu.yaml` + `trainer.bank_prefetch_depth=2 trainer.fused_linear_ce=true trainer.fused_ce_chunk_size=8192 +fused_ce_impl=triton` (O39 v2 + O41 + O42 + O45; `+o46=false` for the code as measured). **Pending O45's 300-step gate.** Without O45: 37.35%, job 33530, `+whole_block_graphs=false` |
 
 GFLOPs/token, which is why the MFU columns are not directly comparable across
 rows: h12 **1.053**, h16 **2.121**, h20 **3.768**. A smaller model carries less
@@ -2067,6 +2160,8 @@ part of the run.
 | 2026-11-06 00:42 | O39 v2 | **37.35%** (33530) | — | |
 | 2026-11-06 01:11 | O41 + O42 | collapse at mb 16 (memory pressure); 37.06% at mb 8 | **37.45%** (33644) | §1.21 |
 | 2026-11-06 01:20 | B1: O38(b) + mb 8 + expandable segments | 37.35% | **39.54%** (33695) | §1.22 |
+| 2026-11-06 02:10 | compile autotune | (4 GPU: collapse, memory) | **40.09%** (33927) | |
+| 2026-11-06 02:45 | O45 (Triton CE) + whole-block graphs | **38.74%** (34099), gate pending | 40.09% | §1.23 |
 
 ### 7.8 Running unattended
 
@@ -2126,3 +2221,5 @@ why it needs a decision, and where the evidence is.
 | Lift O10 for selective checkpointing of the glue at h20, 1 GPU | O10 is cut | a route to micro-batch 16 at 1 GPU, where dense measures 44.98% (40.97% at mb 4) | §7.6 |
 | O17: CPU offload of the bank optimizer state | O17 is cut | the other route to micro-batch 16 at 1 GPU | §7.6 |
 | Block-wise 8-bit optimizer states for the banks (an O38 variant) | a new third-party dependency | −14.4 GiB at h20, 1 GPU | §7.6 B1 |
+| Compiler-chosen activation recompute: `+functorch_config.activation_memory_budget=0.9` (AOTAutograd's partitioner recomputes cheap activations to stay within 90% of the default saved memory) | It trades compute for memory, which is what O10 means; O10 is cut, and the run stayed out of it after one measurement | At h20, 4 GPUs, mb 16 with O41 + O42 + O39 v2 (job 33956): peak **67.73 → 49.00 GiB**, allocator retries 231 → 0, **37.41%** (O39 v2 without it: 37.35%). It is what makes whole-block graphs usable at mb 16 on 4 GPUs, and the ~30 GiB it frees is the first route to mb 32 at 4 GPUs and mb 16 at 1 GPU seen in this work. Measured once; mb 32 / mb 16 with it not tried. | §1.21, §3 |
+
