@@ -1,6 +1,6 @@
 # Stage 1b — Stage 1 at h16 and 8B tokens: report
 
-**Status: the grid is training on LEM: all 6 runs since 09:12–09:14, ending around 22:40–23:50; the smoke runs passed.**
+**Status: concluded by Maciej's decision: n\* = 9 for both arms (decision 3). The 6 grid runs finish around 22:40–23:50 for the record and for Stage 2b's reference cells.**
 
 The plan is [ame_experiments.md, "Stage 1b — Stage 1 at h16 and 8B tokens"](ame_experiments.md#stage-1b--stage-1-at-h16-and-8b-tokens).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -102,6 +102,25 @@ Points specific to Stage 1b:
    keep-alives, poll every 5 minutes, and wait for the port with a bare TCP probe every 3
    minutes. Everything that needed LEM was moved to W&B meanwhile: the smoke results,
    and the checkpoint lines from the captured logs.
+3. **Stage 1b concluded by Maciej's decision (2026-11-06, about 12:00): n\* = 9 for both
+   h16 arms, with no further grid points.** His words: "assume that optimal lr for h16
+   baseline and AME is 9 - that concludes stage 1b - dont run more experiemnts for stage
+   1b". So the early dense n = 8 run I had been weighing (plan: "starting the next n early,
+   once the edge leads mid-run") is dropped. The six grid runs keep going to the end:
+   - **n = 9** is Stage 2b's reference cell, S1b-A0 at n\*, and its dense comparison,
+     S1b-D at n\*;
+   - **n = 10 and 11** complete the record.
+
+   At the time, about 10:50, the grid was at step ~800 of 7,630. Train loss over steps
+   600–799:
+
+   | Arm | n = 9 | n = 10 | n = 11 | Spikes |
+   |---|---:|---:|---:|---|
+   | Dense | **3.506** | 3.944 | 3.812 | n = 10 to 10.4 |
+   | AME | 5.276 | **5.184** | 5.185 | n = 9 to 11.1 |
+
+   n = 9 led dense; AME led at n = 10 and 11. Stage 2b runs at n = 9
+   ([stage_2b_report.md](stage_2b_report.md)).
 
 ## The learning-rate grid
 

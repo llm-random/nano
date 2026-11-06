@@ -47,6 +47,7 @@ will test, how fast it runs. Everything else is in `notes/archive/`.
 | [stage_1_report.md](notes/stage_1_report.md) | **Stage 1 of the program, on LEM (from 2026-11-06)**: the learning-rate grids for dense h12 and the simplest AME h12 at 4B tokens — every job, result and decision |
 | [stage_2_report.md](notes/stage_2_report.md) | **Stage 2, on LEM (from 2026-11-06)**: AME h12 with ALiBi, with the KV shift, and with both, at 4B tokens — the 2 × 2, the noise floor, the learning-rate check |
 | [stage_1b_report.md](notes/stage_1b_report.md) | **Stage 1b, on LEM (from 2026-11-06)**: Stage 1 at h16 and 8B tokens — the learning-rate grids for dense h16 and the simplest AME h16 |
+| [stage_2b_report.md](notes/stage_2b_report.md) | **Stage 2b, on LEM (from 2026-11-06)**: Stage 2 at h16 and 8B tokens — the 2 × 2 of ALiBi × KV shift, the noise floor, the learning-rate check |
 
 **AME configs** (layout since 2026-11-05): `configs/ame/` holds six configs, the
 best measured MFU per model size × GPU count. Every other AME config — benchmarks,
