@@ -80,7 +80,7 @@ startup:
 - S2b-PS: 14.3 h, about 15.1 h.
 
 All fit the 24 h limit with room to spare. MFU, offline at 989 TFLOP/s as in Stage 1, is
-40.0% for dense, 33.9% for S1b-A0 and 32.5% for S2b-PS.
+39.6% for dense, 34.7% for S1b-A0 and 33.2% for S2b-PS.
 
 ## Decisions
 
