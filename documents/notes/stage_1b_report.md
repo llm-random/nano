@@ -1,6 +1,6 @@
 # Stage 1b — Stage 1 at h16 and 8B tokens: report
 
-**Status: the smoke runs passed (09:07); the grid is submitted once LEM's SSH answers again.**
+**Status: the grid is training on LEM: all 6 runs since 09:12–09:14, ending around 22:40–23:50; the smoke runs passed.**
 
 The plan is [ame_experiments.md, "Stage 1b — Stage 1 at h16 and 8B tokens"](ame_experiments.md#stage-1b--stage-1-at-h16-and-8b-tokens).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -102,3 +102,31 @@ Points specific to Stage 1b:
    keep-alives, poll every 5 minutes, and wait for the port with a bare TCP probe every 3
    minutes. Everything that needed LEM was moved to W&B meanwhile: the smoke results,
    and the checkpoint lines from the captured logs.
+
+## The learning-rate grid
+
+Submitted 2026-11-06 09:12 from `~/code/nano-stage1b2b` at `31cbc268`, with
+`+infrastructure.slurm.exclude=r16-11`. The 24 h limit comes from the configs. Array task
+*i* trains at n = 9 + *i*, as checked in the clones' `generated_configs/`. Each cemetery
+snapshot has `31cbc268` as its parent and adds only `exp.job` and `generated_configs/`.
+
+| Arm | Job | Cemetery commit | Cemetery clone on LEM (under `.../nano/plgmstefaniak/llmrandom_cemetery/`) |
+|---|---|---|---|
+| S1b-D | 6253313_[0-2] | `8a6f9f5d` | `s1b_d_h16_lrNone_2026-11-06_09-12-16` |
+| S1b-A0 | 6253317_[0-2] | `843af3b8` | `s1b_a0_h16_lrNone_2026-11-06_09-12-53` |
+
+| Arm | n | LR | Job | W&B run | Node |
+|---|---:|---:|---|---|---|
+| S1b-D | 9 | 2⁻⁹ = 1.95e-3 | 6253313_0 | `eh2sjsh7` | r12-11 |
+| S1b-D | 10 | 2⁻¹⁰ = 9.77e-4 | 6253313_1 | `8jm0qkjs` | r12-11 |
+| S1b-D | 11 | 2⁻¹¹ = 4.88e-4 | 6253313_2 | `7rd0xax5` | r12-11 |
+| S1b-A0 | 9 | 2⁻⁹ | 6253317_0 | `n15qni7a` | r12-15 |
+| S1b-A0 | 10 | 2⁻¹⁰ | 6253317_1 | `v76wb0e1` | r12-15 |
+| S1b-A0 | 11 | 2⁻¹¹ | 6253317_2 | `7ujg1z77` | r12-15 |
+
+The three dense runs started at 09:12 and the three AME runs at 09:14. All six passed
+the two-minute check: dense built with 354,714,624 parameters and AME with 1,986,331,904,
+with no error in any log.
+
+Results: pending; about 13.4 h dense and 14.5 h AME after each run starts.
+
