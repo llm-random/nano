@@ -17,16 +17,23 @@ One row per item of the plan's inventory (section 4). Filled in as the evidence 
 
 | # | Item | Verdict | Evidence |
 |---|---|---|---|
-| A1 | Tier 2 bank path (O1-O5) | pending | |
-| A2 | O3, the bf16 bank compute copy: the prep in bf16 | pending | |
-| A3 | D2, the fused Q/K pair, traced by compile | pending | |
-| A4 | flex_attention, compiled, ALiBi in `score_mod` | pending | |
-| A5 | S2, the sink as an LSE merge | pending | source read: the LSE gradient is wired in torch 2.7.1 (Phase 0.2, item 3) |
-| A6 | S3b, the sink logit as an fp32 mul+sum | pending | |
-| A7 | tau folded into q before the bf16 cast | pending | |
-| A8 | the compiled AME block | pending | |
-| A9 | the bank sidecar checkpoint (O30) | pending | |
-| X1-X8 | shared efficiency choices | pending | |
+| A1 | Tier 2 bank path (O1-O5) | **cleared** (exact) | 1.5 at init (clip active) and at the final checkpoint (real moments): Tier 2 and the ordinary fused AdamW agree to ≤ 1.3e-7, i.e. fp32 rounding, foreach against fused. The twin at init: with an fp32 compute copy, Tier 2's gradient equals the ordinary path's bit for bit, except the banks at 2e-6 (summation order). Gates: G1a (A1 on, A2 off) and G1 (A1 off) are the same computation and land at opposite ends of the chaotic spread |
+| A2 | O3, the bf16 bank compute copy: the prep in bf16 | **cleared at the gradient level**; training effect at 300 steps bounded below | Within dense's rounding budget. It adds about 40% to the prep's rounding (q, k reach the kernel 2.33e-3 from fp32 against 1.66e-3), and it rounds tau's forward copy (≤ 0.37% per head). Gradient effect (production against `ame_std`): ≤ 0.42% at init and 0.55-2.3% at final, against a 0.4-1.0% nondeterminism floor between equivalent computations and dense's 2.8-4.0% budget. No loss cost: AME's precision tax is +0.00015, dense's +0.00015 |
+| A3 | D2, the fused Q/K pair, traced by compile | **cleared** (exact) | The twin at init: the eager gather reproduces production's gradient bit for bit. 1.3, all exact items at init and at final: no absent row nonzero, no leak into row id + 1, the rows are exactly the input ids, prev-row correlation equal to the next-row control |
+| A4 | flex_attention, compiled, ALiBi in `score_mod` | **cleared** | Kernel at the production shape with trained weights: out 2.2-2.6e-3, dq 3.5-5.4e-3 against the exact fp32 function. That is at or below the plain bf16 implementation's error (dq up to 1.2e-2) and within 1.0-1.5× of SDPA flash on the same inputs; projections ≤ 6e-4. G-REF at 220 steps sits inside the production spread |
+| A5 | S2, the sink as an LSE merge | **cleared** | The LSE gradient is wired in torch 2.7.1 (source, Phase 0.2 item 3) and right numerically: an LSE-only loss gives dq within 2e-3 at init and at final, in all 12 layers. That includes sink weights of 0.14-0.24. d`k_sink` 1.8-4.0e-3, d`v_sink` 0.6-1.5e-3 at final |
+| A6 | S3b, the sink logit as an fp32 mul+sum | **cleared** | fp32 by construction; covered by the kernel check's d`k_sink` above |
+| A7 | tau folded into q before the bf16 cast | **cleared** | One rounding of q·tau, the size of any bf16 kernel input: the fp32-prep path reaches the kernel at 1.66e-3, single-rounding level. tau's own bf16 rounding exists only on the Tier 2 path and is booked under A2 |
+| A8 | the compiled AME block | **cleared** | Production against `ame_prod_eager`: 0.08-0.33% at init, 0.6-1.7% at final. Same scale as dense's compiled against eager (0.7-2.4%), inside dense's budget |
+| A9 | the bank sidecar checkpoint (O30) | **cleared** | `final_ce` reproduces exactly (3.125) from the checkpoint and its sidecar through `load_checkpoint_from_file`. 1.5 at final runs on the sidecar's moments |
+| X1 | `compile_blocks_full` | **cleared**, symmetric | As A8 for AME; dense's compiled against eager is 0.7-2.4% at final |
+| X2 | autocast bf16, no FSDP2 | **numerical, AME-specific interaction** | The loss-level tax is the same in both arms (+0.00015). At the final checkpoint, though, alpha, beta and tau carry 8.6-31% gradient error in *every* bf16 AME path, the plain reference included, against dense's worst group at 2.8-4.0%. Cause: the bf16 attention backward, amplified by cancellation in the per-head reductions. Training effect not measured (late-training; see the proposed runs) |
+| X3 | CE outside autocast, on bf16 logits | **cleared**, symmetric | fp32-CE variants: 0.02-0.18% at init in both arms, 0.2-0.9% (AME) and 0.19-0.73% (dense) at final. No interaction with the arm |
+| X4 | `sequence_length` 2049 | **cleared** | The same data in both arms; the model sees 2048 tokens |
+| X5 | fused AdamW on the backbone | **cleared** | 1.5: fused and foreach AdamW agree to 1e-7 |
+| X6 | micro-batch 32 × 16 | **cleared** | G0c (micro-batch 16) lands inside the production spread at 300 and at 220 steps |
+| X7 | the residual-metrics hook breaking the graph | **cleared** | Scheduling only; the harness's production variants keep the hook and its graph breaks |
+| X8 | `compile_ce`, `compile_loss`, `fused_linear_ce` off | **cleared** (not active) | Confirmed off in both logged configs (Phase 0.2) |
 
 ## Budget
 
@@ -573,9 +580,29 @@ copies at 5.253 and 5.284.** G0e, an identical production copy, finished at 5.22
   is *not* rejected for A1-A3.
 - **The right test is between computational classes:** A2 on (production and G1b) against
   A2 off (the ordinary path and G1a), with enough runs in each.
-  - Replicates are running: G1r2-G1r4 and G0f-G0g.
-  - They give about seven runs per class. That bounds A2's effect at 300 steps to roughly
-    ±0.1 nats.
+
+**The replicates** (jobs 36365-36368, and 36339 for G1r2; the first G0f/G0g/G1r3/G1r4
+submissions died on the full `/tmp`, Q1):
+
+| Class (same computation within a class) | Runs | Last-50 mean (sd) | `final_ce` mean | Each run's last-50 |
+|---|---|---|---|---|
+| **A2 on**: bf16 compute copy (production; G1b) | 7 | **5.002** (0.113) | 4.827 | 5.042, 4.981, 5.020, 5.223, 4.941, 4.939, 4.868 |
+| A2 on, micro-batch 16 (G0c) | 1 | 5.018 | 4.836 | |
+| **A2 off**: fp32 banks (ordinary path; Tier 2 with fp32 copy) | 6 | **5.123** (0.123) | 4.948 | 5.253, 5.284, 5.033, 5.117, 5.073, 4.975 |
+| dense (GD0a, GD0b) | 2 | 5.375 (0.018) | 5.184 | |
+
+- **A2 off − A2 on = +0.121 nats** over the last 50 steps: Mann-Whitney p = 0.073, Welch p
+  = 0.096. The 95% interval for production − (fp32 banks) is **[−0.267, +0.026]**.
+- **At 300 steps the bf16 compute copy is not worse than fp32 banks by more than about
+  0.03 nats, and is more likely better.** Whether it really helps early training (A2's
+  bf16 rounding acting like noise in the bank prep) is suggestive, not established. The
+  question is moot for the audit, whose concern was harm.
+- **One run's spread is about 0.12 nats (sd) at 300 steps in either class**, larger than
+  most effects these gates were meant to detect. The plan's "harmful" rule with a
+  two-run floor (F = 0.061) would have misfired. Any future short gate on AME needs five
+  or more runs per arm.
+- **The 300-step outcome is not predicted by the early bumps.** G0a recovered from the
+  largest bump in the set; G0e had one small bump and ended worst.
 
 ### The 220-step set: G-REF (jobs 36319, 36327, 36329, 36330)
 
@@ -637,7 +664,42 @@ Each question is numbered and dated and gives the context, the options and the d
 being taken.
 
 **Q1 (2026-11-06 23:05): h100a's `/tmp` is full. May I delete my own stale caches
-there?**
+there?** **Answered (Maciej, ~23:25): (a), within these limits:**
+
+- only `mstefaniak`'s files;
+- nothing a running job uses: `/tmp/torchinductor_mstefaniak` stays until no job of mine
+  runs;
+- `~/parity_ckpt/`, `~/parity/data/`, `~/parity/out/` and `~/parity/code/` stay until the
+  report is final;
+- list before deleting, record after.
+
+**Done 23:27** (`~/parity/tmp_cleanup_list.txt`, `~/parity/tmp_cleanup_log.txt` on
+entropy). The listing found 925 `mstefaniak` entries in h100a's `/tmp`, 10.11 GiB.
+Deleted were the 924 modified before 23:00, when the only running job of mine (G-REF2,
+36370, caches on NVMe) had started. Each was checked by the script to be a top-level
+`/tmp` entry owned by `mstefaniak`; none was skipped.
+
+| Removed | Entries | Size |
+|---|---|---|
+| `triton-cache-<job>-rank<n>`: compile caches of finished jobs, 2026-11-05 15:49 to 2026-11-06 22:59 | 313 | 7.08 GiB |
+| `triton-rank<n>-*`, `inductor-rank<n>-*`: per-rank temp caches, 2026-11-06 00:46-04:36 | 60 | 0.65 GiB |
+| `triton_gate_<job>` | 11 | 0.49 GiB |
+| `inductor_gate_<job>` | 8 | 0.19 GiB |
+| `triton_dump_<job>`, `inductor_dump_<job>` | 2 | 0.05 GiB |
+| small leftovers: `tmp*`, `pymp-*`, `torchelastic_*`, old wandb dirs and sockets, `uv-*.lock`, `pytest-of-mstefaniak`, `pytorch-errorfile-*` | 530 | 0.01 GiB |
+| **total** | **924** | **8.48 GiB** (du) |
+
+**`/tmp` on h100a:**
+
+| | Bytes used | Free | Use |
+|---|---|---|---|
+| Before | 107,306,639,360 | 434,176 B | 100% |
+| After | 98,107,596,800 | 9,199,476,736 B | 92% |
+
+**9.20 GB freed.** `/tmp/torchinductor_mstefaniak` (1.63 GiB) waits for G-REF2 to finish
+(below).
+
+The original question follows.
 
 - **Context.**
   - h100a's `/tmp` (100 GB) reached 100% at about 22:40 and killed five gates and G-REF2
