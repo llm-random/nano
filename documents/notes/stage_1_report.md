@@ -1,6 +1,6 @@
 # Stage 1 — first models: report
 
-**Status: the learning-rate grid is training on LEM (8 runs since 00:44, plus n = 9 for both arms since 01:41); the smoke runs passed.**
+**Status: the learning-rate grid is training on LEM (n = 10–13 since 00:44, n = 9 since 01:41, n = 8 since 03:36, both arms); the smoke runs passed.**
 
 The plan is [ame_experiments.md, "Stage 1 — first models"](ame_experiments.md#stage-1--first-models).
 This file is its record: every job, every result, and every decision the plan left open,
@@ -119,6 +119,17 @@ Each one is a point the plan left open, or a change forced by the switch to LEM.
    (about 4.5 h) on the critical path, and Stage 2 needs S1-A0's n\*. If n = 10 does not
    stay best, the two n = 9 runs (about 9 GPU-h) are simply an extra grid point. The
    selection rule is unchanged: the lowest `final_ce` over every n run.
+7. **n = 8 was started early, at 03:36, for both arms**, by the same reasoning, one step
+   further. Train loss averaged over 200-step windows at matched steps, step 1,700:
+   - **dense:** n = 9 is at 3.315 against 3.513 at n = 10, a lead of 0.20, so n = 9 will
+     almost surely win dense and the rule will ask for n = 8;
+   - **AME:** n = 9 and n = 10 are tied, 4.943 against 4.947 at step 1,300 and 4.901 against
+     4.888 at step 1,500.
+
+   An AME win at n = 9 would put n = 8 on Stage 2's critical path, since Stage 2 needs
+   S1-A0's n\*. Starting it now saves about 2.7 h if it is needed; otherwise it costs about
+   4.5 GPU-h. Dense n = 8 is off that path, but its case is strong, and it finishes Stage 1
+   sooner.
 
 Two facts for whoever reads the checkpoints:
 - The checkpoint path uses each array task's own Slurm job id, not the array id: dense
@@ -153,6 +164,8 @@ expected parameter count, and there was no error in the log.
 | S1-A0 | 13 | 2⁻¹³ | 6251668_3 | `ssdlz0nk` | r18-1 |
 | S1-D | 9 | 2⁻⁹ = 1.95e-3 | 6251812_0 | `ovy19sqp` | r16-5 |
 | S1-A0 | 9 | 2⁻⁹ | 6251816_0 | `p5u294hj` | r16-7 |
+| S1-D | 8 | 2⁻⁸ = 3.91e-3 | 6252398_0 | `x0xlqroj` | r12-3 |
+| S1-A0 | 8 | 2⁻⁸ | 6252402_0 | pending at 03:40 | |
 
 The n = 9 runs (decision 6) were submitted at 01:41 from the same worktree. The only change
 was each grid file's `^learning_rate` list, edited to `[9]` and left uncommitted, as the
@@ -171,6 +184,8 @@ as `run_exp.py` always does.
 | `a162a92f` | S1-A0 grid, 6251668 | nothing |
 | `26688afc` | S1-D n = 9, 6251812 | both grid lists read `[9]` |
 | `539eddce` | S1-A0 n = 9, 6251816 | both grid lists read `[9]` |
+| `489342e2` | S1-D n = 8, 6252398 | both grid lists read `[8]` |
+| `76bd1630` | S1-A0 n = 8, 6252402 | both grid lists read `[8]` |
 
 The two n = 9 snapshots also carry stale `generated_configs/config_1–3.yaml` left in the
 worktree by the grid submit. Their `exp.job` runs `--array=0-0`, so only `config_0`
@@ -191,6 +206,20 @@ The high learning rates are unstable early:
 
 All three recovered, and n = 10 still led both arms afterwards. Throughput matches the
 smoke baseline: 3.26–3.28 s/step dense and 3.59–3.61 AME, i.e. 35.5% and 31.0% MFU.
+
+**The 10-batch eval loss is logged in bf16.** Its values step by 1/64 below a loss of 4
+and by 1/32 between 4 and 8, so a difference of 0.03 in an AME eval is one rounding step.
+Mid-run comparisons in this file therefore use train loss averaged over 100–200-step
+windows. `final_ce` does not have this problem: it averages 256 chunk losses in float64,
+which is good to about 0.001.
+
+**Progress at 03:34.** Grid runs at step ~2,600–2,900, n = 9 at ~1,700–1,800. Train loss
+averaged over 200-step windows:
+
+| Arm | Window from step | n = 9 | n = 10 | n = 11 | n = 12 |
+|---|---:|---:|---:|---:|---:|
+| S1-D | 1,700 | 3.315 | 3.513 | 3.604 | — |
+| S1-A0 | 1,500 | 4.901 | 4.888 | 4.946 | 5.046 |
 
 Results: pending.
 
