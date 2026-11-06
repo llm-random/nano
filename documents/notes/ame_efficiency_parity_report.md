@@ -349,6 +349,42 @@ place it.
     rows 4.5e-4;
   - tau is exactly 8.0 at init, so its bf16 rounding there is zero.
 
+**1.2 and 1.4 at the final checkpoint** (`layers --states final`, job 36364, all 12 layers,
+32 × 2048, the trained weights; each layer's real input and upstream gradient):
+
+| | out | dq | dk | dv | d`k_sink` | d`v_sink` |
+|---|---|---|---|---|---|---|
+| flex + LSE merge against the exact fp32 function of the same bf16 inputs | 2.2-2.6e-3 | 3.5-5.4e-3 | 2.8-4.1e-3 | 2.4-2.8e-3 | 1.8-4.0e-3 | 0.6-1.5e-3 |
+| plain bf16 reference on the same inputs | 2.5-4.9e-3 | 3.6-12e-3 | — | — | — | — |
+| SDPA flash on the same inputs (causal, no bias or sink) | — | 2.1-5.2e-3 | — | — | — | — |
+
+- **The kernel is at or below the plain implementation's rounding.** In trained layers
+  with sharp attention, the plain bf16 reference (scores rounded to bf16 before the
+  softmax) reaches dq errors of 1.2e-2. Flex keeps its scores in fp32 and stays at
+  3.5-5.4e-3, within 1.0-1.5× of SDPA flash.
+- Its signed projections are ≤ 6e-4 for dq and dk, and ≤ 1.2e-3 for d`k_sink`.
+- **The LSE gradient is right in every layer** (LSE-only loss: dq 1.9-2.1e-3) at the
+  sink's trained weight. That weight is now 0.14-0.24 of each layer's attention mass,
+  against 0.06 at init, so the large-sink case the plan asked for is covered.
+- **The whole layer** (prep + kernel + merge + projections), production against standard
+  mixed precision, both against fp32:
+  - out 3.4-4.9e-3 against 3.4-4.8e-3;
+  - dx 4.2-5.4e-3 against 4.2-5.3e-3;
+  - bank-row gradients 4.6-8.9e-3 against 4.6-8.8e-3.
+
+  The efficiency path adds nothing measurable at the layer's boundary.
+- **The prep (1.4):**
+  - production's q and k reach the kernel 2.33e-3 from fp32, against 1.66e-3 for an fp32
+    prep cast once, in every layer: A2 adds about 40% to that rounding;
+  - **the trained tau (8.0-8.9 per layer) is off by up to 0.32-0.37% in its bf16 forward
+    copy**, half the 0.0625 grid, as predicted;
+  - the prep's own gradients differ from fp32 by alpha 1.1-2.0e-3, tau 1.3-2.2e-3 and
+    bank rows 4.5e-4.
+- **Per-layer tau and alpha gradients carry larger projections on the production path**:
+  layer 0, dtau +5.8e-3 against +2.8e-3, dalpha +3.7e-3 against 0. A layer's tau has 12
+  elements, so its projection noise is about 4e-3; the 144-element tau group in the
+  final-state budget is the measure that counts.
+
 ## Phase 2: training gates
 
 ### The 300-step set (jobs 36309, 36313-36317)
@@ -514,5 +550,27 @@ copies at 5.253 and 5.284.** G0e, an identical production copy, finished at 5.22
 
 ## Questions for Maciej
 
-None yet. Each question is numbered and dated and gives the context, the options and the
-default being taken.
+Each question is numbered and dated and gives the context, the options and the default
+being taken.
+
+**Q1 (2026-11-06 23:05): h100a's `/tmp` is full. May I delete my own stale caches
+there?**
+
+- **Context.**
+  - h100a's `/tmp` (100 GB) reached 100% at about 22:40 and killed five gates and G-REF2
+    with Errno 28 in the Triton cache (jobs 36346-36351).
+  - About 10.3 GB of it is `mstefaniak`'s: Triton caches (`/tmp/triton-cache-<job>-rank<n>`,
+    `/tmp/triton_gate_<job>`) left by finished jobs, mostly from the 2026-11-05/06
+    optimization runs, plus 1.7 GB of `/tmp/torchinductor_mstefaniak`.
+  - Most of the rest cannot be attributed from top-level ownership; it may be files held
+    open by running processes. Other users' files are not mine to touch.
+  - The tool sandbox refused the deletion of even my own files on a shared node without
+    your say-so.
+- **Options:**
+  - (a) Delete `mstefaniak`'s stale `triton-cache-*` and `triton_gate_*` there. That frees
+    about 10 GB for every user of the node.
+  - (b) Leave them.
+- **Default taken: (b).** Every parity job now puts its caches on
+  `/storage_nvme_4/nano/mstefaniak/parity_tmp/<job>` (546 GB free), in `add22fd5`, and
+  never touches `/tmp`. Other users' jobs on h100a may still fail until someone frees
+  `/tmp`.
