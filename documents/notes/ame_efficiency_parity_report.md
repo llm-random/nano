@@ -1,7 +1,45 @@
 # AME efficiency-parity audit: the record
 
-**Status (2026-11-06, 21:30): Phase 0 done except the checkpoint copy; Phase 2's first
-gate and the G-REF probes are running.**
+**Status (2026-11-06, 23:40): Phases 0-3 done. The last 220-step replicates (G-REF2-4,
+G0e/f-220) are running. Phase 4 is not needed: no item is harmful.**
+
+## The answer
+
+**No evidence that AME's efficiency work costs it quality; the 0.143-nat gap to dense is
+the method, not the implementation, as far as these checks reach.**
+
+- **At the loss level, the implementation's share of the gap is zero to within 1e-5.**
+  - Scored by the fp32 reference path on the full held-out set, the gap is **0.142620**.
+    The production paths give 0.142617, and the Trainer's own number is 0.142578.
+  - Each arm's production stack costs it the same against its fp32 oracle: AME +0.000150,
+    dense +0.000153.
+- **No bug.** The bank gradient has the exact structure at init and at the final
+  checkpoint: no row leaks, the rows are exactly the input ids. The gradient through
+  flex's LSE is present and right. One optimizer step on Tier 2 equals the ordinary
+  fused AdamW to 1e-7, from init and from the trained state with its moments.
+- **Every AME-only efficiency item is within dense's rounding budget, and most are exact.**
+  - A1 and A3 compute the ordinary path's gradient bit for bit or to 2e-6.
+  - A2, the bf16 compute copy, adds ≤ 0.42% at init and ≤ 2.3% at the final checkpoint,
+    against dense's own 0.7% and 4.0%.
+  - The kernel (A4-A6) is as accurate as SDPA flash on the same inputs and more accurate
+    than a plain bf16 implementation.
+- **No harm in training at 220-300 steps.**
+  - **300 steps:** production (7 runs) trains, if anything, better than the same model
+    with fp32 banks (6 runs): +0.12 nats in production's favour, p ≈ 0.07-0.10. At 95%,
+    production is at most 0.03 nats worse.
+  - **220 steps:** *[G-REF bound, pending]*.
+- **What this audit cannot see:** effects that need thousands of steps. The full-length
+  runs that would size them are prepared, not run (Proposed full-length runs).
+- **One AME-specific numerical weakness, which is not the efficiency work's.** Under bf16
+  autocast, which dense shares, the gradients of AME's per-head scalars (alpha, beta,
+  tau) are 9-31% off late in training, in *every* bf16 implementation of AME, the plain
+  one included. Its training effect is unmeasured (X2).
+
+## How this changes ame_comparison_h12.md
+
+It adds F11 and rejects the implementation hypothesis (H8). The step-10 spike (F3) is
+present in every AME configuration, G-REF included, so it is the method's, not Tier 2's
+or flex's.
 
 - The plan: [ame_efficiency_parity_plan.md](ame_efficiency_parity_plan.md). This file is
   its record: every check, job, result and decision, with its reason.
@@ -624,6 +662,45 @@ submissions died on the full `/tmp`, Q1):
 - A second G-REF (G-REF2) and a fourth production copy at 220 steps (G0d-220) are
   running.
 
+## Proposed full-length runs: prepared, not run
+
+They would settle what 300 steps cannot: whether any part of the implementation moves AME's
+loss at 4B tokens. The configs are on `parity_audit` (`configs/parity/`, from `0d4ff3b8`).
+Each is the run's recipe on LEM (n = 8, 3,815 steps, the 38-step warmup, the final
+checkpoint kept for the common evaluator), with one change, and W&B project
+`nano-ame-parity`.
+
+| Run | Config | What it changes | What it settles | LEM GPU-h (est.) |
+|---|---|---|---|---|
+| **P0** | `p0.yaml` | nothing (S2-PS again) | the run-to-run floor at 4B, with `doi36p8k` | 4.2 |
+| **P0r** | `p0r.yaml` | nothing (a third copy) | the floor needs ≥ 3 samples: one gate's sd is about 0.12 at 300 steps | 4.2 |
+| **P0b** | `p0b.yaml` | micro-batch 16 × 32 | the reassociation floor | 4.6 |
+| **P1** | `p1.yaml` | `mem_parallel_size: null` | **only A2 now** (A1 and A3 are exact): the bf16 compute copy at 4B | 4.3 |
+| **P-REF** | `p_ref.yaml` | `mem_parallel_size: null`, `backend: reference`, micro-batch 8 × 64 | A1-A7 off together | 10.2 |
+| **D0** | `d0.yaml` | nothing (S1-D again) | dense's floor | 3.6 |
+
+**Total about 31 GPU-h; P-REF alone is a third.** Without P-REF the set is 21 GPU-h.
+
+**How to submit** (from the laptop, which pushes over the 443 rewrite):
+
+```bash
+cd ~/code/nano-parity                 # branch parity_audit, clean
+bash -c 'source ~/.bashrc; for c in p0 p0r p0b p1 p_ref d0; do \
+  /home/maciej/code/nano/.pixi/envs/default/bin/python run_exp.py \
+    --config-path configs/parity --config-name $c; rm -rf generated_configs; sleep 30; done'
+```
+
+**How to read them.** Score every final checkpoint with the common evaluator:
+`documents/scripts/parity_numerics.py final_ce`, pointed at the new checkpoints. Then apply
+the plan's rule with F from the spread of `doi36p8k`, P0 and P0r rather than from one pair:
+
+- harmful if |Δ `final_ce`| ≥ max(3F, 0.005);
+- and if the 50-step paired train-loss gap keeps one sign over ≥ 90% of the last 1,000
+  steps.
+
+**Not prepared, and needs your answer (Q2):** a run that would size X2's interaction with
+AME, with the per-head scalars' gradients or the attention itself in fp32.
+
 ## Decisions
 
 - **2026-11-06 21:20. Submit the first gate and the G-REF probes before the harness
@@ -657,6 +734,29 @@ submissions died on the full `/tmp`, Q1):
     dense's largest |projection| in the same state and batch. This mirrors the plan's own
     rule for the relative error.
   - Both readings are reported.
+- **2026-11-06 22:45. The gate floor is a distribution, not a pair.**
+  - The plan sets F from |G0b − G0a| and |G0c − G0a|. Identical production runs turned
+    out to spread with an sd of about 0.12 nats at 300 steps and 0.13 at 220: G0e landed
+    0.2 above G0a-G0d.
+  - So a two-run F (0.061) made one ordinary-path run look "harmful", in reverse. G1a
+    then showed that run computing exactly what production's fp32-bank twin computes.
+  - The rule used instead: gates are grouped by what they compute (the twin check,
+    `budget --base`), with 4-7 runs per group. An item is harmful only if the 95%
+    interval of (production − item off) lies above max(0.005, 3 × the
+    standard error of the difference) — in practice, entirely above zero by a margin
+    the floor permits.
+  - The plan's rule is still printed by `parity_gates.py --set 300`, for the record.
+- **2026-11-06 23:00. Caches off `/tmp`.** After h100a's `/tmp` filled up, every parity
+  job sets `TMPDIR`, `TRITON_CACHE_DIR` and `TORCHINDUCTOR_CACHE_DIR` under
+  `/storage_nvme_4/nano/mstefaniak/parity_tmp/<job>` (`add22fd5`). Numerics are
+  unchanged; only where compiled kernels are cached moves.
+- **Additions beyond the plan's checks, each to dig into a failed check:**
+  - the gradient twin (`ame_t2fp32`, `ame_t2eager`, `--base ame_std`), which isolates
+    A1, A2 and A3;
+  - fp32-CE variants for X3;
+  - the per-layer kernel comparison against SDPA flash and against a plain bf16
+    reference;
+  - the replicate gates.
 
 ## Questions for Maciej
 
@@ -719,3 +819,27 @@ The original question follows.
   `/storage_nvme_4/nano/mstefaniak/parity_tmp/<job>` (546 GB free), in `add22fd5`, and
   never touches `/tmp`. Other users' jobs on h100a may still fail until someone frees
   `/tmp`.
+
+**Q2 (2026-11-06 23:45): should the audit build a run that sizes X2's effect on AME?**
+
+- **Context.** Under bf16 autocast, which both arms share, the gradients of AME's
+  per-head scalars (alpha, beta, tau; 432 numbers) are 9-31% off at the final checkpoint,
+  against 0.5-0.9% at init. That holds in every bf16 implementation of AME, the plain one
+  included (Phase 1, 1.6).
+  - The source is the bf16 attention backward (dq, dk 3.5-5.4e-3), amplified by
+    cancellation in the per-head sums as attention sharpens.
+  - Dense has no such parameters.
+  - The loss-level cost at the end is the same as dense's (+0.00015), so the open
+    question is only whether noisier scalar updates over the run cost AME anything. Adam
+    averages the noise over about 10 steps, and the scalars move slowly late in training,
+    so I expect little. That expectation is untested.
+- **Options:**
+  - (a) Build an opt-in fp32-attention path for AME (q, k, v and the kernel in fp32, an
+    estimated 2-3× slower attention) and a full-length run with it on LEM: about 6-8
+    GPU-h.
+  - (b) A cheaper continued-training A/B from the final checkpoint, 200-300 steps at the
+    final LR, bf16 against fp32 attention, in both arms. It needs the same flag plus a
+    resume with optimizer state, which the codebase marks "not tested".
+  - (c) Leave it as a recorded property of bf16 AME.
+- **Default taken: (c).** It is a shared-policy property, not an AME-only efficiency
+  change, and its expected size is small. Nothing is built.
