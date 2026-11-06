@@ -1,8 +1,8 @@
 # Stage 2 — positional encoding and the shift: report
 
-**Status: wave 1 and S2-D0 finished (13:51); S2-PS, ALiBi with the shift, is best,
-provisionally. Wave 2, the learning-rate check on S2-PS at n = 8 and 10, is queued (jobs
-6256577, 6256578).**
+**Status: wave 1, S2-D0 and the learning-rate check have finished. S2-PS, ALiBi with the
+shift, is best, provisionally; its best n moved to 8 (3.1250). By the plan's rule, S2-P and
+S2-S re-run at n = 8 (wave 3, jobs 6259007 and 6259008) before a winner is named.**
 
 The plan is [ame_experiments.md, "Stage 2 — positional encoding and the shift"](ame_experiments.md#stage-2--positional-encoding-and-the-shift).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -246,7 +246,40 @@ command line, as the plan says. `sbatch` was again run by hand (decision 2).
 | S2-PS | 10 | 6256578 | `158fc826` | `s2_ps_h12_lr10.0_2026-11-06_13-53-00` | `p1oslt5b` | r16-14 |
 
 Both started at about 14:42 and passed the startup check (1,103,599,056 parameters, no
-error). Results: pending, around 19:05.
+error).
+
+**Results, finished 18:50–18:52:**
+
+| Arm | n | `final_ce` | Last 10-batch eval | s/step | Peak GiB | W&B run |
+|---|---:|---:|---:|---:|---:|---|
+| S2-PS | 8 | **3.1250** | 3.1250 | 3.746 | 70.40 | `doi36p8k` |
+| S2-PS | 9 | 3.1865 | 3.1875 | 3.777 | 70.40 | `ublx3ion` |
+| S2-PS | 10 | 3.2959 | 3.2969 | 3.779 | 70.40 | `p1oslt5b` |
+
+**The best arm's best n moved to 8**, 0.0615 below n = 9. S2-PS at n = 8 is also the
+lowest AME result so far, 0.10 behind S1-D at n = 8 (2.9824).
+
+## Wave 3 — S2-P and S2-S at n = 8, by the plan's rule
+
+4. **The plan says: "If its best n moves, re-run the other two arms at the new n before
+   naming a winner."** So S2-P and S2-S were submitted at n = 8 at 19:29, from
+   `~/code/nano-stage2` at `f9680709`, with `trainer.learning_rate=8`. `sbatch` was again
+   run by hand (decision 2).
+   - **How this squares with Maciej's n\* = 9 (decision 1).** That decision set Stage 1's
+     selection. The learning-rate check is Stage 2's own step, which he did not cancel.
+     Following it costs 2 runs, about 8.7 GPU-h and 4.3 h. It gives the full 2 × 2 at
+     n = 8, which is where the best arm is best.
+   - **The fourth cell at n = 8 already exists:** S1-A0 at n = 8, from Stage 1, at 4.3711
+     (`tuvcps1y`). Its code is the same, `8a240816` against `f9680709`, which differ only
+     in docs and configs.
+   - **No second seed at n = 8.** The noise floor stays the n = 9 seed gap.
+
+| Arm | n | Job | Cemetery commit | Cemetery clone |
+|---|---:|---|---|---|
+| S2-P | 8 | 6259007 | `245e3f04` | `s2_p_h12_lr8.0_2026-11-06_19-29-09` |
+| S2-S | 8 | 6259008 | `bffa50c6` | `s2_s_h12_lr8.0_2026-11-06_19-29-31` |
+
+Results: pending, around 00:00.
 
 ## For Maciej
 
