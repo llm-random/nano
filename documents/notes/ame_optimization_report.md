@@ -2100,7 +2100,7 @@ running on entropy.
 |---|---|
 | best, 4 GPUs | **40.34%**, job 35324: §6.1's configuration + O9; measured once |
 | best, 1 GPU | **40.23%**, job 34590 |
-| `ame_optimize` | **375c0ce8**: all measured code, including O9's switch (Tier 1) and the inert `env:` mapping in `main.py`; clean worktree `~/code/nano-ame` |
+| `ame_optimize` | code as of **375c0ce8** (later commits only sync this report): all measured code, including O9's switch (Tier 1) and the inert `env:` mapping in `main.py`; clean worktree `~/code/nano-ame` |
 | `ame_optimize_wip` | **1288273c**, local, not pushed: C3 and half of O48, never run on a GPU (§7.11) |
 | next, in order | finish O48 (the trainer's `stage()` call, a CUDA test), then C3 together with `TORCH_NCCL_HIGH_PRIORITY=1`, then C6 (mb 32 at 4 GPUs with recompute), then the rest of §7.11 |
 
