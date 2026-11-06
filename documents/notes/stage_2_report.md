@@ -274,12 +274,15 @@ lowest AME result so far, 0.10 behind S1-D at n = 8 (2.9824).
      in docs and configs.
    - **No second seed at n = 8.** The noise floor stays the n = 9 seed gap.
 
-| Arm | n | Job | Cemetery commit | Cemetery clone |
-|---|---:|---|---|---|
-| S2-P | 8 | 6259007 | `245e3f04` | `s2_p_h12_lr8.0_2026-11-06_19-29-09` |
-| S2-S | 8 | 6259008 | `bffa50c6` | `s2_s_h12_lr8.0_2026-11-06_19-29-31` |
-| S2-PS | 7 | 6259084 | `55f8c08c` | `s2_ps_h12_lr7.0_2026-11-06_20-15-42` |
-| S2-PS | 6 | 6259085 | `ad707c30` | `s2_ps_h12_lr6.0_2026-11-06_20-17-04` |
+| Arm | n | Job | Cemetery commit | Cemetery clone | W&B run | Node |
+|---|---:|---|---|---|---|---|
+| S2-P | 8 | 6259007 | `245e3f04` | `s2_p_h12_lr8.0_2026-11-06_19-29-09` | `z7f5bsuo` | r12-4 |
+| S2-S | 8 | 6259008 | `bffa50c6` | `s2_s_h12_lr8.0_2026-11-06_19-29-31` | `4fvk32q7` | r12-7 |
+| S2-PS | 7 | 6259084 | `55f8c08c` | `s2_ps_h12_lr7.0_2026-11-06_20-15-42` | `zdlmmz7n` | r10-7 |
+| S2-PS | 6 | 6259085 | `ad707c30` | `s2_ps_h12_lr6.0_2026-11-06_20-17-04` | `egvqspym` | r12-4 |
+
+All four passed the startup check: the expected parameter count (1,103,598,480 without the
+shift, 1,103,599,056 with it), and no error.
 
 5. **S2-PS at n = 7 as well (submitted 20:16).**
    - **Why.** Maciej asked whether h12 AME with ALiBi and the shift was training at
