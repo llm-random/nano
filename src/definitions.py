@@ -51,14 +51,15 @@ class AttentionSchema:
     # option list and names the offender, which a dataclass per type would
     # duplicate. One field per type that has options.
     ame: Any = None
-    # {rope: false} is NoPE; {qk_norm: true} adds AME's QK-norm
-    # (_GQA_OPTIONS in src/core/attention.py)
+    # {rope: false} is NoPE; {qk_norm: true} and {shift: true} add AME's
+    # QK-norm and KV shifting (_GQA_OPTIONS in src/core/attention.py)
     gqa: Any = None
-    # AME's QK-norm on every layer of every type: null keeps each type's
-    # default (mha/mqa/gqa off, ame on), true/false sets it everywhere. A
-    # type's own option of the same name may repeat it but not contradict it
-    # (build error).
+    # AME's QK-norm and KV shifting on every layer of every type: null keeps
+    # each type's default (mha/mqa/gqa off, ame on), true/false sets it
+    # everywhere. A type's own option of the same name may repeat it but not
+    # contradict it (build error).
     qk_norm: Optional[bool] = None
+    shift: Optional[bool] = None
 
 
 @dataclass

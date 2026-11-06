@@ -25,10 +25,11 @@ common:
   # A type may also carry an options block named after it, applied wherever it
   # is built (base or mix) -- see _AME_OPTIONS in src/core/attention.py:
   #   attention: {type: ame, ame: {shift: true, pin_alpha: false, sink: true}}
-  # AME's QK-norm (l2 per head, learned per-head temperature) on every layer of
-  # every type: attention: {type: gqa, qk_norm: true}. Unset, each type keeps
-  # its default: mha/mqa/gqa off, ame on. gqa and ame also take it as an option
-  # ({gqa: {qk_norm: true}}), which must not contradict.
+  # AME's QK-norm (l2 per head, learned per-head temperature) and KV shifting
+  # (k, v blended with the previous position's, per kv head, before RoPE) on
+  # every layer of every type: attention: {type: gqa, qk_norm: true, shift: true}.
+  # Unset, each type keeps its default: mha/mqa/gqa off, ame on. gqa and ame
+  # also take them as options ({gqa: {shift: true}}), which must not contradict.
   attention:
     type: gqa
 

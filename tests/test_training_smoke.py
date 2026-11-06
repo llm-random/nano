@@ -205,6 +205,22 @@ def test_a_token_budget_trains_for_the_steps_it_resolves_to(tmp_path):
     assert os.path.isdir(step_dir), f"no checkpoint at {step_dir}"
 
 
+def test_a_dense_stack_matching_ame_trains_end_to_end(tmp_path):
+    """The dense control with AME's QK-norm and KV shifting, through main.py:
+    composition of both switches, the temperature and shift coefficients
+    through the optimizer groups, the training loop."""
+    _, output = _run(
+        tmp_path,
+        "nano",
+        name="dense_matched",
+        extra=["common.attention.qk_norm=true", "common.attention.shift=true"],
+    )
+    losses = _losses_by_step(output)
+    assert len(losses) >= N_STEPS, f"expected >= {N_STEPS} losses, got {len(losses)}"
+    values = [float(v) for v in losses.values()]
+    assert all(v == v and v > 0 for v in values), f"bad losses {values}"
+
+
 RESUME_STEPS = 20
 RESUME_AT = 10
 

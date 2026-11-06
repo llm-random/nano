@@ -230,12 +230,17 @@ class RoPE(nn.Module):
 
 
 class RoPEAttention(nn.Module):
-    # QK-norm's temperature is a scale, not a weight: decoupled decay would
-    # move it whatever its gradient says -- shrink tau, flattening every head
-    # -- the reason src.core.ame keeps its own out of decay too.
-    # parameter_groups skips a name the module does not have, so with the
-    # option off this declares nothing and the optimizer stays one group.
-    no_weight_decay_parameters = ("tau",)
+    # QK-norm's temperature and the KV-shift coefficients are scales, not
+    # weights: decoupled decay would move them whatever their gradient says --
+    # shrink tau, flattening every head, and walk alpha_2/beta_2 toward 0, the
+    # "model declined the shift" signal -- the reasons src.core.ame keeps its
+    # own out of decay too. parameter_groups skips a name the module does not
+    # have, so with both options off this declares nothing and the optimizer
+    # stays one group.
+    no_weight_decay_parameters = ("tau", "alpha", "beta")
+    # [kv_heads, 2] is 2-D but no matmul: src.core.mfu would otherwise charge
+    # 6*P FLOPs for them. Skipped when absent, like the line above.
+    non_matmul_parameters = ("alpha", "beta")
 
     def __init__(
         self,
@@ -255,6 +260,7 @@ class RoPEAttention(nn.Module):
         original_max_position_embeddings=8192,
         rope: bool = True,
         qk_norm: bool = False,
+        shift: bool = False,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -299,6 +305,21 @@ class RoPEAttention(nn.Module):
                 torch.full((q_heads,), math.sqrt(self.dhead), dtype=torch.float32)
             )
 
+        # KV shifting (Xu et al. 2024, arXiv 2411.19574), the operator
+        # src.core.ame applies to its banks, here on the projected keys and
+        # values: k_j <- a1*k_j + a2*k_{j-1} and v_j <- b1*v_j + b2*v_{j-1},
+        # BEFORE the rotary embedding as in the paper, so a mixed key is rotated
+        # as position j. Queries are not shifted. One (c1, c2) pair per kv head,
+        # c1 ~ U(0, 1) and c2 = 1 - c1 -- AME's _init_mix -- so the plain head
+        # (1, 0) and the fully shifted one (0, 1) are both reachable. Drawn after
+        # the projections, so a seed builds the same projections either way.
+        # Off adds no parameter and draws nothing.
+        self.shift = shift
+        if shift:
+            for name in ("alpha", "beta"):
+                c1 = torch.rand(kv_heads, 1, dtype=torch.float32)
+                setattr(self, name, nn.Parameter(torch.cat([c1, 1.0 - c1], dim=-1)))
+
     def forward(self, x):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
@@ -310,11 +331,22 @@ class RoPEAttention(nn.Module):
         k = key_states.view(batch, seq_len, self.kv_heads, -1)
         v = value_states.view(batch, seq_len, self.kv_heads, -1)
         if self.qk_norm:
-            # Per head, as src.core.ame normalizes its rows; before RoPE, a
-            # rotation, so that order changes nothing; on the kv heads, before
-            # repeat_kv copies them.
+            # Per head and before the shift, as src.core.ame normalizes its rows
+            # before the mix; before RoPE, a rotation, so that order changes
+            # nothing; on the kv heads, before repeat_kv copies them.
             q = F.normalize(q, dim=-1)
             k = F.normalize(k, dim=-1)
+        if self.shift:
+            # AME's two lines (src/core/ame.py _mixed_qkv), on kv heads.
+            # Imported lazily: src.core.ame imports this module.
+            from src.core.ame import _shift1
+
+            alpha = self.alpha.to(k.dtype)
+            beta = self.beta.to(v.dtype)
+            a1, a2 = alpha[:, 0].view(1, 1, -1, 1), alpha[:, 1].view(1, 1, -1, 1)
+            b1, b2 = beta[:, 0].view(1, 1, -1, 1), beta[:, 1].view(1, 1, -1, 1)
+            k = a1 * k + a2 * _shift1(k)
+            v = b1 * v + b2 * _shift1(v)
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
