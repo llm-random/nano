@@ -8,6 +8,8 @@ the run logged, never from the config file's name.
     python documents/scripts/stage_results.py table <id> [<id> ...]
     python documents/scripts/stage_results.py evals <id> [<id> ...]
     python documents/scripts/stage_results.py readouts <id> [<id> ...]
+    python documents/scripts/stage_results.py sweep OUT.png TITLE CHOSEN_N \
+        "<arm label>=<n>:<id>,<n>:<id>,..." ["<arm label>=..." ...]
     python documents/scripts/stage_results.py curves OUT.png TITLE \
         "<panel title>=<id>:<label>,<id>:<label>,..." ["<panel title>=..." ...]
 
@@ -235,10 +237,13 @@ def cmd_curves(out, title, panels):
         pad = (hi - lo) * 0.05
         axes[0][0].set_ylim(lo - pad, hi + pad)
     # End labels, pushed apart so close final losses stay readable: sorted by
-    # value, each at least `gap` above the one below it.
+    # value, each at least `gap` above the one below it. Only on panels of at most
+    # four series; past that they collide, and the legend carries identity alone.
     y0, y1 = axes[0][0].get_ylim()
     gap = (y1 - y0) * 0.045
     for ax, panel_ends in zip(axes[0], ends):
+        if len(panel_ends) > 4:
+            continue
         x0, x1 = ax.get_xlim()
         dx = (x1 - x0) * 0.015
         placed = None
@@ -248,6 +253,52 @@ def cmd_curves(out, title, panels):
             ax.annotate(text, (x, y), xytext=(x + dx, ty), textcoords="data", va="center",
                         fontsize=8, color="#52514e")
     fig.suptitle(title, fontsize=11, x=0.01, ha="left", color="#0b0b0b")
+    fig.tight_layout()
+    fig.savefig(out, dpi=150, facecolor="#fcfcfb")
+    print(f"wrote {out}")
+
+
+def cmd_sweep(out, title, chosen_n, series_specs):
+    """final_ce against the learning-rate exponent n, one line per arm.
+
+    Each spec is "<label>=<n>:<id>,<n>:<id>,...". The lowest point of each arm is
+    ringed, and `chosen_n` (the n* actually used downstream) is a dashed line.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    api = _api()
+    fig, ax = plt.subplots(figsize=(6.4, 4.2))
+    for i, spec in enumerate(series_specs):
+        label, runs = spec.split("=", 1)
+        pts = []
+        for item in runs.split(","):
+            n, rid = item.split(":", 1)
+            pts.append((int(n), float(api.run(f"{PROJECT}/{rid}").summary.get("steps/final_ce"))))
+        pts.sort()
+        xs, ys = zip(*pts)
+        colour = _SLOT[i % len(_SLOT)]
+        ax.plot(xs, ys, color=colour, linewidth=2, marker="o", markersize=5, label=label)
+        best_n, best = min(pts, key=lambda p: p[1])
+        ax.plot([best_n], [best], marker="o", markersize=13, markerfacecolor="none",
+                markeredgecolor=colour, markeredgewidth=1.5)
+        ax.annotate(f"best n = {best_n}: {best:.3f}", (best_n, best), xytext=(10, 8),
+                    textcoords="offset points", ha="left", fontsize=8, color="#52514e")
+    ax.axvline(float(chosen_n), color="#8a8984", linewidth=1, linestyle="--")
+    ax.annotate(f"n* = {chosen_n} (used)", (float(chosen_n), ax.get_ylim()[1]), xytext=(4, -12),
+                textcoords="offset points", fontsize=8, color="#52514e")
+    ax.set_xlabel("n, with learning rate 2^-n (higher LR to the left)", fontsize=9, color="#52514e")
+    ax.set_ylabel("final_ce (8192 x 2048 held-out tokens)", fontsize=9, color="#52514e")
+    ax.set_title(title, fontsize=10, color="#0b0b0b", loc="left")
+    ax.grid(True, color="#e6e5e0", linewidth=0.6)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color("#b9b8b2")
+    ax.tick_params(colors="#52514e", labelsize=8)
+    ax.legend(fontsize=8, frameon=False)
     fig.tight_layout()
     fig.savefig(out, dpi=150, facecolor="#fcfcfb")
     print(f"wrote {out}")
@@ -266,6 +317,8 @@ def main(argv):
         cmd_readouts(rest)
     elif cmd == "curves":
         cmd_curves(rest[0], rest[1], rest[2:])
+    elif cmd == "sweep":
+        cmd_sweep(rest[0], rest[1], rest[2], rest[3:])
     else:
         print(__doc__)
         return 2

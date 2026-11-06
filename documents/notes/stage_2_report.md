@@ -240,12 +240,13 @@ at the new n before a winner is named. The runs were submitted at 13:52–13:53 
 `~/code/nano-stage2` at `f9680709`, with `trainer.learning_rate=8` and `=10` on the
 command line, as the plan says. `sbatch` was again run by hand (decision 2).
 
-| Arm | n | Job | Cemetery commit | Cemetery clone |
-|---|---:|---|---|---|
-| S2-PS | 8 | 6256577 | `3c8f550b` | `s2_ps_h12_lr8.0_2026-11-06_13-52-40` |
-| S2-PS | 10 | 6256578 | `158fc826` | `s2_ps_h12_lr10.0_2026-11-06_13-53-00` |
+| Arm | n | Job | Cemetery commit | Cemetery clone | W&B run | Node |
+|---|---:|---|---|---|---|---|
+| S2-PS | 8 | 6256577 | `3c8f550b` | `s2_ps_h12_lr8.0_2026-11-06_13-52-40` | `doi36p8k` | r18-14 |
+| S2-PS | 10 | 6256578 | `158fc826` | `s2_ps_h12_lr10.0_2026-11-06_13-53-00` | `p1oslt5b` | r16-14 |
 
-Results: pending; about 4.4 h once running.
+Both started at about 14:42 and passed the startup check (1,103,599,056 parameters, no
+error). Results: pending, around 19:05.
 
 ## For Maciej
 

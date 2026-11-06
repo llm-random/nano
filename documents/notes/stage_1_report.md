@@ -1,10 +1,40 @@
 # Stage 1 — first models: report
 
-**Status: n\* = 9 for both arms, by Maciej's decision (decision 9). Dense's best (n = 8) is inside its grid. AME improves all the way to n = 6, so n = 5 and 4 run (job 6255094, from 11:52).**
+**Status: complete (2026-11-06 15:59). Both arms have their best learning rate inside the grid: n = 8 for dense, n = 6 for AME. The n\* used downstream is 9 for both, by Maciej's decision. No Stage 1 job is queued or running.**
 
 The plan is [ame_experiments.md, "Stage 1 — first models"](ame_experiments.md#stage-1--first-models).
 This file is its record: every job, every result, and every decision the plan left open,
 each with its reason. Times are CET.
+
+## Result
+
+| | S1-D, dense h12 with RoPE | S1-A0, simplest AME h12 |
+|---|---|---|
+| Learning rates trained | n = 7–13 | n = 4–13 |
+| Best by the plan's rule (lowest `final_ce`) | **n = 8: 2.9824**, inside the grid (n = 7: 4.2734, n = 9: 3.0244) | **n = 6: 4.2656**, inside the grid (n = 5: 4.4512, n = 7: 4.3262) |
+| n\* used downstream (Stage 2) | **9**, by Maciej's decision (decision 9) | **9**, the same |
+| `final_ce` at n\* = 9 | 3.0244 | 4.4316 (second seed: 4.1992, [stage_2_report.md](stage_2_report.md)) |
+| The AME–dense gap | | **1.407 nats at n = 9**; 1.283 between each arm's best (4.2656 − 2.9824) |
+
+- **The best learning rates differ by 4×.** AME's is 2⁻⁶ against dense's 2⁻⁸. AME
+  keeps gaining from learning rates at which dense breaks down: dense n = 7 stuck near a
+  loss of 6 for 900 steps.
+- **AME's attention sharpens as its learning rate rises.** Normalized entropy runs from
+  0.93 at n = 10–13 to 0.77 at n = 6 and 0.50 at n = 4.
+- **Every run at n ≤ 11 had at least one loss spike in its first 2,200 steps.** Most
+  recovered.
+- **What S1-A0 is.** It has no positional signal and no shift, so it is 1.4 nats behind
+  dense at the same learning rate. As the plan expected, it is the weakest member of the
+  AME family; Stage 2 measures how much positional encoding and the shift recover.
+
+![Stage 1 learning-rate sweep](stage_figures/stage_1_lr_sweep.png)
+
+![Stage 1 eval loss](stage_figures/stage_1_eval_loss.png)
+
+*Top: `final_ce` against n. The ring marks each arm's lowest point; the dashed line is
+the n\* used. Bottom: eval loss on 10 batches by step, from step 300. Both were made
+with [documents/scripts/stage_results.py](../scripts/stage_results.py) (`sweep`,
+`curves`).*
 
 ## Setup
 
@@ -209,8 +239,8 @@ expected parameter count, and there was no error in the log.
 | S1-A0 | 7 | 2⁻⁷ = 7.81e-3 | 6253086_0 | `5bvmqr0l` | r10-4 |
 | S1-A0 | 6 | 2⁻⁶ = 1.56e-2 | 6253086_1 | `lr528luy` | r10-7 |
 | S1-D | 7 | 2⁻⁷ | 6253087_0 | `6ldjhbyd` | r12-3 |
-| S1-A0 | 5 | 2⁻⁵ = 3.13e-2 | 6255094_0 | | |
-| S1-A0 | 4 | 2⁻⁴ = 6.25e-2 | 6255094_1 | | |
+| S1-A0 | 5 | 2⁻⁵ = 3.13e-2 | 6255094_0 | `lj0xg6yj` | r12-13 |
+| S1-A0 | 4 | 2⁻⁴ = 6.25e-2 | 6255094_1 | `vla8p16s` | r12-4 |
 
 The n = 9 runs (decision 6) were submitted at 01:41 from the same worktree. The only change
 was each grid file's `^learning_rate` list, edited to `[9]` and left uncommitted, as the
@@ -400,6 +430,50 @@ n = 7 trailing n = 8 mid-run before passing it by the end.
   measured point (4.4316 against 4.2656), and S1-D 0.042 above its best.
 - **The AME–dense gap depends on the n compared.** At the best measured points it is
   4.2656 − 2.9824 = **1.283 nats**; at n = 9 it is 1.407.
+
+### n = 5 and 4 (15:59): AME's best is inside the grid, at n = 6
+
+| Arm | n | `final_ce` | Last 10-batch eval | Loss spikes (train) | s/step | MFU | Peak GiB | Job | W&B run | Commit |
+|---|---:|---:|---:|---|---:|---:|---:|---|---|---|
+| S1-A0 | 5 | 4.4512 | 4.4375 | steps 556–574 → 7.38; 1,202–1,226 → 8.25; 2,020–2,042 → 7.03 | 3.599 | 31.0% | 66.08 | 6255094_0 | `lj0xg6yj` | `8a240816` + AME list `[5, 4]` (`4941a4d6`) |
+| S1-A0 | 4 | 4.5215 | 4.5312 | steps 625–645 → 7.84; 1,266–1,287 → 7.75; 2,005–2,021 → 6.75; 3,102 → 5.41 | 3.613 | 30.9% | 66.08 | 6255094_1 | `vla8p16s` | the same |
+
+Both are worse than n = 6, so AME's lowest loss, at n = 6, now has a worse point on each
+side. By the plan's rule the S1-A0 grid is done (decision 10's "if n = 5 and 4 diverge or
+end worse"). They did not diverge: they trained, with three and four spikes, and ended
+0.19 and 0.26 above n = 6. Two spikes not listed above: n = 6 spiked once, at steps
+2,126–2,151 (4.66 → 12.12), and n = 7 once, at steps 977–1,001 (5.06 → 7.66).
+
+**Every Stage 1 run, at a glance** (`final_ce`):
+
+| Arm | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| S1-D | — | — | — | 4.2734 | **2.9824** | 3.0244 | 3.2002 | 3.3027 | 3.5215 | 3.8301 |
+| S1-A0 | 4.5215 | 4.4512 | **4.2656** | 4.3262 | 4.3711 | 4.4316 | 4.5137 | 4.6387 | 4.7715 | 4.9844 |
+
+**S1-A0 readouts at the end of training, all n.** τ starts at 8; the entropy is
+normalized by the log of the number of keys in view.
+
+| n | τ, mean | Attention entropy, normalized | Top-8 mass |
+|---:|---:|---:|---:|
+| 4 | 7.72 | 0.503 | 0.517 |
+| 5 | 7.66 | 0.608 | 0.418 |
+| 6 | 7.48 | 0.770 | 0.267 |
+| 7 | 6.70 | 0.857 | 0.180 |
+| 8 | 6.76 | 0.891 | 0.159 |
+| 9 | 6.89 | 0.909 | 0.137 |
+| 10 | 6.82 | 0.930 | 0.113 |
+| 11 | 7.15 | 0.932 | 0.108 |
+| 12 | 7.49 | 0.933 | 0.105 |
+| 13 | 7.72 | 0.932 | 0.105 |
+
+- **At n ≥ 10, attention stays almost uniform** (entropy about 0.93). The banks barely
+  learn token-pair affinities.
+- **From n = 9 down, attention grows steadily sharper.** At n = 4–5 the 8 strongest keys
+  take about half the mass, as ALiBi does in Stage 2. The best loss, though, is at n = 6,
+  at intermediate sharpness.
+- **τ dips below 8 at intermediate learning rates** (about 6.7–6.9 at n = 7–10) and
+  stays near 7.5–7.7 at both ends.
 
 ## W&B runs to ignore
 
