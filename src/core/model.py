@@ -230,6 +230,13 @@ class RoPE(nn.Module):
 
 
 class RoPEAttention(nn.Module):
+    # QK-norm's temperature is a scale, not a weight: decoupled decay would
+    # move it whatever its gradient says -- shrink tau, flattening every head
+    # -- the reason src.core.ame keeps its own out of decay too.
+    # parameter_groups skips a name the module does not have, so with the
+    # option off this declares nothing and the optimizer stays one group.
+    no_weight_decay_parameters = ("tau",)
+
     def __init__(
         self,
         q_proj_fn,
@@ -247,6 +254,7 @@ class RoPEAttention(nn.Module):
         high_freq_factor=4,
         original_max_position_embeddings=8192,
         rope: bool = True,
+        qk_norm: bool = False,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -279,19 +287,46 @@ class RoPEAttention(nn.Module):
             else None
         )
 
+        # QK-norm, the operator src.core.ame uses: q and k l2-normalized per
+        # head, and the score scaled by a learned per-head temperature tau in
+        # place of 1/sqrt(dhead). tau starts at sqrt(dhead): two random unit
+        # vectors in d dims have dot-product std 1/sqrt(d), so the scores start
+        # at std ~1. Off adds no parameter -- the state dict, the FLOP count and
+        # every existing run stay as they were.
+        self.qk_norm = qk_norm
+        if qk_norm:
+            self.tau = nn.Parameter(
+                torch.full((q_heads,), math.sqrt(self.dhead), dtype=torch.float32)
+            )
+
     def forward(self, x):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
         value_states = self.v_proj(x)
 
+        # [B, n, heads, D] for the per-head work, [B, heads, n, D] from RoPE on.
         batch, seq_len = x.shape[:-1]
-        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
-        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        q = query_states.view(batch, seq_len, self.q_heads, -1)
+        k = key_states.view(batch, seq_len, self.kv_heads, -1)
+        v = value_states.view(batch, seq_len, self.kv_heads, -1)
+        if self.qk_norm:
+            # Per head, as src.core.ame normalizes its rows; before RoPE, a
+            # rotation, so that order changes nothing; on the kv heads, before
+            # repeat_kv copies them.
+            q = F.normalize(q, dim=-1)
+            k = F.normalize(k, dim=-1)
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
         if self.rope is not None:
             q = self.rope(q)
             k = self.rope(k)
-
-        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        scale = None  # SDPA's default, 1/sqrt(dhead)
+        if self.qk_norm:
+            # tau folded into q, so the kernel runs at scale 1 -- as in
+            # src.core.ame. q is [B, H, n, D] here.
+            q = q * self.tau.to(q.dtype).view(1, -1, 1, 1)
+            scale = 1.0
 
         # Imported lazily: src.core.llama imports AttentionMechanism from this
         # module, so a top-level import here would be circular.
@@ -300,7 +335,7 @@ class RoPEAttention(nn.Module):
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
         attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=True
+            query=q, key=k, value=v, causal=True, scale=scale
         )
 
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
@@ -688,7 +723,10 @@ def attention_mechanism(
     key: torch.Tensor,
     value: torch.Tensor,
     causal: bool,
+    scale: Optional[float] = None,
 ):
+    # `scale=None` is SDPA's own default, 1/sqrt(dhead); QK-norm passes 1.0
+    # because its temperature is already folded into the query.
     # https://github.com/pytorch/pytorch/blob/ce503c1b40207dab770c28cbd4568cd9e105277b/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp#L556
     with torch.nn.attention.sdpa_kernel(
         [SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]
@@ -699,6 +737,7 @@ def attention_mechanism(
             value=value,
             attn_mask=None,
             is_causal=causal,
+            scale=scale,
         )
 
 
@@ -712,10 +751,12 @@ class AttentionMechanism(nn.Module):
         key: torch.Tensor,
         value: torch.Tensor,
         causal: bool,
+        scale: Optional[float] = None,
     ):
         return attention_mechanism(
             query=query,
             key=key,
             value=value,
             causal=causal,
+            scale=scale,
         )
