@@ -3,7 +3,8 @@
 **Period:** 2026-11-04 20:05 → 2026-11-05 11:21 (cluster local time, UTC+1),
 then a reproduction and micro-batch sweep 2026-11-05 17:11 → 18:27, and the
 same sweep with dense attention as a control 18:49 → 19:32 (§1.16), and the
-unattended §7 run 2026-11-05 23:55 → 2026-11-06 ~05:00 (§1.17 onward).
+unattended §7 run 2026-11-05 23:55 → 2026-11-06 ~05:00 (§1.17 onward), and
+a continuation 2026-11-06 06:52 → 07:18, paused by Maciej (§1.27, §7.11).
 **Platform:** entropy `h100` partition, H100 80GB SXM, account `mim`, QOS
 `j321m_h100` until 11:21; QOS `mstefaniak_h100` (Maciej's own account, same
 node) for the evening block. Branch `ame_optimize`.
@@ -14,7 +15,10 @@ backbone, 3.768 GFLOPs/token) unless stated; h16 and h12 where noted.
 2026-11-05 23:55 → 2026-11-06 ~05:00. Ended at **40.00% on 4 GPUs** (40.05%
 repeated) and **40.23% on 1 GPU**, from 35.06% and 35.45%; 45% not reached.
 Experiments §1.17–§1.26 and the night block of §3; ceiling analysis in §7.8;
-decisions left to Maciej in §7.10.
+decisions left to Maciej in §7.10. **Continuation (06:52 → 07:18):** O9
+re-measured on the 4-GPU best gives **40.34%** (job 35324, measured once,
+§1.27); a copy-engine all-to-all hung (35238); two code changes written and
+parked unrun on `ame_optimize_wip` (§7.11). Paused by Maciej at 07:18.
 
 All MFU figures are **per GPU** (`tokens/s × GFLOPs/token ÷ (989 TFLOP/s ×
 world_size)`) and are the **mean over steps ≥ 15**, which is what
@@ -41,6 +45,7 @@ the mean is the right reading there.
 | **Best overall** — AME h16, 1 GPU, mb 16 | **37.96%** | 5.938 s | 176,573 | **85.4%** |
 | **Best 4 GPU, §7 run** — + O39 v2 + whole-block graphs + O45 (Triton CE) + O47 + O40 + autotune | **40.00%** (40.05% repeated) | 2.497 s | 419,939 | 90.0% |
 | **Best 1 GPU, §7 run** — h20 + O41 + O42 + O38(b), mb 8, compile autotune, O45 | **40.23%** | 9.931 s | 105,583 | 90.5% |
+| **Best 4 GPU, at the 07:18 pause** — the §7 best + O9 (gradients reduce-scattered once per step) | **40.34%** (measured once) | 2.476 s | 423,485 | 90.8% |
 | **B2** — dense H-balanced h20, 4 GPU (ceiling) | 44.44% | 2.364 s | 443,432 | 100% |
 
 **+30.5% on the reference baseline.** Two structural facts frame everything
@@ -183,6 +188,10 @@ rejection than it reads.
 the bank gradient path at ~8% of step time, so the gate that was to authorise
 Tiers 2–3 fired NEGATIVE. Maciej explicitly overrode it and directed both tiers
 be built anyway.
+
+**Superseded for today's configuration (2026-11-06, §1.27).** The mechanism
+above was FSDP2 holding the banks. Since Tier 3 it does not, and O9 measures
++0.7% on the 4-GPU best.
 
 ### 1.2 Tier 2 — hand-managed bank gradient and optimizer path (O1–O5)
 
@@ -1056,6 +1065,35 @@ contention it relieves; the profile of O45 put that at ~100 ms of GEMM and
   with autotune (34590), 39.54% → 39.62% without (34593); peak −2.8 GiB.
   **New 1-GPU best.**
 
+### 1.27 O9 re-measured on the §7 best: +0.7% (after the run, 2026-11-06 07:13)
+
+`trainer.skip_grad_sync_during_accumulation=true` on the 4-GPU best (with
+O40): FSDP2 reduce-scatters the gradients once per optimizer step instead of on
+all 8 micro-steps. No new code -- Tier 1's path, pinned by
+`tests/test_grad_sync_accumulation.py`.
+
+**Why re-measured, against §1.1's rejection.** §1.1 lost to a 12.65 GB
+unsharded fp32 accumulation per micro-step, which was FSDP2 holding the banks.
+Since Tier 3 the banks sit outside FSDP2, which holds the 587M backbone: 2.35 GB
+in fp32. And the best's kernel profile (job 34580) showed the reduce-scatters
+still running on every micro-step: 176 per step (160 of 91.8 MB per block, 16
+of 257.6 MB for the embedding and head, all fp32), 178.6 ms per step of NCCL
+kernels beside compute.
+
+**Result (job 35324):** **40.34%** (median 40.33%), step **2.476 s**, against
+40.05% / 2.494 s for the same configuration without it (34645) and 40.00% /
+2.497 s (34611): **+0.7%**. Rank 0's timers, mean of steps 20–29: step
+2494.9 → 2476.8 ms (−18.1), backward 1596.7 → 1581.8 ms (−14.9), forward 863.2
+→ 859.8 ms. Peak allocated 60.45 → **62.11 GiB**, reserved 73.1 → 75.7 GiB, 0
+allocator retries in both.
+
+**Gate.** O9 changes only the order of a sum. Its 30-step loss trace is
+identical to 34645's through step 5, then differs by at most 0.0011; the two
+identical-config base runs 34611 and 34645 differ by up to 0.0081 from step 1,
+so this is well inside run-to-run noise. The CUDA test gates are unchanged: no
+code changed. **Kept as the 4-GPU best; measured once, not yet repeated.** The
+1-GPU configuration has no FSDP2, so O9 does not apply there.
+
 ---
 
 ## 2. Promising, not done or not tested
@@ -1481,6 +1519,8 @@ session). **Times are submit times** (cluster clock).
 | 04:28 | 34611 | **O47 v4**: per-id reduction straight from the two gradients, no cat | best + O40 + O47 v4 | **40.00%** | **+0.7%**, step 2.497 s. **New 4-GPU best.** |
 | 04:34 | 34639 | gate (2 GPUs): the full GPU set on the final code | — | — | **16/16** (Triton CE ×3, bank compile ×2, compiled prefetch with and without dedup, the AME CUDA suite). |
 | 04:35 | 34645 | repeat of the 4-GPU best | best + O40 + O47 v4 | **40.05%** | Reproduces 40.00% within 0.05 points; 0 retries, peak 60.45 GiB. |
+| 06:53 | 35238 | **C1, copy-engine P2P** for the bank all-to-all: `+env.NCCL_P2P_USE_CUDA_MEMCPY=1` (through the new `env:` mapping in `main.py`) | 4-GPU best | — | **Hung** before the first logged step: the default process group's watchdog reported no progress for 480 s at 07:10:12, the job aborted (SIGABRT) at 07:18 and ended FAILED after 24 min. Not usable in this torch 2.7.1 / NCCL build; not retried. |
+| 07:13 | 35324 | **C2, O9 re-measured**: `trainer.skip_grad_sync_during_accumulation=true` | 4-GPU best + O9 | **40.34%** | **+0.7%**, step 2.476 s, mean = median; peak 62.11 GiB (+1.66), reserved 75.7 GiB, 0 retries; loss trace within run-to-run noise (§1.27). **New 4-GPU best, measured once.** |
 
 ### Jobs on this account NOT part of this work
 
@@ -2001,10 +2041,10 @@ them a configuration change, and at 1 GPU also micro-batch 16, which needs
 O10/O17. That is where §7.8 says the run ends: ceiling analysis written,
 proposals in §7.10, everything committed.
 
-### 2026-11-06, ~06:50 and ~07:30 — "continue", then the constraints go
+### 2026-11-06, 06:52 and 07:10 — "continue", then the constraints go
 
 Maciej's reply to the ended run was "continue": keep going on the engineering
-leads §7.8 left. At ~07:30, mid-run: *"There is a change in constraints, in
+leads §7.8 left. At 07:10, mid-run: *"There is a change in constraints, in
 .mp plan ame_optimize_report.md there were few constraints, like one of them was
 to not use CPU offload. I drop all of that constraints. Now you can try
 different things like offloading to CPU, which in my opinion does not sond that
@@ -2017,6 +2057,19 @@ sequence length, FLOPs accounting at the bf16 peak -- because changing it would
 change what the MFU number measures rather than make training faster. CPU
 offload goes in as lead C7, behind activation recompute, which buys the same
 memory without a PCIe round trip per step. The post-run leads are §7.11.
+
+### 2026-11-06, 07:18 — Maciej pauses the work
+
+*"Pause iterative improvement for now. You'd did a good job. Update .md with
+current progress, be precise."* At that moment: the copy-engine run (C1, 35238)
+had hung and was aborting; O9 (C2, 35324) had finished at 40.34%, the new
+4-GPU best. C3 (compute-stream priority) and the prefetcher half of O48 (C4)
+were written but never run. I submitted nothing after the pause. Both jobs had
+ended by 07:18:22, so nothing of mine is queued or running. The unrun code is
+parked on a new local branch, `ame_optimize_wip` (1288273c, not pushed), so
+that `ame_optimize` (375c0ce8) holds only measured code. A worktree with
+uncommitted changes would have been unsafe, because `run_exp.py` pushes them
+with the next submit.
 
 ### Corrections I made to my own earlier claims
 
@@ -2039,6 +2092,19 @@ Recorded because several changed what was worked on next.
 ---
 
 ## 5. State at pause
+
+**Current pause: 2026-11-06 07:18** (Maciej). Nothing of mine is queued or
+running on entropy.
+
+| | state |
+|---|---|
+| best, 4 GPUs | **40.34%**, job 35324: §6.1's configuration + O9; measured once |
+| best, 1 GPU | **40.23%**, job 34590 |
+| `ame_optimize` | **375c0ce8**: all measured code, including O9's switch (Tier 1) and the inert `env:` mapping in `main.py`; clean worktree `~/code/nano-ame` |
+| `ame_optimize_wip` | **1288273c**, local, not pushed: C3 and half of O48, never run on a GPU (§7.11) |
+| next, in order | finish O48 (the trainer's `stage()` call, a CUDA test), then C3 together with `TORCH_NCCL_HIGH_PRIORITY=1`, then C6 (mb 32 at 4 GPUs with recompute), then the rest of §7.11 |
+
+*What follows is the state at the earlier pause, 2026-11-05.*
 
 **Code, committed on `ame_optimize` and merged to `ame_main` 2026-11-05**
 (7 commits, `ed4952cc`..`04c960f3`): `src/core/memory_parallel.py` (new),
@@ -2097,7 +2163,7 @@ ceiling for the % column is B2 = 44.44%.
 | **h16** | **1** | **37.96%** | 5.924 s | 177,001 | 16 × 32 | 68.35 | **85.4%** | 32825 | `ame_tests/h16_1gpu_mb16.yaml` |
 | **h16** | **4** | **33.30%** | 1.689 s | 621,015 | 16 × 8 | 44.53 | 74.9% | 32856 | `ame_tests/h16_4gpu_mb16_o29.yaml` |
 | **h20** | **1** | **40.23%** | 9.931 s | 105,583 | 8 × 64 | 74.58 | 90.5% | 34590 | `ame/h20_1gpu.yaml` + `trainer.bank_compute_copy=false trainer.gradient_accumulation_steps=64 +cuda_alloc_conf=expandable_segments:True +compile_mode=max-autotune-no-cudagraphs trainer.fused_linear_ce=true trainer.fused_ce_chunk_size=8192 +fused_ce_impl=triton` (O41+O42 on, O46 off: the defaults) |
-| **h20** | **4** | **40.00%** (40.05% repeated, 34645) | 2.497 s | 419,939 | 16 × 8 | 60.46 | 90.0% | 34611 | `ame/h20_4gpu.yaml` + `trainer.bank_prefetch_depth=2 trainer.bank_dedup_cap=0.3 trainer.fused_linear_ce=true trainer.fused_ce_chunk_size=8192 +fused_ce_impl=triton +compile_mode=max-autotune-no-cudagraphs trainer.keep_params_unsharded_during_accumulation=true` (O39 v2 + O41 + O42 + O45 + O47 v4 + O40 + autotune) |
+| **h20** | **4** | **40.34%** (measured once; without O9: 40.00% / 40.05%, jobs 34611 / 34645) | 2.476 s | 423,485 | 16 × 8 | 62.11 | 90.8% | 35324 | `ame/h20_4gpu.yaml` + `trainer.bank_prefetch_depth=2 trainer.bank_dedup_cap=0.3 trainer.fused_linear_ce=true trainer.fused_ce_chunk_size=8192 +fused_ce_impl=triton +compile_mode=max-autotune-no-cudagraphs trainer.keep_params_unsharded_during_accumulation=true trainer.skip_grad_sync_during_accumulation=true` (O39 v2 + O41 + O42 + O45 + O47 v4 + O40 + O9 + autotune) |
 
 GFLOPs/token, which is why the MFU columns are not directly comparable across
 rows: h12 **1.053**, h16 **2.121**, h20 **3.768**. A smaller model carries less
@@ -2270,7 +2336,7 @@ micro-batches, so these are estimates for A0 and B0 to check:
   512 sequences of 2049 tokens (the model sees 2048), 30 steps, LR 2^-12,
   FineWeb, bf16. MFU is the mean per-step MFU over steps ≥ 15 at 3.768
   GFLOPs/token and 989 TFLOP/s per GPU, as everywhere in this report.
-  **Scope, amended 2026-11-06 ~07:30 by Maciej:** *"I drop all of that
+  **Scope, amended 2026-11-06 07:10 by Maciej:** *"I drop all of that
   constraints. Now you can try different things like offloading to CPU"*. The
   method restrictions this bullet carried are lifted: O10 (activation
   checkpointing, including the compiler's own recompute), O17 (CPU offload), the
@@ -2369,6 +2435,9 @@ part of the run.
 | 2026-11-06 04:10 | O47 (distinct-id exchange), O46 rejected | **39.40%** (34496) | 40.09% | §1.24–§1.25 |
 | 2026-11-06 04:35 | O40 on the best, O47 v4, O45 at 1 GPU | **40.00%** (34611; 40.05% repeated) | **40.23%** (34590) | §1.26 |
 | 2026-11-06 05:00 | run ended: every §7.5/§7.6 lead measured or shown not worth building | 40.00% | 40.23% | §7.8 ceiling analysis |
+| 2026-11-06 06:52 | Maciej: "continue" | 40.00% | 40.23% | §7.11 |
+| 2026-11-06 07:10 | Maciej lifts the scope constraints | 40.00% | 40.23% | §7.4 |
+| 2026-11-06 07:18 | C1 copy-engine P2P hung (35238); C2 O9 re-measured; **paused by Maciej** | **40.34%** (35324) | 40.23% | §1.27, §7.11 |
 
 ### 7.8 Running unattended
 
@@ -2380,7 +2449,7 @@ each one goes into §4 with its reason.
 **Out of scope for the run.** These need Maciej's decision, so they are written
 up in §7.10 as proposals and not done: the items on §7.4's out-of-scope list; new
 third-party dependencies (the 8-bit optimizer states in B1, for example); any
-code change on `ame_main`. **Lifted 2026-11-06 ~07:30** (§7.4): all of these are
+code change on `ame_main`. **Lifted 2026-11-06 07:10** (§7.4): all of these are
 now in scope; only the workload that defines the MFU number stays fixed.
 
 **Operational trouble is handled, not escalated:**
@@ -2495,7 +2564,7 @@ This runs unattended overnight; Maciej is not available. Never stop to ask or wa
 Done when the report shows a measured AME h20 run at >= 45.00% MFU/GPU on 4 GPUs and one on 1 GPU, both passing the §7.4 gates, with code and report committed (§6, §7.7). Otherwise, only after every lead in §7.5 and §7.6 has been measured or shown infeasible: when §7.8 holds the ceiling analysis and §7.10 the proposals for Maciej, committed.
 ```
 
-**Amendment, 2026-11-06 ~07:30.** After the run ended at 40.00% / 40.23%
+**Amendment, 2026-11-06 07:10.** After the run ended at 40.00% / 40.23%
 Maciej said "continue", and then lifted the scope constraints (§7.4). The goal
 stands as written; "decide within §7's rules" now reads against the amended
 §7.4: O10, O17, fp8, new dependencies and `ame_main` changes are allowed, and
@@ -2506,7 +2575,7 @@ the §7.10 rows that only needed that permission are leads, tracked in §7.11.
 The run adds to this list instead of waiting. Each entry says what it would buy,
 why it needs a decision, and where the evidence is.
 
-**Since 2026-11-06 ~07:30** (§7.4 amendment) the rows that only needed a scope
+**Since 2026-11-06 07:10** (§7.4 amendment) the rows that only needed a scope
 decision -- O10, O17, the 8-bit states, the activation budget, a newer
 torch/NCCL for copy-engine collectives -- are leads in §7.11, not proposals.
 
@@ -2522,33 +2591,41 @@ torch/NCCL for copy-engine collectives -- are leads in §7.11, not proposals.
 | Compiler-chosen activation recompute: `+functorch_config.activation_memory_budget=0.9` (AOTAutograd's partitioner recomputes cheap activations to stay within 90% of the default saved memory) | It trades compute for memory, which is what O10 means; O10 is cut, and the run stayed out of it after one measurement | At h20, 4 GPUs, mb 16 with O41 + O42 + O39 v2 (job 33956): peak **67.73 → 49.00 GiB**, allocator retries 231 → 0, **37.41%** (O39 v2 without it: 37.35%). It is what makes whole-block graphs usable at mb 16 on 4 GPUs, and the ~30 GiB it frees is the first route to mb 32 at 4 GPUs and mb 16 at 1 GPU seen in this work. Measured once; mb 32 / mb 16 with it not tried. | §1.21, §3 |
 
 
-### 7.11 After the run: "continue", and the scope amendment (2026-11-06, from ~06:50)
+### 7.11 After the run: "continue", the scope amendment, the pause (2026-11-06 06:52 → 07:18)
 
-Maciej answered the ended run with "continue"; at ~07:30 he lifted the scope
-constraints (§7.4). The goal is unchanged (§7.9). Base: §6.1's best, 40.00% /
-40.05% at 4 GPUs (2.494 s per step; 45% needs 2.219 s, −275 ms), 40.23% at 1.
+Maciej answered the ended run with "continue" (06:52); at 07:10 he lifted the
+scope constraints (§7.4); at 07:18 he paused the work (§4). The goal is
+unchanged (§7.9). Base at 06:52: 40.00% / 40.05% at 4 GPUs (jobs 34611 /
+34645; 2.494 s per step, where 45% needs 2.219 s: −275 ms), 40.23% at 1.
 
-**What the best trace still shows** (job 34580, 4 GPUs; the gaps are on the
-compute stream, the CPU is 70–220 ms ahead of the GPU throughout):
+**What the best trace still shows** (job 34580, 4 GPUs, the last kernel
+profile; gaps on the compute stream. In the backward the CPU launches 70–220
+ms ahead of the GPU, so the gaps there are GPU-side waits, not launch cost):
 
 | finding | cost | cause |
 |---|---:|---|
 | the compute stream idles at the end of **every** micro-step's backward until the bank stream drains | ~23 ms/step | the bank weights' `AccumulateGrad` nodes are created inside `_ExchangedPair.apply`, i.e. on the bank stream, so autograd counts the bank stream as a *leaf stream* and joins it into the caller's stream when `backward()` ends; the next micro-step's layer-0 exchange then queues behind the backward's tail (+~4 ms/step) |
-| a GEMM waits for a bank-stream kernel that took every SM | 20.6 ms/step after the SiLU backward alone, ~35 in all | O47's fp32 reduction (`triton_poi_fused__to_copy_index_add_zeros_1`, ~270 µs) is dispatched first and fills the GPU; the GEMM, queued 200 ms earlier, starts only when it drains. Same stream priority for both |
-| FSDP2 reduce-scatters on all 8 micro-steps | 178.6 ms/step of NCCL kernels beside compute | O9 is off. It was rejected (§1.1) when FSDP2 held the banks: 12.65 GB of unsharded fp32 gradient per micro-step. Since Tier 3 the banks are outside FSDP2, which now holds ~587M backbone parameters, 2.35 GB in fp32 -- the rejection's mechanism is 5x smaller |
+| a GEMM waits for a bank-stream kernel that took every SM | 20.6 ms/step measured after the SiLU backward; ~35 with the other GEMM-adjacent gaps (an estimate: not each one checked) | O47's fp32 reduction (`triton_poi_fused__to_copy_index_add_zeros_1`, ~270 µs) is dispatched first and fills the GPU; the GEMM, queued 200 ms earlier, starts only when it drains. Same stream priority for both |
+| FSDP2 reduce-scatters on all 8 micro-steps | 178.6 ms/step of NCCL kernels beside compute | O9 is off. It was rejected (§1.1) when FSDP2 held the banks: 12.65 GB of unsharded fp32 gradient per micro-step. Since Tier 3 the banks are outside FSDP2, which now holds ~587M backbone parameters, 2.35 GB in fp32 -- the rejection's mechanism is 5x smaller. **Measured: +0.7% (C2, §1.27)** |
 | the backward exchange moves fp32 | 100.7 MB per layer per micro-step, against 50.3 forward | O47 sends each distinct id's summed gradient in the accumulation dtype |
 
-**Leads, in the order they are being run:**
+**Leads, in the order they were being run, with their state at the 07:18 pause:**
 
 | # | lead | kind | status |
 |---|---|---|---|
-| C1 | copy-engine P2P for the all-to-all, `+env.NCCL_P2P_USE_CUDA_MEMCPY=1` (`env:` mapping, new in `main.py`) | config | job 35238 running |
-| C2 | O9 re-measured on the best, with O40 | config | next |
-| C3 | compute above the bank stream in priority, so its kernels fill gaps instead of blocking GEMMs | code, small | |
-| C4 | `AccumulateGrad` on the compute stream (no end-of-backward join), then the next micro-step's first exchanges issued during this backward | code | |
-| C5 | bf16 backward exchange | numerics, 300-step gate | |
-| C6 | micro-batch 32 at 4 GPUs with the compiler's recompute (`activation_memory_budget`; O10 lifted) | config | |
-| C7 | micro-batch 16 at 1 GPU: recompute first, CPU offload of the bank optimizer state (O17) if that is not enough | config / code | |
-| C8 | the fused AME glue kernel (§7.8) | code, large | |
-| C9 | fp8 GEMMs for the backbone (torchao), MFU still against the bf16 peak | dependency + numerics | |
-| C10 | a newer torch: flex on Hopper, symmetric-memory / copy-engine collectives | dependency, env-wide | |
+| C1 | copy-engine P2P for the all-to-all, `+env.NCCL_P2P_USE_CUDA_MEMCPY=1` (`env:` mapping, new in `main.py`, committed 375c0ce8) | config | **hung** (job 35238): no step logged; the default process group's watchdog saw no progress for 480 s at 07:10:12; aborted 07:18. Not usable in this build |
+| C2 | O9 re-measured on the best, with O40 | config | **+0.7%: 40.34%** (job 35324), loss within run-to-run noise; kept, measured once (§1.27) |
+| C3 | compute above the bank stream in priority, so its kernels fill gaps instead of blocking GEMMs | code, small | **written, never run**: `trainer.compute_stream_priority` on `ame_optimize_wip` (1288273c). To be measured together with `+env.TORCH_NCCL_HIGH_PRIORITY=1` (present in this torch build), so NCCL's streams, at priority 0 by default, are not starved by a compute stream above them |
+| C4 | O48: `AccumulateGrad` on the compute stream (no end-of-backward join), then the next micro-step's id gather and first `depth` exchanges issued during this backward | code | **half written, never run** (`ame_optimize_wip`, 1288273c, `trainer.bank_stage_next`): `_exchange_rows` factored out of `_ExchangedPair` (CPU tests: 19 passed, 2 CUDA-only skipped); `_ExchangedPair` takes precomputed rows and a backward hook; `BankPrefetcher.stage()` / `_run_staged()` / `_pin_accumulators()`. **Missing:** the trainer loop's `prefetcher.stage(next_input_ids)` call, with the next chunk's H2D moved before `backward()`; a CUDA test |
+| C5 | bf16 backward exchange | numerics, 300-step gate | not started |
+| C6 | micro-batch 32 at 4 GPUs with the compiler's recompute (`activation_memory_budget`; O10 lifted) | config | not started |
+| C7 | micro-batch 16 at 1 GPU: recompute first, CPU offload of the bank optimizer state (O17) if that is not enough | config / code | not started |
+| C8 | the fused AME glue kernel (§7.8) | code, large | not started |
+| C9 | fp8 GEMMs for the backbone (torchao), MFU still against the bf16 peak | dependency + numerics | not started |
+| C10 | a newer torch: flex on Hopper, symmetric-memory / copy-engine collectives | dependency, env-wide | not started |
+
+**Where 4 GPUs stand at the pause:** 2.476 s per step against the 2.219 s that
+45% needs, −257 ms. The two half-built changes target the boundary idle
+(~27 ms per step) and the GEMMs held back by bank-stream kernels (~35 ms,
+estimated) found above: ~62 ms if fully recovered, about a quarter of the
+257 ms. The rest still needs C6–C10.
