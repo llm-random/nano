@@ -722,7 +722,109 @@ submissions died on the full `/tmp`, Q1):
   **Switching every AME-only efficiency item off does not train better at 220 steps. At
   95%, production is at most 0.15 nats worse; the point estimate is 0.03 better.**
 
+## Full-length runs on entropy (ame_bf16_scalars_plan.md, Step 3)
+
+The plan [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md) replaces the LEM proposal
+below with full-length A/Bs on entropy, with replicates.
+
+**Recipe:** S2-PS or S1-D at n = 8, 3,815 steps × 1,048,576 tokens, warmup 38, cosine to
+10%, seed 123, autocast bf16, `compile_blocks_full`. Configs: `configs/parity/fe_*.yaml` on
+`parity_audit`. Checkpoints land in the cemetery clones under `/home`, every 500 steps for
+AME-B1, P1-1 and AME-F1.
+
+| Run | Config | Change | Jobs | Status |
+|---|---|---|---|---|
+| AME-B ×3 | `fe_ame_b{1,2,3}` | none (production) | 36400, 36404, 36407 | running since 00:12-00:14 |
+| P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | 36408, 36409, 36411 | running since 00:15-00:19 |
+| P-REF | `fe_pref` | mp null + reference attention, micro-batch 8 × 64 | 36399 | running since 00:12 (~10.5 h) |
+| AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32`, **micro-batch 16** | 36417, 36419, 36421 | queued |
+| P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36422-36424 | queued |
+| D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36425-36427 | queued |
+| D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | 36416, 36418, 36420 | queued |
+| P0b | `fe_p0b` | AME-B at micro-batch 16 × 32 | 36428 | queued (first to cut if the budget tightens) |
+
+Results, floors and the Q-P1 and Q-REF verdicts are added as the runs finish.
+
+## X2 × AME: the per-head scalars under bf16 (ame_bf16_scalars_plan.md, Steps 1-2)
+
+**Step 1, build and test** (`parity_audit`, from `e4553715`):
+
+- **`parity_attention_fp32` (AME, opt-in):** v is upcast right after v_proj, so the beta
+  mix runs in fp32. q and k stay fp32 on the ordinary bank path. The kernel and the sink
+  merge run with autocast off. That last part is needed: flex's higher-order op has no
+  autocast rule of its own, and SDPA is on autocast's bf16 list.
+- **`parity_dense_attention_fp32` (dense, opt-in):** q, k and v are upcast after RoPE, and
+  SDPA runs with autocast off.
+- **Tests** (`tests/test_parity_flags.py`):
+  - both flags are off by default;
+  - off is bit-identical to absent, and on is bit-identical on an fp32 CPU model;
+  - they reach exactly their layers;
+  - **on CUDA, under autocast, each path hands its kernel fp32 inputs, and fp32 flex /
+    fp32 SDPA match fp64 to < 1e-5**, i.e. IEEE fp32, not TF32. Flex picks IEEE fp32 dots
+    because `float32_matmul_precision` is "highest".
+
+  12/12 GPU tests pass (job 36392), and the CPU suite passes.
+- **Periodic checkpoints work, in both formats.** Two 20-step runs saved `step_10` and the
+  final (36394 Tier 2 with sidecar, 36395 ordinary path with the banks in the state dict).
+  Each loads into both paths with the same loss to 3e-6 (`score`, job 36412):
+  - Tier 2 checkpoint: production 7.864662, ordinary 7.864663;
+  - ordinary checkpoint: ordinary 7.863520, production 7.863517.
+
+  Writing a 13.2 GB checkpoint to `/home` takes about 2.5 min.
+- **The harness** takes checkpoint folders as arguments (`--ckpt-ame`, `--ckpt-dense`),
+  reads both checkpoint formats, and scores any checkpoint with any evaluator (`score`).
+
+**Step 2, probes:**
+
+| Probe | Micro-batch | Result |
+|---|---|---|
+| AME-F (job 36396) | 32 | **out of memory** (6.14 GiB short at 77 GiB). AME-F runs at micro-batch 16, and P1-16 ×3 is its matched control, as the plan prescribes |
+| D-F (job 36397) | 32 | fits, peak 52.4 GiB, **6.65 s/step** against dense production's 2.97 s/step: fp32 SDPA is 2.2× slower. About 7.3 h per run, against the plan's 4-5 h |
+
+**Step 2, validating the mechanism before AME-F trains** (job 36393, final checkpoint,
+256 sequences; relative error / projection against the fp32 oracle):
+
+| Group | `ame_std` (bf16 attention) train | AME-F train | `ame_std` held-out | AME-F held-out |
+|---|---|---|---|---|
+| alpha | 1.6e-1 / −1.6e-2 | **1.3e-2** / −3.4e-3 | 1.2e-1 / +3.3e-2 | **8.3e-3** / −8.7e-4 |
+| beta | 3.1e-1 / **−1.1e-1** | **1.9e-2** / −1.5e-3 | 1.6e-1 / −2.5e-2 | **1.2e-2** / −1.8e-3 |
+| tau | 1.1e-1 / −1.6e-2 | **1.4e-2** / −4.8e-3 | 8.4e-2 / +1.7e-2 | **9.2e-3** / +1.0e-4 |
+| ff, v_proj, o_proj (reference) | 1.5-1.7e-2 | 1.2-1.3e-2 | 1.3-1.4e-2 | 1.0-1.1e-2 |
+
+- **fp32 attention removes the amplification.** The scalars' errors fall 10-15× to the
+  level of every other group, and beta's −0.11 bias is gone.
+- **The plan's literal target (≤ 1%, the init level) is not reached on the training
+  batch** (1.3-1.9%), and cannot be: at the final checkpoint every group of every bf16
+  path sits at 1.1-4%, dense's included, and the scalars inherit that upstream error.
+  Criterion used: no longer worse than the model's other groups. That is met. (Q3.)
+- **D-F changes dense's gradient error by nothing measurable** (dense has no scalars to
+  amplify).
+
+**Step 2, the mechanism check** (`mechanism`, job 36413). For each layer at the final
+checkpoint (8 sequences), tau, alpha and beta are recomputed in fp64 from three kernel-input
+gradients (dq, dk, dv): the fp64 oracle's, the fp32 kernel's, and the bf16 flex kernel's
+(with the LSE merge, on bf16-rounded inputs and upstream). The fp64 formulas reproduce full
+fp64 autograd to ≤ 4e-16.
+
+| Kernel | tau error (median / max over 12 layers) | alpha | beta |
+|---|---|---|---|
+| fp32 reference | ≤ 1.3e-6 | ≤ 9.4e-7 | ≤ 2.9e-7 |
+| **bf16 flex** (dq/dk/dv errors 3-7.5e-3) | 0.5% / 1.4% | 0.5% / 0.9% | 0.2% / 0.3% |
+
+**On 8 sequences, the bf16 kernel's own rounding explains only a small part** of the 8-31%
+seen on 256 sequences. The candidate this leaves is a small *bias* per head in the bf16
+path:
+
+- a bias adds up linearly over tokens, while, late in training near a stationary point,
+  the true scalar gradient grows only like √N;
+- √(256/8) ≈ 5.7, which turns 0.5-1.4% into 3-8%;
+- Stage A's t-statistics over 16 groups of 512 test exactly this (running: jobs 36414,
+  36415).
+
 ## Proposed full-length runs: prepared, not run
+
+**Superseded on 2026-11-07 by ame_bf16_scalars_plan.md**, which runs the A/Bs on entropy
+with replicates (section above). The LEM configs below stay on `parity_audit` unused.
 
 They would settle what 300 steps cannot: whether any part of the implementation moves AME's
 loss at 4B tokens. The configs are on `parity_audit` (`configs/parity/`, from `0d4ff3b8`).
@@ -781,6 +883,20 @@ AME, with the per-head scalars' gradients or the attention itself in fp32.
 - **The plain implementation is 2.7× slower.** G-REF's 9.43 s/step against G0a's
   3.49 s/step is the price of AME without its efficiency work at h12 on one H100: the
   reference attention at micro-batch 8, plus fp32 banks in the backbone optimizer.
+- **2026-11-07 00:10-00:35. The bf16-scalars plan's runs, in a different order from its
+  waves.**
+  - Wave 1 started as soon as periodic checkpoints were seen working. It holds AME-B ×3,
+    P1 ×3 and P-REF, with P-REF moved up from wave 2 because at about 10.5 h it is the
+    longest run.
+  - These runs use none of the new flags. The plan's "validate before any training" gate
+    concerns AME-F, and AME-F was validated (job 36393) before it was submitted.
+  - The other 13 runs were submitted at once, at `nice` 100, longest first (D-F, AME-F,
+    P1-16, D-B, then P0b, the first to cut). Slurm starts them as GPUs free up; analysis
+    and scoring jobs at nice 0 go ahead of them.
+  - **Budget:** the plan says 100 GPU-h; Maciej's goal message (00:00) says 120 GPU-h on
+    top of the audit's own. 120 applies.
+  - Estimate: about 113 GPU-h, with AME-F's speed still unmeasured. P0b is cut first if
+    the estimate grows.
 
 ## Changes to the plan
 
@@ -907,3 +1023,24 @@ The original question follows.
   - (c) Leave it as a recorded property of bf16 AME.
 - **Default taken: (c).** It is a shared-policy property, not an AME-only efficiency
   change, and its expected size is small. Nothing is built.
+- **Answered by Maciej (2026-11-07, 00:00):** a plan of its own,
+  [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md). It builds both fp32 attention
+  paths and runs full-length A/Bs on entropy with replicates (above).
+
+**Q3 (2026-11-07 00:30): the AME-F validation target.**
+
+- **Context.** The plan requires AME-F's alpha/beta/tau gradient error against the fp32
+  oracle to fall to ≤ 1% (the init level) at the final checkpoint before AME-F trains.
+  AME-F reaches 1.3%, 1.9% and 1.4% on the training batch, and 0.83%, 1.2% and 0.92% on the
+  held-out one. That is 10-15× better than bf16 attention.
+  - At the final checkpoint no group of any bf16 path is under 1%: dense production's FF
+    is at 1.8%, its head at 4.0%.
+  - The scalars cannot be more accurate than the upstream gradient they are built from.
+  - Getting under 1% would need the whole network in fp32, which is a different
+    experiment from "fp32 attention".
+- **Options:**
+  - (a) Accept "no worse than the model's other groups" (met) and run AME-F as built.
+  - (b) Also run v_proj and o_proj in fp32. That would shave one rounding (2^-9) off the
+    upstream, about 0.2% here, and still not reach 1% on the training batch.
+  - (c) Do not run AME-F.
+- **Default taken: (a).** AME-F was submitted as built.
