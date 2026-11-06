@@ -343,9 +343,11 @@ What it found:
   fused AdamW to 1e-7.
 - **Every item's gradient error is within dense's rounding budget**, and two are exact.
   The kernel is more accurate than a plain bf16 implementation.
-- **No harm in training at 220-300 steps.** At 300 steps, production trains, if
-  anything, *better* than the same model with fp32 banks: 7 runs against 6, a difference
-  of −0.12 nats, at most +0.03 at 95%.
+- **No harm in training at 220-300 steps.**
+  - At 300 steps, production trains, if anything, *better* than the same model with fp32
+    banks: 7 runs against 6, a difference of −0.12 nats, at most +0.03 at 95%.
+  - At 220 steps, production equals the plain implementation with every AME-only item
+    off (G-REF): 5 runs against 4, −0.03 nats, 95% interval [−0.22, +0.15].
 - **Effects that need thousands of steps are not measured.** Full-length runs are
   prepared, not run.
 - **Short AME runs are chaotic.** Identical 300-step runs spread with an sd of about 0.12
