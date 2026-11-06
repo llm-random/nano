@@ -314,6 +314,51 @@ about 15.5 GiB. Both figures are from LEM. The step-time breakdown is in
 [ame_implementation.md](ame_implementation.md), "Step time, after the kernel was
 fixed".
 
+### F11. The gap is not the efficiency implementation's
+
+The efficiency-parity audit checked every AME-only MFU change active in S2-PS against a
+plain implementation and against dense's own rounding. The plan is
+[ame_efficiency_parity_plan.md](ame_efficiency_parity_plan.md) and the record
+[ame_efficiency_parity_report.md](ame_efficiency_parity_report.md). The changes:
+
+- Tier 2 banks and their bf16 compute copy;
+- the traced fused Q/K gather;
+- flex with ALiBi;
+- the sink as an LSE merge;
+- tau folded into q;
+- the compiled block;
+- the sidecar.
+
+What it found:
+
+- **The gap is 0.1426 nats under every evaluator**, the fp32 reference path included:
+  - fp32 reference: 3.125227 against 2.982607;
+  - production forward, precise: 3.125377 against 2.982760;
+  - the Trainer's own number: 3.125 against 2.982421875.
+
+  Each arm's production stack costs it the same 0.00015 against its fp32 oracle. The
+  implementation's share at the loss level is under 1e-5.
+- **No bug.** The bank gradient's structure is exact at init and at the end, the
+  gradient through flex's LSE is right, and the Tier 2 optimizer step equals the ordinary
+  fused AdamW to 1e-7.
+- **Every item's gradient error is within dense's rounding budget**, and two are exact.
+  The kernel is more accurate than a plain bf16 implementation.
+- **No harm in training at 220-300 steps.** At 300 steps, production trains, if
+  anything, *better* than the same model with fp32 banks: 7 runs against 6, a difference
+  of −0.12 nats, at most +0.03 at 95%.
+- **Effects that need thousands of steps are not measured.** Full-length runs are
+  prepared, not run.
+- **Short AME runs are chaotic.** Identical 300-step runs spread with an sd of about 0.12
+  nats, set mostly by small loss bumps in steps 25-50, just before the LR peak. Any short
+  A/B on AME needs ≥ 5 runs per arm.
+- **The step-10 gradient-norm spike (F3) appears in every AME configuration**: 45-49,
+  including G-REF with Tier 2, flex and the LSE merge all off. It is the method's, not an
+  implementation artifact.
+- **One AME-specific numerical weakness, from the bf16 policy both arms share.** Late in
+  training, the gradients of alpha, beta and tau are 9-31% off in *every* bf16
+  implementation of AME. The cause is the bf16 attention backward, amplified by
+  cancellation in the per-head sums. Its training effect is unmeasured (report, Q2).
+
 ## Hypotheses
 
 Status: **open** = consistent with the logs, needs a test; **weakened** = some
@@ -328,6 +373,7 @@ evidence against; **not supported** = checked against the logs and failed.
 | **H5** | **AME's lower gradient norm comes from its larger final stream**: RMSNorm's backward divides by the input norm, so a stream 1.3× larger gives gradients about 0.77× as large | At the end the prediction is 0.76–0.80 and the observed ratio 0.82–0.86. The prediction comes from the stream entering block 11's FF, 1.32× dense's, with or without its FF output added | Until step ~1,000 AME's final stream is the smaller one (0.53–0.79× at steps 200–800), so the explanation predicts a larger AME gradient norm (1.3–1.9×). The observed ratio is 0.45–0.96. The ratio stays at 0.78–0.86 from step 1,000 on while the stream ratio climbs from 0.98 to 1.32 | — | **not supported**: it fits only the end, which looks like coincidence |
 | **H6** | **The gap grows with data**: AME's deficit is a worse ceiling, not a slower start | +0.005 nats per 1,000 steps over the second half (F2) | Small, within one run, partly inside the cosine anneal | Stage 2b (h16, 8B tokens), when it finishes, without new runs | open |
 | **H7** | **Dense builds its own attention sink out of a few large-norm tokens; AME has one built in** | Dense's stream CV is 2–4× AME's in blocks 5–10, and its FF writes are bursty in blocks 4, 6 and 8 (F8). AME has a learned sink key and value per head; dense has none. Sinks on high-norm tokens are the known dense pattern (Xiao et al. 2023; Sun et al. 2024) | The logs have no per-position or per-token data, so which tokens carry the large norms is unknown | A3 (per-position stream norms and attention to position 0, both models) | open |
+| **H8** | **Part of the gap is AME's efficiency implementation, not the method.** AME's layer and bank path carry about 40 MFU changes that dense lacks, several of them changing precision, the kernel, the gradient path or the optimizer | The changes were gated for throughput, mostly at toy shapes in float64, never for training quality | The audit (F11). The gap is 0.1426 under an fp32 evaluator. Every AME-only change is within dense's rounding budget or exact; no bug. At 300 steps production trains no worse than a plain implementation (≤ +0.03 nats at 95%). Late-training effects were not testable in 300-step gates | Proposed full-length runs P0, P0r, P0b, P1, P-REF, D0 (report) | **not supported**, as far as checks and 220-300-step gates reach |
 
 ## Speculation
 
@@ -436,3 +482,6 @@ in [The two runs](#the-two-runs)); none needs a new training run.
     figures, and recorded F1–F10, H1–H7, S1–S5 and A1–A6.
   - Checked H5 against the logs and rejected it.
   - Found the dense spike that stage_1_report.md missed.
+- **2026-11-06 23:50.** The efficiency-parity audit
+  ([ame_efficiency_parity_report.md](ame_efficiency_parity_report.md)) added F11 and H8
+  (not supported).
