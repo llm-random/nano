@@ -239,14 +239,20 @@ of seed 123 ("train") and the start of the held-out set ("heldout").
 
 ### 1.1 `final_ce` reproduced; the common evaluator
 
-| | LEM `final_ce` | entropy, `Trainer.final_eval` on the checkpoint | production forward, fp32 CE, fp64 sum | fp32 reference path |
+| | LEM `final_ce` | entropy, `Trainer.final_eval` on the checkpoint | production forward, fp32 CE, fp64 sum | fp32 reference path (the common evaluator) |
 |---|---|---|---|---|
 | dense | 2.982421875 | **2.982421875** (exact) | 2.982760 | 2.982607 |
-| AME | 3.125 | pending (the bank sidecar is still copying) | | |
+| AME | 3.125 | **3.125** (exact; sidecar loaded through `load_checkpoint_from_file`) | 3.125377 | 3.125227 |
+| **AME − dense** | 0.142578 | 0.142578 | **0.142617** | **0.142620** |
 
-The dumped held-out tensor equals what `final_eval` reads (`torch.equal`). Dense's
-production path scores 0.00015 nats above its fp32 oracle on the full held-out set: that
-is dense's whole loss-level rounding budget.
+- **Both checkpoints reproduce their `final_ce` exactly on entropy**, which validates the
+  harness, the copy and the sidecar load (jobs 36321, 36361). The dumped held-out tensor
+  equals what `final_eval` reads (`torch.equal`).
+- **The precision tax on the loss is identical in the two arms.** Each production path
+  scores 0.00015 above its own fp32 oracle on the full held-out set: dense +0.000153, AME
+  +0.000150.
+- **The gap is 0.1426 under every evaluator.** The bf16 forward (and with it A2-A8 in the
+  forward) costs AME nothing that it does not cost dense.
 
 ### 1.6 The whole-model error budget (with 1.3's structure checks)
 
@@ -291,6 +297,61 @@ projections past 1e-3: head −6.3e-3 (held-out), norm +4.2e-3 and v_proj −2.2
 (train). Compile is not the cause: `dense_prod_eager` sits as far from the oracle, and
 1-2% from `dense_prod`.
 
+**At the final checkpoint, AME** (jobs 36362 and 36363). Relative error / signed
+projection against the fp32 oracle; "R" means over twice dense's largest group (5.6e-2
+held-out, 8.0e-2 train):
+
+| group | ame_prod (train) | ame_std (train) | ame_ref16 (train) | ame_prod (held-out) | ame_ref16 (held-out) |
+|---|---|---|---|---|---|
+| bank_q | 2.50e-2 / −2.6e-3 | 2.9e-2 / −2.7e-3 | 4.02e-2 / +4.0e-4 | 2.09e-2 / +6.9e-4 | 3.42e-2 / −7.5e-3 |
+| bank_k | 1.94e-2 / −5.9e-3 | 2.2e-2 / −8.3e-3 | 2.36e-2 / −6.8e-3 | 2.04e-2 / +2.3e-3 | 2.65e-2 / +1.4e-3 |
+| tau | **1.06e-1 R** / −1.2e-2 | **1.1e-1 R** / −1.6e-2 | **9.91e-2 R** / −1.5e-2 | **8.55e-2 R** / +1.9e-2 | **7.72e-2 R** / +1.4e-2 |
+| alpha | **1.61e-1 R** / −1.3e-2 | **1.7e-1 R** / −1.5e-2 | **1.60e-1 R** / −1.1e-2 | **1.16e-1 R** / +3.5e-2 | **1.08e-1 R** / +2.4e-2 |
+| beta | **3.09e-1 R** / −1.1e-1 | **3.1e-1 R** / −1.1e-1 | **2.80e-1 R** / −1.0e-1 | **1.64e-1 R** / −2.7e-2 | **1.47e-1 R** / −2.4e-2 |
+| k_sink | 3.83e-2 / +6.3e-3 | 4.4e-2 / +7.9e-3 | 4.58e-2 / +8.2e-3 | 3.41e-2 / +2.8e-3 | 3.71e-2 / −6.2e-4 |
+| v_sink | 2.51e-2 / −1.6e-3 | 2.6e-2 / −1.8e-3 | 2.50e-2 / −6.0e-4 | 1.71e-2 / −3.6e-3 | 1.70e-2 / −3.5e-3 |
+| v_proj, o_proj | 1.5-1.7e-2 / ≤ 2.8e-4 | 1.5-1.7e-2 | 1.6-1.7e-2 | 1.3-1.4e-2 | 1.4-1.5e-2 |
+| ff | 1.51e-2 / −5.6e-4 | 1.5e-2 / −6.4e-4 | 1.59e-2 / −5.6e-4 | 1.35e-2 / −3.5e-4 | 1.42e-2 / −2.9e-4 |
+| norm | 5.74e-2 / −5.1e-4 | 5.7e-2 / −1.3e-3 | 5.01e-2 / −3.5e-3 | 3.37e-2 / +8.4e-3 | 2.89e-2 / +6.4e-3 |
+| embedding | 1.64e-2 / −6.7e-4 | 1.7e-2 / −1.0e-3 | 1.74e-2 / −7.7e-4 | 1.45e-2 / −1.9e-4 | 1.56e-2 / +4.5e-6 |
+| head | 2.33e-2 / +9.0e-4 | 2.4e-2 / +9.3e-4 | 2.60e-2 / +1.3e-3 | 1.67e-2 / +6.3e-3 | 1.88e-2 / +7.8e-3 |
+
+Precise losses on the 256 sequences:
+
+| Batch | oracle | prod | std | ref16 | prod_ce32 | prod_eager |
+|---|---|---|---|---|---|---|
+| train | 3.277061 | 3.277227 | 3.277171 | 3.277206 | 3.277229 | 3.277210 |
+| held-out | 3.125641 | 3.125737 | 3.125766 | 3.125795 | 3.125739 | 3.125767 |
+
+What the final-state table says:
+
+- **The efficiency path is no less accurate than plain bf16 AME, and on the banks it is
+  more accurate.** On every group, `ame_prod`'s error is within the range of `ame_std`
+  (A1-A3 off) and `ame_ref16` (A1-A7 off, the plain bf16 implementation). On the banks it
+  is better than the plain one: 2.1-2.5% against 3.4-4.0% for bank_q. Flex keeps its
+  scores in fp32, while the plain implementation rounds them to bf16 before the softmax.
+- **The A-items, one by one, against production:**
+  - std (A2's effect) 0.55-2.3%;
+  - eager (A8) 0.6-1.7%;
+  - CE32 (X3) 0.2-0.9%.
+
+  All are rounding-sized, the same scale as two bf16 paths of dense (dense's eager against
+  its compiled: 0.7-2.4%).
+- **One AME-specific numerical finding, not caused by the efficiency work: the per-head
+  scalars' gradients are poor in bf16 late in training.**
+  - alpha, beta and tau carry 8.6-31% error against fp32 at the final checkpoint, against
+    0.5-0.9% at init. That is 2-8× dense's worst group (head, 2.8-4.0%).
+  - beta's projection on the training batch is −0.11.
+  - **Every bf16 path has it, the plain reference included.** It is not tied to the
+    prep's precision either: `ame_std`'s prep is fp32.
+  - The absolute error grows with training while the true gradient does not shrink
+    (alpha: |g| 3.3e-3 at init and at the end, error ×19; tau: |g| ×0.64, error ×9). The
+    bf16 attention backward's dq/dk errors (3.5-5.4e-3) are amplified by cancellation in
+    the per-head reductions as attention sharpens.
+  - **It belongs to X2 (autocast bf16, shared by both arms) interacting with AME's
+    design**: dense has no per-head scalars to suffer it. Its training effect is not
+    measured here (see the verdicts).
+
 **1.3's exact items at init: all pass.** For all 24 banks, on both batches:
 
 - no absent id has a nonzero row;
@@ -305,6 +366,28 @@ The error of `main_grad` on present rows is ≤ 8.1e-3 relative. Its correlation
 *previous* row's reference gradient is ≤ 0.020. That is far below the bug's signature;
 control correlations (the next row, the row's own gradient) were added in `48f9da34` to
 place it.
+
+**1.3 at the final checkpoint (jobs 36362 and 36363): all exact items pass again**, on
+both batches, for all 24 banks.
+
+- `main_grad`'s error on present rows is ≤ 3.6% against the oracle.
+- Its correlation with the previous row's gradient (≤ 0.07 train, 0.13 held-out) is
+  matched by the *next* row's control (0.06, 0.17). The bug would make the first far
+  exceed the second.
+- The error's correlation with the row's *own* gradient (0.25-0.56) shows that its large
+  part is a per-row rescale: the bf16 path's small systematic shrink, bank_k −5.9e-3 on
+  the training batch. `ame_std` has it too (−8.3e-3).
+
+**1.7 at the final checkpoint (job 36361): passes.**
+
+- The cached BlockMask equals a freshly built one tensor for tensor (`kv_num_blocks`,
+  `kv_indices`, `full_*`, `q_*`) and is exactly causal at block granularity. The run used
+  one shape, 2048, for train, eval and `final_ce`.
+- The instrumentation changes no parameter, buffer, bank master, `main_grad`, RNG stream
+  (CPU or CUDA) or BlockMask cache entry.
+- Neither LEM run fell back from compile (Phase 0.2, item 8).
+- (At init, a harness bug, a cache lookup by the wrong device key, first reported the mask
+  as different; fixed in `f71aca47`.)
 
 **More at init** (jobs 36324-36326):
 
