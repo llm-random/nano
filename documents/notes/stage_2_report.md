@@ -279,6 +279,7 @@ lowest AME result so far, 0.10 behind S1-D at n = 8 (2.9824).
 | S2-P | 8 | 6259007 | `245e3f04` | `s2_p_h12_lr8.0_2026-11-06_19-29-09` |
 | S2-S | 8 | 6259008 | `bffa50c6` | `s2_s_h12_lr8.0_2026-11-06_19-29-31` |
 | S2-PS | 7 | 6259084 | `55f8c08c` | `s2_ps_h12_lr7.0_2026-11-06_20-15-42` |
+| S2-PS | 6 | 6259085 | `ad707c30` | `s2_ps_h12_lr6.0_2026-11-06_20-17-04` |
 
 5. **S2-PS at n = 7 as well (submitted 20:16).**
    - **Why.** Maciej asked whether h12 AME with ALiBi and the shift was training at
@@ -289,6 +290,10 @@ lowest AME result so far, 0.10 behind S1-D at n = 8 (2.9824).
    - **If n = 7 beats n = 8.** The same rule ("re-run the other two arms at the new n")
      would apply again. That would be a call for Maciej, given his preference for
      stability over the last few hundredths.
+6. **S2-PS at n = 6, at Maciej's request (20:17): "yes submit also ame with shift and
+   alibi h12 lr = 6".** Job 6259085, from the same worktree and commit, with
+   `trainer.learning_rate=6`. Together with n = 7, it maps the winner's learning-rate
+   curve out to S1-A0's optimum.
 
 Results: pending, around 00:00.
 
