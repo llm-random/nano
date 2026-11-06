@@ -384,6 +384,10 @@ G0a, on the same batches.
   written for.
 - **H0(b) is rejected for A1-A3 together**: switching them off moves a short run's loss
   one-directionally, beyond run-to-run noise.
+- **Superseded at 22:45, see "Phase 3: what the bisect found".** G1a computes exactly what
+  G1 computes and finished with production, and G0e, a production copy, finished with G1.
+  The two-run floor was too small. The G1 gap is the gates' own chaotic spread, and the
+  two bullets above are withdrawn.
 - **What G1 does differently** (the logged readouts, steps 100 and 200). Production's two
   copies agree with each other in layers 0-2, and G1 departs from both:
   - layer 2's tau is 8.264 against 8.106 and 8.082;
@@ -397,7 +401,9 @@ G0a, on the same batches.
 - **Cost of the ordinary path at h12, one GPU:** 3.45 s/step against 3.38 (+2%).
 
 **Phase 3, started (plan: "If G1 flags").** Two opt-in switches, unset by default, with
-`tests/test_parity_flags.py` proving the default bit-identical (`9f4d6384`):
+`tests/test_parity_flags.py` proving the default bit-identical (`9f4d6384`). A third,
+`parity_prep_fp32` (bf16 rows, fp32 prep), was added in `f4b17a5d` and has not been
+needed so far:
 
 - **G1r**: G1 again. Is the gap systematic?
 - **G1a**: Tier 2 with an fp32 compute copy (`parity_bank_compute_dtype: float32`): A2
@@ -408,6 +414,69 @@ G0a, on the same batches.
 1.5 already shows the two optimizer paths step identically from the same state and
 gradients. If G1a lands with G1, the bf16 compute copy (A2) is what trains AME faster.
 If G1a lands with production, the cause lies in A1 or A3.
+
+### Phase 3: what the bisect found
+
+**The gates** (last-50 mean train loss, `final_ce` in brackets):
+
+| Gate | What | Last-50 | Early bumps (step: rise above the previous 5) |
+|---|---|---|---|
+| G0a | production | 5.042 (4.871) | 29-33, up to +0.34 |
+| G0b | production | 4.981 (4.811) | none |
+| G0d | production | 5.020 (4.846) | 29-31, up to +0.22 |
+| **G0e** | **production** | **5.223 (5.045)** | 36: +0.16 |
+| G0c | production, micro-batch 16 | 5.018 (4.836) | none |
+| G1 | ordinary path | 5.253 (5.078) | 31, 37 |
+| G1r | ordinary path | 5.284 (5.109) | 27, 30 |
+| **G1a** | **Tier 2, fp32 compute copy** | **4.975 (4.805)** | none |
+| G1b | Tier 2, eager gather | 4.868 (4.695) | none |
+
+**The gradient twin** (`budget --base ame_std`, job 36345, at init, 256 sequences on
+each batch):
+
+- **Tier 2 with an fp32 compute copy computes the ordinary path's gradient exactly.**
+  Every group agrees bit for bit except the banks, which differ by 1.8-2.0e-6 relative:
+  fp32 summation order, `index_add_` into `main_grad` against `nn.Embedding`'s compiled
+  backward. The losses are identical too.
+- **The eager gather reproduces production's gradient bit for bit.**
+- With 1.5 (one optimizer step identical to 1.3e-7), **A1 and A3 are exact.** The whole
+  difference between production and the ordinary path, 0.3-0.4% relative (≤ 4.4e-3 for
+  alpha), comes from A2, the bf16 compute copy and the prep it puts in bf16.
+
+**So G1a and G1 are the same computation, yet one finished at 4.975 and the other two
+copies at 5.253 and 5.284.** G0e, an identical production copy, finished at 5.223.
+
+- **The 300-step outcome is chaotic.** Runs of one computation spread by about 0.3 nats
+  (sd about 0.1-0.15), and nothing in a run's first 50 steps predicts where it ends.
+- **G1's +0.21 is that spread**, not an effect of switching Tier 2 off. Under the plan's
+  rule it looked "harmful" only because F came from two runs.
+- **Correction to the record above:** the "harmful: True" for G1 is withdrawn, and H0(b)
+  is *not* rejected for A1-A3.
+- **The right test is between computational classes:** A2 on (production and G1b) against
+  A2 off (the ordinary path and G1a), with enough runs in each.
+  - Replicates are running: G1r2-G1r4 and G0f-G0g.
+  - They give about seven runs per class. That bounds A2's effect at 300 steps to roughly
+    ±0.1 nats.
+
+### The 220-step set: G-REF (jobs 36319, 36327, 36329, 36330)
+
+| Run | Last-50 | `final_ce` | Early bumps |
+|---|---|---|---|
+| G0a-220 | 5.664 | 5.480 | 27-45 |
+| G0b-220 | 5.596 | 5.402 | 31-41, up to +0.47 at step 38 |
+| G0c-220, micro-batch 16 | 5.504 | 5.309 | 42 |
+| **G-REF**, A1-A7 off | **5.537** | **5.340** | 29-30 |
+
+- **G-REF lands inside the production spread** (0.17 at 220 steps), at −0.127 against
+  G0a. Not harmful: the floor gives a harmful line of 0.478.
+- **It sits with the faster production runs**, even though it uses the ordinary bank
+  path like G1. That is more evidence that G1's position was noise.
+- **G-REF trains at 9.47 s/step against production's 3.36**: the efficiency work buys
+  2.8× at h12 on one GPU.
+- **Its step-10 spike is 45.4**, against 46.7-48.8 for production. F3's spike is
+  therefore not caused by flex, the LSE merge or Tier 2.
+- A second G-REF (G-REF2) and a fourth production copy at 220 steps (G0d-220) are
+  running.
 
 ## Decisions
 
