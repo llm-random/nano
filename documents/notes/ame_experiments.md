@@ -314,7 +314,7 @@ is the simplest AME from a dense baseline at h16 and 8B tokens? And does the gap
 from Stage 1's?
 
 Stage 1b needs nothing from Stage 1, because it tunes its own learning rate. It can start
-at once. Its own agent runs Stages 1b and 2b alongside the agent running Stages 1 and 2.
+at once. The agent running Stages 1 and 2 runs Stages 1b and 2b alongside them.
 Section numbers (§) in Stages 1b and 2b refer to
 [ame_optimization_report.md](ame_optimization_report.md).
 
@@ -409,8 +409,8 @@ configs than entropy's h12 benchmarks: ×1.14 dense, ×1.11 S1-A0, ×1.16 S2-PS
 
 - Submit with
   `run_exp.py --config-path configs/stage_1b --config-name <file name without .yaml>`, as
-  Stage 1's are. Use a clean worktree of Stage 1b's own, not Stage 1–2's
-  `~/code/nano-stage12`, and exclude the node Stage 1 found faulty
+  Stage 1's are. Use a clean worktree separate from Stage 1–2's `~/code/nano-stage12`, so
+  each stage's runs keep their own commit, and exclude the node Stage 1 found faulty
   ([stage_1_report.md](stage_1_report.md), decision 3).
 - The runs go to W&B `nano-ame`, named `s1b_d_h16_lr<n>` and `s1b_a0_h16_lr<n>` and tagged
   `stage_1b`.
