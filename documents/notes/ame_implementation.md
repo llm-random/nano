@@ -5,7 +5,7 @@ and tested, on CPU and on an H100, and the code is committed. **No *scientific* 
 has been run — Stage 0 has not started.** The cluster jobs run since are throughput
 benchmarks, not quality measurements; their record is
 [ame_optimization_report.md](ame_optimization_report.md).
-Written 2026-11-03, last updated 2026-11-05.
+Written 2026-11-03, last updated 2026-11-06.
 
 AME — *Attention Memory Embedding* — replaces the Q and K projections of a standard
 attention head with two memory banks indexed by **token id**. The design record lives
@@ -72,7 +72,481 @@ says the mechanism works.
 KV shifting (`alpha`, `beta`) is **prior art**: Xu, Cheng, Wang & Chen, arXiv 2411.19574.
 It is the only mechanism that gives an id-scored layer the induction/copy primitive, which
 is why it is on by default — and why any dense baseline AME is measured against must have
-it too, or AME collects a gain that is not its own.
+it too, or AME collects a gain that is not its own. How it works, why nothing else can do
+its job, what it costs at decode, and what is planned: [KV shifting in AME](#kv-shifting-in-ame).
+
+## KV shifting in AME
+
+*Written 2026-11-05 from the method record (`research/ame/ame.md` §1.2, §4.1, §4.3–§4.4),
+the code, and the paper itself (arXiv 2411.19574v2). Points marked **analysis** are
+reasoning from the code, not measurements.*
+
+### The operator
+
+KV shifting (Xu, Cheng, Wang & Chen, Baichuan, Nov 2024) replaces each position's key and
+value with a learned blend of its own and the previous position's, before attention runs.
+Queries are not touched.
+
+```python
+# Xu et al., Section 2.2 and the Appendix F code
+Q = X @ W_Q                        # NOT shifted -- hence "KV" shifting
+K = X @ W_K
+V = X @ W_V
+K = a1*K + a2*shift1(K)            # shift1(z)[:, j] = z[:, j-1]; zeros at position 0, no wrap
+V = b1*V + b2*shift1(V)            # a1, a2, b1, b2: learned scalars per (KV) head, per layer
+Q, K = rope(Q), rope(K)            # the shift runs BEFORE the rotary embedding
+out = softmax(Q @ K.T / sqrt(d) + causal_mask) @ V
+```
+
+Init `a1 ~ U(0,1)`, `a2 = 1 − a1`, and the same for `b`; nothing constrains them after
+that. It is a 2-tap causal convolution over time on K and V, costing 4 parameters per head
+and one shifted copy of K and V.
+
+| position | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| key | α₁k₁ | α₁k₂ + α₂k₁ | α₁k₃ + α₂k₂ | α₁k₄ + α₂k₃ |
+| value | β₁v₁ | β₁v₂ + β₂v₁ | β₁v₃ + β₂v₂ | β₁v₄ + β₂v₃ |
+
+- **Score:** `q_i·k̂_j = α₁(q_i·k_j) + α₂(q_i·k_{j−1})` — position j is matched partly on
+  what sits at j−1.
+- **Readout:** `Σ_j w_ij·(β₁v_j + β₂v_{j−1})` — reading position j also returns part of
+  j−1's content.
+- **Special cases:** `α = β = (1,0)` is plain attention. `α = (0,1), β = (1,0)` is "find the
+  position whose *predecessor* matches the query, return that position's value": an
+  induction head in one layer.
+
+What the paper shows, mostly from single runs on private data:
+
+| claim | evidence |
+|---|---|
+| one layer is enough for induction | Theorem 2: one layer, one head, width d represents the induction-heads operator **exactly**; vanilla attention needs two layers at width 2d and only approximates it (Theorem 1) |
+| it helps pretraining | 2.9B / 500B tokens, average of 8 benchmarks **36.45 → 38.57** (+2.1), MMLU 37.26 → 40.88 (+3.6); 19B / 200B tokens 38.06 → 38.83 (+0.8) |
+| a wider window does not help | mixing in 2 or 3 previous tokens gave no gain (1.5B, 10B tokens) — the reason AME has no p-tap key window |
+| shifting Q too hurts | Appendix J, 19B stopped at 180B tokens: "not as good as shifting KV, and even not as good as the vanilla" — the reason AME never shifts queries |
+
+### Same operator, different input
+
+AME applies the operator unchanged: the two `shift1` lines in the method block above,
+[src/core/ame.py:448-455](../../src/core/ame.py#L448-L455). What differs is what it is
+applied to.
+
+| | Xu et al. | AME |
+|---|---|---|
+| shift, init, queries | `k̂_j = α₁k_j + α₂k_{j−1}`, `v̂_j = β₁v_j + β₂v_{j−1}`; α₁ ~ U(0,1), α₂ = 1 − α₁; Q unshifted | **identical** |
+| where the mixed key sits | shift before RoPE, so it is rotated as position j | ALiBi distance `i−j` on the mixed score: also position j |
+| **key before the shift** | `W_K·x_j`: from the hidden state, already carries context | `Ê_K[t_j]`: a bank row picked by token id, no context |
+| **what the shifted-in half brings** | the previous position's whole hidden state | only the previous token's id |
+| values | `W_V·x_j` | `W_V·x_j` (Option B): identical |
+| key normalization | none | ℓ2 on the bank rows, **before** the mix |
+| score scale | fixed `1/√d` | learned `tau` per head |
+| positional signal | RoPE, base 100k | ALiBi, a fixed geometric ladder |
+| coefficients | per KV head (GQA) | per head (AME is MHA-shaped) |
+
+In a standard transformer the shift is an **upgrade**: two layers can already build
+induction, and the shift does it in one, sooner. In AME it is **load-bearing**: it is the
+only context a key ever gets. AME may claim *"for an id-scored layer the key shift is
+necessary for copying"*; it may not claim the shift.
+
+### Why AME cannot copy without it
+
+The score `s_ij = tau·T[t_i,t_j] − m·(i−j)` sees two token ids and a distance. No AME key
+or query ever reads the hidden state. Copying needs the score at the copied position to
+know that position's *predecessor*. Take "Mr Kowalski met Mrs Nowak. … Mr → ?":
+
+| position | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| token | Mr | Kowalski | met | Mrs | Nowak | **Mr** ← query |
+| plain key | K[Mr] | K[Kowalski] | K[met] | K[Mrs] | K[Nowak] | K[Mr] |
+| shifted key, α = (0,1) | 0 | **K[Mr]** | K[Kowalski] | K[met] | K[Mrs] | K[Nowak] |
+
+- **Without the shift**, positions 2 and 5 differ only in their predecessor (Mr vs Mrs),
+  which the score cannot see. The best a head can learn is "Mr attends to surnames",
+  `T[Mr,Kowalski] ≈ T[Mr,Nowak]`, and the distance term then picks Nowak: wrong.
+- **Depth does not help.** In a standard transformer, layer 1 writes "I came after Mr"
+  into `x_2` and layer 2's `W_K·x_2` reads it. AME's layer 1 can write the note, but layer
+  2's key is `E_K[Kowalski]`, which never looks at `x_2`. The same holds at every layer.
+- **With the shift**, position 2 scores `tau·T[Mr,Mr]` (the query meets its own id) and
+  position 5 scores `tau·T[Mr,Mrs]`. Position 2 wins, and `v_2 = W_V·x_2` carries Kowalski.
+- **Why it is the only mechanism.** Context can reach the score only through the query,
+  the key or the bias. A query or key that reads `x` is ordinary attention and loses the
+  vocab² table, the point of the method; the bias knows only distance. What is left is
+  feeding the key the id at a fixed offset, which is the shift.
+- **α versus β.** Depth can stand in for β, because values read the hidden state and any
+  local head mixes `t_{j−1}` into `x_j`; only layer 1 has no substitute. Nothing stands in
+  for α. Hence four Stage 0 arms, not two.
+
+### At decode: an exact table form
+
+The dot product is linear and the bank rows are normalized *before* the mix, so
+
+```
+s_ij = tau · q_i · (α₁k_j + α₂k_{j−1})            − m·(i−j)
+     = tau · (α₁·T[t_i, t_j] + α₂·T[t_i, t_{j−1}]) − m·(i−j)
+```
+
+— two entries of the **same** row `T[t_i, ·]`, an exact rewrite rather than an
+approximation. Normalizing the *mixed* key instead would divide by
+`‖α₁Ê_K[t_j] + α₂Ê_K[t_{j−1}]‖`, which depends on a key–key cosine that `T` does not hold,
+so it would need a second vocab² table. The code normalizes the rows first
+([src/core/ame.py:25-27](../../src/core/ame.py#L25-L27)), and
+[test_a_score_is_a_linear_combination_of_two_entries_of_one_row](../../tests/test_ame.py#L169)
+pins it.
+
+```python
+# One decode step i, Option B, one head-layer: research/ame/ame.md §1.2 with the shift.
+# R = T[t_i, :] from the row cache keyed by token id.
+score[j] = tau*(a1*R[t[j]] + a2*R[t[j-1]]) - m*(i - j)   # past j: two reads, one row
+                                                         # (the j-1 term is 0 at position 0)
+# CPU, async: top-k over score, read v_hat[j] from the RAM V-cache, accumulate (N, Z, max)
+v_i     = W_V @ x_i                                      # GPU, synchronous from here on
+v_hat_i = b1*v_i + b2*v_prev                             # v_prev = RAW v_{i-1}, a register
+s_ii    = tau*(a1*R[t[i]] + a2*R[t[i-1]])
+out_i   = merge(N, Z, max, exp(s_ii) * v_hat_i)          # online-softmax merge
+V_cache.append(v_hat_i); v_prev = v_i                    # the cache holds mixed values
+```
+
+| decode step | what changes | cost |
+|---|---|---|
+| score | two entries of the same cached row | **none**: same row, same bandwidth |
+| V-cache | store `v̂_j` instead of `v_j` | **none**: same bytes. Plus a raw-`v` register (~98 KB at the reference config): `v̂_i` needs raw `v_{i−1}`, and inverting `v̂` to recover it is unstable. |
+| self-term | `α₁T[t_i,t_i] + α₂T[t_i,t_{i−1}]` | same cost |
+| CPU async path | `t_{j−1}` is a past id | **none**: still no dependence on hidden states |
+| **top-k index** | the score depends on `(t_{j−1}, t_j)`, so the index is keyed by **bigram**, not type | **the real cost.** One selection per head-layer, since α and m are per head: 12.6M scored bigrams/token at 32k context and 38.4M at 100k (reference config, 384 head-layers). It grows with context where the type count saturates, and needs WAND/MaxScore-style postings. |
+| pruned row cache | a top-k-pruned row may lack `T[t_i, t_{j−1}]` | candidates must come from either slot; α = (1,0) or (0,1) is safe, mixtures break |
+| Option A (bank values) | its sum over types becomes a sum over bigrams | it loses saturation and constant state, so evaluate A *without* the key shift |
+
+**Verdict.** Exact decode: feasible and essentially free. Top-k decode: feasible, but
+bigram selection is a new cost nobody has measured — "not obviously smaller than the
+200 MB value gather it would be dismissed against" (`ame.md` §4.1). Nothing is built.
+
+A **query shift** would also be table-computable — four entries from the rows `T[t_i,·]`
+and `T[t_{i−1},·]`, the second being the previous step's row — but Xu et al.'s one test
+says it hurts, so it is not planned.
+
+### What the shift does not buy
+
+- **One-token triggers.** "Anna said yes. Bob said no. Anna said → ?": both positions
+  after "said" score `tau·T[said,said]`, and distance picks "no". A standard transformer
+  can match on "Anna said"; AME's query does not see "Anna", and its keys see one step
+  back.
+- **A conjunction, not a trigram.** `α₁T[a,b] + α₂T[a,c]` is additively separable, so in
+  weight space it is a product of two bigram factors. No term knows the pair `(c, b)` as
+  a unit.
+- **Rare triggers** (analysis, unmeasured). The shifted match needs a high diagonal
+  `T[a,a]`: a token matching itself.
+  - In standard attention that comes from one shared `W_Qᵀ W_K`, so it holds for every
+    token, rare ones included. That is why induction heads copy even random tokens.
+  - In AME, `E_Q` and `E_K` are separate tables initialized independently
+    ([src/core/ame.py:278-280](../../src/core/ame.py#L278-L280)). So `T[a,a] ≈ 0` at init,
+    and each token has to learn its own self-match.
+  - AME copying therefore generalizes over **what is copied** (values go through the
+    shared `W_V`) but not over **what triggers the copy**. This is risk R3, the Zipf
+    tail, showing up inside the copy mechanism.
+  - A small-vocabulary synthetic task will not reveal it. Probe it with repeated random
+    tokens, split by token frequency.
+  - Untested lever: initialize `E_K := E_Q`. That gives `T[a,a] = 1` for every token from
+    step 0, at the cost of every head starting out as a same-token head.
+- **"A steep slope is a previous-token head" overstates it** (analysis).
+  [ame_experiments.md](ame_experiments.md) E0.1 and `ame.md` §4.1 say a steep enough slope
+  puts "nearly all mass on j = i−1".
+  - Here the causal mask includes `j = i` at zero distance penalty
+    ([src/core/ame.py:572](../../src/core/ame.py#L572)), so a steep slope alone
+    concentrates on the token itself. A true previous-token head also needs a low
+    `T[a,a]`, learned per token.
+  - The default slopes are fixed ([src/core/ame.py:326-329](../../src/core/ame.py#L326-L329)),
+    and the steepest has a 16-token horizon, where one step of distance costs well under
+    one logit.
+  - The conclusion survives in a weaker form: local heads blur `t_{j−1}` into `x_j`. Read
+    Stage 0's steep-head 2×2 with that in mind.
+
+### Plans and open items
+
+1. **Stage 0** ([ame_experiments.md](ame_experiments.md) E0.1) measures exactly this. The
+   arms:
+   - **A1:** α and β free.
+   - **A2:** α free, β pinned. This is the irreplaceable half.
+   - **A3:** α pinned, β free.
+   - **A4:** both pinned. This is the fixed-kernel floor.
+   - **P1:** a vanilla 2-layer transformer.
+   - **P2:** one standard-attention layer with KV shifting, the Theorem 2 harness check.
+
+   The arms are reachable from config (`shift`, `pin_alpha`, `pin_beta`). Hold the slope
+   ladder identical across arms. Kill criterion: A4 scores the same as A1. Headline
+   readout: the α₂ and β₂ trajectories, where a collapse to 0 means the model declined
+   the shift.
+2. **The matched dense control does not exist.** `RoPEAttention` has no α/β, so any
+   AME-versus-dense win is confounded with Xu et al.'s published gain (risk R8, baseline
+   #5, "mandatory"). Matching Xu exactly means shifting K and V *before* the rotary
+   embedding. It is about 30 lines (`ame_theory.md`), and should be built before the
+   first comparison run. The positional encoding differs as well (ALiBi vs RoPE); all
+   three candidate controls are in
+   [Positional encoding, and what a dense comparison must control](#positional-encoding-and-what-a-dense-comparison-must-control).
+3. **The α₂/β₂ readouts are lost under FSDP2** (found 2026-11-05).
+   - `instrumentation()` re-runs the bank gather and `v_proj` outside FSDP2's hooks, which
+     raises on DTensor parameters. The trainer then disables that layer's
+     instrumentation for the rest of the run
+     ([src/core/trainer.py:996](../../src/core/trainer.py#L996)).
+   - The parameter-only readouts (α₂, β₂, tau, horizons) work without token ids, but
+     they are computed in the same call and lost with it.
+   - Only `distributed: null` runs log them today
+     ([configs/ame/h20_1gpu.yaml](../../configs/ame/h20_1gpu.yaml)). That covers every
+     trainer run under FSDP2, the planned h16 run included.
+   - Splitting the parameter readouts from the attention diagnostics would bring them
+     back.
+
+## Positional encoding, and what a dense comparison must control
+
+*Written 2026-11-05. AME and the dense baseline use different positional encodings, which
+the experiment plan does not yet account for. The section closes with what the literature
+says about ALiBi vs RoPE, and what that implies for AME.*
+
+| | AME | dense baseline (`gqa` → `RoPEAttention`) |
+|---|---|---|
+| positional signal | **ALiBi only**: `s_ij = tau·T[t_i,t_j] − m_h·(i−j)`; no RoPE anywhere | **RoPE only**, on q and k; no ALiBi |
+| settings | one slope per head from a geometric ladder of horizons, 16 tokens … 4× the training context, `m = tau_init / horizon`; fixed by default, learnable only as an ablation; applied in fp32 in the flex `score_mod` ([src/core/ame.py:686-694](../../src/core/ame.py#L686-L694)) | base 10000, no frequency scaling ([configs/_model/h_balanced/base.yaml:67-68](../../configs/_model/h_balanced/base.yaml#L67-L68)) |
+| other position-dependent parts | the KV shift's fixed one-step offset; the learned sink is position-independent | none |
+
+**Why AME cannot use RoPE.** RoPE rotates q and k by their positions, so the score would
+depend on the two ids and the distance *jointly*, `T[t_i, t_j, i−j]`. That breaks both
+decode-time properties: the single vocab² table (it would need one per distance), and the
+top-k merge, which relies on a per-type score plus a term that only falls with distance
+(`ame.md` §2.3). An additive penalty keeps the score as "id part + distance part".
+
+**Why the penalty cannot be dropped.** Without a positional signal the score is a function
+of ids alone, and the layer sees an unordered bag of tokens (`ame.md` §3).
+
+**Consequence: AME and the dense model differ in three ways, not one.**
+
+1. Where Q and K come from: token-id tables vs projections of the hidden state. This is
+   the idea under test.
+2. The KV shift. The planned dense+shift control covers it (risk R8).
+3. ALiBi vs RoPE. Nothing in `baselines.md`, `ame_experiments.md` or `ame_theory.md`
+   addresses it as of 2026-11-05.
+
+| control | isolates | effort |
+|---|---|---|
+| dense RoPE + shift, Xu-style (they use RoPE base 100k and shift before RoPE) | the shift | ~30 lines on `RoPEAttention` |
+| dense + AME's ALiBi ladder + shift | the shift and the positional encoding | needs a flex `score_mod` path in the dense attention, which today runs on SDPA |
+| **`AMEAttention` with `x@W_Q`, `x@W_K` in place of the bank lookups** | everything except AME's idea: same ALiBi ladder, normalization, `tau`, sink and shift | contained in one module: build `W_Q`/`W_K` instead of the banks and use them in `_mixed_qkv` |
+
+**Recommendation.** Keep the plain RoPE dense model as the standard baseline a reviewer
+expects. Add the last row as the attribution control: it is the only comparison whose
+single difference is id-indexed vs projected keys, and it settles the shift and the
+positional encoding in one run. Treat the Xu-style row as a replication of their result.
+None of the three is implemented.
+
+### ALiBi vs RoPE in a standard transformer: what the papers say
+
+*Researched 2026-11-05 from the papers' own text. Every number in this subsection is the
+paper's; none is ours.*
+
+**In short.** At the training length the two are close. The studies split, most gaps are
+under half a percent of the loss, and the newer studies lean RoPE. ALiBi's selling point is
+flat perplexity past the training length, but it gets that by acting like a sliding window,
+not by using the extra context. On real long-context tasks RoPE is clearly ahead, and
+RoPE's context-extension recipes are why the field settled on it.
+
+| | RoPE | ALiBi |
+|---|---|---|
+| mechanism | rotates q and k by position, so the score depends on content and distance *jointly* | adds `−m_h·(i−j)` to the score; the distance term ignores content |
+| what one head can express | any learned distance pattern, e.g. "exactly the previous token" | only "nearer is better", at a fixed rate per head |
+| cost | element-wise on Q and K; works with any attention kernel | a bias inside the kernel (FlashAttention-2 `alibi_slopes`, flex `score_mod`); Falcon calls it "significantly cheaper to compute than RoPE" |
+| standard settings | base 10000 | slopes `m_k = 2^(−8k/n)`, k = 1…n; at 16 heads, 0.71 … 0.0039 |
+| used by | LLaMA, Mistral, Qwen, Falcon 7B/40B/180B: most models since 2023 | BLOOM, MPT, Falcon-RW, BTLM, Jais, Baichuan 13B |
+
+**Head-to-head at the training length**
+
+| study | scale | result | ahead |
+|---|---|---|---|
+| Press, Smith & Lewis 2022 (the ALiBi paper) | 247M, WikiText-103 | perplexity: ALiBi 19.73 vs rotary 20.07 at L = 512; 18.66 vs 19.33 at L = 1024 | ALiBi |
+| Le Scao et al. 2022 (BigScience) | 1.3B, OSCAR, 112B tokens | zero-shot average over 27 tasks: ALiBi 43.70, learned 41.71, rotary 41.46, none 41.23 | ALiBi |
+| Almazrouei et al. 2023 (Falcon) | 1B and 3B, the Pile, 30B and 60B tokens | 1B: RoPE +0.8 and +1.1 on the two zero-shot suites, and lower loss. 3B: tied on the main suite, RoPE +0.7 on the small one | RoPE, shrinking with scale |
+| Dey et al. 2023 (BTLM) | 111M, the Pile, 2048 tokens | loss: RoPE 2.259, ALiBi 2.267, learned 2.296 | RoPE, barely |
+| Li et al. 2024 (FIRE) | 125M, C4, 2048 tokens | log-perplexity: RoPE 3.070, ALiBi 3.216, no positional encoding 3.111 | RoPE, clearly: the largest gap |
+| Schröder et al. 2026 | 148M, three seeds | validation loss: RoPE 2.842, ALiBi 2.846 | tie |
+
+The two ALiBi wins are the oldest results, and neither reports a significance test.
+BigScience's evaluation put a model with no positional encoding within 0.23 of rotary, so
+it is coarse.
+
+**Past the training length**
+
+- **Perplexity.** RoPE without tricks improves for 100–200 extra tokens and then breaks.
+  Trained at 512, it reaches 79 at 15.5k tokens, against ALiBi's 18 (Press). ALiBi stays
+  flat, but Press's own sliding-window evaluation finds it "cannot improve perplexity when
+  looking at longer sequences".
+- **Why ALiBi stays flat.**
+  - Chi et al. 2023: "Large slopes implicitly enforce a narrow windowed bias".
+  - Extrapolation works only while the training length covers a head's empirical
+    receptive field. Flatten the slopes past that, and perplexity explodes.
+  - Their conclusion names "the models' limitation of not utilizing information beyond
+    the training sequence length".
+- **The flat curve fades with training.**
+  - BTLM chose ALiBi for extrapolation, then found the model learns to "overfit" its
+    context length: "ALiBi alone does not provide competitive extrapolation capability".
+    Their 8K model holds to about 9.2K.
+  - In FIRE's runs ALiBi's perplexity rose past the training length too: 3.216 at 2K,
+    3.537 at 8K.
+- **Using long context.** Fine-tuned at 8K (FIRE), ALiBi trails RoPE by 5–6 points on the
+  SCROLLS average: 15.1 vs 20.4 at 125M, 16.6 vs 22.4 at 350M. On NarrativeQA it gets half
+  RoPE's F1, 4.2 vs 8.7. FIRE's general explanation is that such biases "significantly
+  bias towards local attention".
+- **Counter-evidence, from small or synthetic setups.**
+  - Copying strings longer than any seen in training: "the ALiBi and NoPE transformers
+    dramatically outperform the RoPE model on longer inputs" (Jelassi et al. 2024).
+  - At 148M, ALiBi beat RoPE at in-context passkey retrieval (0.93 vs 0.64) and on the
+    needle test (0.68 vs 0.28). Past its training length RoPE scored 0.00 (Schröder et
+    al. 2026).
+  - On synthetic length-generalization tasks, no positional encoding beats both
+    (Kazemnejad et al. 2023).
+- **Heads go blind** (Schröder et al. 2026).
+  - Once `m·d` reaches about 90, the attention weight underflows to exactly zero. The
+    thresholds are about −92 in bf16 and −103 in fp32.
+  - Steep heads therefore become hard windows: BLOOM's steepest at about 124 tokens.
+  - Clamping the bias, or penalizing `log(d+1)` instead of `d`, restores retrieval past
+    the training length: passkey AUC 0.08 → 0.79 with both.
+- **ALiBi stretches too** (Al-Khateeb et al. 2023). Scaling every slope by
+  `L_train / L_test` at inference, with no training, keeps perplexity flat to about 2× the
+  training length. It also roughly doubles ROUGE on 16K-token summarization.
+
+**Why the field chose RoPE.** Position interpolation (Chen et al. 2023) and its successors
+gave RoPE long context after a short fine-tune. Falcon cites these recipes as eroding
+ALiBi's extrapolation edge, and adopted RoPE "in-line with other popular large-scale
+models", with custom kernels for the overhead.
+
+Sources:
+- [Press, Smith & Lewis 2022](https://arxiv.org/abs/2108.12409), the ALiBi paper.
+- [Le Scao et al. 2022](https://arxiv.org/abs/2210.15424), BigScience's architecture
+  ablations.
+- [Almazrouei et al. 2023](https://arxiv.org/abs/2311.16867), Falcon, §4.3.2.
+- [Dey et al. 2023](https://arxiv.org/abs/2309.11568), BTLM-3B-8K.
+- [Li et al. 2024](https://arxiv.org/abs/2310.04418), FIRE.
+- [Chi et al. 2023](https://arxiv.org/abs/2212.10356), receptive-field analysis.
+- [Kazemnejad et al. 2023](https://arxiv.org/abs/2305.19466), positional encoding and length
+  generalization.
+- [Jelassi et al. 2024](https://arxiv.org/abs/2402.01032), "Repeat After Me".
+- [Schröder et al. 2026](https://arxiv.org/abs/2608.03994), "When Attention Goes Blind".
+- [Al-Khateeb et al. 2023](https://arxiv.org/abs/2310.13017), position interpolation for
+  ALiBi.
+
+### What the papers mean for AME
+
+*Analysis: reasoning from the papers above, the code and the design record. Nothing here
+is measured.*
+
+- **The positional-encoding confound is too large to ignore.**
+  - Published gaps at the training length run from a tie to 0.15 nats (FIRE), and
+    BigScience saw 2.2 points the other way. That is the order of the effect AME is meant
+    to show.
+  - The literature cannot subtract it. The `AMEAttention`-with-projections control above
+    holds the positional encoding fixed.
+- **AME's slopes are not standard ALiBi.** At h16, `tau_init = √64 = 8`
+  ([src/core/ame.py:150-164](../../src/core/ame.py#L150-L164),
+  [src/core/ame.py:294](../../src/core/ame.py#L294)):
+
+  | | steepest head, m | flattest head, m | flattest head's penalty across a 2048-token context |
+  |---|---|---|---|
+  | standard ALiBi, 16 heads | 0.71 | 0.0039 | 8 nats |
+  | AME default ladder | 0.5 | 0.00098 | 2 nats |
+
+  - AME's scores start at std ≈ 1 by construction, about the scale of a standard head at
+    init, so the slopes compare directly. AME's ladder is 1.4× flatter at the steep end and
+    4× at the flat end.
+  - Its horizons, `tau/m`, run 16 … 8192 tokens. A horizon is the distance at which the
+    penalty cancels a perfect match.
+  - Inside the training context, the flat heads are close to having no positional
+    encoding. The papers put that slightly behind RoPE: FIRE 3.111 vs 3.070, BigScience
+    41.23 vs 41.46.
+  - So the published ALiBi numbers bracket AME's case but do not pin it down.
+- **Underflow does not bind.** With `tau = 8`, the penalty reaches Schröder et al.'s ≈ 90
+  only at about 11 horizons. A head is out of reach long before that: at two horizons, a
+  perfect match already weighs `e^−tau ≈ 3·10⁻⁴` of a neutral neighbour's.
+- **The ladder caps AME's reach far below its 100k pitch.**
+  - What was planned: `ame.md` §7 pitches 100k context from 2k–8k training, and asks for
+    horizons of about 20 … 185k (slopes 2⁻¹ … 2⁻¹⁴).
+  - What the code does: it spans 16 … 4·seq_len, which is 8192 tokens at seq_len 2048
+    (`ame_theory.md` T4: "DECIDED in code, UNVALIDATED").
+  - What that means: at 32k, the flattest head's best possible match weighs
+    `e^−24 ≈ 4·10⁻¹¹` of a neutral neighbour's, and at 100k, `e^−90`. That is the
+    receptive-field limit Chi et al. describe. A larger learned `tau` stretches every
+    horizon in proportion.
+  - The papers make neither obvious fix free:
+    - Heads that reach past the training length look like no positional encoding inside
+      it, and Chi et al. and FIRE see those degrade when run past it.
+    - Heads that fit inside it never use the extra context.
+  - The published ways out:
+    - rescale the slopes at inference: Al-Khateeb et al., about 2× without training;
+    - train at the target length;
+    - clamp the bias, or penalize log-distance: Schröder et al.
+  - None of these is in the plan docs. `ame.md` §7 already asks for validation at about
+    10× the training length before any deployment number is trusted. The papers suggest a
+    fixed ladder will either ignore the extra context there or degrade on it.
+
+## Weight initialization, dense and AME
+
+*Written 2026-11-06 from the code; values at h16 (`dmodel` 1024, `dff` 4096). Points marked
+**analysis** are reasoning, not measurements.*
+
+**How it runs.**
+- Every weight is initialized in its module's constructor. There is no separate init pass
+  and no meta-device build.
+- `main.py` seeds with `torch.manual_seed(<dataset seed>)`, builds the model on CPU and
+  moves it to the GPU ([main.py:370-375](../../main.py#L370-L375)). So one seed fixes both
+  the initial weights and the data order; without a code change they cannot be varied
+  separately.
+- A resumed run loads its weights from the checkpoint instead.
+- With `mem_parallel_size: 4`, each GPU slices its columns out of the already-initialized
+  bank ([src/core/memory_parallel.py:187-195](../../src/core/memory_parallel.py#L187-L195)),
+  so 1-GPU and 4-GPU runs start from identical numbers.
+
+**Shared by both models** ([configs/_model/h_balanced/base.yaml](../../configs/_model/h_balanced/base.yaml#L35-L109)):
+
+| weights | init | h16 std |
+|---|---|---|
+| every `Linear`: dense Q, K, V, O; AME `v_proj`, `o_proj`; FF in and gate; output head | truncated normal, std `1/√fan_in`, cut at ±2σ ([src/core/model.py:19-23](../../src/core/model.py#L19-L23)) | 0.031 |
+| FF out | the same rule; its fan_in is `dff` | 0.0156 |
+| token embedding | `trunc_normal_` with PyTorch's defaults: std 1, cut at ±2 | 1 |
+| output head | its own `Linear`, not tied to the embedding | 0.031 |
+| RMSNorm gains | 1 | |
+| biases | none: `Linear` defaults to `bias=False` | |
+
+- The ±2σ cut makes the realized std about 0.88× the nominal one.
+- There is no depth scaling. O and FF-out are neither scaled by `1/√(2·n_blocks)` nor
+  zero-initialized, unlike GPT-2 or Megatron. Both models share this, so it is not a
+  confound.
+- The knobs are `init_scale` (the attention `Linear`s), the FF and head `scale`, and
+  `bank_init_std`. All are 1 today.
+
+**AME only** ([src/core/ame.py:270-340](../../src/core/ame.py#L270-L340)):
+
+| weights | init | why |
+|---|---|---|
+| `q_bank`, `k_bank` | N(0, σ²) with σ = `bank_init_std` = 1, not truncated; two independent draws | `ame.md` §1 and §7: σ ≈ 1 is the per-element scale `W_Q·x` has in a standard transformer. Without QK-norm, σ = 0.02 would make attention uniform at init. |
+| `tau` | `√d_head` = 8, learned | puts the QK-normed scores at std ≈ 1 |
+| α, β | `c₁ ~ U(0,1)`, `c₂ = 1 − c₁` per head | Xu et al.'s init; both `(1,0)` and `(0,1)` are reachable. Pinned arms hold a frozen `(1,0)` buffer. |
+| ALiBi slopes | the horizon ladder, a fixed buffer | [Positional encoding](#positional-encoding-and-what-a-dense-comparison-must-control) |
+| sink key and value | zeros | logit 0, neutral in a score distribution of std ≈ 1 |
+
+**What follows** (analysis):
+- **No token matches itself at init.** The banks are independent draws, so `T[a,a] ≈ 0`.
+  [What the shift does not buy](#what-the-shift-does-not-buy) covers this, including the
+  untested `E_K := E_Q` lever.
+- **With QK-norm, σ sets how fast the banks learn, not their scale.**
+  - `tau` sets the score scale, so σ drops out of the forward pass.
+  - Adam moves each element by about `lr` per step, so a row turns by about `lr/σ` per
+    step: 2.4·10⁻⁴ at the configs' `lr = 2⁻¹²`.
+  - A dense projection's weights move by about `lr/0.031 ≈ 8·10⁻³` of their size per
+    step, about 30× more. The matrix is shared by every token, so the queries it produces
+    can move faster still.
+  - The banks are embedding-like tables, and μP gives such tables a larger learning rate
+    than hidden matrices for exactly this reason. Here they share the global rate and get
+    no weight decay (the bank row in
+    [Choices the spec left open](#choices-the-spec-left-open-and-how-they-were-settled)).
+    Their norms therefore tend to grow over training, which slows them further.
+  - The dense model's token embedding is in the same position. What AME changes is that
+    Q and K now live in such tables.
+  - Untested. The knobs are `bank_init_std` and a per-group learning rate, and the
+    per-group rate does not exist yet.
 
 ## What landed
 
