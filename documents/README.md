@@ -45,6 +45,7 @@ will test, how fast it runs. Everything else is in `notes/archive/`.
 | [ame_optimization_report.md](notes/ame_optimization_report.md) | **The MFU record (2026-11-04/05)**: every improvement tried and its effect, what is still worth trying, all ~66 experiments, the decision history, best config per model size. 26.84% → 35.02% at 4 GPUs, 37.96% at h16/1 GPU |
 | [ame_microbatch_sweep.md](notes/ame_microbatch_sweep.md) | **Micro-batch sweep, AME and dense (2026-11-05)**: all 48 runs, h12/h16/h20 × 1/4 GPUs — MFU, step, tokens/s, peak memory, fwd/bwd time per run |
 | [stage_1_report.md](notes/stage_1_report.md) | **Stage 1 of the program, on LEM (from 2026-11-06)**: the learning-rate grids for dense h12 and the simplest AME h12 at 4B tokens — every job, result and decision |
+| [stage_2_report.md](notes/stage_2_report.md) | **Stage 2, on LEM (from 2026-11-06)**: AME h12 with ALiBi, with the KV shift, and with both, at 4B tokens — the 2 × 2, the noise floor, the learning-rate check |
 | [stage_1b_report.md](notes/stage_1b_report.md) | **Stage 1b, on LEM (from 2026-11-06)**: Stage 1 at h16 and 8B tokens — the learning-rate grids for dense h16 and the simplest AME h16 |
 
 **AME configs** (layout since 2026-11-05): `configs/ame/` holds six configs, the
