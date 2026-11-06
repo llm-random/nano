@@ -1,7 +1,8 @@
 # Stage 2 — positional encoding and the shift: report
 
-**Status: wave 1 (S2-P, S2-S, S2-PS, S2-N at n = 9) training on LEM since 09:34–09:37, by
-Maciej's call, before Stage 1 settled. The extra dense NoPE arm S2-D0 was submitted at 09:55.**
+**Status: wave 1 and S2-D0 finished (13:51); S2-PS, ALiBi with the shift, is best,
+provisionally. Wave 2, the learning-rate check on S2-PS at n = 8 and 10, is queued (jobs
+6256577, 6256578).**
 
 The plan is [ame_experiments.md, "Stage 2 — positional encoding and the shift"](ame_experiments.md#stage-2--positional-encoding-and-the-shift).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -112,7 +113,139 @@ S2-D0 started at about 09:57. By step 39 its loss fell from 11.19 to 6.66, at 3.
 slightly faster than S1-D's 3.27 without the RoPE ops. So the NoPE path compiles and
 trains.
 
-Results: pending; about 4.3 h for each AME arm and 3.9 h for S2-D0 once running.
+### Results — wave 1 finished 2026-11-06 13:51
+
+Every row has n = 9 and 3,815 steps × 1,048,576 tokens = 4.00B tokens. FLOPs per token
+are the trainer's, at seq 2048. Total, backbone and bank parameters:
+- AME: 1,103.60M total, 99.05M backbone, 927.28M banks; the shift arms add 576 for α
+  and β;
+- dense: 183.45M total, 106.19M backbone, no banks.
+
+| Cell | Positional encoding | Shift | Seed | Params (total) | GFLOP/token | `final_ce` | Loss spikes (train) | s/step | W&B run | Commit | Config |
+|---|---|---|---:|---:|---:|---:|---|---:|---|---|---|
+| S1-A0 (Stage 1) | none | — | 123 | 1,103.60M | 1.053 | 4.4316 | steps 609–635: 5.12 → 14.69 | 3.603 | `p5u294hj` | `8a240816` + list `[9]` | stage_1/ame_h12_simplest_lr_grid |
+| S2-N | none | — | 124 | 1,103.60M | 1.053 | 4.1992 | none | 3.586 | `fqzr01mh` | `f9680709` | stage_2/ame_h12_simplest_seed2 |
+| S2-S | none | ✓ | 123 | 1,103.60M | 1.053 | 3.9385 | steps 555–581 → 9.50; 1,802–1,826 → 8.44 | 3.767 | `r6lxbmtd` | `f9680709` | stage_2/ame_h12_shift |
+| S2-P | ALiBi | — | 123 | 1,103.60M | 1.053 | 3.2979 | none | 3.598 | `0rbp1bju` | `f9680709` | stage_2/ame_h12_pe |
+| **S2-PS** | ALiBi | ✓ | 123 | 1,103.60M | 1.053 | **3.1865** | none | 3.777 | `ublx3ion` | `f9680709` | stage_2/ame_h12_pe_shift |
+| S2-D0 (dense, extra) | none (NoPE) | — | 123 | 183.45M | 1.095 | 3.3027 | steps 457–489 → 10.81; 1,130–1,149 → 5.09; 1,578–1,605 → 8.62 | 3.200 | `b93tal8j` | `c4cb1ef6` | stage_2/dense_h12_nope |
+| S1-D (Stage 1) | RoPE | — | 123 | 183.45M | 1.095 | 3.0244 | none | 3.272 | `ovy19sqp` | `8a240816` + list `[9]` | stage_1/dense_h12_lr_grid |
+
+![Stage 2 eval loss](stage_figures/stage_2_eval_loss.png)
+
+*Eval loss on 10 batches by step, from step 300; the end labels are the last such
+eval, not `final_ce`. Made with
+[documents/scripts/stage_results.py](../scripts/stage_results.py) `curves`.*
+
+### Analysis — the plan's list
+
+**The noise floor is 0.232 nats.** S1-A0's two seeds ended at 4.4316 (seed 123) and 4.1992
+(seed 124). By the plan's rule, differences between cells smaller than that are reported
+as ties. The floor is mostly one event: seed 123 spiked to a loss of 14.69 at step ~620,
+and seed 124 never spiked. S2-P and S2-PS did not spike either. So 0.232 is the spread
+between a run that spiked and one that did not, not the spread between two quiet runs,
+which is unmeasured and very likely much smaller.
+
+**The four cells** (`final_ce`, n = 9):
+
+| | no shift | KV shift |
+|---|---:|---:|
+| **no positional encoding** | S1-A0: 4.4316 (seed 124: 4.1992) | S2-S: 3.9385 |
+| **ALiBi** | S2-P: 3.2979 | **S2-PS: 3.1865** |
+
+**Main effects and interaction.** These take S1-A0 at its plan seed, 123; the figures in
+brackets use the mean of its two seeds, 4.3154, instead.
+
+| | Within the other factor's levels | Averaged |
+|---|---|---:|
+| ALiBi | −1.1337 without the shift, −0.7520 with it | **−0.943** (−0.885) |
+| KV shift | −0.4931 without ALiBi, −0.1114 with it | **−0.302** (−0.244) |
+| Interaction, (PS − P) − (S − A0) | | **+0.382** (+0.266) |
+
+- **ALiBi is by far the larger effect**, and it is well above the noise floor in both
+  rows.
+- **The shift helps a lot without positional encoding and little with it.** Without
+  ALiBi it gives −0.49, above the floor. With ALiBi it gives −0.11, below the floor, so
+  by the plan's rule S2-PS and S2-P are a tie. The shift is itself a fixed one-step
+  positional signal, as the plan notes. So once ALiBi supplies position, most of what
+  the shift added is already there.
+- **The interaction is positive.** The two effects overlap rather than add.
+
+**Every cell against S1-D, the dense baseline** (`final_ce` minus S1-D's; at Maciej's
+n\* = 9, and in brackets at S1-D's best measured point, n = 8, 2.9824):
+
+| Cell | Gap to S1-D |
+|---|---:|
+| S1-A0 | +1.407 (+1.449) |
+| S2-N | +1.175 (+1.217) |
+| S2-S | +0.914 (+0.956) |
+| S2-P | +0.274 (+0.316) |
+| **S2-PS** | **+0.162** (+0.204) |
+| S2-D0, dense NoPE | +0.278 (+0.320) |
+
+The comparison matches tokens, data order and recipe. It does not match:
+- total parameters: AME has 6.0×, almost all of it banks;
+- FLOPs per token: AME is 0.96× dense;
+- positional signal: RoPE in dense against ALiBi, the shift or nothing;
+- weight decay: the AME banks are exempt, while the dense W_Q and W_K get 0.1.
+
+**What the dense NoPE arm adds** (decision 3):
+- **RoPE is worth 0.278 nats to dense** (S2-D0 3.3027 against S1-D 3.0244).
+- **Without any positional encoding, AME is 1.13 nats behind dense** (S1-A0 4.4316
+  against S2-D0 3.3027; 0.90 with seed 124's 4.1992). A dense NoPE head can still build
+  position and context into its queries and keys from the residual stream, through the
+  causal mask. An AME score cannot: τ·T[t_i, t_j] reads only the two token ids. So the
+  id-indexed Q/K costs about a nat when neither model is given position.
+- **With ALiBi, AME matches dense NoPE:** S2-P 3.2979 against 3.3027, a tie.
+- **With ALiBi and the shift, AME is 0.116 better than dense NoPE.** That is inside the
+  noise floor, so it is a tie by the rule, and still 0.162 behind dense with RoPE.
+
+**Readouts at the end of training**, averaged over layers. τ starts at 8. The horizon is
+τ/m per head, starting at 16–8,192 in the ALiBi arms.
+
+| Cell | τ, mean | Shortest horizon, mean over layers | Attention entropy, normalized | Top-8 mass | α₂, mean \|·\| | β₂, mean \|·\| |
+|---|---:|---:|---:|---:|---:|---:|
+| S1-A0 | 6.89 | ∞ (no slopes) | 0.909 | 0.137 | pinned 0 | pinned 0 |
+| S2-N | 6.41 | ∞ | 0.923 | 0.118 | pinned 0 | pinned 0 |
+| S2-S | 8.16 | ∞ | 0.826 | 0.228 | 0.299 | 0.629 |
+| S2-P | 6.94 | 8.3 | 0.588 | 0.509 | pinned 0 | pinned 0 |
+| S2-PS | 8.18 | 15.3 | 0.576 | 0.509 | 0.399 | 0.680 |
+
+- **ALiBi makes attention sharp.** Normalized entropy drops from about 0.91 to 0.58, and
+  the 8 strongest keys hold about half the mass instead of an eighth.
+- **The shift is kept, not rejected.** α₂ and β₂ stay far from 0 in both shift arms, so
+  the plan's kill criterion (a collapse to 0) does not fire. The value shift is used more
+  than the key shift: β₂ > α₂ in both arms, and in most layers.
+- **τ behaves differently with and without the shift.** Without it (S1-A0, S2-N, S2-P),
+  τ falls in the middle layers, which in S2-P pulls the shortest horizons in from 16 to
+  about 8 tokens. With the shift, τ stays at about 8 in every layer.
+
+**The best AME variant at h12 and 4B tokens, provisionally: S2-PS, ALiBi with the KV
+shift**, at `final_ce` 3.1865.
+- **It is the lowest of the four cells, and the only one within 0.2 nats of dense with
+  RoPE.**
+- **Its margin over S2-P (ALiBi alone) is 0.111.** That is inside the noise floor, so
+  by the plan's rule the two tie. The floor is inflated by one spike, though, and
+  neither S2-P nor S2-PS spiked.
+- **What the shift buys.** Spending the shift, four scalars per head per layer and
+  3.777 against 3.598 s/step on LEM, gives a modest improvement that this design cannot
+  separate from noise.
+- **The name stays provisional until the learning-rate check below.** The plan names
+  the winner only after it.
+
+## Wave 2 — the learning-rate check on S2-PS, at n = 8 and 10
+
+The plan: the best arm trains at n\* ± 1. If its best n moves, the other two arms re-run
+at the new n before a winner is named. The runs were submitted at 13:52–13:53 from
+`~/code/nano-stage2` at `f9680709`, with `trainer.learning_rate=8` and `=10` on the
+command line, as the plan says. `sbatch` was again run by hand (decision 2).
+
+| Arm | n | Job | Cemetery commit | Cemetery clone |
+|---|---:|---|---|---|
+| S2-PS | 8 | 6256577 | `3c8f550b` | `s2_ps_h12_lr8.0_2026-11-06_13-52-40` |
+| S2-PS | 10 | 6256578 | `158fc826` | `s2_ps_h12_lr10.0_2026-11-06_13-53-00` |
+
+Results: pending; about 4.4 h once running.
 
 ## For Maciej
 

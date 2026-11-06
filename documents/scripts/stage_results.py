@@ -66,7 +66,9 @@ def describe(run):
         shift = "shift" if ame.get("shift") else "no shift"
         arm = f"AME, {pe}, {shift}"
     else:
-        arm = f"{att_type} (RoPE)"
+        # gqa takes an options block; `rope: false` is NoPE (src/core/attention.py).
+        gqa = ((cfg.get("common") or {}).get("attention") or {}).get("gqa") or {}
+        arm = f"{att_type} ({'RoPE' if gqa.get('rope', True) else 'NoPE'})"
     return {
         "id": run.id,
         "name": run.name,
