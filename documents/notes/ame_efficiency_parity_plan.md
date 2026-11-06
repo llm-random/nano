@@ -150,6 +150,12 @@ inventory and adds anything missing.
 Every A/B here compares AME with AME at the same n, so none of C1–C4 confounds an A/B.
 They matter only when the decomposition is read.
 
+**C3 is being settled elsewhere.** The Stage 2 session submitted S2-PS at n = 7
+(`zdlmmz7n`) and n = 6 (`egvqspym`) at 20:15 on 2026-11-06 (`stage_2_report.md`). If
+either beats n = 8, keep this audit at n = 8 anyway: it measures the implementation, and
+n = 8 is the pair that ame_comparison_h12.md analyses. Record the new best AME and its
+gap to dense in the report's decomposition.
+
 ## 5. What is already known, and the gaps
 
 | Known | Gap |
