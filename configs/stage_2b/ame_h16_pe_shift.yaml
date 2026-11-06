@@ -1,0 +1,85 @@
+# Stage 2b, arm S2b-PS: AME at h16 on 8B tokens, with both the implemented
+# ALiBi positional encoding and the KV shift: the method as previously
+# specified (the old plan's A1), one size up. One submit = 1 run.
+#
+#   Plan: documents/notes/ame_experiments.md, "Stage 2b -- positional encoding
+#   and the shift at h16". This is configs/stage_2/ame_h12_pe_shift.yaml with
+#   Stage 1b's changes. Its 2 x 2 design:
+#     - S1b-A0: neither (configs/stage_1b/ame_h16_simplest_lr_grid.yaml);
+#     - S2b-P: positional encoding only;
+#     - S2b-S: shift only;
+#     - S2b-PS: both (this file).
+#   The training recipe (steps, batch, schedule, eval, precision,
+#   checkpointing) is identical in all six configs/stage_1b and
+#   configs/stage_2b files; change them together.
+#
+# learning_rate is null on purpose. It is n*, S1b-A0's best n from Stage 1b
+# (stage_1b_report.md). run_exp.py's schema check refuses a null learning rate
+# (validate, src/definitions.py), so set n* here and commit before submitting.
+# The LR check on the winning arm is that arm's file with
+# trainer.learning_rate=<n*-1> and then <n*+1> on the command line.
+# Stage 1b's smoke run uses this file with trainer.learning_rate=10, as the
+# heaviest arm in memory.
+#
+# Runs on LEM, like every Stage 1-2 run, so all of them share one hardware.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128, so flex blocks align
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # The arm. shift: true learns (alpha_1, alpha_2) and (beta_1, beta_2) per head
+  # and layer (pin_alpha and pin_beta default to false). slopes is unset, so AME
+  # uses its implemented ALiBi ladder: one fixed slope per head, with horizons
+  # from 16 to 8192 tokens spread over the 16 heads (src/core/ame.py:148-163).
+  attention:
+    type: ame
+    ame:
+      shift: true
+
+compile_blocks_full: true
+
+trainer:
+  # Micro-batch 16: AME h16 runs out of memory at 32 (see
+  # configs/stage_1b/ame_h16_simplest_lr_grid.yaml). FSDP2 is off, so AME's
+  # readouts (tau, attention entropy, alpha/beta) are logged and every run
+  # shares one precision path (autocast bf16).
+  gradient_accumulation_steps: 32 # micro-batch 16
+  mem_parallel_size: 1 # hand-managed bank path (Tier 2), banks unsharded
+  distributed: null
+  autocast_bf16: true # bf16 comes from autocast instead of FSDP2
+
+  # The recipe. Everything not set here is a llama-trainer default:
+  #   - AdamW, weight decay 0.1 (the AME banks are exempt);
+  #   - cosine schedule, warmup 1% = 76 steps, final LR 10% of peak;
+  #   - eval every 100 steps on 10 batches;
+  #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
+  n_steps: 7630 # D = 8B tokens / 1,048,576 tokens per step, rounded up
+  learning_rate: null # n*, S1b-A0's best n from Stage 1b; LR = 2^-n. Refused at submit while null
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1). It lands in the
+      # job's cemetery clone, under checkpoint/<job id>/. About 23 GB per AME
+      # checkpoint, banks and their optimizer state included.
+      path: checkpoint
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:1 # LEM's gres syntax
+    job-name: s2b_ps
+    time: "1-00:00:00" # about 16 h per run on LEM (estimated), plus margin
+  metric_logger:
+    project_name: nano-ame
+    name: s2b_ps_h16_lr${trainer.learning_rate}
+    tags:
+      - ame
+      - h16
+      - stage_2b
+      - s2b_ps

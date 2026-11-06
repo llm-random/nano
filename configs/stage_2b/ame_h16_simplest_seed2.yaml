@@ -1,0 +1,88 @@
+# Stage 2b, run S2b-N: S1b-A0 (the simplest AME at h16: no positional encoding,
+# no KV shift) trained again at n* with a second seed. It is the noise floor for
+# reading Stage 2b's 2 x 2: differences smaller than the gap between S1b-A0's
+# two seeds are reported as ties. One submit = 1 run.
+#
+#   Plan: documents/notes/ame_experiments.md, "Stage 2b -- positional encoding
+#   and the shift at h16". This is configs/stage_2/ame_h12_simplest_seed2.yaml
+#   with Stage 1b's changes. Its first seed is the n* run of
+#   configs/stage_1b/ame_h16_simplest_lr_grid.yaml. The training recipe (steps,
+#   batch, schedule, eval, precision, checkpointing) is identical in all six
+#   configs/stage_1b and configs/stage_2b files, the seed here excepted; change
+#   them together.
+#
+# learning_rate is null on purpose. It is n*, S1b-A0's best n from Stage 1b
+# (stage_1b_report.md). run_exp.py's schema check refuses a null learning rate
+# (validate, src/definitions.py), so set n* here and commit before submitting.
+# Stage 1b's smoke run uses this file with trainer.learning_rate=10, for the
+# S1b-A0 code path.
+#
+# Runs on LEM, like every Stage 1-2 run, so all of them share one hardware.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128, so flex blocks align
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # The arm, as in S1b-A0. Every ALiBi slope is 0, so there is no positional
+  # signal. shift: false pins alpha and beta to (1, 0). h16 has 16 heads, and
+  # AME refuses a slopes list of any other length.
+  attention:
+    type: ame
+    ame:
+      shift: false
+      slopes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # one per head
+
+compile_blocks_full: true
+
+trainer:
+  # Micro-batch 16: AME h16 runs out of memory at 32 (see
+  # configs/stage_1b/ame_h16_simplest_lr_grid.yaml). FSDP2 is off, so AME's
+  # readouts (tau, attention entropy) are logged and every run shares one
+  # precision path (autocast bf16).
+  gradient_accumulation_steps: 32 # micro-batch 16
+  mem_parallel_size: 1 # hand-managed bank path (Tier 2), banks unsharded
+  distributed: null
+  autocast_bf16: true # bf16 comes from autocast instead of FSDP2
+
+  # The recipe. Everything not set here is a llama-trainer default:
+  #   - AdamW, weight decay 0.1 (the AME banks are exempt);
+  #   - cosine schedule, warmup 1% = 76 steps, final LR 10% of peak;
+  #   - eval every 100 steps on 10 batches;
+  #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
+  n_steps: 7630 # D = 8B tokens / 1,048,576 tokens per step, rounded up
+  learning_rate: null # n*, S1b-A0's best n from Stage 1b; LR = 2^-n. Refused at submit while null
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1). It lands in the
+      # job's cemetery clone, under checkpoint/<job id>/. About 23 GB per AME
+      # checkpoint, banks and their optimizer state included.
+      path: checkpoint
+
+  # The second seed. Every other run uses 123. main.py seeds torch from this
+  # value, so it changes the initialisation as well as the data order. The
+  # eval dataloader keeps seed 123, so final_ce is scored on the same held-out set.
+  train_dataloader:
+    dataset:
+      seed: 124
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:1 # LEM's gres syntax
+    job-name: s2b_n
+    time: "1-00:00:00" # about 15 h per run on LEM (estimated), plus margin
+  metric_logger:
+    project_name: nano-ame
+    name: s2b_n_h16_lr${trainer.learning_rate}_seed124
+    tags:
+      - ame
+      - h16
+      - stage_2b
+      - s2b_n
