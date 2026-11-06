@@ -246,6 +246,7 @@ class RoPEAttention(nn.Module):
         low_freq_factor=1,
         high_freq_factor=4,
         original_max_position_embeddings=8192,
+        rope: bool = True,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -259,15 +260,23 @@ class RoPEAttention(nn.Module):
         self.dhead = self.q_proj.weight.shape[0] // self.q_heads
         self.dmodel = dmodel
 
-        self.rope = RoPE(
-            dhead=self.dhead,
-            length=seq_len,
-            base=rope_base,
-            apply_freq_scaling=rope_scale_freqs,
-            factor=factor,
-            low_freq_factor=low_freq_factor,
-            high_freq_factor=high_freq_factor,
-            original_max_position_embeddings=original_max_position_embeddings,
+        # rope=False is NoPE: no positional encoding at all, so the only positional
+        # signal left is the causal mask (Haviv et al. 2022). RoPE holds no
+        # parameters and its buffers are not persistent, so the state dict is the
+        # same either way.
+        self.rope = (
+            RoPE(
+                dhead=self.dhead,
+                length=seq_len,
+                base=rope_base,
+                apply_freq_scaling=rope_scale_freqs,
+                factor=factor,
+                low_freq_factor=low_freq_factor,
+                high_freq_factor=high_freq_factor,
+                original_max_position_embeddings=original_max_position_embeddings,
+            )
+            if rope
+            else None
         )
 
     def forward(self, x):
@@ -277,9 +286,10 @@ class RoPEAttention(nn.Module):
 
         batch, seq_len = x.shape[:-1]
         q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
-        q = self.rope(q)
         k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
-        k = self.rope(k)
+        if self.rope is not None:
+            q = self.rope(q)
+            k = self.rope(k)
 
         v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
 

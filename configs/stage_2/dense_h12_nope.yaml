@@ -1,0 +1,75 @@
+# Stage 2, extra arm S2-D0: the dense h12 baseline with NO positional encoding
+# (NoPE): GQA without RoPE, so the causal mask is its only positional signal.
+# One submit = 1 run.
+#
+# Asked for by Maciej on 2026-11-06, alongside Stage 2. It is S1-D
+# (configs/stage_1/dense_h12_lr_grid.yaml) with RoPE switched off and the
+# learning rate fixed at n = 9 -- his working assumption for every h12 model
+# (stage_2_report.md, decision 1). It is the dense counterpart of S1-A0 and
+# S2-S, which have no positional encoding either, so it separates "no position"
+# from "Q and K from id-indexed banks".
+#
+# `gqa: {rope: false}` is the attention registry's gqa options block
+# (src/core/attention.py, _GQA_OPTIONS). With rope true, or no block at all,
+# the layer is bit-for-bit the S1-D layer; RoPE has no parameters, so the
+# parameter count is S1-D's 183,454,464.
+#
+# The training recipe (steps, batch, schedule, eval, precision,
+# checkpointing) is the Stage 1-2 recipe; change it with the others.
+# Runs on LEM, like every Stage 1-2 run, so all of them share one hardware.
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h12
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128; kept equal to the AME arms
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # The arm: dense GQA attention without RoPE.
+  attention:
+    type: gqa
+    gqa:
+      rope: false
+
+compile_blocks_full: true
+
+trainer:
+  # As S1-D: micro-batch 32, no FSDP2, so every Stage 1-2 run shares one
+  # precision path (autocast bf16). S1-D ran 3.27 s/step on LEM.
+  gradient_accumulation_steps: 16 # micro-batch 32
+  mem_parallel_size: null # dense attention has no banks
+  distributed: null
+  autocast_bf16: true # bf16 comes from autocast instead of FSDP2
+
+  # The recipe. Everything not set here is a llama-trainer default:
+  #   - AdamW, weight decay 0.1;
+  #   - cosine schedule, warmup 1% = 38 steps, final LR 10% of peak;
+  #   - eval every 100 steps on 10 batches;
+  #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
+  n_steps: 3815 # D = 4B tokens / 1,048,576 tokens per step
+  learning_rate: 9 # n, LR = 2^-9: Maciej's working n* for h12 (stage_2_report.md)
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1), under
+      # checkpoint/<job id>/ in the job's cemetery clone; about 2 GB.
+      path: checkpoint
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:1 # LEM's gres syntax
+    job-name: s2_d0
+    time: "0-07:00:00" # about 3.9 h on LEM, as S1-D; 7 h as for every Stage 1-2 run
+  metric_logger:
+    project_name: nano-ame
+    name: s2_d0_h12_lr${trainer.learning_rate}
+    tags:
+      - dense
+      - h12
+      - stage_2
+      - s2_d0
+      - nope

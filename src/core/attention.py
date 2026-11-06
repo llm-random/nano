@@ -39,7 +39,14 @@ def _linear_fn(in_features, out_features, init_scale):
 
 
 def _rope_attention(
-    dmodel, q_heads, kv_heads, seq_len, rope_base, rope_scale_freqs, init_scale
+    dmodel,
+    q_heads,
+    kv_heads,
+    seq_len,
+    rope_base,
+    rope_scale_freqs,
+    init_scale,
+    rope=True,
 ):
     dhead = dmodel // q_heads
     return RoPEAttention(
@@ -53,6 +60,7 @@ def _rope_attention(
         seq_len=seq_len,
         rope_base=rope_base,
         rope_scale_freqs=rope_scale_freqs,
+        rope=rope,
     )
 
 
@@ -76,11 +84,29 @@ def _build_mqa(dmodel, q_heads, kv_heads, **kwargs):
     return _rope_attention(dmodel, q_heads, 1, **_rope_kwargs(kwargs))
 
 
-def _build_gqa(dmodel, q_heads, kv_heads, **kwargs):
-    """Grouped-query attention: the config's kv_heads (H/2 in the H family)."""
+def _build_gqa(dmodel, q_heads, kv_heads, *, options=None, **kwargs):
+    """Grouped-query attention: the config's kv_heads (H/2 in the H family).
+
+    `options` is the config's `attention.gqa` block. Its one knob, `rope`
+    (default true), drops the rotary encoding when false: the NoPE dense
+    baseline, `attention: {type: gqa, gqa: {rope: false}}`.
+    """
     if q_heads % kv_heads:
         raise ValueError(f"gqa needs q_heads % kv_heads == 0, got {q_heads}/{kv_heads}")
-    return _rope_attention(dmodel, q_heads, kv_heads, **_rope_kwargs(kwargs))
+    options = dict(options or {})
+    unknown = set(options) - set(_GQA_OPTIONS)
+    if unknown:
+        raise ValueError(
+            f"unknown attention.gqa options {sorted(unknown)}; "
+            f"expected {sorted(_GQA_OPTIONS)}"
+        )
+    return _rope_attention(
+        dmodel,
+        q_heads,
+        kv_heads,
+        **_rope_kwargs(kwargs),
+        rope=bool(options.get("rope", True)),
+    )
 
 
 def _build_ame(dmodel, q_heads, kv_heads, *, vocab_size=None, options=None, **kwargs):
@@ -192,11 +218,14 @@ _AME_OPTIONS = (
     "backend",
 )
 
+# The options `attention.gqa` accepts. `rope: false` is NoPE (see _build_gqa).
+_GQA_OPTIONS = ("rope",)
+
 # Which types accept an options block, and which options. Checked instead of
 # `ATTENTION_TYPES` so that a block for a type that has no options -- `{type:
-# gqa, gqa: {...}}`, or one aimed at a still-planned type -- is an error rather
+# mha, mha: {...}}`, or one aimed at a still-planned type -- is an error rather
 # than silently dropped on the floor by the builder's kwarg filter.
-_TYPE_OPTIONS = {"ame": _AME_OPTIONS}
+_TYPE_OPTIONS = {"ame": _AME_OPTIONS, "gqa": _GQA_OPTIONS}
 
 
 _NTH_PATTERNS = {"every_2nd": 2, "every_4th": 4}

@@ -216,14 +216,44 @@ def test_ame_without_a_vocab_size_says_why():
         )
 
 
-@pytest.mark.parametrize("name", ["gqa", "mla"])
+@pytest.mark.parametrize("name", ["mha", "mla"])
 def test_an_options_block_for_a_type_that_takes_none_is_rejected(name):
-    """Only ame reads an options block. The key check used to allow a block
-    named after *any* registered type, so `{type: gqa, gqa: {...}}` composed,
-    validated, and was then dropped by the builder's kwarg filter -- a sweep
-    knob that does nothing and says nothing."""
+    """Only ame and gqa read an options block. The key check used to allow a
+    block named after *any* registered type, so `{type: gqa, mha: {...}}`
+    composed, validated, and was then dropped by the builder's kwarg filter -- a
+    sweep knob that does nothing and says nothing."""
     with pytest.raises(ValueError, match="unknown attention config keys"):
         _build("gqa", attention={"type": "gqa", name: {"anything": 1}})
+
+
+def test_an_unknown_gqa_option_is_rejected():
+    with pytest.raises(ValueError, match="unknown attention.gqa options"):
+        _build("gqa", attention={"type": "gqa", "gqa": {"anything": 1}})
+
+
+def test_gqa_rope_true_is_the_default_bit_for_bit():
+    """The NoPE knob must not move a single default dense run: `rope: true` and
+    no options block build the same layer and compute the same function."""
+    default = _build("gqa")
+    explicit = _build("gqa", attention={"type": "gqa", "gqa": {"rope": True}})
+    x = torch.randn(2, DIMS["seq_len"], DIMS["dmodel"])
+    torch.testing.assert_close(default(x), explicit(x), rtol=0, atol=0)
+
+
+def test_gqa_rope_false_is_nope():
+    """Without RoPE a causal head sees the tokens before it as a set: swapping two
+    earlier tokens leaves a later token's output unchanged. With RoPE it does not."""
+    rope = _build("gqa", seed=3)
+    nope = _build("gqa", seed=3, attention={"type": "gqa", "gqa": {"rope": False}})
+    assert nope.rope is None and rope.rope is not None
+    for (_, p), (_, q) in zip(
+        rope.named_parameters(), nope.named_parameters(), strict=True
+    ):
+        assert torch.equal(p, q)  # the knob changes no parameter
+    x = torch.randn(1, 6, DIMS["dmodel"])
+    swapped = x[:, [1, 0, 2, 3, 4, 5]]
+    torch.testing.assert_close(nope(x)[:, 2:], nope(swapped)[:, 2:])
+    assert not torch.allclose(rope(x)[:, 2:], rope(swapped)[:, 2:])
 
 
 def test_the_error_names_the_types_that_do_take_options():

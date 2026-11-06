@@ -45,6 +45,7 @@ class AttentionSchema:
     # option list and names the offender, which a dataclass per type would
     # duplicate. One field per type that has options.
     ame: Any = None
+    gqa: Any = None  # {rope: false} is NoPE (_GQA_OPTIONS in src/core/attention.py)
 
 
 @dataclass
