@@ -60,7 +60,7 @@ trainer:
   #   - eval every 100 steps on 10 batches;
   #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
   n_steps: 7630 # D = 8B tokens / 1,048,576 tokens per step, rounded up
-  learning_rate: null # n*, S1b-A0's best n from Stage 1b; LR = 2^-n. Refused at submit while null
+  learning_rate: 9 # n*, LR = 2^-9. Maciej, 2026-11-06 ~12:00: n = 9 is the h16 optimum for dense and AME; Stage 1b concluded (stage_1b_report.md)
   checkpoint:
     save:
       # Only the final checkpoint is written (interval -1). It lands in the
