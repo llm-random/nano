@@ -1,6 +1,6 @@
 # Stage 1 — first models: report
 
-**Status: the learning-rate grid is queued on LEM (submitted 2026-11-06 00:43); the smoke runs passed.**
+**Status: the learning-rate grid is training on LEM (8 runs since 00:44, plus n = 9 for both arms since 01:41); the smoke runs passed.**
 
 The plan is [ame_experiments.md, "Stage 1 — first models"](ame_experiments.md#stage-1--first-models).
 This file is its record: every job, every result, and every decision the plan left open,
@@ -110,6 +110,15 @@ Each one is a point the plan left open, or a change forced by the switch to LEM.
 5. **The grid keeps micro-batch 32 × 16.** It fits without FSDP2 on LEM with room to
    spare (70.21 GiB of 93.6 at the heaviest arm), so the plan's fallback of 32 accumulation
    steps is not needed.
+6. **n = 9 was started early, at 01:41, for both arms**, while the grid was at step ~850.
+   The plan adds the next n beyond an edge only once the edge wins. But at that point n = 10
+   led both arms, on eval and on train loss averaged over steps 800–899:
+   dense 3.894 against 3.933 at n = 11; AME 5.153 against 5.259 at n = 12. A run's
+   advantage at high LR usually grows as the cosine schedule decays, so the edge rule was
+   likely to fire for both arms. Waiting for it would have cost a whole second wave
+   (about 4.5 h) on the critical path, and Stage 2 needs S1-A0's n\*. If n = 10 does not
+   stay best, the two n = 9 runs (about 9 GPU-h) are simply an extra grid point. The
+   selection rule is unchanged: the lowest `final_ce` over every n run.
 
 Two facts for whoever reads the checkpoints:
 - The checkpoint path uses each array task's own Slurm job id, not the array id: dense
@@ -128,6 +137,60 @@ Submitted 2026-11-06 00:43 from `~/code/nano-stage12` at `8a240816`, with
 |---|---|---|
 | S1-D | 6251667_[0-3] | `s1_d_h12_lrNone_2026-11-06_00-42-57` |
 | S1-A0 | 6251668_[0-3] | `s1_a0_h12_lrNone_2026-11-06_00-43-29` |
+
+All eight started at 00:44 and passed the two-minute check: the model built with the
+expected parameter count, and there was no error in the log.
+
+| Arm | n | LR | Job | W&B run | Node |
+|---|---:|---:|---|---|---|
+| S1-D | 10 | 2⁻¹⁰ = 9.77e-4 | 6251667_0 | `y451s5xq` | r12-8 |
+| S1-D | 11 | 2⁻¹¹ = 4.88e-4 | 6251667_1 | `v34fc3g7` | r12-11 |
+| S1-D | 12 | 2⁻¹² = 2.44e-4 | 6251667_2 | `4k9jtp9b` | r12-15 |
+| S1-D | 13 | 2⁻¹³ = 1.22e-4 | 6251667_3 | `l7iznfkf` | r16-2 |
+| S1-A0 | 10 | 2⁻¹⁰ | 6251668_0 | `ncfg11gm` | r16-2 |
+| S1-A0 | 11 | 2⁻¹¹ | 6251668_1 | `0cdw01vh` | r16-15 |
+| S1-A0 | 12 | 2⁻¹² | 6251668_2 | `h45qwv5g` | r18-1 |
+| S1-A0 | 13 | 2⁻¹³ | 6251668_3 | `ssdlz0nk` | r18-1 |
+| S1-D | 9 | 2⁻⁹ = 1.95e-3 | 6251812_0 | `ovy19sqp` | r16-5 |
+| S1-A0 | 9 | 2⁻⁹ | 6251816_0 | `p5u294hj` | r16-7 |
+
+The n = 9 runs (decision 6) were submitted at 01:41 from the same worktree. The only change
+was each grid file's `^learning_rate` list, edited to `[9]` and left uncommitted, as the
+plan prescribes for running a subset. Their cemetery clones are
+`s1_d_h12_lrNone_2026-11-06_01-41-09` and `s1_a0_h12_lrNone_2026-11-06_01-41-49`. For the
+dense n = 9 job, `run_exp.py` gave up waiting for the job id, but `sbatch` had succeeded:
+the tmux pane on LEM shows `Submitted batch job 6251812`.
+
+**Every snapshot is `8a240816` plus generated files.** Each cemetery commit has
+`8a240816` as its parent. It adds `exp.job` and `generated_configs/`, and drops `pixi.*`,
+as `run_exp.py` always does.
+
+| Cemetery commit | Jobs | Differs from `8a240816` in `configs/` and `src/` |
+|---|---|---|
+| `38187b84` | S1-D grid, 6251667 | nothing |
+| `a162a92f` | S1-A0 grid, 6251668 | nothing |
+| `26688afc` | S1-D n = 9, 6251812 | both grid lists read `[9]` |
+| `539eddce` | S1-A0 n = 9, 6251816 | both grid lists read `[9]` |
+
+The two n = 9 snapshots also carry stale `generated_configs/config_1–3.yaml` left in the
+worktree by the grid submit. Their `exp.job` runs `--array=0-0`, so only `config_0`
+(n = 9, the right arm) trains. The worktree's `generated_configs/` is now cleared before
+each submit.
+
+**Progress at step ~850 (01:40).** Eval loss on 10 batches:
+
+| Arm | n = 10 | n = 11 | n = 12 | n = 13 |
+|---|---:|---:|---:|---:|
+| S1-D, step 800 | 3.797 | 3.828 | 4.188 | 4.594 |
+| S1-A0, step 800 | 5.063 | 5.094 | 5.188 | 5.375 |
+
+The high learning rates are unstable early:
+- **dense n = 10:** train loss spiked to 8.94 around steps 300–500;
+- **AME n = 10:** spiked to 9.56 around steps 300–500;
+- **AME n = 11:** spiked to 7.69 around steps 500–600.
+
+All three recovered, and n = 10 still led both arms afterwards. Throughput matches the
+smoke baseline: 3.26–3.28 s/step dense and 3.59–3.61 AME, i.e. 35.5% and 31.0% MFU.
 
 Results: pending.
 

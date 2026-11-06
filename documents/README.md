@@ -31,6 +31,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 |---|---|
 | [h_balanced_params.py](scripts/h_balanced_params.py) | Dimensions and parameter counts of the H-balanced family; regenerates the tables in `h-balanced-model.md` |
 | [h_balanced_flops.ipynb](scripts/h_balanced_flops.ipynb) | Inference FLOPs of an H-balanced model (exact causal attention) + plotly figures |
+| [stage_results.py](scripts/stage_results.py) | AME Stage 1–2 results from W&B: the run tables, eval curves, readouts and loss-curve figures in `stage_1_report.md` and `stage_2_report.md` |
 
 ### notes/
 
@@ -43,6 +44,7 @@ will test, how fast it runs. Everything else is in `notes/archive/`.
 | [ame_experiments.md](notes/ame_experiments.md) | **The scientific program — unrun, and the next thing to do.** The claims as falsifiable statements, Stage 0/1/2, the decision tree, the reporting standard |
 | [ame_optimization_report.md](notes/ame_optimization_report.md) | **The MFU record (2026-11-04/05)**: every improvement tried and its effect, what is still worth trying, all ~66 experiments, the decision history, best config per model size. 26.84% → 35.02% at 4 GPUs, 37.96% at h16/1 GPU |
 | [ame_microbatch_sweep.md](notes/ame_microbatch_sweep.md) | **Micro-batch sweep, AME and dense (2026-11-05)**: all 48 runs, h12/h16/h20 × 1/4 GPUs — MFU, step, tokens/s, peak memory, fwd/bwd time per run |
+| [stage_1_report.md](notes/stage_1_report.md) | **Stage 1 of the program, on LEM (from 2026-11-06)**: the learning-rate grids for dense h12 and the simplest AME h12 at 4B tokens — every job, result and decision |
 
 **AME configs** (layout since 2026-11-05): `configs/ame/` holds six configs, the
 best measured MFU per model size × GPU count. Every other AME config — benchmarks,
