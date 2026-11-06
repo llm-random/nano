@@ -44,13 +44,22 @@ clone path records it.
 | 36310 | G-REF probe, micro-batch 16, 20 steps | `7bce462e` | 1 | 21:21 | ~3 min | 0.05 | out of memory at step 1 (75.1 GiB allocated, 3.07 GiB requested) |
 | 36311 | G-REF probe, micro-batch 8, 20 steps | `7bce462e` | 1 | 21:22 | ~7 min | 0.12 | fits: peak 50.70 GiB, **9.43 s/step** (forward 3.64 s, backward 5.76 s); startup 2.5 min, step 0 24 s, `final_ce` 1 min |
 | 36312 | data dump: train step 0-1 (1,024 sequences) and the held-out set (8,192), CPU only | `30ff2c06` | 0 | 21:34 | 3 min | 0 | `~/parity/data/parity_batches.pt` on entropy |
-| 36313 | G0b, S2-PS production, 300 steps | `30ff2c06` | 1 | 21:35 | | | running |
-| 36314 | G0c, S2-PS at micro-batch 16 × 32, 300 steps | `30ff2c06` | 1 | 21:36 | | | running |
-| 36315 | G1, `mem_parallel_size: null`, 300 steps | `30ff2c06` | 1 | 21:37 | | | running |
-| 36316 | GD0a, S1-D production, 300 steps | `30ff2c06` | 1 | 21:39 | | | running |
-| 36317 | GD0b, S1-D production, 300 steps | `30ff2c06` | 1 | 21:40 | | | running |
+| 36313 | G0b, S2-PS production, 300 steps | `30ff2c06` | 1 | 21:35 | ~21 min | 0.35 | `final_ce` 4.81055 |
+| 36314 | G0c, S2-PS at micro-batch 16 × 32, 300 steps | `30ff2c06` | 1 | 21:36 | ~22 min | 0.37 | `final_ce` 4.83594 |
+| 36315 | G1, `mem_parallel_size: null`, 300 steps | `30ff2c06` | 1 | 21:37 | ~22 min | 0.37 | `final_ce` **5.07813**; 3.45 s/step |
+| 36316 | GD0a, S1-D production, 300 steps | `30ff2c06` | 1 | 21:39 | ~19 min | 0.32 | `final_ce` 5.17188 |
+| 36317 | GD0b, S1-D production, 300 steps | `30ff2c06` | 1 | 21:40 | ~19 min | 0.32 | `final_ce` 5.19531 |
 | 36319 | G-REF, micro-batch 8 × 64, 220 steps | `dcfce193` | 1 | 21:42 | | | running |
-| 36320 | numerics: `budget --states init` (1.6 and 1.3 at init, both arms) | `dcfce193` | 1 | 21:43 | | | running |
+| 36320 | numerics: `budget --states init` | `dcfce193` | 1 | 21:43 | 3 min | 0.05 | dense done; AME stopped out of memory at `ame_prod_eager`, micro-batch 32 |
+| 36321 | numerics: `final_ce --arms dense`, `budget --arms dense --states final` | `9387a44d` | 1 | 21:46 | 8.5 min | 0.14 | dense `final_ce` reproduced exactly |
+| 36323 | numerics: `budget --arms ame --states init` (eager at micro-batch 16) | `eb21bc17` | 1 | 21:48 | 6 min | 0.10 | done |
+| 36324 | numerics: `optim --states init`, then `machinery` | `e27d36b2` | 1 | 21:56 | 2 min | 0.03 | 1.5 passes; `machinery` stopped (it read the half-copied sidecar), to be rerun |
+| 36325 | numerics: X3, the fp32-CE variants at init | `e27d36b2` | 1 | 21:56 | 4 min | 0.07 | done |
+| 36326 | numerics: `layers --states init` (1.2, 1.4; 12 layers) | `f096ed77` | 1 | 21:58 | ~3 min | 0.05 | done |
+| 36327, 36329, 36330 | G0a-220, G0b-220, G0c-220 (micro-batch 16) | `f096ed77` | 3 | 21:58-22:00 | | | running |
+| 36331 | G1r, G1 again | `9f4d6384` | 1 | 22:06 | | | running |
+| 36333 | G1a, Tier 2 with an fp32 compute copy (A2 off) | `9f4d6384` | 1 | 22:07 | | | running |
+| 36336 | G1b, Tier 2 with the fused gather eager (A3 off) | `9f4d6384` | 1 | 22:08 | | | running |
 
 `src/` is identical at `7bce462e`, `30ff2c06`, `dcfce193` and `65702c61`, which add only
 configs and the harness. So every gate trains the code the runs used.
@@ -297,7 +306,108 @@ The error of `main_grad` on present rows is ≤ 8.1e-3 relative. Its correlation
 control correlations (the next row, the row's own gradient) were added in `48f9da34` to
 place it.
 
+**More at init** (jobs 36324-36326):
+
+- **1.5, one optimizer step, passes (exact item).** Tier 2 and the ordinary path take one
+  step from the same state with the same gradients:
+  - the total norm is identical, 2.2621946 on both, so the clip coefficient is identical;
+  - every parameter, bank masters included, agrees to 8.5e-8 relative;
+  - `exp_avg` agrees to 9.9e-8 and `exp_avg_sq` to 1.3e-7. That is fp32 rounding,
+    foreach against fused AdamW;
+  - the compute copy equals bf16(master) bit for bit after the step.
+- **X3 (the CE on bf16 logits) is not the source of AME's stretch.** Production with the
+  CE on fp32 logits (`*_prod_ce32`) moves the gradient by 0.02-0.18% in both arms, and
+  every projection stays where it was. Logits at init spread about N(0, 1), so their bf16
+  rounding is unbiased; the hypothesis in 1.6 above is refuted. Precise losses: AME
+  production 11.230237 against the oracle's 11.230283, and dense 11.199529 against
+  11.199493.
+- **1.2, one layer at a time, at init, all 12 layers** (`layers --states init`). The
+  kernel's inputs are the production prep's own bf16 q, k, v; the upstream is the layer's
+  true gradient.
+  - **flex + the LSE merge against the exact fp32 function of the same inputs:** out
+    2.4-2.5e-3, dq 3.3-3.6e-3, dk 3.2-3.4e-3, dv 2.3-2.7e-3, d`k_sink` 0.8-1.2e-3,
+    d`v_sink` 2e-7.
+  - **A plain bf16 reference on the same inputs:** out 2.0-2.4e-3, dq 3.0-3.1e-3, dk
+    3.2-3.3e-3.
+  - **SDPA flash on the same inputs** (dense's kernel, causal, no bias or sink): dq
+    2.1-2.4e-3, dk 2.2-2.3e-3.
+  - So flex's backward error is 1.5× flash's and 1.1× the plain bf16 reference's:
+    rounding-sized, inside 2× dense's kernel budget.
+  - Signed projections are ≤ 1.4e-4.
+- **A5's named risk is ruled out numerically.** A loss that depends on flex's LSE alone
+  gives dq with the reference's norm (233.777 against 233.778), with 2.1e-3 relative
+  error, and the LSE itself matches to 6e-8. The gradient through the LSE is there, and it
+  is right.
+- **The sink's weight at init** ranges over heads from 0.26 (the steepest) to 0.003 (the
+  flattest), with a mean of 0.06 in every layer. The large-sink case is tested at the
+  final checkpoint.
+- **1.4, the bf16 prep, at init:**
+  - production's q and k reach the kernel 2.3e-3 from fp32, against 1.66e-3 for an fp32
+    prep cast once at the end;
+  - 25-34% of the elements differ by about an ulp;
+  - the prep's own gradients differ from fp32 by alpha 1.4-2.5e-3, tau 1.1-2.5e-3 and bank
+    rows 4.5e-4;
+  - tau is exactly 8.0 at init, so its bf16 rounding there is zero.
+
 ## Phase 2: training gates
+
+### The 300-step set (jobs 36309, 36313-36317)
+
+`documents/scripts/parity_gates.py --set 300`. The loss gap is paired by step against
+G0a, on the same batches.
+
+| Gate | W&B | `final_ce` | last-50 gap vs G0a | same sign | all-steps gap | s/step |
+|---|---|---|---|---|---|---|
+| G0a, production | `a6ndymxf` | 4.87109 | — | — | — | 3.38 |
+| G0b, production | `g0l9pgwu` | 4.81055 | −0.0613 | 50/50 | −0.0644 | 3.37 |
+| G0c, micro-batch 16 | `g6vo1tr2` | 4.83594 | −0.0244 | 38/50 (12 equal) | −0.0292 | |
+| **G1, `mem_parallel_size: null`** | `2r6ntg3r` | **5.07813** | **+0.2113** | **50/50** | +0.1359 | 3.45 |
+| GD0a, dense | `714ema2v` | 5.17188 | | | | 2.97 |
+| GD0b, dense | `xvtbv0aj` | 5.19531 | +0.0250 vs GD0a | 37/50 (13 equal) | +0.0508 | |
+
+- **The run-to-run floor is large.** Two identical production runs end 0.061 apart, with
+  one sign over all 50 last steps. They diverge chaotically in steps 25-50 (G0b − G0a is
+  −0.125 in that window, dense's twins +0.150) and keep the offset.
+  - So "one sign in 45 of 50 steps" carries no information on its own here; the size
+    against the floor does.
+  - F = max(0.061, 0.024) = 0.061, and the harmful line is 3F = 0.184.
+- **G1 crosses that line, in the direction nobody expected.** With A1-A3 off (the banks as
+  ordinary fp32 parameters in the fused backbone AdamW), AME trains **0.21 nats worse**
+  over the last 50 steps.
+  - Its `final_ce` is 5.078, against 4.811-4.871 for the three production runs. That is
+    0.24 above their mean and about 8 standard deviations of their spread.
+  - The gap opens at steps 25-50 (+0.12) and grows to +0.24 by step 300, while the
+    production runs converge to within 0.06 of each other.
+- **The efficiency path is therefore not costing AME at 300 steps. Switching it off
+  costs.** Under the plan's rule this is a one-directional effect beyond the floor (the
+  script prints "harmful: True"), and its sign is the reverse of the risk the audit was
+  written for.
+- **H0(b) is rejected for A1-A3 together**: switching them off moves a short run's loss
+  one-directionally, beyond run-to-run noise.
+- **What G1 does differently** (the logged readouts, steps 100 and 200). Production's two
+  copies agree with each other in layers 0-2, and G1 departs from both:
+  - layer 2's tau is 8.264 against 8.106 and 8.082;
+  - layer 2's attention entropy (normalized) is 0.605 against 0.636 and 0.640;
+  - layer 2's top-8 mass is 0.486 against 0.442 and 0.435;
+  - layer 1 shows the same pattern in alpha_2 and in entropy.
+
+  In G1 the early layers sharpen faster. Layers 3-11 agree across all three runs.
+- **The step-10 spike is the same in every AME gate** (47.0-48.6). F3's spike is therefore
+  not an artifact of Tier 2. Dense's twins reach 9.5 and 15.5 there.
+- **Cost of the ordinary path at h12, one GPU:** 3.45 s/step against 3.38 (+2%).
+
+**Phase 3, started (plan: "If G1 flags").** Two opt-in switches, unset by default, with
+`tests/test_parity_flags.py` proving the default bit-identical (`9f4d6384`):
+
+- **G1r**: G1 again. Is the gap systematic?
+- **G1a**: Tier 2 with an fp32 compute copy (`parity_bank_compute_dtype: float32`): A2
+  off, A1 and A3 on.
+- **G1b**: Tier 2 as run, with the fused gather and its scatter outside the compiled block
+  (`parity_bank_eager: true`): A3 off.
+
+1.5 already shows the two optimizer paths step identically from the same state and
+gradients. If G1a lands with G1, the bf16 compute copy (A2) is what trains AME faster.
+If G1a lands with production, the cause lies in A1 or A3.
 
 ## Decisions
 
