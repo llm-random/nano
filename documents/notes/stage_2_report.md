@@ -1,8 +1,8 @@
 # Stage 2 — positional encoding and the shift: report
 
-**Status: wave 1, S2-D0 and the learning-rate check have finished. S2-PS, ALiBi with the
-shift, is best, provisionally; its best n moved to 8 (3.1250). By the plan's rule, S2-P and
-S2-S re-run at n = 8 (wave 3, jobs 6259007 and 6259008) before a winner is named.**
+**Status: the plan's Stage 2 is complete (23:51). The best AME variant at h12 and 4B tokens
+is S2-PS, ALiBi with the KV shift: `final_ce` 3.1250 at n = 8, best in the 2 × 2 at both
+n = 8 and n = 9. Still training: S2-PS at n = 7 and 6, which Maciej asked for, around 01:00.**
 
 The plan is [ame_experiments.md, "Stage 2 — positional encoding and the shift"](ame_experiments.md#stage-2--positional-encoding-and-the-shift).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -298,7 +298,72 @@ shift, 1,103,599,056 with it), and no error.
    `trainer.learning_rate=6`. Together with n = 7, it maps the winner's learning-rate
    curve out to S1-A0's optimum.
 
-Results: pending, around 00:00.
+### Wave 3 results (finished 23:40–23:51): the 2 × 2 at n = 8
+
+| Cell | n | `final_ce` | Loss spikes (train) | s/step | W&B run | Commit |
+|---|---:|---:|---|---:|---|---|
+| S1-A0 (Stage 1) | 8 | 4.3711 | steps 1,117–1,141 → 7.50 | 3.595 | `tuvcps1y` | `8a240816` + list `[8]` |
+| S2-S | 8 | 3.9346 | steps 679–704 → 8.62; 1,641–1,780 → 8.69; 1,995–2,006 → 5.59; 2,172–2,195 → 8.81 | 3.779 | `4fvk32q7` | `f9680709` |
+| S2-P | 8 | 3.2480 | none | 3.589 | `z7f5bsuo` | `f9680709` |
+| **S2-PS** | 8 | **3.1250** | none | 3.746 | `doi36p8k` | `f9680709` |
+
+|  | no shift | KV shift |
+|---|---:|---:|
+| **no positional encoding** | S1-A0: 4.3711 | S2-S: 3.9346 |
+| **ALiBi** | S2-P: 3.2480 | **S2-PS: 3.1250** |
+
+**Effects at n = 8**, next to n = 9 from wave 1, both with S1-A0's plan seed:
+
+| | n = 8 | n = 9 |
+|---|---:|---:|
+| ALiBi without the shift (P − A0) | −1.123 | −1.134 |
+| ALiBi with the shift (PS − S) | −0.810 | −0.752 |
+| **ALiBi, averaged** | **−0.966** | **−0.943** |
+| Shift without ALiBi (S − A0) | −0.437 | −0.493 |
+| Shift with ALiBi (PS − P) | −0.123 | −0.111 |
+| **Shift, averaged** | **−0.280** | **−0.302** |
+| **Interaction**, (PS − P) − (S − A0) | **+0.314** | **+0.382** |
+
+**Against S1-D at n = 8 (2.9824, its best):** S2-PS +0.143, S2-P +0.266, S2-S +0.952,
+S1-A0 +1.389.
+
+**Readouts at n = 8**, averaged over layers:
+
+| Cell | τ | Shortest horizon | Attention entropy, normalized | Top-8 mass | α₂, mean \|·\| | β₂, mean \|·\| |
+|---|---:|---:|---:|---:|---:|---:|
+| S2-S | 8.30 | ∞ | 0.716 | 0.332 | 0.414 | 0.626 |
+| S2-P | 7.57 | 6.4 (2.2 in layer 2) | 0.542 | 0.564 | pinned 0 | pinned 0 |
+| S2-PS | 8.47 | 15.1 | 0.523 | 0.572 | 0.504 | 0.708 |
+
+At the higher learning rate:
+- **S2-P's τ falls further,** pulling one layer's shortest horizon down to about 2 tokens.
+- **S2-PS keeps τ at 8 and leans harder on the shift:** α₂ 0.50 and β₂ 0.71, against 0.40
+  and 0.68 at n = 9.
+
+## The best AME variant at h12 and 4B tokens: S2-PS, ALiBi with the KV shift
+
+The plan's Stage 2 analysis ends by naming the best variant. Since the best arm's n moved,
+it names it only after re-running the other two arms there (wave 3). Done:
+
+- **S2-PS is best at both learning rates measured for the full 2 × 2:** 3.1250 at n = 8,
+  its best, and 3.1865 at n = 9. It is 0.143 nats behind dense with RoPE, each at n = 8.
+- **The order of the cells is identical at n = 8 and n = 9:** PS < P < S < A0. The size of
+  each effect barely moves: ALiBi −0.97/−0.94, the shift −0.28/−0.30, interaction
+  +0.31/+0.38.
+- **ALiBi does most of the work.** It is worth about a nat whether or not the shift is on.
+  The shift is worth about 0.44–0.49 without positional encoding but only 0.11–0.12 on
+  top of ALiBi: the two overlap, as the shift is itself a short-range positional signal.
+- **On the noise floor.** S2-PS's margin over S2-P is 0.123 at n = 8 and 0.111 at n = 9.
+  Each is below the plan's 0.232 floor, so each comparison alone is a tie by the rule.
+  But the floor is one loss spike in S1-A0's seed 123, which none of the four ALiBi runs
+  had. And the margin has the same sign and size at two independent learning rates. So the
+  evidence that the shift adds about 0.1 nats on top of ALiBi is consistent, though a
+  second seed of S2-P and S2-PS would settle it ("For Maciej").
+- **What the shift costs.** 3.75 against 3.59 s/step on LEM, about 4% slower, plus four
+  scalars per head per layer.
+
+S2-PS at n = 7 and 6 (decisions 5 and 6) are still training. They map the winner's
+learning-rate curve beyond n = 8; their results go below.
 
 ## For Maciej
 
