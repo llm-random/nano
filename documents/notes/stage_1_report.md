@@ -1,6 +1,6 @@
 # Stage 1 — first models: report
 
-**Status: the learning-rate grid is training on LEM (n = 10–13 since 00:44, n = 9 since 01:41, n = 8 since 03:36, both arms); the smoke runs passed.**
+**Status: n = 9–13 are complete in both arms, and n = 9 is best in both, at the grid's edge; n = 8 has been training since 03:36 and finishes around 07:40.**
 
 The plan is [ame_experiments.md, "Stage 1 — first models"](ame_experiments.md#stage-1--first-models).
 This file is its record: every job, every result, and every decision the plan left open,
@@ -221,7 +221,85 @@ averaged over 200-step windows:
 | S1-D | 1,700 | 3.315 | 3.513 | 3.604 | — |
 | S1-A0 | 1,500 | 4.901 | 4.888 | 4.946 | 5.046 |
 
-Results: pending.
+### Results so far (06:58): n = 9–13 complete in both arms, n = 8 still training
+
+All ten runs finished their 3,815 steps, logged `final_ce` and wrote their final
+checkpoints. The dense runs took 3 h 40 m – 3 h 43 m and the AME runs 4 h 01 m – 4 h 05 m,
+well inside the 7 h limit.
+
+**Every row** has seed 123 and 3,815 steps × 1,048,576 tokens = 4.00B tokens, and every
+config is the arm's grid file. The commit is `8a240816`; for n = 9 it is `8a240816` with
+the grid list set to `[9]` (cemetery `26688afc` dense, `539eddce` AME).
+
+| Arm | n | Parameters: total / backbone / banks | GFLOP/token | `final_ce` | W&B run | Config |
+|---|---:|---|---:|---:|---|---|
+| S1-D | 9 | 183.45M / 106.19M / — | 1.095 | **3.0244** | `ovy19sqp` | [dense_h12_lr_grid.yaml](../../configs/stage_1/dense_h12_lr_grid.yaml) |
+| S1-D | 10 | 183.45M / 106.19M / — | 1.095 | 3.2002 | `y451s5xq` | the same |
+| S1-D | 11 | 183.45M / 106.19M / — | 1.095 | 3.3027 | `v34fc3g7` | the same |
+| S1-D | 12 | 183.45M / 106.19M / — | 1.095 | 3.5215 | `4k9jtp9b` | the same |
+| S1-D | 13 | 183.45M / 106.19M / — | 1.095 | 3.8301 | `l7iznfkf` | the same |
+| S1-A0 | 9 | 1,103.60M / 99.05M / 927.28M | 1.053 | **4.4316** | `p5u294hj` | [ame_h12_simplest_lr_grid.yaml](../../configs/stage_1/ame_h12_simplest_lr_grid.yaml) |
+| S1-A0 | 10 | 1,103.60M / 99.05M / 927.28M | 1.053 | 4.5137 | `ncfg11gm` | the same |
+| S1-A0 | 11 | 1,103.60M / 99.05M / 927.28M | 1.053 | 4.6387 | `0cdw01vh` | the same |
+| S1-A0 | 12 | 1,103.60M / 99.05M / 927.28M | 1.053 | 4.7715 | `h45qwv5g` | the same |
+| S1-A0 | 13 | 1,103.60M / 99.05M / 927.28M | 1.053 | 4.9844 | `ssdlz0nk` | the same |
+
+Total parameters include the 77.27M of the untied embedding and head. Backbone means
+non-embedding parameters without the banks. FLOPs per token are the trainer's PaLM-convention
+training FLOPs at seq 2048; they exclude the bank gathers, which are lookups.
+
+| Arm | n | Last 10-batch eval | Loss spike (train) | s/step | MFU | Peak GiB | Job |
+|---|---:|---:|---|---:|---:|---:|---|
+| S1-D | 9 | 3.0156 | none | 3.272 | 35.5% | 46.99 | 6251812_0 |
+| S1-D | 10 | 3.1875 | steps 354–386: 4.41 → 8.94 | 3.263 | 35.6% | 46.99 | 6251667_0 |
+| S1-D | 11 | 3.2969 | none | 3.266 | 35.5% | 46.99 | 6251667_1 |
+| S1-D | 12 | 3.5156 | none | 3.283 | 35.4% | 46.99 | 6251667_2 |
+| S1-D | 13 | 3.8281 | none | 3.259 | 35.6% | 46.99 | 6251667_3 |
+| S1-A0 | 9 | 4.4375 | steps 609–635: 5.12 → 14.69 | 3.603 | 31.0% | 65.89 | 6251816_0 |
+| S1-A0 | 10 | 4.5000 | steps 359–387: 5.34 → 9.56 | 3.589 | 31.1% | 65.89 | 6251668_0 |
+| S1-A0 | 11 | 4.6250 | steps 573–595: 5.25 → 7.69 | 3.595 | 31.1% | 66.08 | 6251668_1 |
+| S1-A0 | 12 | 4.7812 | none | 3.609 | 30.9% | 65.89 | 6251668_2 |
+| S1-A0 | 13 | 4.9688 | none | 3.592 | 31.1% | 65.89 | 6251668_3 |
+
+A spike here is a step whose train loss exceeds the median of the previous 50 steps by
+more than 0.5. Every spike came in the first 650 steps, soon after warmup, and every run
+recovered from it.
+
+**The best n is at the edge in both arms.** `final_ce` falls monotonically as the
+learning rate rises, in both arms, so n = 9 wins dense and AME alike. By the plan's rule,
+n = 8 is next. It has been training since 03:36 (decision 7), with these runs:
+- dense n = 8: job 6252398, W&B `x0xlqroj`;
+- AME n = 8: job 6252402, W&B `tuvcps1y`.
+
+At matched steps, dense n = 8 leads n = 9 in 200-step train loss by 0.035 at step 3,100,
+and the lead is growing. AME n = 8 led n = 9 by about 0.06 at steps 1,900–2,300 and was
+tied with it at 2,700.
+
+**AME vs dense, so far.** At each arm's best n so far (n = 9), S1-A0 is **1.407 nats**
+behind S1-D: 4.4316 against 3.0244. The comparison matches tokens, data order and recipe.
+It does not match:
+- total parameters: AME has 6.0×, almost all of it banks;
+- FLOPs per token: AME is 0.96× dense;
+- positional signal: dense has RoPE, S1-A0 has none;
+- weight decay: the AME banks are exempt, while the dense W_Q and W_K get 0.1.
+
+**AME readouts at the end of training.** τ starts at 8 = √64 and is learned; the attention
+entropy is normalized by the log of the number of keys in view.
+
+| n | τ, mean over heads and layers | τ, per-layer means, min – max | Attention entropy, normalized | Top-8 mass |
+|---:|---:|---|---:|---:|
+| 9 | 6.89 | 5.39 – 8.54 | 0.909 | 0.137 |
+| 10 | 6.82 | 5.98 – 7.93 | 0.930 | 0.113 |
+| 11 | 7.15 | 6.80 – 7.84 | 0.932 | 0.108 |
+| 12 | 7.49 | 7.36 – 7.79 | 0.933 | 0.105 |
+| 13 | 7.72 | 7.67 – 7.80 | 0.932 | 0.105 |
+
+S1-A0's attention stays close to uniform over its context. Its normalized entropy is
+0.91–0.93 in every layer, and the 8 strongest keys hold only 10–14% of the mass. τ
+falls further the higher the learning rate, most in the middle layers: at n = 9 the
+per-layer means form a U, 8.1 in layer 0, 5.4 in layer 5 and 8.5 in layer 11. That fits
+the plan's analysis that S1-A0 cannot attend by position. Its attention is a weighted
+average over the previous tokens, where the weights depend only on the token-id pair.
 
 ## W&B runs to ignore
 
