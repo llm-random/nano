@@ -1,7 +1,17 @@
 # AME efficiency-parity audit: the record
 
-**Status (2026-11-06, 23:40): Phases 0-3 done. The last 220-step replicates (G-REF2-4,
-G0e/f-220) are running. Phase 4 is not needed: no item is harmful.**
+**Status (2026-11-07, 00:15): the audit (Phases 0-3, plan
+[ame_efficiency_parity_plan.md](ame_efficiency_parity_plan.md)) is complete. Phase 4 is
+not needed: no item is harmful.**
+
+Its follow-up, [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md) (full-length A/Bs on
+entropy, X2 × AME), runs from here. Its results go to the sections "Full-length runs on
+entropy" and "X2 × AME" below.
+
+- The plan file was emptied by an editor undo at 23:58, just as it was read, and was
+  restored byte for byte from VS Code's local history (`8756aa5d`).
+- That plan caps its budget at 100 GPU-h; Maciej's goal message of 00:00 sets 120 GPU-h on
+  top of the audit's own. 120 applies.
 
 ## The answer
 
@@ -27,7 +37,9 @@ the method, not the implementation, as far as these checks reach.**
   - **300 steps:** production (7 runs) trains, if anything, better than the same model
     with fp32 banks (6 runs): +0.12 nats in production's favour, p ≈ 0.07-0.10. At 95%,
     production is at most 0.03 nats worse.
-  - **220 steps:** *[G-REF bound, pending]*.
+  - **220 steps:** production (5 runs) against G-REF (4 runs, every AME-only item off):
+    −0.034 nats in production's favour, 95% interval [−0.22, +0.15], Mann-Whitney p = 0.90.
+    No difference.
 - **What this audit cannot see:** effects that need thousands of steps. The full-length
   runs that would size them are prepared, not run (Proposed full-length runs).
 - **One AME-specific numerical weakness, which is not the efficiency work's.** Under bf16
@@ -101,10 +113,30 @@ clone path records it.
 | 36324 | numerics: `optim --states init`, then `machinery` | `e27d36b2` | 1 | 21:56 | 2 min | 0.03 | 1.5 passes; `machinery` stopped (it read the half-copied sidecar), to be rerun |
 | 36325 | numerics: X3, the fp32-CE variants at init | `e27d36b2` | 1 | 21:56 | 4 min | 0.07 | done |
 | 36326 | numerics: `layers --states init` (1.2, 1.4; 12 layers) | `f096ed77` | 1 | 21:58 | ~3 min | 0.05 | done |
-| 36327, 36329, 36330 | G0a-220, G0b-220, G0c-220 (micro-batch 16) | `f096ed77` | 3 | 21:58-22:00 | | | running |
-| 36331 | G1r, G1 again | `9f4d6384` | 1 | 22:06 | | | running |
-| 36333 | G1a, Tier 2 with an fp32 compute copy (A2 off) | `9f4d6384` | 1 | 22:07 | | | running |
-| 36336 | G1b, Tier 2 with the fused gather eager (A3 off) | `9f4d6384` | 1 | 22:08 | | | running |
+| 36327, 36329, 36330 | G0a-220, G0b-220, G0c-220 (micro-batch 16) | `f096ed77` | 3 | 21:58-22:00 | ~17 min each | 0.85 | `final_ce` 5.48047, 5.40234, 5.30859 |
+| 36331 | G1r, G1 again | `9f4d6384` | 1 | 22:06 | ~22 min | 0.37 | `final_ce` 5.10938 |
+| 36333 | G1a, Tier 2 with an fp32 compute copy (A2 off) | `9f4d6384` | 1 | 22:07 | ~22 min | 0.37 | `final_ce` 4.80469 |
+| 36336 | G1b, Tier 2 with the fused gather eager (A3 off) | `9f4d6384` | 1 | 22:08 | 21:53 | 0.36 | `final_ce` 4.69531 |
+| 36337, 36338 | G0d, G0e, production | `1f7b7b43` | 2 | 22:16-22:17 | ~20.5 min each | 0.69 | `final_ce` 4.84570, 5.04492 |
+| 36339 | G1r2, ordinary path | `1f7b7b43` | 1 | 22:18 | 21:08 | 0.35 | `final_ce` 4.86133 |
+| 36340 | numerics: `machinery --states init`, then `budget --arms dense --states final` (X3) | `ecf8c2d3` | 1 | 22:24 | ~2 min | 0.03 | instrumentation clean; mask check hit a lookup bug (fixed `f71aca47`) |
+| 36344 | numerics: twin at init | `8afd4cd9` | 1 | 22:33 | 3.6 min | 0.06 | out of memory at the 4th variant: the harness held the previous model (fixed `2bcf0606`) |
+| 36345 | numerics: twin at init, rerun | `2bcf0606` | 1 | 22:37 | 5.9 min | 0.10 | A1 and A3 exact |
+| 36346 | G-REF2, first try | `78998949` | 1 | 22:40 | 18:19 | 0.31 | died: h100a `/tmp` full (Errno 28) |
+| 36347-36351 | G0f, G1r3, G0g, G1r4, G0d-220, first tries | `78998949` | 5 | 22:41-22:44 | 2-8.5 min | 0.33 | died: h100a `/tmp` full |
+| 36361 | numerics: `final_ce --arms ame`, `optim --states final`, `machinery --states final` | `add22fd5` | 1 | 23:00 | ~11 min | 0.18 | AME `final_ce` exact; common evaluator; 1.7 passes; `optim` out of memory (fixed `c340c5e2`) |
+| 36362 | numerics: `budget --arms ame --states final` (prod, eager, ref16, ce32) | `add22fd5` | 1 | 23:00 | ~8 min | 0.13 | done |
+| 36363 | numerics: twin at final | `add22fd5` | 1 | 23:00 | ~6 min | 0.10 | out of memory at `ame_t2fp32`: bank moments loaded needlessly (fixed `d47cccb4`) |
+| 36364 | numerics: `layers --states final` | `add22fd5` | 1 | 23:00 | 4:01 | 0.07 | done |
+| 36365-36368 | G0f, G1r3, G0g, G1r4 | `add22fd5` | 4 | 23:01-23:04 | ~21 min each | 1.40 | `final_ce` 4.75977, 4.93555, 4.76172, 4.90039 |
+| 36369 | G0d-220 | `add22fd5` | 1 | 23:05 | ~17 min | 0.28 | `final_ce` 5.17188 |
+| 36370 | G-REF2 | `add22fd5` | 1 | 23:06 | ~41 min | 0.68 | `final_ce` 5.48047 |
+| 36371 | numerics: twin at final, rerun (t2fp32, t2eager) | `d47cccb4` | 1 | 23:08 | 4:30 | 0.08 | nondeterminism floor 0.4-1.0% at final |
+| 36372 | numerics: `optim --states final` | `c340c5e2` | 1 | 23:11 | 1:00 | 0.02 | 1.5 passes at final |
+| 36376, 36377 | G-REF3, G-REF4 | `671618ac` | 2 | 23:31-23:32 | ~39.5 min each | 1.32 | `final_ce` 5.57812, 5.35352 |
+| 36378, 36379 | G0e-220, G0f-220 | `671618ac` | 2 | 23:32-23:33 | ~17 min each | 0.57 | `final_ce` 5.45312, 5.50000 |
+| 36381 | check 1.0: GPU tests | `79bd8c86` | 1 | 23:41 | ~2 min | 0.03 | 10 passed |
+| (srun) | h100a `/tmp` listing and cleanup (Q1), CPU only | — | 0 | 23:26-23:27 | | 0 | 9.20 GB freed |
 
 `src/` is identical at `7bce462e`, `30ff2c06`, `dcfce193` and `65702c61`, which add only
 configs and the harness. So every gate trains the code the runs used.
@@ -678,8 +710,17 @@ submissions died on the full `/tmp`, Q1):
   2.8× at h12 on one GPU.
 - **Its step-10 spike is 45.4**, against 46.7-48.8 for production. F3's spike is
   therefore not caused by flex, the LSE merge or Tier 2.
-- A second G-REF (G-REF2) and a fourth production copy at 220 steps (G0d-220) are
-  running.
+- **The full 220-step set** (`parity_gates.py --set dist220`), last-50 mean train loss:
+
+  | Run | Last-50 |
+  |---|---|
+  | production G0a, G0b, G0d, G0e, G0f -220 | 5.664, 5.596, 5.367, 5.641, 5.687 (mean 5.591, sd 0.130) |
+  | G0c-220, micro-batch 16 | 5.504 |
+  | G-REF, G-REF2, G-REF3, G-REF4 | 5.537, 5.664, 5.758, 5.539 (mean 5.625, sd 0.107) |
+
+  Production − G-REF = −0.034, 95% Welch interval [−0.221, +0.153], Mann-Whitney p 0.90.
+  **Switching every AME-only efficiency item off does not train better at 220 steps. At
+  95%, production is at most 0.15 nats worse; the point estimate is 0.03 better.**
 
 ## Proposed full-length runs: prepared, not run
 
@@ -815,8 +856,12 @@ Deleted were the 924 modified before 23:00, when the only running job of mine (G
 | Before | 107,306,639,360 | 434,176 B | 100% |
 | After | 98,107,596,800 | 9,199,476,736 B | 92% |
 
-**9.20 GB freed.** `/tmp/torchinductor_mstefaniak` (1.63 GiB) waits for G-REF2 to finish
-(below).
+**9.20 GB freed.**
+
+`/tmp/torchinductor_mstefaniak` (1.63 GiB) waits until no job of mine runs, per the limit,
+even though every job since `add22fd5` caches on the NVMe instead. With the full-length
+runs of the follow-up plan that is the very end; it is removed in that plan's final
+cleanup.
 
 The original question follows.
 
