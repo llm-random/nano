@@ -32,6 +32,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | [h_balanced_params.py](scripts/h_balanced_params.py) | Dimensions and parameter counts of the H-balanced family; regenerates the tables in `h-balanced-model.md` |
 | [h_balanced_flops.ipynb](scripts/h_balanced_flops.ipynb) | Inference FLOPs of an H-balanced model (exact causal attention) + plotly figures |
 | [stage_results.py](scripts/stage_results.py) | AME Stage 1–2 results from W&B: the run tables, eval curves, readouts and loss-curve figures in `stage_1_report.md` and `stage_2_report.md` |
+| [ame_comparison_h12.py](scripts/ame_comparison_h12.py) | The best AME and dense h12 runs side by side from W&B: every table and figure in `ame_comparison_h12.md` |
 
 ### notes/
 
@@ -48,6 +49,7 @@ will test, how fast it runs. Everything else is in `notes/archive/`.
 | [stage_2_report.md](notes/stage_2_report.md) | **Stage 2, on LEM (from 2026-11-06)**: AME h12 with ALiBi, with the KV shift, and with both, at 4B tokens — the 2 × 2, the noise floor, the learning-rate check |
 | [stage_1b_report.md](notes/stage_1b_report.md) | **Stage 1b, on LEM (from 2026-11-06)**: Stage 1 at h16 and 8B tokens — the learning-rate grids for dense h16 and the simplest AME h16 |
 | [stage_2b_report.md](notes/stage_2b_report.md) | **Stage 2b, on LEM (from 2026-11-06)**: Stage 2 at h16 and 8B tokens — the 2 × 2 of ALiBi × KV shift, the noise floor, the learning-rate check |
+| [ame_comparison_h12.md](notes/ame_comparison_h12.md) | **The best AME against the best dense at h12 (from 2026-11-06)**: S2-PS against S1-D, both n = 8, 4B tokens — the training logs compared (loss gap over time, gradient norm, residual stream and sublayer writes by depth), with hypotheses and the next angles |
 
 **AME configs** (layout since 2026-11-05): `configs/ame/` holds six configs, the
 best measured MFU per model size × GPU count. Every other AME config — benchmarks,
