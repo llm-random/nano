@@ -1,7 +1,8 @@
 # Branch comparison: pretraining-jm vs ctx_scl, and the eval harness
 
 2026-11-05. Step 1 is running; this note covers steps 2 and 3. Step 2 revised
-2026-11-06 after reading ctx_scl's code.
+2026-11-06 after reading ctx_scl's code; step 3 revised the same day after a review
+against this branch's trainer and lm-eval 0.4.11.
 
 ## Goal
 
@@ -61,7 +62,6 @@ ctx_scl's `context_scaling/workshop_icml/dense_mha.yaml`:
 defaults:
   - /_cluster@_here_: entropy
   - /_model/context_scaling@_here_: template
-  - /_trainer@_here_: llama
   - /_dataset@_here_: fineweb
   - /_checkpoints@_here_: none
   - /_infrastructure@_here_: default
@@ -98,15 +98,19 @@ vocab 50304. Override the rest:
 
 `init_scale: 0.1` is the dangerous default: a 10× smaller init that fails silently.
 
-**Trainer.** Use ctx_scl's `_trainer/llama.yaml`, not `_trainer/context_scaling.yaml`.
-It already matches step 1: cosine to 10%, 1% warmup, eval every 100 steps × 10
-batches, `fixed_eval: false`, and `n_steps: ${trainer.n_steps}` inside the scheduler
-block (ctx_scl's `main.py` passes the scheduler only `optimizer=`). It does carry two
-stale keys, `downstream_eval_interval` and `final_downstream_eval`. They stopped being
-Trainer fields when the evaluator took over its own cadence, and attrs rejects unknown
-keys, so delete both on the new branch. (`context_scaling.yaml` brings WSD, eval every
-1000 steps and `fixed_eval: true`, and its scheduler's `decay_steps` key can't be
-removed by an override.)
+**Trainer.** Written in full in the config, with no `_trainer` default, so the
+default configs stay untouched. Neither existing file fits:
+
+- `_trainer/llama.yaml` has step 1's settings, but it carries two stale keys,
+  `downstream_eval_interval` and `final_downstream_eval`. They stopped being Trainer
+  fields when the evaluator took over its own cadence, and attrs rejects unknown keys.
+- `_trainer/context_scaling.yaml` brings WSD, eval every 1000 steps and
+  `fixed_eval: true`, and its scheduler's `decay_steps` key can't be removed by an
+  override.
+
+The block matches step 1: cosine to 10%, 1% warmup, eval every 100 steps × 10 batches,
+`fixed_eval: false`. It also puts `n_steps: ${trainer.n_steps}` inside the scheduler
+block, because ctx_scl's `main.py` passes the scheduler only `optimizer=`.
 
 Set as in step 1: `sequence_length: 1024`, `batch_size: 256`, `n_steps: 30_000`,
 `learning_rate: 10` (same 2^-n convention), `gradient_accumulation_steps: 1`.
@@ -115,29 +119,47 @@ Set as in step 1: `sequence_length: 1024`, `batch_size: 256`, `n_steps: 30_000`,
 - `heavy_metrics_calculation_interval: 100`. It is `???` in ctx_scl's
   `_infrastructure/default.yaml`, and 100 here.
 - `trainer.checkpoint.save.path: ${oc.env:PROJECT_HOME_PATH,<fallback>}/checkpoints`,
-  which is `/storage_nvme_2/nano/<user>/checkpoints` in the job. `_checkpoints/none`
+  which is `/storage_nvme_4/nano/pretraining/<user>/ctx_scl/checkpoints` in the job. `_checkpoints/none`
   leaves the path `null`, and then nothing is saved. The fallback is needed because
   ctx_scl's `run_exp.py` resolves the config on the laptop for its summary. Don't copy
   the path from `_checkpoints/context_scaling/shared_entropy.yaml`: nothing expands its
   `$USER`.
-- `slurm.gres: gpu:4`, W&B tag `branch_compare`.
+- `slurm.gres: gpu:4`, `slurm.time: "16:00:00"`, W&B tag `branch_compare`.
+- Leave `max_concurrent_jobs` unset. Step 1's `-1` would become `--array=0-0%-1` in
+  ctx_scl's sbatch builder.
+- `infrastructure.script` is replaced in full (a list can't be patched). This moves
+  ctx_scl from `/storage_nvme_2/nano/$USER` to storage_nvme_4, next to this branch:
+  - `PROJECT_HOME_PATH=/storage_nvme_4/nano/pretraining/$USER/ctx_scl`.
+  - Its own pixi env at `$PROJECT_HOME_PATH/pixi`. This branch's is at `$USER/pixi`,
+    so the two don't collide.
+  - This branch's HF cache, `/storage_nvme_4/nano/pretraining/hf_cache`, now shared
+    by both.
+  - It keeps `HF_DATASETS_TRUST_REMOTE_CODE=1`. This branch's entropy config now sets
+    it too.
 
 ### Checks before launching (cheap, local)
 
-- [ ] Parameter count is 354.6M, and every tensor shape matches step 1's model
-      (dump both `state_dict` shapes and diff them). The embedding key differs:
-      `embedding.embedding.weight` there, `embedding.weight` here. Any other
-      difference needs explaining.
-- [ ] Initial weights are bit-identical. Both branches call
-      `torch.manual_seed(train_dataloader.dataset.seed)` right before
-      `instantiate(cfg.model)`, build modules in the same order with the same init
-      function, and run torch 2.7.1, so with seed 123 on both sides they may match
-      exactly. If they don't, fall back to each tensor's std at init matching within
-      sampling noise.
-- [ ] The learning rate at steps 0, 300, 15,000 and 29,999 matches.
-- [ ] Both tokenizers give the same ids for a sample string (transformers is 4.55.0
-      there, 4.56.2 here).
-- [ ] Same dataset path, and the first decoded batch is FineWeb-Edu text.
+Done 2026-11-06, by building each branch's model, scheduler and tokenizer from its
+own config, the way its `main.py` does, in one env (torch 2.7.1, CPU).
+
+- [x] Parameter count matches: 354,714,624 on both sides (the table's 354.6M is
+      slightly off). All 147 `state_dict` tensors have the same shapes. The only key
+      difference is the embedding: `embedding.embedding.weight` there,
+      `embedding.weight` here.
+- [x] Initial weights are bit-identical, all 147 tensors. Both branches seed with
+      `torch.manual_seed(train_dataloader.dataset.seed)` (123) right before
+      `instantiate(cfg.model)` and build modules in the same order.
+- [x] The learning rate matches at steps 0, 1, 150, 299, 300, 301, 15,000, 29,998 and
+      29,999 (9.77e-5 at step 0, peak 9.77e-4 from step 300).
+- [x] Same tokenizer ids for a sample string, under transformers 4.56.2 (here) and
+      4.55.0 (ctx_scl's lock).
+- [x] Same dataset path in the resolved configs.
+- [ ] The first decoded batch is FineWeb-Edu text. The data is cluster-only, and
+      ctx_scl logs no batch text (only eval-batch fingerprints), so the smoke run
+      can't show this without new code. The path and tokenizer above are already
+      verified; a cluster-side spot check is optional.
+- [x] The config's trainer and evaluator keys match ctx_scl's `Trainer` and
+      `Evaluator` attrs fields exactly: no unknown keys and nothing required missing.
 - [x] AdamW is the same (checked in code 2026-11-06): default betas (0.9, 0.999) and
       eps 1e-8, weight decay 0.1 on all parameters including norms and embeddings.
       The only difference is `fused=True` here.
@@ -147,12 +169,17 @@ Set as in step 1: `sequence_length: 1024`, `batch_size: 256`, `n_steps: 30_000`,
 ### Smoke run (does it run, not an experiment)
 
 A short job on entropy, 4× H100, to catch crashes before the long run. Its loss curve
-is not compared to anything, so a shortened schedule is fine. The overrides go in
-`h16_chinchilla_smoke.yaml` next to the main config: ~100 steps, `eval_interval: 50`,
-downstream `limit: 20`, a scratch save path, a 30-minute limit, and a `smoke` tag
-instead of `branch_compare`. It passes when:
+is not compared to anything, so a shortened schedule is fine.
+`configs/context_scaling/branch_compare/h16_chinchilla_smoke.yaml` inherits the main
+config and overrides: 100 steps, `eval_interval: 50`, downstream `limit: 20`, saving
+under `checkpoints/smoke`, a 30-minute limit, and a `smoke` tag instead of
+`branch_compare`. Its dry run composes cleanly (26M tokens, final checkpoint at step
+99). Launch with
+`run_exp.py --config-path configs --config-name context_scaling/branch_compare/h16_chinchilla_smoke`.
+It passes when:
 
-- [ ] the model builds at 354.6M params and trains on 4 GPUs without OOM;
+- [ ] the model builds at 354,714,624 params (logged at startup) and trains on 4 GPUs
+      without OOM;
 - [ ] train and eval loss are logged;
 - [ ] the final checkpoint is written;
 - [ ] the end-of-run downstream eval runs all nine tasks and logs
@@ -160,13 +187,32 @@ instead of `branch_compare`. It passes when:
 
 Also read off the step time; the time limit below depends on it.
 
+ctx_scl runs the downstream eval *before* the final save, so in the long run an
+lm-eval crash at the end loses the checkpoint. The smoke run is the guard against
+that. It runs the same code path, just with `limit: 20`. The full-size difference
+that could matter is fine: ctx_scl passes no `bootstrap_iters`, so rank 0 runs
+lm-eval's default 100k-draw bootstrap for lambada's perplexity while the other ranks
+wait in the save's collectives. That took ~16 s on 8 laptop cores, against a 10-min
+NCCL timeout.
+
+The smoke run also downloads the nine datasets into the shared HF cache
+(`/storage_nvme_4/nano/pretraining/hf_cache`; `limit` doesn't shrink the download).
+That warms the cache for the long run and for step 3's eval-only job. Run it first.
+On a cold cache its four ranks load at once; if that breaks, rerun it.
+
 ### Launch
 
-- New branch off `ctx_scl` (e.g. `jm_ctx_scl_branch_compare`), with the tokenizer
-  function, the two configs and the `_trainer/llama.yaml` fix.
-- entropy, 4× H100, same partition. ctx_scl's pixi env lives under
-  `/storage_nvme_2/nano/$USER/pixi`, separate from this branch's, so the two don't
-  collide.
+- Branch `jm_ctx_scl_branch_compare` off `ctx_scl` (worktree
+  `/home/janek/Documents/IDEAS/ctx_scl_compare`), with the tokenizer function and
+  `configs/context_scaling/branch_compare/h16_chinchilla.yaml`. Launch with
+  `run_exp.py --config-path configs --config-name context_scaling/branch_compare/h16_chinchilla`.
+  The config is `# @package _global_` with absolute group refs, like ctx_scl's
+  workshop configs.
+- entropy, 4× H100, same partition. ctx_scl's pixi env is new, at
+  `/storage_nvme_4/nano/pretraining/$USER/ctx_scl/pixi`. Install it once before the
+  smoke run with
+  `update_pixi.py --config-path configs --config-name context_scaling/branch_compare/h16_chinchilla`,
+  which reads `PIXI_HOME` from the config's script.
 - Downstream eval: `_downstream_eval/joint.yaml` already runs once at the end
   (`eval_interval: 0`, `final_eval: true`). It takes `tokenizer` from
   `common.tokenizer`, and `max_length` follows `common.sequence_length` (1024).
@@ -186,69 +232,99 @@ Also read off the step time; the time limit below depends on it.
 - **Benchmarks.** Score both with the same task list and `max_length`. Read any
   difference against the noise table below.
 
-## Step 3: the eval harness on pretraining-jm
+## Step 3: benchmark scoring on pretraining-jm
 
-### What it is
+### What NanoLM is
 
-An lm-eval wrapper (`NanoLM`) around the live nano model, ported from
-`ctx_scl:src/core/eval.py`. It calls `model(input_ids)` and gets logits, so it needs
-no HuggingFace export. (The old harness on `main` did need one, which is why it was
-deleted in `efe41424`.)
+lm-eval (EleutherAI's benchmark harness) talks to a model through a backend class
+with three methods: `loglikelihood`, `loglikelihood_rolling` and `generate_until`.
+Its built-in backends (`hf`, `vllm`) need a model in HuggingFace format.
 
-It runs two ways, through one code path:
+`NanoLM` is such a backend for nano models. It tokenizes with the HF tokenizer, calls
+`model(input_ids)` to get logits, and sums the log-probs of the answer tokens. So it
+needs no HF export. ctx_scl has it in `src/core/eval.py` (~200 lines), together with
+`Evaluator`, which runs lm-eval with it and logs the scores to W&B. The old harness
+on `main` needed an HF export, which is why it was deleted in `efe41424`.
 
-- **In the training loop:** every `eval_interval` steps, plus once at the end.
-- **From a checkpoint:** load the weights, skip training, score.
+### Now: score a checkpoint
 
-### Pieces
+Step 1 is already running without any harness, so its model can only be scored from
+its checkpoint. That is all the comparison needs, so it is all that gets built now.
 
-1. **`src/core/eval.py`: `NanoLM` and `Evaluator`, scoring logic copied unchanged.**
-   Both branches' scores then come from identical code. Improvements — sorting
-   requests by length, a KV cache for generation — come later, and if they land,
-   both models get re-scored.
-2. **Config group `configs/_downstream_eval/`, with ctx_scl's field names:**
-   `tokenizer`, `tasks`, `limit`, `max_length`, `max_gen_toks`, `batch_size`,
-   `eval_interval`, `final_eval`. Configs then translate between branches 1:1. The
-   attrs fields get no defaults.
-3. **`main.py`:** instantiate the evaluator with `metric_logger` and `model` and pass
-   it to the trainer.
-4. **`trainer.py`, in-loop hook:** at `eval_interval` and after training, put the
-   model in eval mode and score under `torch.compiler.set_stance("force_eager")`.
-   Running eager means variable-length eval batches cause no recompiles, and eval
-   forwards are short, so eager costs little. Switch back to train mode afterwards.
-5. **Multi-GPU safety.**
-   - Under FSDP2, every forward is a collective, so all ranks must run the same
-     number of forwards.
-   - lm-eval pads loglikelihood requests so every rank gets the same count
-     (`lm_eval/evaluator.py:576`), so those tasks are safe.
-   - `generate_until` stops each request at its own length, so generative tasks can
-     deadlock. Refuse them at startup when `world_size > 1`.
-6. **From-checkpoint mode.**
-   - A top-level `eval_only: true` (read with `cfg.get`, like
-     `compile_blocks_full`): load the weights (`load.only_weights: true`), skip
-     `train()`, and run `final_eval()` plus the downstream evaluator.
-   - `final_eval()` gives `final_ce` on the fixed held-out set for free.
+1. **`src/core/eval.py`:** `NanoLM` and `Evaluator` copied from ctx_scl, with the
+   scoring unchanged, so both branches' scores come from identical code. Changes:
+   - Skip non-numeric entries when logging (lm-eval's `alias` string).
+   - Drop the `eval_results.json` dump (it goes to the working directory).
+   - Pass `bootstrap_iters=1000` to `simple_evaluate`. Scoring is spread over all
+     GPUs, but rank 0 alone computes the stderrs afterwards, and lambada's
+     perplexity stderr defaults to a 100k-draw bootstrap that keeps the other
+     ranks waiting. Scores don't change. Not 0, which drops every stderr.
+2. **Config group `configs/_downstream_eval/`**, for this branch's models only:
+   `tokenizer`, `tasks`, `limit`, `max_length`, `max_gen_toks`, `batch_size`. The
+   attrs fields get no defaults. ctx_scl scores its own model in its own run, so
+   the configs don't need to translate between branches. What must match is the
+   scoring logic (item 1), the task list and `max_length`.
+3. **Eval-only mode in `main.py`:** a top-level `eval_only: true` (read with
+   `cfg.get`, like `compile_blocks_full`). It builds the model, loads the weights
+   (`load.only_weights: true`), skips `train()`, and runs `final_eval()` and then
+   the evaluator.
+   - Assert `load.path` is set. `load_checkpoint_from_file` returns silently on
+     `null`, which would score a random init.
+   - **`final_ce` must match the source run's logged `final_ce`** (to ~1e-3). This
+     is the load check. Settings outside the state_dict (`rope_base`,
+     `rope_scale_freqs`, norm eps) still load cleanly when they're wrong, and only
+     a loss check catches that.
    - Keep FSDP2 on, even on one GPU, so the existing sharded load path reads the
      checkpoint. DCP reshards across world sizes, but confirm this in testing.
-   - The checkpoints are on `/storage_nvme_4`, which only the h100 nodes mount, so
-     eval-only jobs must run on partition `h100`.
-7. **W&B.**
-   - In the loop: the training run, keys `eval/<task>/<metric>`, at the training step.
-   - From a checkpoint: a new run, tagged with the source run's name, logging at the
-     checkpoint's step.
+   - Run on partition `h100`: the checkpoints are on `/storage_nvme_4`, which only
+     the h100 nodes mount.
+   - W&B: a new run (`new_wandb_job: true`, or the logger resumes the source run,
+     whose id the checkpoint carries), tagged with the source run's name, logging
+     `eval/<task>/<metric>` at the checkpoint's step.
+4. **Multi-GPU safety.** Under FSDP2 every forward is a collective, so all ranks
+   must run the same number of forwards. lm-eval pads loglikelihood requests so
+   every rank gets the same count (`lm_eval/evaluator.py:576`), so the nine tasks
+   are safe. `generate_until` stops each request at its own length and can
+   deadlock, so refuse generative tasks at startup when `world_size > 1`.
 
-### Tests (on `tiny_local.yaml`, overrides baked into a config file)
+**Tests** (on `tiny_local.yaml`, overrides baked into a config file):
 
-- [ ] **In the loop:** tiny model, small `eval_interval`, piqa and hellaswag with
-      `limit: 20`. Scores get logged, and training continues normally afterwards.
-- [ ] **From a checkpoint:** save the tiny model, run eval-only on it. The scores
-      must be identical to that model's in-loop final eval: same weights and same
-      requests give the same numbers. This is the check that the load path is right.
+- [ ] **Load path:** train the tiny model and save it, then run eval-only on it. Its
+      `final_ce` matches the training run's.
+- [ ] **Scoring:** piqa and hellaswag with `limit: 20` log `eval/<task>/<metric>`.
 - [ ] **Guard:** a generative task with `world_size > 1` fails at startup with a
       clear message.
 - [ ] *(Optional)* `NanoLM` on gpt2 vs lm-eval's own HF backend, on piqa with a
       small `limit`. The numbers should be close, which validates the scoring
-      itself.
+      itself. Required if absolute scores are ever quoted: `NanoLM` tokenizes
+      context and continuation separately, while the HF backend tokenizes the joined
+      string and splits it.
+
+### Later: not needed for this comparison
+
+- **In-loop eval:** score every `eval_interval` steps and at the end of training,
+  for future runs. When it's built:
+  - Add `eval_interval` and `final_eval` to the config group.
+  - Score under `torch.compiler.set_stance("force_eager")`: no recompiles on
+    variable-length batches, and eval forwards are short.
+  - Save and restore the RNG state (torch CPU and CUDA, Python `random`, numpy).
+    `simple_evaluate` reseeds all three, which would reset the training RNG mid-run.
+  - Switch back to train mode afterwards.
+  - Reset `_prev_log_time` afterwards. Otherwise the next step logs minutes of step
+    time and near-zero MFU.
+  - At the end of the run: `final_eval()` → `save_final_checkpoint()` → downstream
+    eval, so an lm-eval crash can't cost the checkpoint.
+  - Test: train loss after an eval is bit-identical to the same run without one.
+- **Faster scoring:** sort requests by length, KV cache for generation. If these
+  land, re-score both models.
+- **Generative tasks on several GPUs:** every rank keeps stepping until all ranks
+  are done.
+- **HF export, for SFT in coding_distill:** recover the converter removed in
+  `6b2b5421` and check that the HF model's logits match nano's. Then
+  from-checkpoint eval can also use lm-eval's `vllm` backend, which splits work
+  across GPUs, sorts by length, has a KV cache and handles generative tasks. Its
+  numbers differ from NanoLM's, so re-score both sides of any comparison the same
+  way.
 
 ### Task list
 
@@ -256,6 +332,9 @@ Use ctx_scl's `joint.yaml` list unchanged on both branches. All of these are
 loglikelihood tasks, so they are safe on multiple GPUs: arc_easy, arc_challenge,
 hellaswag, piqa, winogrande, openbookqa, sciq, social_iqa, lambada_standard. That's
 ~77k requests, a few GPU-minutes per model.
+
+Download the nine datasets into a shared HF cache once, before the long runs.
+Otherwise every rank calls `load_dataset` on the cache at the same time.
 
 At this scale, hellaswag, piqa, arc_easy, sciq and lambada carry signal. The rest
 will sit near chance.
@@ -277,6 +356,7 @@ about 2.8× this.
 ## Order
 
 1. Step 2 first. It's the long run, and its task list has to be fixed before launch.
-2. Build step 3 while both runs train.
-3. Score this branch's final checkpoint with the from-checkpoint mode, then compare
-   with ctx_scl's in-run scores and both eval-loss curves.
+2. Build step 3's "Now" part while both runs train.
+3. Score this branch's final checkpoint with eval-only mode, then compare with
+   ctx_scl's in-run scores and both eval-loss curves.
+4. Step 3's "Later" part, when a future run needs it.
