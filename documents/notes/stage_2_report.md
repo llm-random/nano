@@ -401,7 +401,7 @@ Items that need your decision. None blocks a Stage 1–2 run.
    ([stage_1_report.md](stage_1_report.md)). The learning-rate check moved the 2 × 2 to
    n = 8, where the order of the cells is unchanged. If you want the 2 × 2 at S1-A0's own
    optimum (n = 6) as well, that is S2-P and S2-S at n = 6, about 8.7 GPU-h; S2-PS at n = 6
-   is already running.
+   is done (3.1348, item 6).
 2. **`run_exp.py` and run names with a dot** (decision 2). A one-line fix would be to
    sanitize the tmux session name, e.g.
    `tmux_name = experiment_branch_name.replace(".", "_").replace(":", "_")`, and use it

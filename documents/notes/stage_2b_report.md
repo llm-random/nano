@@ -229,10 +229,14 @@ hand (decision 2). Each cemetery commit has `89975bbf` as its parent and adds on
 
 | Arm | n | Job | Cemetery commit | Cemetery clone | W&B run | Node |
 |---|---:|---|---|---|---|---|
-| S2b-P | 8 | 6261187 | `def924ee` | `s2b_p_h16_lr8.0_2026-11-07_08-16-10` | pending | r10-8 |
-| S2b-S | 8 | 6261188 | `52b1d182` | `s2b_s_h16_lr8.0_2026-11-07_08-16-30` | pending | r10-13 |
+| S2b-P | 8 | 6261187 | `def924ee` | `s2b_p_h16_lr8.0_2026-11-07_08-16-10` | `le2dr3r6` | r10-8 |
+| S2b-S | 8 | 6261188 | `52b1d182` | `s2b_s_h16_lr8.0_2026-11-07_08-16-30` | `eeuebwsj` | r10-13 |
 
-Both started at 08:17 and finish around 23:30. If wave 2 still ends with n = 9 best,
+Both started at 08:17 and passed the startup check (08:27, step 50):
+- **S2b-P:** 1,986,331,904 parameters, 6.52 s/step.
+- **S2b-S:** 1,986,332,928 parameters (the shift's 1,024 more), 6.77 s/step.
+
+Both match wave 1. They finish around 23:30. If wave 2 still ends with n = 9 best,
 wave 1 names the winner, and these two runs are reported as a learning-rate check of
 S2b-P and S2b-S.
 
@@ -240,10 +244,15 @@ S2b-P and S2b-S.
 
 Items that need your decision. None blocks a run.
 
-1. **n\* = 9 was set while Stage 1b's grid was 10% in** (decision 1). If the finished
-   grid (about 23:50) puts S1b-A0's best elsewhere, the plan's rule would re-run wave 1
-   there, at about 62 GPU-h and 16 h. At h12, AME kept improving down to n = 6
-   ([stage_1_report.md](stage_1_report.md), decision 10), which hints that h16 AME may
-   also prefer a higher learning rate than n = 9.
+1. **n\* = 9 sits at the high-LR edge of Stage 1b's grid.** You set it while the grid was
+   10% in (decision 1). The finished grid has both arms' lowest `final_ce` at n = 9,
+   its edge ([stage_1b_report.md](stage_1b_report.md)), and Stage 1b stopped there by
+   your call. Two hints that h16 AME wants a higher learning rate than n = 9:
+   - at h12, S1-A0 kept improving down to n = 6
+     ([stage_1_report.md](stage_1_report.md), decision 10);
+   - here, S2b-PS at n = 8 leads n = 9 at 30% of the run (wave 2).
+
+   S1b-A0 at n = 8, about 15 GPU-h, would give the 2 × 2's reference cell at n = 8 and
+   test whether the h16 optimum moves.
 2. **`run_exp.py` and run names with a dot**: see [stage_2_report.md](stage_2_report.md),
    "For Maciej" 2.
