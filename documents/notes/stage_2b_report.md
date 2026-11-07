@@ -236,9 +236,12 @@ at step 3,800. Neither run has spiked: no train loss above 5.41 after step 200.
 |---|---:|---:|---:|---:|
 | 4,200–4,399 | 3.0856 | 3.0994 | 3.1653 | −0.014 |
 | 4,600–4,799 | 3.0598 | 3.0758 | 3.1430 | −0.016 |
-| 5,000–5,199 | 3.0338 | 3.0532 | 3.1213 | **−0.019** |
+| 5,000–5,199 | 3.0338 | 3.0532 | 3.1213 | −0.019 |
+| 6,000–6,199 (16:54) | 2.9768 | 3.0044 | 3.0773 | −0.028 |
+| 6,400–6,599 (16:54) | 2.9603 | 2.9910 | 3.0659 | **−0.031** |
 
-Still no spike in either run.
+Still no spike in either run at 16:54 (step ~6,750, 88%). `eval/loss` at step 6,700:
+2.8750 (n = 8), 2.9062 (n = 9), 2.9844 (n = 10).
 
 Results: pending.
 
@@ -293,7 +296,19 @@ windows):
   same steps.
 - **S2b-S at n = 8 spiked twice more**: steps 2,236–2,290, to 7.47, and steps
   2,903–2,924, to 5.03. That makes four so far, against three in the whole n = 9 run.
-  Between spikes the two runs are level (2,600–2,799: −0.002). If wave 2 still ends with n = 9 best,
+  Between spikes the two runs are level (2,600–2,799: −0.002).
+
+**At 58% (16:54):**
+
+| Steps | S2b-P n = 8 | S2b-P n = 9 | n = 8 − n = 9 | S2b-S n = 8 | S2b-S n = 9 | n = 8 − n = 9 |
+|---|---:|---:|---:|---:|---:|---:|
+| 3,400–3,599 | 3.2480 | 3.2630 | −0.015 | 3.8046 | 3.8648 | −0.060 |
+| 3,800–3,999 | 3.2117 | 3.2296 | −0.018 | 3.7415 | 3.7932 | **−0.052** |
+| 4,200–4,399 | 3.1800 | 3.2007 | **−0.021** | — | — | — |
+
+- **S2b-P at n = 8** keeps widening its lead, on S2b-PS's path.
+- **S2b-S at n = 8** has not spiked since step 2,924, and leads n = 9 by about 0.05.
+  n = 9 spiked again at steps 4,050–4,066. If wave 2 still ends with n = 9 best,
 wave 1 names the winner, and these two runs are reported as a learning-rate check of
 S2b-P and S2b-S.
 
