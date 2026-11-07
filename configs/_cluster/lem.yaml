@@ -10,10 +10,12 @@ infrastructure:
   # git clone), so the remote shell expands it.
   cluster_cemetery_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/$USER/llmrandom_cemetery"
   slurm:
+    # Per GPU: the node's full CPU share, and its RAM share minus 10G, rounded down. A node
+    # has 4 GPUs, 64 CPUs and 955.6G allocatable (RealMemory - MemSpecLimit): 238.9G per GPU.
     cpus_per_gpu: 16
     gres: "gpu:hopper:4"
     job-name: test
-    mem_per_gpu: 220G
+    mem_per_gpu: 228G
     nodes: 1
     partition: plgrid-lem-gpu-h100
     time: "1-00:00:00"

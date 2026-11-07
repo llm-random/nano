@@ -2,10 +2,13 @@ infrastructure:
   server: entropy
   max_concurrent_jobs: null
   slurm:
-    cpus_per_gpu: 16
+    # Per GPU: 30 of the node's 32 CPUs (hyperthreads), and its RAM share minus 10G, rounded
+    # down. a100a has 8 GPUs, 256 CPUs and 999.8G allocatable: 124.98G per GPU. The old 125G
+    # was above that share, so an 8-GPU job was rejected outright.
+    cpus_per_gpu: 30
     gres: ???
     job-name: test
-    mem_per_gpu: 125G
+    mem_per_gpu: 114G
     nodes: 1
     partition: a100
     time: "2-00:00:00"

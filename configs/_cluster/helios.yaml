@@ -7,10 +7,12 @@ infrastructure:
   # for why this is cluster_cemetery_dir and not cemetery_experiments_dir.
   cluster_cemetery_dir: "/net/storage/pr3/plgrid/plggllmeffi3/pc/$USER/llmrandom_cemetery"
   slurm:
-    cpus_per_gpu: 12
+    # Per GPU: 32 of the node's 72 CPUs, and its RAM share minus 10G, rounded down. A node
+    # has 4 GPUs, 288 CPUs and 478.0G allocatable: 119.5G per GPU.
+    cpus_per_gpu: 32
     gres: ???
     job-name: test
-    mem_per_gpu: 90G
+    mem_per_gpu: 109G
     nodes: 1
     partition: plgrid-gpu-gh200
     time: "2-00:00:00"

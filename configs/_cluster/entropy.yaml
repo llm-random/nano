@@ -14,10 +14,13 @@ infrastructure:
   # is exactly what the cemetery needs. The reasons helios and lem move it away -- an
   # inode quota there, a 20G space quota there -- do not apply here.
   slurm:
-    cpus_per_gpu: 14
+    # Per GPU: 30 of the node's 32 CPUs (hyperthreads), and its RAM share minus 10G, rounded
+    # down. h100a has 8 GPUs, 256 CPUs and 999.6G allocatable (RealMemory - MemSpecLimit):
+    # 124.95G per GPU.
+    cpus_per_gpu: 30
     gres: ???
     job-name: test
-    mem_per_gpu: 90G
+    mem_per_gpu: 114G
     nodes: 1
     partition: h100
     time: "2-00:00:00"
