@@ -8,9 +8,9 @@ Its follow-up, [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md) (full-length
 entropy, X2 × AME), runs from here. Its results go to the sections "Full-length runs on
 entropy" and "X2 × AME" below.
 
-**Follow-up status (2026-11-07, 04:20):** Steps 0-2 done. Wave 1 has finished: AME-B ×3
-and P1-2, P1-3 (the trainer's `final_ce`: AME-B2 3.125, AME-B3 3.133). Their scoring
-(36479) is queued first. The other 14 runs are training or queued on entropy, to finish
+**Follow-up status (2026-11-07, 04:15):** Steps 0-2 done. Wave 1 has finished: AME-B ×3
+and P1-2, P1-3 (the trainer's `final_ce`: AME-B 3.140, 3.125, 3.133; P1 3.126, 3.133).
+Their scoring (36479) runs now. The other 14 runs are training or queued on entropy, to finish
 around 15:30-16:00. Two setbacks so far:
 - the `/home` quota killed P1-1 at step 1,500 (fixed: checkpoints now go to NVMe);
 - AME-F ran 10× slow on flex's IEEE fp32 kernel (fixed: tf32x3, equally accurate,
@@ -744,13 +744,13 @@ below with full-length A/Bs on entropy, with replicates.
 
 | Run | Config | Change | Jobs | Status |
 |---|---|---|---|---|
-| AME-B ×3 | `fe_ame_b{1,2,3}` | none (production) | 36400, 36404, 36407 | **done** 03:58-04:12 (3:48-3:53 h each) |
-| P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | P1-1: 36408 **died at step 1,500** (quota), rerun 36455; P1-2 36409, P1-3 36411 | P1-2, P1-3 done about 04:15; P1-1 queued |
+| AME-B ×3 | `fe_ame_b{1,2,3}` | none (production) | 36400, 36404, 36407 | **done** 04:01-04:07 (3:48-3:55 h each) |
+| P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | P1-1: 36408 **died at step 1,500** (quota), rerun 36455; P1-2 36409, P1-3 36411 | P1-2, P1-3 done 04:10-04:12; P1-1 queued, next in line |
 | P-REF | `fe_pref` | mp null + reference attention, micro-batch 8 × 64 | 36399 | running since 00:12 (9.9 s/step: ~10.5 h) |
 | AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32` with tf32x3 dots and a 32×128 backward tile (`parity_flex_kernel_options`, below), **micro-batch 16** | 36463, 36464, 36465 (first tries 36445, 36447, 36449 cancelled: 34 s/step) | AME-F1 running since 02:36, AME-F2 and AME-F3 since 04:03 |
 | P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36452, 36453, 36454 | queued |
 | D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36456, 36457, 36458 | queued |
-| D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | D-F1 36416; D-F2 36450, D-F3 36451 | D-F1 running since 00:50 (7.0 s/step), D-F2 since 04:12; D-F3 queued (D-F2, D-F3 each requeued once, below) |
+| D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | D-F1 36416; D-F2 36450, D-F3 36451 | D-F1 running since 00:50 (7.0 s/step), D-F2 since 04:08, D-F3 since 04:13 (each requeued once, below) |
 | P0b | `fe_p0b` | AME-B at micro-batch 16 × 32 | 36459 | queued (first to cut if the budget tightens) |
 
 The first submissions of the 12 queued runs (36417-36428) failed at launch; see the
@@ -759,9 +759,10 @@ incident.
 **Queue order: longest first.** AME-F (`nice` 50), D-F2 and D-F3 (75), then P1-16, P1-1,
 D-B and P0b (100). Analysis and scoring jobs run at `nice` 0 and go first.
 
-- **04:12, re-ordered:** a fresh job has no queue age, so a `nice`-0 job still ranked
-  below every queued training (2952 against 3001-3027). The queued trainings' `nice`
-  went up by 100 until the GPU tests and the wave-1 scoring had started.
+- **04:08-04:13, re-ordered:** a fresh job has no queue age, so a `nice`-0 job still
+  ranked below every queued training (2952 against 3001-3027). The queued trainings'
+  `nice` went up by 100 until the GPU tests and the wave-1 scoring had started, then came
+  back down.
 - **The new order:** D-F3, then **P1-1**, P1-16 ×3, **P0b**, D-B ×3.
   - P1-1 moves up so that its 500-step checkpoints, which the error timeline needs,
     exist by mid-morning rather than at the end.
@@ -868,7 +869,12 @@ D-B and P0b (100). Analysis and scoring jobs run at `nice` 0 and go first.
     uncompiled.
   - Fixed in `4388170a`: the test now resets dynamo before and after. The runs are not
     affected, because there flex is traced inside each compiled block at fixed shapes.
-  - The GPU suite is re-run with the next scoring job.
+  - **Re-run at `4388170a`: 14 of 14 GPU tests pass** (job 36476, 04:10), the memory
+    regression included.
+  - A first re-run (36466, 04:02) crashed with a fatal error inside one test. Its log kept
+    only the last 30 lines, so which test is not known. The full-output re-run did not
+    reproduce it. The training runs do not execute the test code, and AME-F1 trains on
+    the same kernel options without trouble (step 744 at 04:14).
 - **Jobs.**
   - AME-F1-3 (36445, 36447, 36449) were cancelled and resubmitted. The cancelled AME-F1
     had used 0.25 GPU-h.
