@@ -8,11 +8,13 @@ Its follow-up, [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md) (full-length
 entropy, X2 × AME), runs from here. Its results go to the sections "Full-length runs on
 entropy" and "X2 × AME" below.
 
-**Follow-up status (2026-11-07, 04:40):** Steps 0-2 done. Wave 1 has finished and is
+**Follow-up status (2026-11-07, 06:45):** Steps 0-2 done. Wave 1 has finished and is
 scored: AME-B ×3 at 3.1320 ± 0.0072, P1-2 and P1-3 at 3.1245 and 3.1322 (common evaluator;
 section "Scores"). The Q-P1 preview is not harmful (+0.0036 against a 0.0216 threshold);
-P1-1 trains now. The other 13 runs are training or queued on entropy, to finish around
-15:30-16:00. Two setbacks so far:
+P1-1 trains now (ends about 08:25). The other 13 runs are training or queued on entropy, to
+finish around 15:30. The 06:40 health check found all 8 running runs on schedule, with no
+NaNs. Each AME run's train loss is within 0.03 nats of AME-B's at the same step; the dense
+runs are below it, as expected. Two setbacks so far:
 - the `/home` quota killed P1-1 at step 1,500 (fixed: checkpoints now go to NVMe);
 - AME-F ran 10× slow on flex's IEEE fp32 kernel (fixed: tf32x3, equally accurate,
   re-validated).
@@ -746,12 +748,12 @@ below with full-length A/Bs on entropy, with replicates.
 | Run | Config | Change | Jobs | Status |
 |---|---|---|---|---|
 | AME-B ×3 | `fe_ame_b{1,2,3}` | none (production) | 36400, 36404, 36407 | **done** 04:01-04:07 (3:48-3:55 h each) |
-| P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | P1-1: 36408 **died at step 1,500** (quota), rerun 36455; P1-2 36409, P1-3 36411 | P1-2, P1-3 done 04:10-04:12; P1-1 queued, next in line |
-| P-REF | `fe_pref` | mp null + reference attention, micro-batch 8 × 64 | 36399 | running since 00:12 (9.9 s/step: ~10.5 h) |
-| AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32` with tf32x3 dots and a 32×128 backward tile (`parity_flex_kernel_options`, below), **micro-batch 16** | 36463, 36464, 36465 (first tries 36445, 36447, 36449 cancelled: 34 s/step) | AME-F1 running since 02:36, AME-F2 and AME-F3 since 04:03 |
+| P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | P1-1: 36408 **died at step 1,500** (quota), rerun 36455; P1-2 36409, P1-3 36411 | P1-2, P1-3 done 04:10-04:12; P1-1 running since 04:35 (3.45 s/step), ends about 08:25 |
+| P-REF | `fe_pref` | mp null + reference attention, micro-batch 8 × 64 | 36399 | running since 00:12 (9.5 s/step), ends about 10:30 |
+| AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32` with tf32x3 dots and a 32×128 backward tile (`parity_flex_kernel_options`, below), **micro-batch 16** | 36463, 36464, 36465 (first tries 36445, 36447, 36449 cancelled: 34 s/step) | AME-F1 running since 02:36 (ends about 10:40), AME-F2 and AME-F3 since 04:03 (about 12:00) |
 | P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36452, 36453, 36454 | queued |
 | D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36456, 36457, 36458 | queued |
-| D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | D-F1 36416; D-F2 36450, D-F3 36451 | D-F1 running since 00:50 (7.0 s/step), D-F2 since 04:08, D-F3 since 04:13 (each requeued once, below) |
+| D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | D-F1 36416; D-F2 36450, D-F3 36451 | D-F1 running since 00:50 (6.6 s/step, ends about 08:10), D-F2 since 04:08, D-F3 since 04:13 (about 11:20; each requeued once, below) |
 | P0b | `fe_p0b` | AME-B at micro-batch 16 × 32 | 36459 | queued (first to cut if the budget tightens) |
 
 The first submissions of the 12 queued runs (36417-36428) failed at launch; see the
@@ -929,6 +931,7 @@ the runs finish.
 | 02:37 | 19.2 GPU-h | **about 113** | AME-F at about 8 h per run (tf32x3); 36 h per run at IEEE would have been about 190 in all |
 | 04:12 | 31.1 GPU-h | **about 114** | measured: P-REF 9.9 s/step (10.5 h), D-F 7.0 s/step (7.4 h), AME-F 7.4 s/step (~8.1 h with startup and evals) |
 | 04:37 | 35.2 GPU-h | **about 114** | wave 1 and its scoring done (0.38 GPU-h for 5 runs) |
+| 06:41 | 51.7 GPU-h | **about 113** | health check: the 8 running runs need 31 GPU-h more, the 7 queued about 27, analysis about 2.5 |
 
 The projection assumes P1-16 at about 4.2 h per run and D-F at 7.3 h, plus about 3 GPU-h
 for scoring and the error timeline. P0b, the first cut, stays while the projection holds
