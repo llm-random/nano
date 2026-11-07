@@ -83,6 +83,27 @@ def test_check_point_resolves_a_copy_and_leaves_the_point_as_written():
     assert point["trainer"]["n_tokens_b"] == 0.0001
 
 
+def test_run_exp_checks_missing_keys_on_a_token_budget():
+    """run_exp.py checks for ??? before the grid expands. missing_keys resolves
+    interpolations on its way, and the warmup's ${trainer.n_steps} is None until
+    the budget is resolved, so the check resolves a copy and leaves the config
+    as written."""
+    from run_exp import check_missing_keys
+
+    cfg = _compose(TOKENS)
+    check_missing_keys(cfg)  # raised InterpolationResolutionError before the fix
+    assert cfg.trainer.n_steps is None
+    assert cfg.trainer.n_tokens_b == 0.0001
+
+
+def test_run_exp_still_reports_a_missing_key_with_a_token_budget():
+    from run_exp import check_missing_keys
+
+    cfg = _compose([*TOKENS, "trainer.learning_rate=???"])
+    with pytest.raises(RuntimeError, match="learning_rate"):
+        check_missing_keys(cfg)
+
+
 def test_a_token_grid_resolves_point_by_point():
     plain = _point(["trainer.n_steps=null"])
     del plain["trainer"]["n_tokens_b"]

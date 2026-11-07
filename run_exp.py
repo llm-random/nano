@@ -18,7 +18,7 @@ import paramiko.ssh_exception
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
 from main import dump_grid_configs, run
-from src.definitions import RootSchema, check_point
+from src.definitions import RootSchema, check_point, resolve_n_steps
 import resolver
 
 logger = logging.getLogger(__name__)
@@ -281,13 +281,27 @@ def wait_for_job_id(connection, tmux_pane, tries: int = 3):
     return job_id
 
 
+def check_missing_keys(cfg: DictConfig) -> None:
+    """Fail on any ??? left in the composed config, before the grid expands.
+
+    OmegaConf.missing_keys resolves every interpolation it walks past. A length
+    given in tokens leaves trainer.n_steps null until resolve_n_steps fills it
+    in, so the warmup's ${trainer.n_steps} would fail on None. The check runs
+    on a copy with the steps resolved; cfg keeps n_tokens_b as written, for the
+    grid expansion and the dump.
+    """
+    probe = copy.deepcopy(cfg)
+    resolve_n_steps(probe)
+    missing_keys: set[str] = OmegaConf.missing_keys(probe)
+    if missing_keys:
+        raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
 def submit_experiment(
     cfg: RootSchema,
 ):
-    missing_keys: set[str] = OmegaConf.missing_keys(cfg)
-    if missing_keys:
-        raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
+    check_missing_keys(cast(DictConfig, cfg))
     # Checked now, before version_code pushes anything; used by the remote clone.
     sparse_exclude = sparse_exclude_names(
         cfg.infrastructure.get("git", {}).get("sparse_exclude", None)
