@@ -3,8 +3,8 @@
 **Status: wave 1 finished (2026-11-07 03:34). S2b-PS, ALiBi with the shift, is best,
 provisionally: 2.8965 at n = 9, and the order of the cells matches h12. Wave 2, the
 learning-rate check on S2b-PS at n = 8 and 10, is running (jobs 6260570, 6260571; done
-about 18:45). n = 8 leads n = 9 at 30% of the run, so wave 3, S2b-P and S2b-S at n = 8,
-started early (jobs 6261187, 6261188; decision 4). The noise-floor run S2b-N was
+about 18:45). n = 8 leads n = 9 at 30% of the run, and by more at 50%, so wave 3, S2b-P
+and S2b-S at n = 8, started early (jobs 6261187, 6261188; decision 4; done about 23:00). The noise-floor run S2b-N was
 cancelled at Maciej's request.**
 
 The plan is [ame_experiments.md, "Stage 2b — positional encoding and the shift at h16"](ame_experiments.md#stage-2b--positional-encoding-and-the-shift-at-h16).
@@ -218,6 +218,18 @@ windows at the same share of its 3,815 steps (7,630 = 2 × 3,815). Its gap kept 
 the run, against 25%) but its lead grows more slowly so far. The direction is the same,
 so wave 3 started now (decision 4).
 
+**At 50% (11:14, step ~3,830)** n = 8's lead had grown, and n = 10 stayed behind. Train
+loss over 200-step windows:
+
+| Steps | n = 8 | n = 9 (wave 1) | n = 10 | n = 8 − n = 9 |
+|---|---:|---:|---:|---:|
+| 2,400–2,599 | 3.2512 | 3.2589 | 3.3274 | −0.008 |
+| 3,000–3,199 | 3.1880 | 3.1969 | 3.2641 | −0.009 |
+| 3,600–3,799 | 3.1319 | 3.1424 | 3.2091 | **−0.011** |
+
+`eval/loss` now separates them by one bf16 step: 3.0312 (n = 8) against 3.0469 (n = 9)
+at step 3,800. Neither run has spiked: no train loss above 5.41 after step 200.
+
 Results: pending.
 
 ## Wave 3 — S2b-P and S2b-S at n = 8
@@ -236,7 +248,26 @@ Both started at 08:17 and passed the startup check (08:27, step 50):
 - **S2b-P:** 1,986,331,904 parameters, 6.52 s/step.
 - **S2b-S:** 1,986,332,928 parameters (the shift's 1,024 more), 6.77 s/step.
 
-Both match wave 1. They finish around 23:30. If wave 2 still ends with n = 9 best,
+Both match wave 1. They finish around 22:30 (S2b-P) and 23:00 (S2b-S).
+
+**At 20% (11:14)**, against wave 1's runs at n = 9 on the same steps (train loss, 200-step
+windows):
+
+| Steps | S2b-P n = 8 | S2b-P n = 9 | n = 8 − n = 9 | S2b-S n = 8 | S2b-S n = 9 | n = 8 − n = 9 |
+|---|---:|---:|---:|---:|---:|---:|
+| 600–799 | 3.9935 | 3.9428 | +0.051 | 4.8758 | 5.0561 | −0.180 |
+| 800–999 | 3.8241 | 3.7901 | +0.034 | 4.5780 | 4.8613 | −0.283 |
+| 1,000–1,199 | 3.7076 | 3.6885 | +0.019 | 5.1825 | 4.5731 | +0.609 (spike) |
+| 1,200–1,399 | 3.6250 | 3.6151 | +0.010 | 4.7512 | 4.4294 | +0.322 (recovering) |
+
+- **S2b-P** follows S2b-PS's path: n = 8 starts behind and closes the gap. S2b-PS's own
+  gap at steps 1,200–1,399 was +0.009.
+- **S2b-S at n = 8 spiked** at steps 1,056–1,137, to 8.00 at step 1,064, and again at
+  step 1,204, to 6.50. By step ~1,490 its loss was back at the pre-spike level, about
+  4.4. The same arm spiked three times at n = 9 (wave 1), and twice or more at both n at
+  h12 ([stage_2_report.md](stage_2_report.md)). So the spikes belong to the
+  shift-without-ALiBi cell, not to this run or this learning rate. No action: the run
+  continues, and its `final_ce` is the result. If wave 2 still ends with n = 9 best,
 wave 1 names the winner, and these two runs are reported as a learning-rate check of
 S2b-P and S2b-S.
 
