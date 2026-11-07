@@ -49,8 +49,22 @@ infrastructure:
     - 'eval "$(pixi shell-hook)"'
     - 'cd -'
 
+    # FineWeb: read the copy on $SCRATCH while it is fresh, else group storage.
+    # Opening FineWeb walks 1.3M record-batch headers, one small random read each, and a job
+    # opens it twice (train and eval split). Group storage answers a cold read in ~23 ms, so a
+    # job spent ~32 min before step 1; $SCRATCH answers in ~0.35 ms.
+    # $SCRATCH deletes files 30 days after creation, so scripts/helios_fineweb_scratch.sh
+    # re-creates the copy every 2 weeks. Its .complete stamp is dated to the copy's oldest
+    # file: older than 28 days means the purge is 2 days away, so fall back.
+    # Per user: without a copy in your own $SCRATCH, this stays the group-storage path.
+    - 'export FINEWEB_DIR=/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train'
+    - 'if [ -n "$(find "$SCRATCH/datasets/fineweb/train/.complete" -mtime -28 2>/dev/null)" ]; then export FINEWEB_DIR="$SCRATCH/datasets/fineweb/train"; fi'
+    - 'echo "FineWeb: $FINEWEB_DIR"'
+
 cluster_switch:
   train_path_c4: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/c4/train"
   eval_path_c4: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/c4/validation"
-  train_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
-  eval_path_fineweb: "/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train"
+  # FINEWEB_DIR is set at run time by the script block above: the scratch copy or group storage.
+  # The default only matters where nothing sets it (e.g. resolving the config on a laptop).
+  train_path_fineweb: "${oc.env:FINEWEB_DIR,/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train}"
+  eval_path_fineweb: "${oc.env:FINEWEB_DIR,/net/storage/pr3/plgrid/plggllmeffi3/datasets/fineweb/train}"
