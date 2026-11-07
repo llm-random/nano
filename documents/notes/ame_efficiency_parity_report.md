@@ -8,6 +8,14 @@ Its follow-up, [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md) (full-length
 entropy, X2 × AME), runs from here. Its results go to the sections "Full-length runs on
 entropy" and "X2 × AME" below.
 
+**Follow-up status (2026-11-07, 02:40):** Steps 0-2 done. The 20 full-length runs are
+training or queued on entropy, to finish around 15:00-16:00. Two setbacks so far:
+- the `/home` quota killed P1-1 at step 1,500 (fixed: checkpoints now go to NVMe);
+- AME-F ran 10× slow on flex's IEEE fp32 kernel (fixed: tf32x3, equally accurate,
+  re-validated).
+
+Verdicts follow when the runs are scored.
+
 - The plan file was emptied by an editor undo at 23:58, just as it was read, and was
   restored byte for byte from VS Code's local history (`8756aa5d`).
 - That plan caps its budget at 100 GPU-h; Maciej's goal message of 00:00 sets 120 GPU-h on
@@ -729,19 +737,145 @@ below with full-length A/Bs on entropy, with replicates.
 
 **Recipe:** S2-PS or S1-D at n = 8, 3,815 steps × 1,048,576 tokens, warmup 38, cosine to
 10%, seed 123, autocast bf16, `compile_blocks_full`. Configs: `configs/parity/fe_*.yaml` on
-`parity_audit`. Checkpoints land in the cemetery clones under `/home`, every 500 steps for
-AME-B1, P1-1 and AME-F1.
+`parity_audit`. Checkpoints go to h100a's NVMe, `/storage_nvme_1/mstefaniak/parity_full/`
+(not `/home`: see the quota incident below), every 500 steps for AME-B1, P1-1 and AME-F1.
 
 | Run | Config | Change | Jobs | Status |
 |---|---|---|---|---|
 | AME-B ×3 | `fe_ame_b{1,2,3}` | none (production) | 36400, 36404, 36407 | running since 00:12-00:14 |
-| P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | 36408, 36409, 36411 | running since 00:15-00:19 |
+| P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | P1-1: 36408 **died at step 1,500** (quota), rerun 36455; P1-2 36409, P1-3 36411 | P1-2, P1-3 running since 00:16-00:19; P1-1 queued |
 | P-REF | `fe_pref` | mp null + reference attention, micro-batch 8 × 64 | 36399 | running since 00:12 (~10.5 h) |
-| AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32`, **micro-batch 16** | 36417, 36419, 36421 | queued |
-| P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36422-36424 | queued |
-| D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36425-36427 | queued |
-| D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | 36416, 36418, 36420 | queued |
-| P0b | `fe_p0b` | AME-B at micro-batch 16 × 32 | 36428 | queued (first to cut if the budget tightens) |
+| AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32` with tf32x3 dots and a 32×128 backward tile (`parity_flex_kernel_options`, below), **micro-batch 16** | 36463, 36464, 36465 (first tries 36445, 36447, 36449 cancelled: 34 s/step) | queued, first in line |
+| P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36452, 36453, 36454 | queued |
+| D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36456, 36457, 36458 | queued |
+| D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | D-F1 36416; D-F2 36450, D-F3 36451 | D-F1 running since 00:50; D-F2, D-F3 queued (each requeued once, below) |
+| P0b | `fe_p0b` | AME-B at micro-batch 16 × 32 | 36459 | queued (first to cut if the budget tightens) |
+
+The first submissions of the 12 queued runs (36417-36428) failed at launch; see the
+incident.
+
+**Queue order: longest first.** AME-F (`nice` 50), D-F2 and D-F3 (75), then P1-16, P1-1,
+D-B and P0b (100). Analysis and scoring jobs run at `nice` 0 and go first.
+
+### The /home quota incident (2026-11-07, 01:52)
+
+- **What happened.**
+  - `mstefaniak`'s `/home` on entropy has a 120 GB hard quota (`xfs_quota`), shared by
+    every job of the account. The full runs saved their checkpoints into their cemetery
+    clones under `/home`: 13.2 GB per AME checkpoint.
+  - By 01:52, AME-B1 and P1-1 had saved five 500-step checkpoints (66 GB). Those sat on
+    top of the two finished checkpoint-test runs (36394, 36395: 50.5 GB) and
+    `~/parity_ckpt` (15 GB).
+  - **P1-1 (36408) died at its step-1,500 save** (`OSError: [Errno 122] Disk quota
+    exceeded`), after 1.64 GPU-h.
+  - **The 12 queued runs then started one after another on the freed GPU and each failed
+    within a second** (`RaisedSignal:53`): Slurm could not create their log files. No
+    GPU time was lost on them.
+  - The running jobs' local W&B logs stopped writing at 01:52. The W&B server kept every
+    step: at 02:10 all seven running runs had a loss row at every step from 0 on, none
+    missing.
+- **The fix (02:00-02:20).**
+  - Deleted the two checkpoint-test runs. Their result is recorded under Step 1.
+  - Redirected each of the seven running jobs' `checkpoint` folders: it is now a symlink
+    into `/storage_nvme_1/mstefaniak/parity_full/<run>` (5.7 TB free). The swap ran on
+    h100a itself, so the node's NFS client saw it at once, before AME-B1's next save.
+  - Copied AME-B1's three checkpoints and the failed P1-1's two to that folder (the
+    latter as `p1_1_failed36408`), checked every file byte for byte with `cmp`, and
+    deleted the `/home` copies.
+  - Set `checkpoint.save.path` in both full-run bases to
+    `/storage_nvme_1/${oc.env:USER}/parity_full/<run name>`, which resolves on the node
+    (`85dd16c8`). Resubmitted the 13 runs.
+  - `/home` usage: 120 GB (the limit) before the fix, 70.7 GB after the deletion, and
+    about 16 GB once the checkpoints moved.
+- **P1-1 restarts from step 0 rather than resuming from its step-1,000 checkpoint.**
+  The codebase marks resuming with optimizer state "not tested". A resumed run that
+  silently repeated or skipped data would not be a valid replicate. The cost is the 1.64
+  GPU-h already spent.
+
+### AME-F's speed: flex's fp32 kernel (02:06-02:50)
+
+- **AME-F1 (36445) trained at 34.1 s/step,** ten times production. That projects to 36 h
+  per run: past the 12-h limit, and three times the whole budget for the three runs.
+  - The Step 2 probe (36396) showed only that micro-batch 32 runs out of memory.
+    AME-F's speed at micro-batch 16 was never measured before the runs were submitted.
+  - That was my mistake: a 40-step probe at 16 would have shown it.
+- **Cause: flex's fp32 defaults** (torch 2.7.1, `torch/_inductor/kernel/flex_attention.py`).
+  - `float32_matmul_precision` is "highest" (the default). Under it, flex compiles fp32
+    dot products as IEEE on the CUDA cores, not on the tensor cores.
+  - Its fp32 backward tile is 16×16 with one stage, on every GPU.
+  - D-F escapes this: its fp32 SDPA costs dense only 2.2×.
+- **A benchmark at the training shape** (jobs 36460, 36461):
+  - What was timed: flex forward + backward at micro-batch 16, 12 heads, n 2048, d 64,
+    with AME's ALiBi `score_mod`, the causal mask and `return_lse`.
+  - Accuracy: one sequence against an fp64 materialized reference.
+
+  | Kernel | ms per call | Attention per optimizer step (12 layers × 32 micro-batches) | dq error vs fp64 |
+  |---|---|---|---|
+  | bf16 (production, P1) | 1.92 | 0.74 s | 4.5e-3 |
+  | fp32, IEEE dots, 16×16 backward tile (AME-F1 as run) | 82.2 | 31.6 s | 4.2e-7 |
+  | fp32, tf32x3 dots, 16×16 backward tile | 22.0-25.3 | 8.5-9.7 s | 4.2e-7 |
+  | fp32, tf32 dots | 13.7 | 5.3 s | 1.8e-3 |
+  | **fp32, tf32x3 dots, 32×128 backward tile, 8 warps, 2 stages** | **11.2** | **4.3 s** | **4.2e-7** |
+
+  - **tf32x3 is as accurate as IEEE here, to two digits** (dk 4.3-4.5e-7, dv
+    2.9-3.0e-7). It splits each fp32 operand into two TF32 parts and keeps three of the
+    four products, all on the tensor cores.
+  - **Plain TF32 is rejected:** it is only 2.5× more accurate than bf16, so it would not
+    test the hypothesis.
+  - Ten backward tiles were tried. All give the same error; the 32×128 tile at 8 warps
+    and 2 stages is the fastest.
+- **The fix** (`b0ae7385`):
+  - A new opt-in key, `parity_flex_kernel_options`, allowed only together with
+    `parity_attention_fp32`, hands flex these kernel options.
+  - Unset, the call passes none, as on every shipped path (tested).
+  - The AME-F configs set tf32x3 and the 32×128 tile. Expected speed: about 7.3 s/step,
+    about 8 h per run.
+  - It changes how fast AME-F's kernel runs, not what it computes: the arithmetic stays
+    fp32-accurate.
+- **Re-validated at the final checkpoint before AME-F trains** (job 36462, the same
+  check as 36393). Relative error against the fp32 oracle, `ame_f` (IEEE, as validated)
+  against `ame_f3x` (tf32x3 and the 32×128 tile, as the runs train):
+
+  | Group | `ame_f` train | `ame_f3x` train | `ame_f` held-out | `ame_f3x` held-out |
+  |---|---|---|---|---|
+  | alpha | 1.28e-2 | 1.30e-2 | 8.3e-3 | 7.7e-3 |
+  | beta | 1.87e-2 | 1.87e-2 | 1.25e-2 | 1.23e-2 |
+  | tau | 1.38e-2 | 1.46e-2 | 9.2e-3 | 8.4e-3 |
+  | ff, v_proj, o_proj | 1.19-1.30e-2 | 1.19-1.30e-2 | 1.03-1.15e-2 | 1.04-1.15e-2 |
+
+  **The same, group for group.** Losses: 3.277205 and 3.125758, against the oracle's
+  3.277061 and 3.125641 (`ame_f`: 3.277219, 3.125771).
+- **Tests.**
+  - On CPU, the full suite passes, the new tests included.
+  - On GPU (36462), the new CUDA test passes at n 64 and 2048: tf32x3 with the tile
+    matches fp64 to < 1e-5 in out, dq, dk and dv.
+  - One older test failed in that job: `test_ame.py`'s memory regression for the unfused
+    flex. The cause was the new test itself. It compiled AME's shared `_COMPILED_FLEX`
+    twice more, past dynamo's recompile limit (8), after which that function runs
+    uncompiled.
+  - Fixed in `4388170a`: the test now resets dynamo before and after. The runs are not
+    affected, because there flex is traced inside each compiled block at fixed shapes.
+  - The GPU suite is re-run with the next scoring job.
+- **Jobs.**
+  - AME-F1-3 (36445, 36447, 36449) were cancelled and resubmitted. The cancelled AME-F1
+    had used 0.25 GPU-h.
+  - D-F2 (36450) and D-F3 (36451) were requeued (`scontrol requeue`) 3 and 2 minutes
+    after they started. That put the benchmarks and the validation on a GPU now, not at
+    04:00. A requeued job keeps its ID and config, and restarts from step 0.
+
+### Budget (the bf16-scalars plan)
+
+The cap is 120 GPU-h, counting every job from 36392 on. Running totals are recorded as
+the runs finish.
+
+| Time | Used | Projected to the end | Note |
+|---|---|---|---|
+| 02:10 | 15.4 GPU-h | — | the quota incident cost 1.64 (P1-1) |
+| 02:37 | 19.2 GPU-h | **about 113** | AME-F at about 8 h per run (tf32x3); 36 h per run at IEEE would have been about 190 in all |
+
+The projection assumes P1-16 at about 4.2 h per run and D-F at 7.3 h, plus about 3 GPU-h
+for scoring and the error timeline. P0b, the first cut, stays while the projection holds
+under 120.
 
 Results, floors and the Q-P1 and Q-REF verdicts are added as the runs finish.
 
@@ -960,6 +1094,18 @@ AME, with the per-head scalars' gradients or the attention itself in fp32.
   job sets `TMPDIR`, `TRITON_CACHE_DIR` and `TORCHINDUCTOR_CACHE_DIR` under
   `/storage_nvme_4/nano/mstefaniak/parity_tmp/<job>` (`add22fd5`). Numerics are
   unchanged; only where compiled kernels are cached moves.
+- **2026-11-07 02:00. Full-run checkpoints on h100a's NVMe, not `/home`.** The plan put
+  them in the cemetery clones under `/home`, whose 120 GB quota cannot hold them (the
+  quota incident). They now go to `/storage_nvme_1/mstefaniak/parity_full/`, which only
+  h100a sees, so every scoring and analysis job runs there anyway.
+- **2026-11-07 02:30. AME-F's fp32 kernel uses tf32x3 dots and a 32×128 backward tile.**
+  The plan asks for the kernel "in fp32". flex's default fp32 kernel (IEEE dots on CUDA
+  cores, 16×16 backward tile) meets that at 34 s/step, which the budget cannot pay.
+  tf32x3 with the tile is as accurate (4.2e-7 from fp64 in dq, as IEEE) at about 7.3
+  s/step, and re-validates at the final checkpoint to the same scalar errors.
+  Details: "AME-F's speed".
+- **2026-11-07 02:30. P1-1 is rerun from step 0** after the quota killed it, not resumed:
+  resuming with optimizer state is untested in the codebase.
 - **Additions beyond the plan's checks, each to dig into a failed check:**
   - the gradient twin (`ame_t2fp32`, `ame_t2eager`, `--base ame_std`), which isolates
     A1, A2 and A3;
