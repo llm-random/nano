@@ -169,10 +169,13 @@ the new n before a winner is named. The runs were submitted at 03:36 from
 `~/code/nano-stage2b` at `89975bbf`, with `trainer.learning_rate=8` and `=10`; `sbatch`
 was run by hand (decision 2).
 
-| Arm | n | Job | Cemetery commit | Cemetery clone |
-|---|---:|---|---|---|
-| S2b-PS | 8 | 6260570 | `e51f51d4` | `s2b_ps_h16_lr8.0_2026-11-07_03-36-02` |
-| S2b-PS | 10 | 6260571 | `c1df24a4` | `s2b_ps_h16_lr10.0_2026-11-07_03-36-23` |
+| Arm | n | Job | Cemetery commit | Cemetery clone | W&B run | Node |
+|---|---:|---|---|---|---|---|
+| S2b-PS | 8 | 6260570 | `e51f51d4` | `s2b_ps_h16_lr8.0_2026-11-07_03-36-02` | `hjw7znbz` | r12-4 |
+| S2b-PS | 10 | 6260571 | `c1df24a4` | `s2b_ps_h16_lr10.0_2026-11-07_03-36-23` | `kxt7oe48` | r12-4 |
+
+Both started at about 03:38 and passed the startup check: 1,986,332,928 parameters and no
+error. They finish around 18:45.
 
 Results: pending; about 15.1 h each once running. At h12 the same check moved the best
 arm to n = 8 ([stage_2_report.md](stage_2_report.md)). If it does so here, S2b-P and
