@@ -8,7 +8,8 @@ Its follow-up, [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md) (full-length
 entropy, X2 × AME), runs from here. Its results go to the sections "Full-length runs on
 entropy" and "X2 × AME" below.
 
-**Follow-up status (2026-11-07, 12:25):** Steps 0-2 done; Step 4 under way.
+**Follow-up status (2026-11-07, 15:00):** Steps 0-2 done; Step 4 under way. Every AME run
+is scored.
 - **Q-P1 is final: not harmful.** AME-B − P1 = +0.0003 nats against a threshold of 0.0216.
   AME-B ×3 scores 3.1320 ± 0.0072 and P1 ×3 3.1317 ± 0.0069 (common evaluator; section
   "Scores").
@@ -17,13 +18,17 @@ entropy" and "X2 × AME" below.
   0.3-0.6% at every checkpoint (section "X2 × AME").
 - **Q-REF is final: not harmful.** P-REF, the plain implementation with every AME-only
   item off, scores 3.1381. AME-B − P-REF = −0.0061: production is the better one, 95%
-  interval [−0.029, +0.016]. Over the last 1,000 steps P-REF's train loss is also 0.0070
+  interval [−0.022, +0.009]. Over the last 1,000 steps P-REF's train loss is also 0.0070
   above production's.
+- **fp32 attention does not improve AME.** AME-F − P1-16 = +0.0079, 95% [−0.0027,
+  +0.0184]: at most a 0.003-nat gain from removing the scalars' gradient error.
+- **Micro-batch 16 (X6) changes nothing at 4B:** P0b − AME-B = −0.0033, P1-16 − P1 =
+  −0.0023.
 - **AME-F1's error timeline is in.** On its own weights, the fp32 path it trains with
   keeps the scalars' gradient error at 0.3-0.7% all run. The bf16 path, on the same
   weights, shows 2.6-9.9%.
-- **Still running:** 7 trainings on entropy, with D-B3 queued. Expected to finish around
-  15:45. Q-X2 follows from them.
+- **Still running:** D-B ×3, dense production, ending about 15:40. Q-X2 and the
+  replicated gap follow from them.
 - **Dense's runs spread 5× more than AME's.** D-F ×3 ends at 2.966, 3.014 and 3.031
   (trainer `final_ce`), against AME-B's 3.125-3.140. That widens Q-X2's interval (section
   "Scores").
@@ -764,11 +769,11 @@ below with full-length A/Bs on entropy, with replicates.
 | AME-B ×3 | `fe_ame_b{1,2,3}` | none (production) | 36400, 36404, 36407 | **done** 04:01-04:07 (3:48-3:55 h each) |
 | P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | P1-1: 36408 **died at step 1,500** (quota), rerun 36455; P1-2 36409, P1-3 36411 | **done**: P1-2, P1-3 04:10-04:12, P1-1 08:29 |
 | P-REF | `fe_pref` | mp null + reference attention, micro-batch 8 × 64 | 36399 | **done** 10:41 (10.5 h, 9.48 s/step) |
-| AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32` with tf32x3 dots and a 32×128 backward tile (`parity_flex_kernel_options`, below), **micro-batch 16** | 36463, 36464, 36465 (first tries 36445, 36447, 36449 cancelled: 34 s/step) | AME-F1 **done** 10:48 (8.2 h); AME-F2 and AME-F3 running since 04:03 (7.4 s/step, end about 12:15) |
-| P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36452, 36453, 36454 | running: P1-16_1 since 08:14 (3.62 s/step, ends about 12:15), P1-16_2 since 09:00 (about 13:00), P1-16_3 since 10:41 (about 14:35) |
-| D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36456, 36457, 36458 | running: D-B1 since 11:37, D-B2 since 12:03; D-B3 queued (about 3.3 h each) |
+| AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32` with tf32x3 dots and a 32×128 backward tile (`parity_flex_kernel_options`, below), **micro-batch 16** | 36463, 36464, 36465 (first tries 36445, 36447, 36449 cancelled: 34 s/step) | **done**: AME-F1 10:48, AME-F2 12:13, AME-F3 12:15 (8.2 h each, 7.4 s/step) |
+| P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36452, 36453, 36454 | **done**: P1-16_1 12:19, P1-16_2 13:06, P1-16_3 14:49 (4.1 h each, 3.62-3.66 s/step) |
+| D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36456, 36457, 36458 | running: D-B1 since 11:37, D-B2 since 12:03, D-B3 since 12:13 (2.97 s/step, about 3.3 h each) |
 | D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | D-F1 36416; D-F2 36450, D-F3 36451 | **done**: D-F1 08:13, D-F2 11:31, D-F3 11:37 (7.4 h each, 6.66 s/step; D-F2 and D-F3 requeued once, below) |
-| P0b | `fe_p0b` | AME-B at micro-batch 16 × 32 | 36459 | running since 10:48 (ends about 14:40); kept, the budget holds (below) |
+| P0b | `fe_p0b` | AME-B at micro-batch 16 × 32 | 36459 | **done** 14:45 (3.9 h, 3.47 s/step); kept, the budget held (below) |
 
 The first submissions of the 12 queued runs (36417-36428) failed at launch; see the
 incident.
@@ -817,6 +822,9 @@ path. Tool: `parity_score_runs.sh` → `parity_numerics.py score`. Verdicts:
 | D-F2 | 36450 | `d1m3dhvk` | 3.0137 | 3.012172 | 3.012331 (`dense_f`) | +0.000159 | 6.66 |
 | D-F3 | 36451 | `nykk0dd9` | 3.0312 | 3.030390 | 3.030552 (`dense_f`) | +0.000162 | 6.66 |
 | P1-16_1 | 36452 | `csqalshd` | 3.1270 | 3.126408 | 3.126546 (`ame_std`) | +0.000138 | 3.62 |
+| P1-16_2 | 36453 | `lj95a1s3` | 3.1377 | 3.135347 | 3.135485 (`ame_std`) | +0.000138 | 3.62 |
+| P1-16_3 | 36454 | `3hdjxbzb` | 3.1260 | 3.126403 | 3.126547 (`ame_std`) | +0.000144 | 3.66 |
+| P0b | 36459 | `6nxdqwme` | 3.1289 | 3.128700 | 3.128848 (`ame_prod`) | +0.000148 | 3.47 |
 | *`doi36p8k` (LEM, the original run, for reference)* | | | *3.125* | *3.125227* | *3.125377* | *+0.000150* | |
 
 Scoring jobs:
@@ -826,7 +834,8 @@ Scoring jobs:
   the trainings it reads:
   - 36513: AME-F1, P-REF, and AME-F1's error timeline (11:31-12:03, 0.53 GPU-h);
   - 36514: D-F2, D-F3, AME-F2, AME-F3 and P1-16_1 (12:19-12:42, 0.38 GPU-h);
-  - 36515-36520: one per late run (P1-16_2, P1-16_3, P0b, D-B ×3).
+  - 36515-36520: one per late run (P1-16_2, P1-16_3, P0b, D-B ×3), about 0.08 GPU-h each:
+    36515 (P1-16_2) 13:06-13:10, 36517 (P0b) 14:45-14:50, 36516 (P1-16_3) 14:49-14:54.
 
 **ssh outage, 09:05-09:18.** Entropy stopped accepting connections partway through
 queuing these jobs, after about 12 in quick succession (probably a rate limit). The last
@@ -891,8 +900,10 @@ sets the finish.
     range (AME-B and P1: 3.1245-3.1395).
   - **AME-B − P-REF = −0.0061**: production is the better one. The threshold is +0.0216.
     - P-REF is a single run, so its 95% interval uses AME's run-to-run sd, pooled over
-      AME-B and P1 (0.00705, 4 dof): **[−0.029, +0.016]**.
-    - At 4B tokens, AME's efficiency implementation costs it at most 0.016 nats against
+      the four replicated AME groups, AME-B, P1, P1-16 and AME-F (0.00585, 8 dof):
+      **[−0.022, +0.009]**. *(At 12:25, pooled over AME-B and P1 only: 0.00705, 4 dof,
+      [−0.029, +0.016].)*
+    - At 4B tokens, AME's efficiency implementation costs it at most 0.009 nats against
       the plain implementation, and the point estimate favours production.
   - Over the last 1,000 steps the 50-step paired train-loss gap, AME-B − P-REF, is
     **−0.0070**: production's loss is the *lower* one, at every one of those steps. The
@@ -913,6 +924,26 @@ sets the finish.
     persistent drift, like AME-B1's loss, and it does not reach the loss. Each readout is
     computed from one sequence, the same for every run at a given step (`ame.py`,
     `attention_diagnostics`, the same on every backend).
+- **X6, micro-batch 16 × 32 against 32 × 16, at 4B tokens (14:56): no effect.**
+  - Production: **P0b − AME-B = −0.0033**, 95% [−0.019, +0.012] (P0b is one run: AME's
+    pooled sd, 0.00585 with 8 dof, as for P-REF).
+  - Ordinary path: **P1-16 − P1 = −0.0023**, 95% [−0.017, +0.012] (Welch, three runs
+    each). P1-16 ×3 scores 3.129386 ± 0.00516.
+  - Micro-batch 16 costs 3-6% speed: P0b 3.47 s/step against AME-B's 3.36-3.38, P1-16
+    3.62-3.66 against P1's 3.44-3.45.
+  - **The scalars may notice the micro-batch; the loss does not.** At step 3,800 the
+    micro-batch-16 runs' alpha (layer mean) sits 0.01-0.02 below the micro-batch-32 runs':
+    P1-16 0.505 ± 0.005, AME-F 0.507 ± 0.008 and P0b 0.497, against AME-B 0.516 ± 0.007
+    and P1 0.520 ± 0.011. P-REF, at micro-batch 8, has 0.493. One comparison alone does
+    not resolve it (P1 − P1-16 = +0.015, 95% [−0.007, +0.038]).
+  - Against the six micro-batch-32 runs, P0b's tau sits 0.08-0.09 lower from step 2,000 on
+    (t ≈ −2.8, p ≈ 0.04), and its attention entropy 0.04-0.06 higher (p 0.01-0.03). Beta
+    does not move. As with P-REF, none of it survives the 20 tests.
+- **The AME side of Q-X2 (14:56): fp32 attention does not improve AME.** AME-F − P1-16 =
+  **+0.0079**, 95% **[−0.0027, +0.0184]** (Welch, three runs each): the fp32 runs are, if
+  anything, the worse ones. Removing the scalars' gradient error (0.3-0.7% against 4-15%
+  all run, section "X2 × AME") improves AME's 4B-token loss by at most 0.003 nats. Q-X2
+  itself needs D-B (section "X2 × AME").
 
 ### The /home quota incident (2026-11-07, 01:52)
 
