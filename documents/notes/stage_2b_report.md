@@ -1,11 +1,11 @@
 # Stage 2b — positional encoding and the shift at h16: report
 
-**Status: wave 1 finished (2026-11-07 03:34). S2b-PS, ALiBi with the shift, is best,
-provisionally: 2.8965 at n = 9, and the order of the cells matches h12. Wave 2, the
-learning-rate check on S2b-PS at n = 8 and 10, is running (jobs 6260570, 6260571; done
-about 18:45). n = 8 leads n = 9 at 30% of the run, and by more at 50%, so wave 3, S2b-P
-and S2b-S at n = 8, started early (jobs 6261187, 6261188; decision 4; done about 23:00). The noise-floor run S2b-N was
-cancelled at Maciej's request.**
+**Status: wave 2 finished (2026-11-07 18:43). The learning-rate check moved S2b-PS's best
+n to 8: `final_ce` 2.8594, against 2.8965 at n = 9 and 2.9688 at n = 10. By the plan's
+rule, S2b-P and S2b-S re-run at n = 8 before the winner is named. That is wave 3, running
+since 08:17 (jobs 6261187, 6261188; decision 4), done about 23:00. At n = 9 the order of
+the cells matched h12, with S2b-PS best. The noise-floor run S2b-N was cancelled at
+Maciej's request.**
 
 The plan is [ame_experiments.md, "Stage 2b — positional encoding and the shift at h16"](ame_experiments.md#stage-2b--positional-encoding-and-the-shift-at-h16).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -243,7 +243,31 @@ at step 3,800. Neither run has spiked: no train loss above 5.41 after step 200.
 Still no spike in either run at 16:54 (step ~6,750, 88%). `eval/loss` at step 6,700:
 2.8750 (n = 8), 2.9062 (n = 9), 2.9844 (n = 10).
 
-Results: pending.
+### Results — wave 2 finished 18:37 (n = 10) and 18:43 (n = 8)
+
+Both jobs `COMPLETED` after 14 h 59 min and 15 h 06 min, 30.1 GPU-h together. Parameters,
+FLOPs per token and code as S2b-PS in wave 1 (1,986.33M; 2.121 GFLOP/token; `89975bbf`,
+config stage_2b/ame_h16_pe_shift with `trainer.learning_rate` set on the command line).
+Readouts at the end of training, averaged over the 16 layers:
+
+| n | `final_ce` | Last 10-batch eval | Loss spikes (train) | s/step | MFU | τ, mean | Attention entropy, normalized | Top-8 mass | α₂, mean \|·\| | β₂, mean \|·\| | Shortest horizon | Job | W&B run |
+|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| 8 | **2.8594** | 2.8594 | none | 6.810 | 33.0% | 8.53 | 0.502 | 0.594 | 0.550 | 0.725 | 14.8 | 6260570 | `hjw7znbz` |
+| 9 (wave 1) | 2.8965 | 2.8906 | none | 6.773 | 33.2% | 8.33 | 0.536 | 0.555 | 0.454 | 0.669 | 15.0 | 6255247 | `rv4xqzap` |
+| 10 | 2.9688 | 2.9688 | none | 6.757 | 33.3% | 8.04 | 0.595 | 0.481 | 0.350 | 0.690 | 15.2 | 6260571 | `kxt7oe48` |
+
+**The best arm's best n moved to 8**, 0.037 below n = 9; n = 10 is 0.072 above. h12 did
+the same: its check moved S2-PS to n = 8, by 0.062 ([stage_2_report.md](stage_2_report.md)).
+- **What the plan's rule now asks.** S2b-P and S2b-S at n = 8 before a winner is named.
+  That is wave 3, already running (decision 4).
+- **No n = 7 run.** n = 8 is the edge of the check, but the plan's check is n\* ± 1 and
+  has no edge rule; the edge rule belongs to the Stage 1 and 1b grids. At h12, Maciej's
+  extra S2-PS runs at n = 7 and 6 did not beat n = 8. "For Maciej" 3 has the option.
+- **The readouts move with the learning rate, as at h12.** The higher it is, the sharper
+  the attention (normalized entropy 0.595 → 0.536 → 0.502 from n = 10 to 8; top-8 mass
+  0.48 → 0.56 → 0.59) and the larger α₂ (0.35 → 0.45 → 0.55). β₂ and the shortest ALiBi
+  horizon barely move.
+- **No spikes at any of the three learning rates**, as for every ALiBi run at h12.
 
 ## Wave 3 — S2b-P and S2b-S at n = 8
 
@@ -328,3 +352,11 @@ Items that need your decision. None blocks a run.
    test whether the h16 optimum moves.
 2. **`run_exp.py` and run names with a dot**: see [stage_2_report.md](stage_2_report.md),
    "For Maciej" 2.
+3. **S2b-PS's best n, 8, is the edge of the plan's check (n\* ± 1).** The plan has no edge
+   rule for the check, so no n = 7 run was made. At h12, S2-PS at n = 7 and 6 did not
+   beat n = 8 (3.2031 after a spike, and 3.1348, against 3.1250). S2b-PS at n = 7 would
+   cost about 15 GPU-h and 15 h.
+   - **Dense at n = 8 is untested at h16**, because Stage 1b stopped at n = 9. At h12, dense
+     gained 0.042 from n = 9 to n = 8. So the AME-to-dense gaps measured against S1b-D at
+     n = 9 probably flatter AME by a few hundredths. S1b-D at n = 8 would cost about
+     14 GPU-h.
