@@ -2,8 +2,10 @@
 
 **Status: wave 1 finished (2026-11-07 03:34). S2b-PS, ALiBi with the shift, is best,
 provisionally: 2.8965 at n = 9, and the order of the cells matches h12. Wave 2, the
-learning-rate check on S2b-PS at n = 8 and 10, is queued (jobs 6260570, 6260571). The
-noise-floor run S2b-N was cancelled at Maciej's request.**
+learning-rate check on S2b-PS at n = 8 and 10, is running (jobs 6260570, 6260571; done
+about 18:45). n = 8 leads n = 9 at 30% of the run, so wave 3, S2b-P and S2b-S at n = 8,
+started early (jobs 6261187, 6261188; decision 4). The noise-floor run S2b-N was
+cancelled at Maciej's request.**
 
 The plan is [ame_experiments.md, "Stage 2b — positional encoding and the shift at h16"](ame_experiments.md#stage-2b--positional-encoding-and-the-shift-at-h16).
 This file is its record: every job, result and decision, each with its reason. Times are
@@ -46,6 +48,25 @@ at h12, is [stage_2_report.md](stage_2_report.md).
    - **How the analysis handles it.** It takes Stage 2's h12 seed gap, S1-A0 against S2-N
      at n = 9, as a stated proxy. It reports every Stage 2b difference with that proxy
      beside it, instead of calling ties at h16.
+4. **S2b-P and S2b-S re-run at n = 8 before the learning-rate check finished
+   (2026-11-07 08:16).** The plan re-runs the other two arms at the new n if the check
+   moves S2b-PS's best n. I started them when the check was 30% done, not at its end:
+   - **n = 8 leads n = 9 at matched steps, and the lead grows.** The two runs see the
+     same data in the same order (seed 123), so the comparison is paired. n = 8 overtook
+     n = 9 at about step 1,500 (20% of the run) and leads by 0.006 at steps 2,000–2,199
+     (table in wave 2). n = 10 trails by 0.07.
+   - **h12 took the same path and ended at n = 8.** There n = 8 overtook n = 9 at about
+     step 950 of 3,815 (25%); its lead grew steadily, to 0.061 in `final_ce`. At h16 the
+     crossover came earlier, but the lead grows more slowly so far: 0.006 against h12's
+     0.011 at 26–29% of the run.
+   - **Starting now saves about 10.5 h**: wave 3 finishes around 23:45 instead of about
+     10:00 on 2026-11-08.
+   - **Cost if n = 9 wins after all:** about 30 GPU-h, and the two runs still show how
+     S2b-P and S2b-S respond to the learning rate. The LEM grant had 72,150 of its
+     100,000 GPU-h left (`service-balance`, 08:15).
+
+   The runs use the same commit, `89975bbf`, with `trainer.learning_rate=8`; `sbatch` was
+   run by hand (decision 2).
 
 ## Wave 1 — the three arms and the noise floor, at n = 9
 
@@ -177,9 +198,43 @@ was run by hand (decision 2).
 Both started at about 03:38 and passed the startup check: 1,986,332,928 parameters and no
 error. They finish around 18:45.
 
-Results: pending; about 15.1 h each once running. At h12 the same check moved the best
-arm to n = 8 ([stage_2_report.md](stage_2_report.md)). If it does so here, S2b-P and
-S2b-S re-run at n = 8, about another 15 h.
+**At 30% (08:14, step ~2,300 of 7,630)**, train loss averaged over 200-step windows, with
+wave 1's S2b-PS at n = 9 at the same steps. The runs share seed and data order, so each
+row compares the same batches. `eval/loss` is logged in bf16, too coarse for gaps this
+small: it reads 3.2031 for both n = 8 and n = 9 at step 2,200.
+
+| Steps | Share of the run | n = 8 | n = 9 (wave 1) | n = 10 | n = 8 − n = 9 | h12, same share: n = 8 − n = 9 |
+|---|---|---:|---:|---:|---:|---:|
+| 1,000–1,199 | 13–16% | 3.5739 | 3.5566 | 3.6230 | +0.017 | +0.088 |
+| 1,200–1,399 | 16–18% | 3.4941 | 3.4848 | 3.5557 | +0.009 | +0.059 |
+| 1,400–1,599 | 18–21% | 3.4308 | 3.4298 | 3.4996 | +0.001 | +0.031 |
+| 1,600–1,799 | 21–24% | 3.3811 | 3.3836 | 3.4546 | −0.002 | +0.011 |
+| 1,800–1,999 | 24–26% | 3.3426 | 3.3453 | 3.4168 | −0.003 | +0.000 |
+| 2,000–2,199 | 26–29% | 3.3074 | 3.3134 | 3.3831 | **−0.006** | −0.011 |
+
+The h12 column is Stage 2's same check (`doi36p8k` against `ublx3ion`), in 100-step
+windows at the same share of its 3,815 steps (7,630 = 2 × 3,815). Its gap kept growing:
+−0.061 over the last 115 steps and in `final_ce`. At h16, n = 8 crossed earlier (20% of
+the run, against 25%) but its lead grows more slowly so far. The direction is the same,
+so wave 3 started now (decision 4).
+
+Results: pending.
+
+## Wave 3 — S2b-P and S2b-S at n = 8
+
+Started early, while wave 2 runs (decision 4). Submitted at 08:16 from
+`~/code/nano-stage2b` at `89975bbf`, with `trainer.learning_rate=8`; `sbatch` was run by
+hand (decision 2). Each cemetery commit has `89975bbf` as its parent and adds only
+`exp.job` and `generated_configs/config_0.yaml`.
+
+| Arm | n | Job | Cemetery commit | Cemetery clone | W&B run | Node |
+|---|---:|---|---|---|---|---|
+| S2b-P | 8 | 6261187 | `def924ee` | `s2b_p_h16_lr8.0_2026-11-07_08-16-10` | pending | r10-8 |
+| S2b-S | 8 | 6261188 | `52b1d182` | `s2b_s_h16_lr8.0_2026-11-07_08-16-30` | pending | r10-13 |
+
+Both started at 08:17 and finish around 23:30. If wave 2 still ends with n = 9 best,
+wave 1 names the winner, and these two runs are reported as a learning-rate check of
+S2b-P and S2b-S.
 
 ## For Maciej
 
