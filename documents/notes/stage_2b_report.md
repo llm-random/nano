@@ -230,6 +230,16 @@ loss over 200-step windows:
 `eval/loss` now separates them by one bf16 step: 3.0312 (n = 8) against 3.0469 (n = 9)
 at step 3,800. Neither run has spiked: no train loss above 5.41 after step 200.
 
+**At 70% (14:06, step ~5,300)** the lead was still growing, as at h12 in the cosine decay:
+
+| Steps | n = 8 | n = 9 (wave 1) | n = 10 | n = 8 − n = 9 |
+|---|---:|---:|---:|---:|
+| 4,200–4,399 | 3.0856 | 3.0994 | 3.1653 | −0.014 |
+| 4,600–4,799 | 3.0598 | 3.0758 | 3.1430 | −0.016 |
+| 5,000–5,199 | 3.0338 | 3.0532 | 3.1213 | **−0.019** |
+
+Still no spike in either run.
+
 Results: pending.
 
 ## Wave 3 — S2b-P and S2b-S at n = 8
@@ -267,7 +277,23 @@ windows):
   4.4. The same arm spiked three times at n = 9 (wave 1), and twice or more at both n at
   h12 ([stage_2_report.md](stage_2_report.md)). So the spikes belong to the
   shift-without-ALiBi cell, not to this run or this learning rate. No action: the run
-  continues, and its `final_ce` is the result. If wave 2 still ends with n = 9 best,
+  continues, and its `final_ce` is the result.
+
+**At 40% (14:06):**
+
+| Steps | S2b-P n = 8 | S2b-P n = 9 | n = 8 − n = 9 | S2b-S n = 8 | S2b-S n = 9 | n = 8 − n = 9 |
+|---|---:|---:|---:|---:|---:|---:|
+| 1,800–1,999 | 3.4658 | 3.4685 | −0.003 | 4.1495 | 4.8453 | −0.696 (n = 9 spike) |
+| 2,200–2,399 | 3.3954 | 3.4033 | −0.008 | 4.5134 | 4.1247 | +0.389 (n = 8 spike) |
+| 2,600–2,799 | 3.3415 | 3.3528 | −0.011 | 3.9616 | 3.9640 | −0.002 |
+| 2,800–2,999 | 3.3173 | 3.3280 | **−0.011** | — | — | — |
+
+- **S2b-P at n = 8 overtook n = 9** at about step 1,900 (25%) and leads by 0.011 at
+  steps 2,800–2,999. That is slightly ahead of S2b-PS's path: S2b-PS led by 0.008 on the
+  same steps.
+- **S2b-S at n = 8 spiked twice more**: steps 2,236–2,290, to 7.47, and steps
+  2,903–2,924, to 5.03. That makes four so far, against three in the whole n = 9 run.
+  Between spikes the two runs are level (2,600–2,799: −0.002). If wave 2 still ends with n = 9 best,
 wave 1 names the winner, and these two runs are reported as a learning-rate check of
 S2b-P and S2b-S.
 
