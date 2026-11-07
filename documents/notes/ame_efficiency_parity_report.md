@@ -5,40 +5,36 @@
 not needed: no item is harmful.**
 
 Its follow-up, [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md) (full-length A/Bs on
-entropy, X2 × AME), runs from here. Its results go to the sections "Full-length runs on
+entropy, X2 × AME), ran from here. Its results are in the sections "Full-length runs on
 entropy" and "X2 × AME" below.
 
-**Follow-up status (2026-11-07, 15:00):** Steps 0-2 done; Step 4 under way. Every AME run
-is scored.
-- **Q-P1 is final: not harmful.** AME-B − P1 = +0.0003 nats against a threshold of 0.0216.
-  AME-B ×3 scores 3.1320 ± 0.0072 and P1 ×3 3.1317 ± 0.0069 (common evaluator; section
-  "Scores").
-- **The first error timeline is in.** With bf16 attention, the scalars' gradient error
-  grows from 1.5-3% at step 500 to 4-15% from step 1,000 on. fp32 attention holds it at
-  0.3-0.6% at every checkpoint (section "X2 × AME").
-- **Q-REF is final: not harmful.** P-REF, the plain implementation with every AME-only
-  item off, scores 3.1381. AME-B − P-REF = −0.0061: production is the better one, 95%
-  interval [−0.022, +0.009]. Over the last 1,000 steps P-REF's train loss is also 0.0070
-  above production's.
-- **fp32 attention does not improve AME.** AME-F − P1-16 = +0.0079, 95% [−0.0027,
-  +0.0184]: at most a 0.003-nat gain from removing the scalars' gradient error.
+**Follow-up status (2026-11-07, 15:50): complete.** 20 full-length runs (4B tokens each)
+are scored with the common evaluator. Every question has its verdict, no job is queued or
+running, and the cleanup is done. 112.35 of the 120 GPU-h were used.
+
+| Question | Verdict | Evidence (common evaluator, 95% intervals) |
+|---|---|---|
+| **Q-P1**: does A2, the bf16 compute copy, change AME's 4B loss? | **not harmful** | AME-B − P1 = +0.0003, [−0.016, +0.016]; threshold 0.0216 |
+| **Q-REF**: does switching off every AME-only item (A1-A7) change it? | **not harmful** | AME-B − P-REF = −0.0061, [−0.022, +0.009]: production is the better one |
+| **Q-X2**: does fp32 attention help AME more than dense? | **inconclusive** by the plan's rule, bound +0.24 (dense's spread) | I = −0.089, [−0.415, +0.238]. **AME's side alone: fp32 attention gains AME at most 0.003 nats** (AME-F − P1-16 = +0.0079, [−0.0027, +0.0184]) |
+
+- **The bf16 scalars' error is real and costs AME nothing measurable.** With bf16
+  attention, the scalars' gradient error is 4-15% from step 1,000 on. fp32 attention
+  holds it at 0.3-0.7% all run. AME still trains no better with fp32 attention.
 - **Micro-batch 16 (X6) changes nothing at 4B:** P0b − AME-B = −0.0033, P1-16 − P1 =
   −0.0023.
-- **AME-F1's error timeline is in.** On its own weights, the fp32 path it trains with
-  keeps the scalars' gradient error at 0.3-0.7% all run. The bf16 path, on the same
-  weights, shows 2.6-9.9%.
-- **Still running:** D-B ×3, dense production, ending about 15:40. Q-X2 and the
-  replicated gap follow from them.
-- **Dense's runs spread 5× more than AME's.** D-F ×3 ends at 2.966, 3.014 and 3.031
-  (trainer `final_ce`), against AME-B's 3.125-3.140. That widens Q-X2's interval (section
-  "Scores").
-
-Two setbacks so far:
-- the `/home` quota killed P1-1 at step 1,500 (fixed: checkpoints now go to NVMe);
-- AME-F ran 10× slow on flex's IEEE fp32 kernel (fixed: tf32x3, equally accurate,
-  re-validated).
-
-Verdicts follow when the runs are scored.
+- **Dense's runs spread 6-24× more than AME's, and that sets the gap's uncertainty.**
+  - All 14 AME runs end within 0.015 of each other. The six dense runs span 0.27.
+  - D-B1 spiked at step 354. D-B3 trained 0.3 nats slower after a bump at step 83, and
+    ends 0.11 *worse* than AME.
+  - The replicated gap, AME-B − D-B, is +0.048, [−0.30, +0.40]. Against the two dense
+    runs without an early event it is 0.165, and the LEM pair's was 0.143.
+- Two setbacks, both fixed:
+  - the `/home` quota killed P1-1 at step 1,500 (checkpoints moved to NVMe; rerun);
+  - AME-F ran 10× slow on flex's IEEE fp32 kernel (tf32x3: equally accurate,
+    re-validated).
+- Questions for Maciej: Q4 (Q-X2's power) and Q5 (the 470 GB of checkpoints), each with
+  the default taken.
 
 - The plan file was emptied by an editor undo at 23:58, just as it was read, and was
   restored byte for byte from VS Code's local history (`8756aa5d`).
@@ -47,8 +43,9 @@ Verdicts follow when the runs are scored.
 
 ## The answer
 
-**No evidence that AME's efficiency work costs it quality; the 0.143-nat gap to dense is
-the method, not the implementation, as far as these checks reach.**
+**No evidence that AME's efficiency work costs it quality, at 4B tokens included. The gap
+to dense is the method's, not the implementation's. How large it is depends on which
+dense run it is measured against, because dense at n = 8 sometimes fails.**
 
 - **At the loss level, the implementation's share of the gap is zero to within 1e-5.**
   - Scored by the fp32 reference path on the full held-out set, the gap is **0.142620**.
@@ -72,18 +69,52 @@ the method, not the implementation, as far as these checks reach.**
   - **220 steps:** production (5 runs) against G-REF (4 runs, every AME-only item off):
     −0.034 nats in production's favour, 95% interval [−0.22, +0.15], Mann-Whitney p = 0.90.
     No difference.
-- **What this audit cannot see:** effects that need thousands of steps. The full-length
-  runs that would size them are prepared, not run (Proposed full-length runs).
-- **One AME-specific numerical weakness, which is not the efficiency work's.** Under bf16
-  autocast, which dense shares, the gradients of AME's per-head scalars (alpha, beta,
-  tau) are 9-31% off late in training, in *every* bf16 implementation of AME, the plain
-  one included. Its training effect is unmeasured (X2).
+- **No harm at 4B tokens** (the follow-up: full-length runs on entropy, three per arm,
+  scored by the fp32 evaluator).
+  - Production against the same model with A2 off (P1): +0.0003 nats, 95% [−0.016,
+    +0.016].
+  - Production against the plain implementation with every AME-only item off (P-REF):
+    −0.006, [−0.022, +0.009]. Production is the better one, and its 50-step mean train
+    loss is lower at every one of the last 1,000 steps.
+  - Micro-batch 16 instead of 32: −0.003 (production), −0.002 (ordinary path).
+- **One AME-specific numerical weakness, which is not the efficiency work's, and which
+  costs nothing measurable.** Under bf16 autocast, which dense shares, the gradients of
+  AME's per-head scalars (alpha, beta, tau) are 9-31% off late in training. This holds
+  in *every* bf16 implementation of AME, the plain one included.
+  - Along the run, the error is 4-15% from step 1,000 on.
+  - fp32 attention removes it, holding the error at 0.3-0.7% all run, yet gains AME at
+    most 0.003 nats at 4B tokens (AME-F − P1-16 = +0.0079, [−0.0027, +0.0184]).
+  - Q-X2's interaction with dense is inconclusive only because dense's runs spread so
+    widely (X2 × AME).
+- **The gap's size is less certain than one pair made it look.**
+  - Three runs per arm on entropy, with the same seed: AME's runs end within 0.015 of
+    each other. Dense's span 0.27, because two of three production runs hit an early
+    event: D-B1 spiked at step 354, and D-B3 trained 0.3 nats slower after a bump at
+    step 83.
+  - Against the dense runs without an event, AME is 0.165 behind. The LEM pair gave
+    0.143.
+  - Averaged over replicates, AME-B − D-B = +0.048, 95% [−0.30, +0.40]: not resolved.
+    One dense replicate (D-B3) ends 0.11 *worse* than AME.
 
 ## How this changes ame_comparison_h12.md
 
 It adds F11 and rejects the implementation hypothesis (H8). The step-10 spike (F3) is
 present in every AME configuration, G-REF included, so it is the method's, not Tier 2's
 or flex's.
+
+The follow-up (2026-11-07) adds:
+- **F11 at 4B tokens:** no harm from any item, and fp32 attention gains AME at most 0.003
+  nats;
+- **F12, the gap replicated.**
+  - Dense's runs spread 6-24× more than AME's.
+  - F3's stability contrast holds with replicates: dense hit an early event in two of
+    three production runs, and none of the 11 bf16 AME runs on entropy spiked (nor did
+    the LEM run).
+  - F1's 0.143 is one draw. Against clean dense runs the gap is 0.165; averaged over
+    replicates it is unresolved;
+- **H3 (the early lead) is weakened:** across replicate pairs, the early lead ranges from
+  none to 1.0 nat, depending on the dense run;
+- **H8 is not supported at 4B tokens either.**
 
 - The plan: [ame_efficiency_parity_plan.md](ame_efficiency_parity_plan.md). This file is
   its record: every check, job, result and decision, with its reason.
@@ -95,12 +126,13 @@ or flex's.
 
 ## Verdicts
 
-One row per item of the plan's inventory (section 4). Filled in as the evidence lands.
+One row per item of the plan's inventory (section 4), plus one for A1-A7 together. Final
+as of 2026-11-07 15:50, with the follow-up's 4B-token results.
 
 | # | Item | Verdict | Evidence |
 |---|---|---|---|
 | A1 | Tier 2 bank path (O1-O5) | **cleared** (exact) | 1.5 at init (clip active) and at the final checkpoint (real moments): Tier 2 and the ordinary fused AdamW agree to ≤ 1.3e-7, i.e. fp32 rounding, foreach against fused. The twin at init: with an fp32 compute copy, Tier 2's gradient equals the ordinary path's bit for bit, except the banks at 2e-6 (summation order). Gates: G1a (A1 on, A2 off) and G1 (A1 off) are the same computation and land at opposite ends of the chaotic spread |
-| A2 | O3, the bf16 bank compute copy: the prep in bf16 | **cleared at the gradient level**; training effect at 300 steps bounded below | Within dense's rounding budget. It adds about 40% to the prep's rounding (q, k reach the kernel 2.33e-3 from fp32 against 1.66e-3), and it rounds tau's forward copy (≤ 0.37% per head). Gradient effect (production against `ame_std`): ≤ 0.42% at init and 0.55-2.3% at final, against a 0.4-1.0% nondeterminism floor between equivalent computations and dense's 2.8-4.0% budget. No loss cost: AME's precision tax is +0.00015, dense's +0.00015 |
+| A2 | O3, the bf16 bank compute copy: the prep in bf16 | **cleared**, at the gradient level and at 4B tokens (Q-P1: AME-B − P1 = +0.0003, 95% [−0.016, +0.016], three runs each) | Within dense's rounding budget. It adds about 40% to the prep's rounding (q, k reach the kernel 2.33e-3 from fp32 against 1.66e-3), and it rounds tau's forward copy (≤ 0.37% per head). Gradient effect (production against `ame_std`): ≤ 0.42% at init and 0.55-2.3% at final, against a 0.4-1.0% nondeterminism floor between equivalent computations and dense's 2.8-4.0% budget. No loss cost: AME's precision tax is +0.00015, dense's +0.00015 |
 | A3 | D2, the fused Q/K pair, traced by compile | **cleared** (exact) | The twin at init: the eager gather reproduces production's gradient bit for bit. 1.3, all exact items at init and at final: no absent row nonzero, no leak into row id + 1, the rows are exactly the input ids, prev-row correlation equal to the next-row control |
 | A4 | flex_attention, compiled, ALiBi in `score_mod` | **cleared** | Kernel at the production shape with trained weights: out 2.2-2.6e-3, dq 3.5-5.4e-3 against the exact fp32 function. That is at or below the plain bf16 implementation's error (dq up to 1.2e-2) and within 1.0-1.5× of SDPA flash on the same inputs; projections ≤ 6e-4. G-REF at 220 steps sits inside the production spread |
 | A5 | S2, the sink as an LSE merge | **cleared** | The LSE gradient is wired in torch 2.7.1 (source, Phase 0.2 item 3) and right numerically: an LSE-only loss gives dq within 2e-3 at init and at final, in all 12 layers. That includes sink weights of 0.14-0.24. d`k_sink` 1.8-4.0e-3, d`v_sink` 0.6-1.5e-3 at final |
@@ -109,11 +141,12 @@ One row per item of the plan's inventory (section 4). Filled in as the evidence 
 | A8 | the compiled AME block | **cleared** | Production against `ame_prod_eager`: 0.08-0.33% at init, 0.6-1.7% at final. Same scale as dense's compiled against eager (0.7-2.4%), inside dense's budget |
 | A9 | the bank sidecar checkpoint (O30) | **cleared** | `final_ce` reproduces exactly (3.125) from the checkpoint and its sidecar through `load_checkpoint_from_file`. 1.5 at final runs on the sidecar's moments |
 | X1 | `compile_blocks_full` | **cleared**, symmetric | As A8 for AME; dense's compiled against eager is 0.7-2.4% at final |
-| X2 | autocast bf16, no FSDP2 | **numerical, AME-specific interaction** | The loss-level tax is the same in both arms (+0.00015). At the final checkpoint, though, alpha, beta and tau carry 8.6-31% gradient error in *every* bf16 AME path, the plain reference included, against dense's worst group at 2.8-4.0%. Cause: the bf16 attention backward, amplified by cancellation in the per-head reductions. Training effect not measured (late-training; see the proposed runs) |
+| X2 | autocast bf16, no FSDP2 | **numerical, AME-specific interaction; no measurable training cost** (Q-X2 by the plan's rule: inconclusive, I = −0.089, 95% [−0.415, +0.238]) | The loss-level tax is the same in both arms (+0.00015). At the final checkpoint, though, alpha, beta and tau carry 8.6-31% gradient error in *every* bf16 AME path, the plain reference included, against dense's worst group at 2.8-4.0%. Cause: the bf16 attention backward, amplified by cancellation in the per-head reductions; 4-15% from step 1,000 on. fp32 attention (AME-F) holds it at 0.3-0.7% all run and gains AME at most 0.003 nats at 4B (AME-F − P1-16 = +0.0079, [−0.0027, +0.0184]). The interaction's interval is dense's run-to-run spread (X2 × AME) |
 | X3 | CE outside autocast, on bf16 logits | **cleared**, symmetric | fp32-CE variants: 0.02-0.18% at init in both arms, 0.2-0.9% (AME) and 0.19-0.73% (dense) at final. No interaction with the arm |
 | X4 | `sequence_length` 2049 | **cleared** | The same data in both arms; the model sees 2048 tokens |
 | X5 | fused AdamW on the backbone | **cleared** | 1.5: fused and foreach AdamW agree to 1e-7 |
-| X6 | micro-batch 32 × 16 | **cleared** | G0c (micro-batch 16) lands inside the production spread at 300 and at 220 steps |
+| X6 | micro-batch 32 × 16 | **cleared**, at 4B tokens too | G0c (micro-batch 16) lands inside the production spread at 300 and at 220 steps. At 4B: P0b − AME-B = −0.0033, 95% [−0.019, +0.012]; P1-16 − P1 = −0.0023, [−0.017, +0.012] |
+| A1-A7 | every AME-only item off together (P-REF: reference attention, fp32 banks, micro-batch 8) | **cleared** at 220 steps and at 4B tokens | G-REF at 220 steps: −0.034, 95% [−0.22, +0.15]. Q-REF at 4B: AME-B − P-REF = −0.0061, [−0.022, +0.009], production the better; paired train-loss gap −0.0070 over the last 1,000 steps |
 | X7 | the residual-metrics hook breaking the graph | **cleared** | Scheduling only; the harness's production variants keep the hook and its graph breaks |
 | X8 | `compile_ce`, `compile_loss`, `fused_linear_ce` off | **cleared** (not active) | Confirmed off in both logged configs (Phase 0.2) |
 
@@ -771,7 +804,7 @@ below with full-length A/Bs on entropy, with replicates.
 | P-REF | `fe_pref` | mp null + reference attention, micro-batch 8 × 64 | 36399 | **done** 10:41 (10.5 h, 9.48 s/step) |
 | AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32` with tf32x3 dots and a 32×128 backward tile (`parity_flex_kernel_options`, below), **micro-batch 16** | 36463, 36464, 36465 (first tries 36445, 36447, 36449 cancelled: 34 s/step) | **done**: AME-F1 10:48, AME-F2 12:13, AME-F3 12:15 (8.2 h each, 7.4 s/step) |
 | P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36452, 36453, 36454 | **done**: P1-16_1 12:19, P1-16_2 13:06, P1-16_3 14:49 (4.1 h each, 3.62-3.66 s/step) |
-| D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36456, 36457, 36458 | running: D-B1 since 11:37, D-B2 since 12:03, D-B3 since 12:13 (2.97 s/step, about 3.3 h each) |
+| D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36456, 36457, 36458 | **done**: D-B1 14:59, D-B2 15:27, D-B3 15:35 (3.4 h each, 2.95-2.97 s/step) |
 | D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | D-F1 36416; D-F2 36450, D-F3 36451 | **done**: D-F1 08:13, D-F2 11:31, D-F3 11:37 (7.4 h each, 6.66 s/step; D-F2 and D-F3 requeued once, below) |
 | P0b | `fe_p0b` | AME-B at micro-batch 16 × 32 | 36459 | **done** 14:45 (3.9 h, 3.47 s/step); kept, the budget held (below) |
 
@@ -825,6 +858,9 @@ path. Tool: `parity_score_runs.sh` → `parity_numerics.py score`. Verdicts:
 | P1-16_2 | 36453 | `lj95a1s3` | 3.1377 | 3.135347 | 3.135485 (`ame_std`) | +0.000138 | 3.62 |
 | P1-16_3 | 36454 | `3hdjxbzb` | 3.1260 | 3.126403 | 3.126547 (`ame_std`) | +0.000144 | 3.66 |
 | P0b | 36459 | `6nxdqwme` | 3.1289 | 3.128700 | 3.128848 (`ame_prod`) | +0.000148 | 3.47 |
+| D-B1 | 36456 | `r86x2cjb` | 3.0439 | 3.042344 | 3.042507 (`dense_prod`) | +0.000163 | 2.95 |
+| D-B2 | 36457 | `0w2whzba` | 2.9688 | 2.968513 | 2.968669 (`dense_prod`) | +0.000157 | 2.97 |
+| D-B3 | 36458 | `1uld8i4r` | 3.2412 | 3.240440 | 3.240602 (`dense_prod`) | +0.000161 | 2.96 |
 | *`doi36p8k` (LEM, the original run, for reference)* | | | *3.125* | *3.125227* | *3.125377* | *+0.000150* | |
 
 Scoring jobs:
@@ -835,7 +871,8 @@ Scoring jobs:
   - 36513: AME-F1, P-REF, and AME-F1's error timeline (11:31-12:03, 0.53 GPU-h);
   - 36514: D-F2, D-F3, AME-F2, AME-F3 and P1-16_1 (12:19-12:42, 0.38 GPU-h);
   - 36515-36520: one per late run (P1-16_2, P1-16_3, P0b, D-B ×3), about 0.08 GPU-h each:
-    36515 (P1-16_2) 13:06-13:10, 36517 (P0b) 14:45-14:50, 36516 (P1-16_3) 14:49-14:54.
+    36515 (P1-16_2) 13:06-13:10, 36517 (P0b) 14:45-14:50, 36516 (P1-16_3) 14:49-14:54,
+    36518 (D-B1) 14:59-15:03, 36519 (D-B2) 15:27-15:31, 36520 (D-B3) 15:35-15:39.
 
 **ssh outage, 09:05-09:18.** Entropy stopped accepting connections partway through
 queuing these jobs, after about 12 in quick succession (probably a rate limit). The last
@@ -867,18 +904,43 @@ sets the finish.
   - At 4B tokens, one run's CE is uncertain by about ±0.007 from run-to-run
     nondeterminism alone, with the seed fixed.
   - Two groups of three can resolve a difference of about ±0.016 (95%).
-- **Dense's floor is 4.6× AME's.** D-F ×3 scores **3.003003 ± 0.03294** (2.966446,
-  3.012172, 3.030390), against 0.0033-0.0072 for the AME groups (AME-F ×3: 3.137272 ±
-  0.00328). Seed and data order are the same; only nondeterminism differs.
-  - The D-F runs separate in the first 100-300 steps. At step 200, their 100-step mean
-    train losses are 5.64, 6.06 and 5.90, against AME-B's 5.90, 5.63 and 5.68.
-  - AME's runs come back to within 0.016 of each other by the end. Dense's keep their
-    order and end 0.05-0.07 apart. D-F3 also spiked at steps 206-207, as the original
-    dense run did at 196-200.
-  - The original dense run (`x0xlqroj`, LEM, bf16 attention) scores 2.982607, inside
-    D-F's range.
-  - For Q-X2, the dense terms will dominate the interval. D-B ×3 will show whether
-    production dense spreads the same way.
+- **Dense's floor is 6-24× AME's (final, 15:41).** Seed and data order are the same in
+  every run; only nondeterminism differs.
+  - D-F ×3 scores **3.003003 ± 0.03294** (2.966446, 3.012172, 3.030390). D-B ×3 scores
+    **3.083765 ± 0.14062** (3.042344, 2.968513, 3.240440). AME's four replicated groups
+    pool to an sd of 0.00585.
+  - All 14 AME runs end within 0.0154 of each other (3.1245-3.1399), across six
+    configurations. The six dense runs span 0.274 (2.9664-3.2404).
+  - *(At 12:25, from D-F alone, this read "4.6× AME's".)*
+- **Dense's spread comes from early events; AME has none.** The events are counted by
+  stage_1_report.md's spike rule: a train loss more than 0.5 above the median of the
+  previous 50 steps.
+  - **D-B1 spiked at steps 349-373:** the loss went from 4.9 to 8.38 at step 354, with
+    gradient norm 3.64. It ends 0.074 above D-B2.
+  - **D-B3 took a bump at steps 81-88 and trained slower for the rest of the run.** The
+    bump is +0.44 (gradient norm 2.75), under the rule's 0.5. After it, D-B3's 100-step
+    mean train loss is 0.70 above D-B2's at step 200, 0.68 at 1,000 and 0.29 at the end.
+    It ends 0.272 above D-B2 and 0.108 above AME-B's mean.
+  - D-F2 trailed from the start without a bump: 0.42 above D-F1 at step 200, 0.046 at
+    the end. D-F3 bumped at steps 46 and 206-207 (+0.34, +0.39).
+  - **The two dense runs without an early event, D-B2 and D-F1, end at 2.9685 and
+    2.9664.**
+  - The original dense run (`x0xlqroj`, LEM) spiked at steps 196-198
+    (ame_comparison_h12.md, F3). It scores 2.982607, 0.014 above the two clean runs.
+  - **AME:** no run spikes after warmup except AME-F3 at step 38 (section "X2 × AME").
+    The 11 bf16 AME runs' largest excess is +0.07, one bf16 step of the logged loss.
+    AME's runs separate too, by 0.26 nats at step 300, but come back to within 0.015.
+    Dense's keep their order.
+- **The replicated gap: AME-B − D-B = +0.048, 95% [−0.30, +0.40].** It is not resolved,
+  and it depends on which dense run AME is measured against.
+  - The nine AME-B × D-B pairs give −0.115 to +0.171 (median +0.089). The three pairs
+    with D-B3 favour AME.
+  - Against all six dense runs it is +0.089, 95% [−0.018, +0.195]. Pooling D-B with D-F
+    is fair here: fp32 attention makes no resolvable difference to dense (D-F − D-B =
+    −0.081, 95% [−0.408, +0.246]).
+  - Against the two clean dense runs it is +0.164 and +0.166.
+  - The single LEM pair's 0.1426 sits among these. It measures AME against a dense run
+    that spiked once and recovered. ame_comparison_h12.md (F12) carries this.
 - **Q-P1 (A2, the bf16 compute copy), final (09:05): not harmful.**
   - AME-B − P1 = **+0.00030** against the 0.0216 threshold, 70× below it. The 95% Welch
     interval is [−0.0157, +0.0163].
@@ -1072,12 +1134,14 @@ the runs finish.
 | 09:03 | 70.7 GPU-h | **about 112** | D-F1, P1-1 and job 36493 done; the 8 running need about 22 GPU-h more, the 5 queued about 18, analysis about 2 |
 | 10:51 | 85.1 GPU-h | **about 113** | P-REF (10.5 h) and AME-F1 (8.2 h) done, P0b started; the 8 running need about 16 GPU-h more, D-B ×3 about 10, analysis about 2.3 |
 | 12:09 | 95.5 GPU-h | **about 112** | D-F2, D-F3 and job 36513 (0.53) done; the 8 running and D-B3 need about 15 GPU-h more, the remaining scoring about 1.1 |
+| **15:44, final** | **112.35 GPU-h** | — | every job done. Trainings 108.74, including P1-1's quota death (1.64) and the cancelled IEEE AME-F1 (0.27); scoring, analysis, tests and benchmarks 3.63. Two CPU-only cleanup sruns (36617, 36618) add nothing |
 
-The projection assumes P1-16 at about 4.2 h per run and D-F at 7.3 h, plus about 3 GPU-h
-for scoring and the error timeline. P0b, the first cut, stays while the projection holds
+The projection assumed P1-16 at about 4.2 h per run and D-F at 7.3 h, plus about 3 GPU-h
+for scoring and the error timeline. P0b, the first cut, stayed because the projection held
 under 120.
 
-Results, floors and the Q-P1 and Q-REF verdicts are added as the runs finish.
+The runs, floors and verdicts are final (15:44). Nothing was harmful, so the plan's
+"if anything is harmful" step (fix candidates, a 60-step throughput probe) did not apply.
 
 ## X2 × AME: the per-head scalars under bf16 (ame_bf16_scalars_plan.md, Steps 1-2)
 
@@ -1223,6 +1287,69 @@ alpha / beta, in %.
   shows 2.6-9.9%, the same range as on P1-1's (1.5-15.3%). Training with fp32 attention
   does not lead to weights on which bf16 would be accurate.
 
+### Step 4, Q-X2: the verdict
+
+**Does fp32 attention improve AME's 4B-token loss more than it improves dense's?**
+I = [CE(P1-16) − CE(AME-F)] − [CE(D-B) − CE(D-F)]. CE is the common evaluator on all
+8,192 held-out sequences, with three runs per group and a Welch-Satterthwaite interval
+(`parity_full.py`). P1-16 replaces the plan's P1 because AME-F runs at micro-batch 16
+(Step 2).
+
+| Term | Runs (common evaluator) | Value | 95% interval |
+|---|---|---|---|
+| AME's gain from fp32 attention: P1-16 − AME-F | 3.1294 ± 0.0052 against 3.1373 ± 0.0033 | −0.0079 | [−0.0184, +0.0027] |
+| dense's gain from fp32 attention: D-B − D-F | 3.0838 ± 0.1406 against 3.0030 ± 0.0329 | +0.0808 | [−0.246, +0.408] |
+| **I = AME's gain − dense's gain** | | **−0.0887** | **[−0.415, +0.238]** (2.2 dof) |
+
+**Verdict by the plan's rule: inconclusive.** The interval spans zero and reaches far past
+±0.005. The bound: at 95%, fp32 attention helps AME by at most 0.24 nats more than it
+helps dense. That bound is set entirely by dense.
+- **D-B's spread is 24× AME's.** D-B ×3 ends at 3.0423, 2.9685 and 3.2404: an sd of
+  0.141, against 0.0059 pooled over AME's four replicated groups. D-B3 trained 0.3 nats
+  slower than D-B2 for the whole run after a bump at step 83 (section "Full-length
+  runs", Scores).
+- **Without D-B3, it is no better:** I = −0.010, 95% [−0.246, +0.226] (1.6 dof).
+- **No affordable design makes "negligible" reachable.** Even at D-F's spread (0.033), a
+  95% half-width of 0.005 on I needs about 335 runs per dense group. A half-width of
+  0.02 needs about 21. At the six dense runs' pooled spread (0.10), those become about
+  3,000 and 190. (Q4.)
+
+**AME's side alone answers the question behind Q-X2.**
+- fp32 attention removes the scalars' gradient error at every checkpoint (Stage A, above:
+  0.3-0.7% against 4-15%).
+- It does not improve AME's loss: **AME-F − P1-16 = +0.0079, 95% [−0.0027, +0.0184]**.
+  The fp32 runs are, if anything, the worse ones.
+- So the bf16 error costs AME **at most 0.003 nats at 4B tokens** (95%). That bound does
+  not depend on what fp32 attention does to dense.
+
+**Supporting evidence: the scalars notice; the loss does not.**
+- **fp32 attention moves where AME's scalars end up, a little.** At step 3,800, AME-F's
+  tau (layer mean) is 8.490 ± 0.016 against P1-16's 8.526 ± 0.015.
+  - The gap, P1-16 − AME-F, grows from +0.027 at step 2,000 to +0.036 at 3,800, 95%
+    [+0.001, +0.071].
+  - alpha and beta do not differ past step 1,000. AME-F's beta ends 0.007 higher,
+    [−0.006, +0.019].
+- **The plan's comparison: AME-F against P1-16, measured against runs within one group.**
+  - At every checkpoint (500 to 3,800), the AME-F runs sit farther from the P1-16 runs
+    (mean distance 0.056-0.073) than runs of one group sit from each other
+    (0.047-0.067).
+  - The distance is the RMS over tau, alpha, beta and the 12 layers, each scaled by its
+    across-run RMS.
+  - Permutation p = 0.10 at every checkpoint, the smallest three runs against three can
+    give. The checkpoints are not independent.
+  - For comparison: AME-B against P1 gives p 0.6-0.9, and P1 against P1-16 gives
+    0.6-0.7.
+- **Peak-LR bumps.**
+  - AME-F3 spiked at step 38, the learning-rate peak: train loss 9.38 against 7.1-7.6
+    around it, gradient norm 5.05, +1.95 by stage_1_report.md's spike rule. AME-F1 took
+    a smaller bump there (7.59, gradient norm 2.2).
+  - None of the 11 bf16 AME runs on entropy spiked after step 37: their largest excess
+    is +0.07, one bf16 step of the logged loss.
+  - 2 of 3 against 0 of 11 gives Fisher p = 0.033, but the test was chosen after seeing
+    the data: a hint, not a finding.
+  - AME-F3, with the spike, ends worst of the three (3.1399), and AME-F2, without one,
+    ends best (3.1336). The bumps may be why AME-F shows no gain.
+
 ## Proposed full-length runs: prepared, not run
 
 **Superseded on 2026-11-07 by ame_bf16_scalars_plan.md**, which runs the A/Bs on entropy
@@ -1340,6 +1467,14 @@ AME, with the per-head scalars' gradients or the attention itself in fp32.
   Details: "AME-F's speed".
 - **2026-11-07 02:30. P1-1 is rerun from step 0** after the quota killed it, not resumed:
   resuming with optimizer state is untested in the codebase.
+- **2026-11-07 12:25-15:50. Intervals the plan does not specify.**
+  - The plan's harm rules for Q-P1, Q-REF and Q-X2 are applied as written.
+  - Two additions, both for reporting only:
+    - A single run (P-REF, P0b) gets a 95% interval from AME's run-to-run sd, pooled
+      over the four replicated AME groups (8 dof).
+    - Q-X2 is reported with its AME-only term, AME-F − P1-16, because the dense terms
+      alone set the interaction's width.
+  - Neither changes a verdict.
 - **Additions beyond the plan's checks, each to dig into a failed check:**
   - the gradient twin (`ame_t2fp32`, `ame_t2eager`, `--base ame_std`), which isolates
     A1, A2 and A3;
@@ -1392,6 +1527,37 @@ Deleted were the 924 modified before 23:00, when the only running job of mine (G
 even though every job since `add22fd5` caches on the NVMe instead. With the full-length
 runs of the follow-up plan that is the very end; it is removed in that plan's final
 cleanup.
+
+**Final cleanup, 2026-11-07 15:42-15:43**, after the last job (36520) had ended.
+- Two CPU-only sruns on h100a: 36617 listed, 36618 deleted. The files are
+  `~/parity/final_cleanup_list.txt`, `final_delete_paths.txt` and
+  `final_cleanup_log.txt` on entropy.
+- The script checked each path for owner `mstefaniak` and an allowed location. 66
+  entries removed, none skipped:
+
+| Removed | Entries | Size |
+|---|---|---|
+| `/tmp/torchinductor_mstefaniak` (last modified 2026-11-06 04:31; mstefaniak's only `/tmp` entry left) | 1 | 1.63 GiB |
+| `/storage_nvme_4/nano/mstefaniak/parity_tmp/<job>`: compile caches of finished parity jobs | 64 | 3.05 GiB |
+| `/storage_nvme_1/mstefaniak/parity_full/p1_1_failed36408`: the quota-killed P1-1's step-500 and step-1,000 checkpoints, superseded by the rerun (36455) | 1 | 24.67 GiB |
+| **total** | **66** | **29.34 GiB** |
+
+**`/tmp` on h100a:**
+
+| | Bytes used | Free | Use |
+|---|---|---|---|
+| Before (15:43:03) | 66,550,968,320 | 40,756,105,216 B | 63% |
+| After | 64,712,843,264 | 42,594,230,272 B | 61% |
+
+**1.84 GB freed in `/tmp`; 29.34 GiB in all.**
+
+Kept:
+- every full-length run's checkpoints: 20 folders, 437.6 GiB, on
+  `/storage_nvme_1/mstefaniak/parity_full/` (Q5);
+- `~/parity_ckpt` (14.4 GiB), `~/parity/data`, `~/parity/out` and `~/parity/code`.
+
+The report is final now, so those four are no longer protected by the Q1 limits. They
+stay anyway: they are small, and every number here can be re-derived from them (Q5).
 
 The original question follows.
 
@@ -1458,3 +1624,44 @@ The original question follows.
     upstream, about 0.2% here, and still not reach 1% on the training batch.
   - (c) Do not run AME-F.
 - **Default taken: (a).** AME-F was submitted as built.
+
+**Q4 (2026-11-07 15:50): Q-X2 cannot reach "negligible" with dense's spread. Should AME's
+side stand as its answer?**
+
+- **Context.**
+  - By the plan's rule, Q-X2 is inconclusive: I = −0.089, 95% [−0.415, +0.238].
+  - The width is dense's. The run-to-run sd at 4B tokens is 0.141 for D-B and 0.033 for
+    D-F, against 0.006 for AME. Two of three D-B runs hit an early event.
+  - Reaching ±0.005 on I would take about 335 runs per dense group even at D-F's spread,
+    and about 21 runs for ±0.02. Each D-B run costs 3.4 GPU-h and each D-F run 7.4.
+  - AME's side is precise. fp32 attention, which removes the scalars' gradient error,
+    gains AME at most 0.003 nats (AME-F − P1-16 = +0.0079, [−0.0027, +0.0184]).
+- **Options:**
+  - (a) Take AME's side as Q-X2's answer: the bf16 scalars' error costs AME at most
+    0.003 nats at 4B tokens. No more runs.
+  - (b) More dense replicates to narrow I. ±0.02 needs about 21 runs per dense group,
+    at least about 220 GPU-h.
+  - (c) Re-design the dense side to cut its spread, for example with deterministic
+    attention kernels, or with dense at n = 9 where it may spike less. That is a new
+    plan, not more runs of this one.
+- **Default taken: (a).** Nothing more was submitted.
+
+**Q5 (2026-11-07 15:50): the full-length runs' checkpoints: keep, thin or delete?**
+
+- **Context.**
+  - `/storage_nvme_1/mstefaniak/parity_full/` on h100a holds 437.6 GiB (470 GB) in 20
+    folders. That is every run's final checkpoint (14 AME at 12.3 GiB, 6 dense at
+    2.1 GiB), plus the 500-step checkpoints of AME-B1, P1-1 and AME-F1, seven each.
+  - The disk has about 5 TB free, and only h100a sees it.
+  - **AME-B1's step-1,500 checkpoint is incomplete:** 6.0 of 12.3 GiB. It was written
+    while `/home` was full at 01:52 (the quota incident), and nothing used it. Its other
+    seven checkpoints are whole.
+  - These are replicate checkpoints of both arms. ame_comparison_h12.md's next angles
+    (A1-A6: ablations, per-token loss, attention by position) could use them to tell the
+    method from the run. D-B2 and D-B3 are a clean dense run and a failed one.
+- **Options:**
+  - (a) Keep everything.
+  - (b) Keep the 20 finals (about 185 GiB) and delete the 500-step checkpoints (about
+    250 GiB). The error timeline is already recorded.
+  - (c) Delete everything.
+- **Default taken: (a).** Nothing needs the space, and deleting cannot be undone.

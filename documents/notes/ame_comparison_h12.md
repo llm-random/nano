@@ -3,6 +3,11 @@
 **Status (2026-11-06, 20:30 CET): angle 1, the training logs, is done.** The next angles
 need the two final checkpoints; they are listed under [Next angles](#next-angles).
 
+**2026-11-07, 15:50:** the efficiency-parity follow-up replicated both arms at 4B tokens.
+- The implementation costs AME nothing measurable (F11).
+- AME's runs agree with each other to 0.015. Dense's span 0.27, so the gap depends on
+  the dense run: 0.165 against clean dense runs (F12).
+
 This is the working notebook for one comparison: the best AME run against the best
 dense run at h12 and 4B tokens. It holds what we know (findings, with numbers),
 what we think (hypotheses, each with its evidence and a test), what we guess
@@ -102,6 +107,10 @@ sublayer adds to the stream. They are not optimizer update norms ‖ΔW‖.
 
 `final_ce` is 3.1250 against 2.9824: AME is 0.1426 nats (4.8%) worse.
 
+*Replicated on 2026-11-07 (F12):* against dense runs without an early event the gap is
+0.165. Averaged over three runs per arm it is not resolved, because dense's runs spread
+widely.
+
 Dense's eval loss first reaches AME's final 3.125 at step ~2,200, which is 2.31B
 tokens or 58% of the run. Its learning rate is then still 45% of peak. A dense run
 whose schedule ended at 2.3B tokens would anneal lower still. So **AME's 4B tokens
@@ -161,6 +170,9 @@ batch-to-batch noise.
   history, steps 196 (+0.66) and 198 (+0.97) qualify. The report's stability table
   (decision 9) records "no spike" for this run. AME passes the same rule with a
   largest excess of +0.07.
+- **Replicated (F12).** On entropy, two of three dense production runs hit an early
+  event: D-B1 spiked at step 354, and D-B3 slowed after a bump at step 83. None of the 11
+  bf16 AME runs spiked.
 
 ### F4. AME's gradient norm runs at about 0.8× dense's for the whole second half
 
@@ -348,8 +360,14 @@ What it found:
     banks: 7 runs against 6, a difference of −0.12 nats, at most +0.03 at 95%.
   - At 220 steps, production equals the plain implementation with every AME-only item
     off (G-REF): 5 runs against 4, −0.03 nats, 95% interval [−0.22, +0.15].
-- **Effects that need thousands of steps are not measured.** Full-length runs are
-  prepared, not run.
+- **No harm at 4B tokens either.** The follow-up
+  ([ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md)) ran the full recipe on entropy,
+  three runs per arm, and scored every final checkpoint with the fp32 evaluator:
+  - production against the same model with the bf16 compute copy off (P1): +0.0003 nats,
+    95% [−0.016, +0.016];
+  - production against the plain implementation with every AME-only item off (P-REF,
+    one run): −0.006, 95% [−0.022, +0.009]. Production is the better one;
+  - micro-batch 16 instead of 32: −0.003 (production), −0.002 (ordinary path).
 - **Short AME runs are chaotic.** Identical 300-step runs spread with an sd of about 0.12
   nats, set mostly by small loss bumps in steps 25-50, just before the LR peak. Any short
   A/B on AME needs ≥ 5 runs per arm.
@@ -359,7 +377,60 @@ What it found:
 - **One AME-specific numerical weakness, from the bf16 policy both arms share.** Late in
   training, the gradients of alpha, beta and tau are 9-31% off in *every* bf16
   implementation of AME. The cause is the bf16 attention backward, amplified by
-  cancellation in the per-head sums. Its training effect is unmeasured (report, Q2).
+  cancellation in the per-head sums.
+  - The error is 4-15% from step 1,000 on. fp32 attention holds it at 0.3-0.7% all run.
+  - **It costs AME at most 0.003 nats at 4B tokens.** Three runs with fp32 attention
+    (AME-F) score +0.008 against their bf16 control, 95% [−0.003, +0.018]: no gain.
+    (Report, "X2 × AME".)
+
+### F12. The gap, replicated: AME's runs agree with each other, dense's do not
+
+The efficiency-parity follow-up ran both arms again on entropy, three times each, with
+the same seed and data order, so replicates differ only by run-to-run nondeterminism.
+It scored every final checkpoint with the fp32 evaluator on all 8,192 held-out sequences
+(report, "Full-length runs on entropy").
+
+| | AME, S2-PS production (AME-B) | dense, S1-D production (D-B) |
+|---|---|---|
+| Run 1 | 3.1395 | 3.0423 (spiked at steps 349-373) |
+| Run 2 | 3.1252 | **2.9685** (no early event) |
+| Run 3 | 3.1312 | 3.2404 (bump at step 83, then slow all run) |
+| Mean ± sd | 3.1320 ± 0.0072 | 3.0838 ± 0.1406 |
+| The LEM run analysed above | 3.1252 (`doi36p8k`) | 2.9826 (`x0xlqroj`, spiked at 196-198, F3) |
+
+- **AME's runs end within 0.015 of each other; dense's span 0.27.** That covers all 14
+  AME runs, in six configurations that differ only in implementation details, and the
+  six dense runs (D-B, and D-F with fp32 attention).
+- **Dense's spread comes from early events.**
+  - D-B1's loss went from 4.9 to 8.4 at step 354 (gradient norm 3.6). It ended 0.074
+    above D-B2.
+  - D-B3 bumped at steps 81-88 (+0.44, gradient norm 2.75). After that it trained
+    slower for the whole run: 0.70 nats behind D-B2 at step 200, 0.68 at step 1,000 and
+    0.29 at the end. It ends 0.27 above D-B2 and 0.11 above AME: *worse* than every AME run.
+  - D-F2 trailed from the start without a bump and ended 0.046 behind D-F1.
+  - The two dense runs with no early event, D-B2 and D-F1, end at 2.9685 and 2.9664.
+- **F3 holds with replicates.** Dense hit an early event in two of three production runs
+  on entropy, and spiked on LEM. None of the 11 bf16 AME runs on entropy spiked after
+  warmup by stage_1_report.md's rule, and neither did the LEM run: their largest excess
+  is +0.07. The only AME spike is AME-F3's, at step 38 with fp32 attention.
+- **So the gap depends on the dense run it is measured against.**
+  - Against the two clean dense runs it is **0.164-0.166**.
+  - Over the nine AME × dense replicate pairs it ranges from −0.115 to +0.171 (median
+    +0.089).
+  - Averaged over replicates it is +0.048, 95% [−0.30, +0.40], not resolved. Against all
+    six dense runs it is +0.089, [−0.02, +0.20].
+  - F1's 0.143 is one of these draws: AME against a dense run that spiked once and
+    recovered.
+- **What this changes:**
+  - **AME's deficit to a dense run that trains cleanly is about 0.165 nats at n = 8,**
+    slightly more than F1's 0.143.
+  - Dense at n = 8 is fragile, and AME at n = 8 is not. Dense's *expected* loss at this
+    learning rate is worse than its clean runs, by an amount three runs cannot pin down.
+    Any AME-against-dense claim at n = 8 needs several dense runs, or a comparison
+    restricted to runs without early events.
+  - **F2's early phase is pair-specific.** Against D-B2, AME's lead is at most 0.074
+    nats and gone by step 49-212. Against D-B1, AME leads until step 1,250-1,464, because
+    of D-B1's spike. Against D-B3, AME leads the whole run.
 
 ## Hypotheses
 
@@ -370,12 +441,12 @@ evidence against; **not supported** = checked against the logs and failed.
 |---|---|---|---|---|---|
 | **H1** | **AME loses in the late layers, where attention needs content.** Dense's deeper layers do content-addressed attention. AME's scores see only token ids, distance and the previous id, so it cannot, and it mostly stops using its late attention. The 0.143 nats are largely the value of contextual Q/K in blocks 7–11 | Attention update/stream 0.24–0.71× dense's in blocks 7–11, and only a third to a half of dense's absolute output in blocks 10–11 (F6). This pattern forms at steps 300–1,000, when the gap opens (F2). AME's late attention is somewhat more uniform across tokens, clearly so in block 10 (F8). The design predicts it: "the weights never read a hidden state, so retrieval is never content-addressed" (ame_implementation.md) | Write size is not usefulness: a small write can matter and a large one can be noise. The per-block metrics mix all positions and tokens | A1 (ablate each attention layer), A2 (where the loss is lost) | open |
 | **H2** | **AME's mid-depth feed-forward blocks take on work its attention cannot do** | FF outputs 1.5–2.2× dense's in blocks 1–8 (F7). The larger stream follows from them (F5) | A feed-forward block acts on one position, so it cannot fetch context; it can only reuse what attention brought in. Larger writes may only mean larger weights | A4 (weight norms per block), A5 (logit lens) | open |
-| **H3** | **AME's early lead is a built-in prior.** Id-indexed scores, a fixed ALiBi ladder, the shift and a sink give useful local, n-gram-like attention from step 0; dense must first learn W_Q, W_K and how to use RoPE | AME is ahead for steps 38–590 (F2). Its attention writes most in blocks 0–2 (F6) | The early lead is small (0.036 on average) and includes dense's spike period. One seed each | Compare the step-0 to step-500 curves with S2-D0 (dense NoPE), already logged | open |
-| **H4** | **AME did not spike because its scores are bounded**: unit Q and K times τ ≈ 8, so the attention logits cannot grow, a known spike mechanism (Dehghani et al. 2023; Wortsman et al. 2023). Dense has no QK-norm | Dense spiked at peak LR, AME did not (F3) | S1-A0, AME with the same QK-norm, τ and sink but no ALiBi or shift, spiked at n = 8 (steps 1,117–1,141, to 7.50) and n = 9 (steps 609–635, to 14.69) (stage_1_report.md). So bounded scores alone do not prevent spikes. Also, α can scale keys past τ's bound (S3) | Log attention-logit maxima per layer (not logged), or train dense with QK-norm (an experiment, outside this comparison) | weakened |
+| **H3** | **AME's early lead is a built-in prior.** Id-indexed scores, a fixed ALiBi ladder, the shift and a sink give useful local, n-gram-like attention from step 0; dense must first learn W_Q, W_K and how to use RoPE | AME is ahead for steps 38–590 (F2). Its attention writes most in blocks 0–2 (F6) | The early lead is small (0.036 on average) and includes dense's spike period. With replicates it is pair-specific (F12). Against the clean dense replicate, AME leads by at most 0.074 nats and only until step 49-212. The long leads come from dense's spikes and slowdowns | Compare the step-0 to step-500 curves with S2-D0 (dense NoPE), already logged | **weakened**: at most a small, brief lead survives |
+| **H4** | **AME did not spike because its scores are bounded**: unit Q and K times τ ≈ 8, so the attention logits cannot grow, a known spike mechanism (Dehghani et al. 2023; Wortsman et al. 2023). Dense has no QK-norm | Dense spiked at peak LR, AME did not (F3). Replicated: dense hit an early event in two of three production runs on entropy, and none of the 11 bf16 AME runs spiked (F12) | AME-F3, with the same bounded scores but fp32 attention, spiked at step 38 (F12). S1-A0, AME with the same QK-norm, τ and sink but no ALiBi or shift, spiked at n = 8 (steps 1,117–1,141, to 7.50) and n = 9 (steps 609–635, to 14.69) (stage_1_report.md). So bounded scores alone do not prevent spikes. Also, α can scale keys past τ's bound (S3) | Log attention-logit maxima per layer (not logged), or train dense with QK-norm (an experiment, outside this comparison) | weakened |
 | **H5** | **AME's lower gradient norm comes from its larger final stream**: RMSNorm's backward divides by the input norm, so a stream 1.3× larger gives gradients about 0.77× as large | At the end the prediction is 0.76–0.80 and the observed ratio 0.82–0.86. The prediction comes from the stream entering block 11's FF, 1.32× dense's, with or without its FF output added | Until step ~1,000 AME's final stream is the smaller one (0.53–0.79× at steps 200–800), so the explanation predicts a larger AME gradient norm (1.3–1.9×). The observed ratio is 0.45–0.96. The ratio stays at 0.78–0.86 from step 1,000 on while the stream ratio climbs from 0.98 to 1.32 | — | **not supported**: it fits only the end, which looks like coincidence |
 | **H6** | **The gap grows with data**: AME's deficit is a worse ceiling, not a slower start | +0.005 nats per 1,000 steps over the second half (F2) | Small, within one run, partly inside the cosine anneal | Stage 2b (h16, 8B tokens), when it finishes, without new runs | open |
 | **H7** | **Dense builds its own attention sink out of a few large-norm tokens; AME has one built in** | Dense's stream CV is 2–4× AME's in blocks 5–10, and its FF writes are bursty in blocks 4, 6 and 8 (F8). AME has a learned sink key and value per head; dense has none. Sinks on high-norm tokens are the known dense pattern (Xiao et al. 2023; Sun et al. 2024) | The logs have no per-position or per-token data, so which tokens carry the large norms is unknown | A3 (per-position stream norms and attention to position 0, both models) | open |
-| **H8** | **Part of the gap is AME's efficiency implementation, not the method.** AME's layer and bank path carry about 40 MFU changes that dense lacks, several of them changing precision, the kernel, the gradient path or the optimizer | The changes were gated for throughput, mostly at toy shapes in float64, never for training quality | The audit (F11). The gap is 0.1426 under an fp32 evaluator. Every AME-only change is within dense's rounding budget or exact; no bug. At 300 steps production trains no worse than a plain implementation (≤ +0.03 nats at 95%). Late-training effects were not testable in 300-step gates | Proposed full-length runs P0, P0r, P0b, P1, P-REF, D0 (report) | **not supported**, as far as checks and 220-300-step gates reach |
+| **H8** | **Part of the gap is AME's efficiency implementation, not the method.** AME's layer and bank path carry about 40 MFU changes that dense lacks, several of them changing precision, the kernel, the gradient path or the optimizer | The changes were gated for throughput, mostly at toy shapes in float64, never for training quality | The audit (F11). The gap is 0.1426 under an fp32 evaluator. Every AME-only change is within dense's rounding budget or exact; no bug. At 300 steps production trains no worse than a plain implementation (≤ +0.03 nats at 95%). At 4B tokens, three runs per arm: production equals the bf16-copy-off model (+0.0003, 95% [−0.016, +0.016]) and the plain implementation (−0.006, [−0.022, +0.009]); fp32 attention gains AME at most 0.003 (F11) | Full-length A/Bs on entropy (done: report, "Full-length runs on entropy") | **not supported** |
 
 ## Speculation
 
@@ -407,11 +478,16 @@ Each item would explain something, and none is supported by more than the logs.
 
 ## Caveats
 
-- **One seed per arm.** There is no seed repeat of S1-D or S2-PS at n = 8.
-  - The only h12 seed gap measured is S1-A0 against S2-N at n = 9: 0.232, and that
-    is inflated by S1-A0's spike ([stage_2_report.md](stage_2_report.md)).
-  - A gap of 0.143 that is steady for 2,500 steps of paired batches is not noise. The
-    early lead (0.036) and the trajectory details could be.
+- **One run per arm here, but now replicated elsewhere (F12).** The two runs analysed
+  in F1-F10 are single runs. Three further runs per arm on entropy, with the same seed,
+  show how much one run can differ from the next by nondeterminism alone.
+  - AME: sd 0.007 at 4B tokens.
+  - Dense: sd 0.14 for production, 0.03 with fp32 attention, because of early events.
+  - So F1-F10's AME side is representative. Dense's side describes one run with one
+    spike. Its gap, its early lead and its trajectory details are one draw from a wide
+    distribution.
+  - The only h12 seed gap measured before was S1-A0 against S2-N at n = 9: 0.232,
+    inflated by S1-A0's spike ([stage_2_report.md](stage_2_report.md)).
 - **AME's learning rate is not bracketed.** S2-PS ran at n = 8, 9 and 10, and n = 8
   is the edge. AME's simplest arm S1-A0 kept improving to n = 6 in Stage 1. These
   logs also say AME has headroom at n = 8: lower gradient norm, no clipping after
@@ -473,6 +549,14 @@ in [The two runs](#the-two-runs)); none needs a new training run.
    is in decision 9, which backed your n = 9 choice. By the report's own rule, steps
    196 and 198 of `x0xlqroj` are a spike. That supports n = 9 for dense. The report
    was not edited from this session.
+4. **Dense at n = 8 fails often enough to move the gap (F12).** Of three production
+   replicates on entropy, one spiked at step 354 and one trained 0.3 nats slower after
+   an early bump, ending 0.11 nats worse than AME.
+   - Against clean dense runs the gap is 0.165. Averaged over replicates it is
+     unresolved.
+   - If the paper quotes an AME-against-dense gap at n = 8, it should say which. Several
+     dense seeds, or dense at n = 9, would make it robust.
+   - The 20 replicate checkpoints are kept on entropy (report, Q5) for the next angles.
 
 ## Log
 
@@ -487,3 +571,11 @@ in [The two runs](#the-two-runs)); none needs a new training run.
 - **2026-11-06 23:50.** The efficiency-parity audit
   ([ame_efficiency_parity_report.md](ame_efficiency_parity_report.md)) added F11 and H8
   (not supported).
+- **2026-11-07 15:50.** Its follow-up ([ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md)),
+  20 full-length runs on entropy, added:
+  - F11 at 4B tokens: no harm from any AME-only item; fp32 attention gains AME at most
+    0.003 nats;
+  - F12, the gap replicated: dense's runs spread 6-24× more than AME's, so the gap
+    depends on the dense run;
+  - H3 weakened, H4's evidence replicated, H8 not supported at 4B;
+  - the Caveats' seed note, and For Maciej 4.
