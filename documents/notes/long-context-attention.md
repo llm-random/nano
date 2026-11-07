@@ -2,16 +2,19 @@
 
 **Status:** literature research, 2026-10-20. No method here is implemented as a model in this repo;
 the retention curves derived below *are* now in the FLOP notebook, as `ATTENTION_METHODS` behind its
-last figure (added 2026-10-20, after this note). The question: a 200k-token context model almost
+last two figures (added 2026-10-20, after this note, and split into a prefill and a decode figure on
+2026-11-07, when the notebook's model of AME was brought in line with AME's design; the AME sections
+below were updated with it). The question: a 200k-token context model almost
 certainly does not run dense causal attention over 200k tokens — what do the published methods
 actually do, which of them claim to be quality-lossless, and what would each one do to the curves in
 [`../scripts/h_balanced_flops.ipynb`](../scripts/h_balanced_flops.ipynb)?
 
 Numbers below were recomputed from each paper's stated hyperparameters against *our* cost model
 (see [Translating a method into our charts](#translating-a-method-into-our-charts)); every quality
-claim is attributed and dated. Anthropic has published nothing about Claude's attention
-implementation — see [What Anthropic actually tells us](#what-anthropic-actually-tells-us); that
-section separates the evidence from the inference.
+claim is attributed and dated. The vanilla-model numbers use `V = 50257`; the notebook now uses the
+configs' measured 50,304, which moves them by under 0.1%. Anthropic has published nothing about
+Claude's attention implementation — see [What Anthropic actually tells us](#what-anthropic-actually-tells-us);
+that section separates the evidence from the inference.
 
 ## Summary of findings
 
@@ -29,9 +32,9 @@ section separates the evidence from the inference.
    the attention FLOPs off the table at 128k–1M, and *improves* RULER for two of three models tested —
    but drops Yi-9B-200K from 78.1 to 74.7 average. Query-aware KV selection (Quest) reports
    "negligible accuracy loss". Treat per-model, not per-method.
-4. **Every one of these methods is a specific setting of the `SAM_ATTENTION_COST` knob already in our
-   notebook**, with the difference that their effective cost fraction `c` is a *function of the
-   context length* and usually falls as `L` grows. Converted to our model: 0.2 % (pure local) to
+4. **Every one of these methods is a retention `c` - a share of the dense pair work - that drops
+   straight into our notebook's cost model**, with the difference that their `c` is a *function of
+   the context length* and usually falls as `L` grows. Converted to our model: 0.2 % (pure local) to
    50 % (Gemma-2-style 1:1) at 1M tokens, with the serious long-context designs clustering at
    **6–17 %**.
 5. **Consequence for our crossover.** The context at which the score path overtakes the weights is
@@ -39,16 +42,18 @@ section separates the evidence from the inference.
    784k under NSA. With a *fixed per-query budget* `B` (top-k methods), the score path never overtakes
    the weights at any context as long as **`B < 480H + V/(2H)`** — 24.5k tokens at `H = 50`,
    96.1k at `H = 200`. Every deployed budget we found (2048–49152) is below that line.
-6. **Consequence for SAM.** At 1M tokens with a top-k budget the score path is already 4–25 % of a
-   prefill, so "SAM removes the attention cost" stops being the interesting claim at deployment
-   settings — the *parameter* saving (1.5·d² vs 3·d² of attention weights) is. There is also a real
-   design problem: **MoBA, NSA, DSA and Quest all select blocks with a query–key score, and SAM has
-   neither a Q nor a K projection.** See [What this means for SAM](#what-this-means-for-sam).
+6. **Consequence for AME.** An AME prefill is ordinary dense attention, so per prefill AME gains
+   nothing from any of these methods and loses to all of them. Its claim lives at decode, where it is
+   itself a top-k method - and the selection problem every method here solves with a query–key score
+   (MoBA, NSA, DSA, Quest) it solves with its score table, which costs no Q/K pair work (the design's
+   "free lightning indexer"). What it pays instead is the score row and, with the KV shift, a scan over
+   every cached bigram, which puts NSA and DSA close to it at 1M tokens. See
+   [What this means for AME](#what-this-means-for-ame).
 
 ## Translating a method into our charts
 
-Our model ([sam-model.md](../concepts/sam-model.md), notebook cell `inference_flops`) charges the
-score path exactly:
+Our model (notebook cell `inference_flops`; [ame-model.md](../concepts/ame-model.md) for AME) charges
+the score path exactly:
 
 ```
 pairs(L) = L(L+1)/2                 prefill        pairs = L        one decode step
@@ -58,8 +63,8 @@ prefill weights   = 2L(61440H^3 + 64VH)
 ```
 
 Define a method's **retention** `c(L)` = (query–key pairs it actually scores) / `L(L+1)/2`. That is
-precisely our notebook's `attention_cost`, so any method below can be drawn today by setting
-`SAM_ATTENTION_COST = c` — with the caveat that these `c` are *not* constants:
+the share of the score path the notebook's `sparse_pass` charges, so any method below can be drawn by
+handing it `c(L)` — with the caveat that these `c` are *not* constants:
 
 | Pattern | pairs(L) | retention `c(L)` |
 |---|---|---|
@@ -72,7 +77,9 @@ precisely our notebook's `attention_cost`, so any method below can be drawn toda
 
 The notebook carries this table as code: `ATTENTION_METHODS` in
 [`../scripts/h_balanced_flops.ipynb`](../scripts/h_balanced_flops.ipynb) lists each method with its
-`c(L)`, and the final figure draws the vanilla model under all nine against SAM.
+prefill `c(L)` and its decode retention (the share of the `L` cached keys one new token attends to),
+and the last two figures draw the vanilla model under all nine against AME and AMEm, per prefill and
+per generated token.
 
 Two structural facts follow and are worth stating before the individual papers:
 
@@ -363,8 +370,9 @@ Per generated token, TFLOPs (weights are constant in `L`; this is the notebook's
 
 At 1M tokens dense decode attention is **43×** the weight cost at `H = 50` and **11×** at `H = 200`.
 No production system pays this. A 2048-token budget turns the curve from linear-in-`L` into a flat
-line a few percent above the weights — which is the same shape as the SAM decode curve in our
-notebook, reached by a different route.
+line a few percent above the weights. AME's decode curve in our notebook has that budget built in - a
+top-2048 value sum - but not that flatness: it also pays for its score row and, with the KV shift, a
+scan over every cached bigram that keeps growing at `3H²` per token, 1/85 of the dense rate.
 
 ### What the FLOP charts cannot show
 
@@ -400,28 +408,35 @@ honest statement for the group: **the public record does not say, the published 
 a frontier lab would plausibly draw on is sections 1–8 above, and anything more specific about Claude
 is speculation.**
 
-## What this means for SAM
+## What this means for AME
 
-1. **The score path is not the headline at deployment settings.** Our SAM figures compare SAM's `c`
-   against a *dense* vanilla baseline. Against a vanilla model that uses any of these methods, the
-   comparison collapses to parameters and weight FLOPs: at 1M and `c = 6 %`, the score path is 26 %
-   of an `H = 200` prefill and 58 % of an `H = 50` one, and under MInference-grade sparsity 4 % and
-   14 %. The fourth sweep in the notebook already shows that the SAM advantage erodes with scale;
-   sparse attention erodes it again along the other axis. The notebook's last figure now makes this
-   explicit for one pair: SAM at `H = 100` against vanilla `H = 80` under all nine methods. SAM
-   carries 1.75x the weight work there, so it needs the vanilla model to score more than ~29,200
-   keys per query to win at any context - which means it beats dense attention past 58k tokens,
-   NSA past 885k, DSA past 920k, and MInference-grade sparsity or a plain 1k window **never**.
-2. **SAM and sparse attention are composable, not competing** — SAM removes `q_proj`/`k_proj`
-   (1.5·d² per layer); sparsity removes pairs. Nothing stops both.
-3. **But SAM may structurally exclude the best-evidenced methods.** NSA, MoBA, DSA and Quest all
-   decide *what to attend to* from a query–key similarity, and SAM has neither projection. The
-   options left are (a) static locality (Gemma/MixAttention-style, the weakest quality evidence),
-   (b) a learned selector that is not the attention's own Q/K — which is exactly what DSA's lightning
-   indexer is, and reintroduces a small Q/K pair, costing `φ = H_I/(2H)` of the dense score path, or
-   (c) whatever selection mechanism SAM's own memory formulation implies. **This is the open question
-   worth answering before the SAM cost story is presented externally**, and `H_I ≤ 2·c_target·H` is
-   the budget it has to fit in.
+The notebook's AME model follows the design record (`~/code/research/ame/ame.md` §2 and §4.4) and the
+implementation note's decode analysis ([ame_implementation.md](ame_implementation.md), "At decode");
+[ame-model.md](../concepts/ame-model.md) has the counting rules. Numbers below are AME at `H = 100`
+against vanilla `H = 80`, the notebook's last two figures, with no row cache and the KV shift on.
+
+1. **There is nothing to win per prefill.** An AME prefill is ordinary causal attention over gathered
+   bank rows, so AME pays the full score path there - at `H = 100` 1.58x the dense `H = 80` prefill at
+   1M - and every method surveyed here only widens the gap. At 1M and `c = 6 %` the score path is 26 %
+   of an `H = 200` prefill and 58 % of an `H = 50` one, and under MInference-grade sparsity 4 % and 14 %:
+   against a vanilla model that uses any of these methods, a prefill comparison is about weights alone.
+2. **Per generated token AME is itself a top-k method**: no `QKᵀ`, a top-2048 value sum, its score row
+   computed from the banks unless cached, and with the KV shift a scan over every cached bigram. It
+   carries 1.82x the reference's weight work, so the reference costs more than AME only once it scores
+   more than 91,779 keys per query at a 1M-token cache. That beats dense attention - and MInference,
+   which decodes densely - past 40k tokens, Gemma 2's 1:1 schedule past 89k, the 3:1 hybrids past 254k,
+   Gemma 3's 5:1 past 483k and the 7:1 hybrids past 680k; NSA and DSA only past 1.61M and 1.73M (718k and
+   768k with every row cached); and a plain 1k window **never**. At equal weights - AMEm, AME with its FF
+   widened to the vanilla `H = 80` weight count - it beats NSA and DSA past 485k and 510k.
+3. **The selection problem has an answer, and it moved the cost.** NSA, MoBA, DSA and Quest all decide
+   *what to attend to* from a query–key similarity, which an id-scored layer does not compute. AME's
+   answer is its own score table: the score of key `j` is `T[t_i, t_j]`, a "free lightning indexer"
+   (design §2.3) - exact top-k over types, or over bigrams with the KV shift - at no Q/K pair cost. What
+   it costs instead is bandwidth: the score row, a matvec over the banks whose cache the design calls
+   load-bearing (§4.4), and the bigram postings, which the implementation note calls the real cost of
+   top-k decode. Both are unbuilt and unmeasured. **That is the open question to answer before the AME
+   cost story is presented externally.** AME's per-token KV state is no smaller either: it drops the
+   K-cache but keeps a full-width V-cache, the same `128H²` bytes per token as the GQA model's K and V.
 
 ## Sources
 

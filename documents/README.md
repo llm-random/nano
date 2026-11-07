@@ -23,7 +23,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | [glossary.md](concepts/glossary.md) | Core vocabulary: HP / HPD / PC / PCD, compression-ratio convention, model dimensions, token budgets, LR convention |
 | [h-balanced-model.md](concepts/h-balanced-model.md) | The *H-balanced* transformer family: one knob `H` fixes depth, width, heads and `dff` |
 | [attention-switching.md](concepts/attention-switching.md) | The attention-type registry: gqa/mha/mqa/ame real, mla/mamba2/gated_deltanet as interfaces, per-type options, and the per-layer mixing patterns |
-| [sam-model.md](concepts/sam-model.md) | *SAM* (stateless memory attention): the same backbone without the Q and K projections and with no attention cost, plus *SAMm*, its parameter-matched variant (`dff = 4.5·dmodel`) |
+| [ame-model.md](concepts/ame-model.md) | *AME* (Attention Memory Embedding) for counting: Q/K banks gathered by token id instead of Q and K projections, a full-width V; a prefill is dense attention, a decode step pays a top-k value sum, the score row and the bigram selection. Plus *AMEm*, matched to the vanilla weights (`dff ≈ 4.33·dmodel`) |
 
 ### scripts/
 

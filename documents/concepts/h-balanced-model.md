@@ -73,8 +73,8 @@ parameter count at each step, from 183M up to a 1T-class model (`H = 252`, 984.8
 ~8× the model, so a doubling in size is roughly `H × 1.26`. Reproduce the table with `documents/scripts/h_balanced_params.py` (pass
 `gated_ff=False` for the ungated variant).
 Inference FLOPs, with the attention score path counted exactly, are in
-[`../scripts/h_balanced_flops.ipynb`](../scripts/h_balanced_flops.ipynb). For the variant without
-Q/K projections see [sam-model.md](sam-model.md).
+[`../scripts/h_balanced_flops.ipynb`](../scripts/h_balanced_flops.ipynb). For AME, the variant with
+Q/K banks in place of the Q/K projections, see [ame-model.md](ame-model.md).
 
 ## Instances in this repo
 
