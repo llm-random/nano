@@ -8,10 +8,11 @@ Its follow-up, [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md) (full-length
 entropy, X2 × AME), runs from here. Its results go to the sections "Full-length runs on
 entropy" and "X2 × AME" below.
 
-**Follow-up status (2026-11-07, 04:15):** Steps 0-2 done. Wave 1 has finished: AME-B ×3
-and P1-2, P1-3 (the trainer's `final_ce`: AME-B 3.140, 3.125, 3.133; P1 3.126, 3.133).
-Their scoring (36479) runs now. The other 14 runs are training or queued on entropy, to finish
-around 15:30-16:00. Two setbacks so far:
+**Follow-up status (2026-11-07, 04:40):** Steps 0-2 done. Wave 1 has finished and is
+scored: AME-B ×3 at 3.1320 ± 0.0072, P1-2 and P1-3 at 3.1245 and 3.1322 (common evaluator;
+section "Scores"). The Q-P1 preview is not harmful (+0.0036 against a 0.0216 threshold);
+P1-1 trains now. The other 13 runs are training or queued on entropy, to finish around
+15:30-16:00. Two setbacks so far:
 - the `/home` quota killed P1-1 at step 1,500 (fixed: checkpoints now go to NVMe);
 - AME-F ran 10× slow on flex's IEEE fp32 kernel (fixed: tf32x3, equally accurate,
   re-validated).
@@ -770,6 +771,41 @@ D-B and P0b (100). Analysis and scoring jobs run at `nice` 0 and go first.
     (about 16:25 against 15:30).
   - The budget decision on P0b (the first cut) stays open until it starts, around 10:30.
 
+### Scores
+
+Every final checkpoint (`step_3814`) is scored twice on all 8,192 held-out sequences,
+with precise CE (fp32 loss on the logits, fp64 sum): under the common evaluator (the arm's
+fp32 reference path, `ame_ref32` or `dense_ref32`) and under the run's own production
+path. Tool: `parity_score_runs.sh` → `parity_numerics.py score`. Verdicts:
+`parity_full.py`.
+
+| Run | Job | W&B | Trainer `final_ce` | Common evaluator | Own path | Own − common | s/step |
+|---|---|---|---|---|---|---|---|
+| AME-B1 | 36400 | `u1zpx7lt` | 3.1396 | 3.139532 | 3.139673 (`ame_prod`) | +0.000141 | 3.36 |
+| AME-B2 | 36404 | `s65ebe41` | 3.1250 | 3.125231 | 3.125379 (`ame_prod`) | +0.000148 | 3.36 |
+| AME-B3 | 36407 | `w4hmw00o` | 3.1328 | 3.131156 | 3.131303 (`ame_prod`) | +0.000147 | 3.38 |
+| P1-2 | 36409 | `1flt0emv` | 3.1260 | 3.124540 | 3.124686 (`ame_std`) | +0.000146 | 3.45 |
+| P1-3 | 36411 | `t6cqf6fy` | 3.1328 | 3.132150 | 3.132287 (`ame_std`) | +0.000137 | 3.44 |
+| *`doi36p8k` (LEM, the original run, for reference)* | | | *3.125* | *3.125227* | *3.125377* | *+0.000150* | |
+
+Scoring job: 36479 (04:12-04:35, 0.38 GPU-h).
+
+- **AME-B: 3.131973 ± 0.00719** (mean ± sd, n = 3). The original LEM run, 3.125227, sits
+  at its low end. One run's spread is 0.007 nats, so the plan's Q-P1 / Q-REF threshold,
+  max(3 × sd, 0.005), comes to 0.0216.
+- **The production path's tax is the same in every run:** +0.000137 to +0.000148 against
+  the fp32 oracle, as in the audit (+0.000150).
+- **AME-B1 is an unlucky replicate, not a faulty one.** All five runs match to bf16
+  resolution up to step ~20, then diverge chaotically. AME-B1 took a second loss bump at
+  steps 30-36 (7.31-7.41, where the others were at 7.0-7.1) and stayed behind: +0.2 nats
+  over steps 0-99, +0.015 at the end. The bump comes before its first checkpoint, so the
+  500-step saves cannot be the cause.
+- **Q-P1, preview with two of the three P1 runs (04:40):** AME-B − P1 = **+0.0036**
+  against the 0.0216 threshold; 95% Welch interval [−0.015, +0.022]. **Not harmful.** The
+  50-step paired train-loss gap is positive over all of the last 1,000 steps (+0.0047), but
+  AME-B1's offset alone does that, which is why the rule also needs the size. Final once
+  P1-1 is in (about 08:40).
+
 ### The /home quota incident (2026-11-07, 01:52)
 
 - **What happened.**
@@ -892,6 +928,7 @@ the runs finish.
 | 02:10 | 15.4 GPU-h | — | the quota incident cost 1.64 (P1-1) |
 | 02:37 | 19.2 GPU-h | **about 113** | AME-F at about 8 h per run (tf32x3); 36 h per run at IEEE would have been about 190 in all |
 | 04:12 | 31.1 GPU-h | **about 114** | measured: P-REF 9.9 s/step (10.5 h), D-F 7.0 s/step (7.4 h), AME-F 7.4 s/step (~8.1 h with startup and evals) |
+| 04:37 | 35.2 GPU-h | **about 114** | wave 1 and its scoring done (0.38 GPU-h for 5 runs) |
 
 The projection assumes P1-16 at about 4.2 h per run and D-F at 7.3 h, plus about 3 GPU-h
 for scoring and the error timeline. P0b, the first cut, stays while the projection holds
