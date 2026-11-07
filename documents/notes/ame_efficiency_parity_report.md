@@ -812,6 +812,11 @@ path. Tool: `parity_score_runs.sh` → `parity_numerics.py score`. Verdicts:
 | D-F1 | 36416 | `vzfga5w2` | 2.9658 | 2.966446 | 2.966587 (`dense_f`) | +0.000141 | 6.65 |
 | P-REF | 36399 | `zavr33un` | 3.1396 | 3.138114 | 3.138273 (`ame_pref`) | +0.000159 | 9.48 |
 | AME-F1 | 36463 | `gcfv6q7a` | 3.1387 | 3.138320 | 3.138466 (`ame_f3x`) | +0.000145 | 7.42 |
+| AME-F2 | 36464 | `w34pnud9` | 3.1348 | 3.133599 | 3.133756 (`ame_f3x`) | +0.000157 | 7.39 |
+| AME-F3 | 36465 | `hvq14082` | 3.1396 | 3.139898 | 3.140042 (`ame_f3x`) | +0.000144 | 7.41 |
+| D-F2 | 36450 | `d1m3dhvk` | 3.0137 | 3.012172 | 3.012331 (`dense_f`) | +0.000159 | 6.66 |
+| D-F3 | 36451 | `nykk0dd9` | 3.0312 | 3.030390 | 3.030552 (`dense_f`) | +0.000162 | 6.66 |
+| P1-16_1 | 36452 | `csqalshd` | 3.1270 | 3.126408 | 3.126546 (`ame_std`) | +0.000138 | 3.62 |
 | *`doi36p8k` (LEM, the original run, for reference)* | | | *3.125* | *3.125227* | *3.125377* | *+0.000150* | |
 
 Scoring jobs:
@@ -820,7 +825,7 @@ Scoring jobs:
 - 36513-36520, queued 09:00-09:18 at `4388170a`, each held by a dependency (`afterany`) on
   the trainings it reads:
   - 36513: AME-F1, P-REF, and AME-F1's error timeline (11:31-12:03, 0.53 GPU-h);
-  - 36514: D-F2, D-F3, AME-F2, AME-F3 and P1-16_1;
+  - 36514: D-F2, D-F3, AME-F2, AME-F3 and P1-16_1 (12:19-12:42, 0.38 GPU-h);
   - 36515-36520: one per late run (P1-16_2, P1-16_3, P0b, D-B ×3).
 
 **ssh outage, 09:05-09:18.** Entropy stopped accepting connections partway through
@@ -853,6 +858,18 @@ sets the finish.
   - At 4B tokens, one run's CE is uncertain by about ±0.007 from run-to-run
     nondeterminism alone, with the seed fixed.
   - Two groups of three can resolve a difference of about ±0.016 (95%).
+- **Dense's floor is 4.6× AME's.** D-F ×3 scores **3.003003 ± 0.03294** (2.966446,
+  3.012172, 3.030390), against 0.0033-0.0072 for the AME groups (AME-F ×3: 3.137272 ±
+  0.00328). Seed and data order are the same; only nondeterminism differs.
+  - The D-F runs separate in the first 100-300 steps. At step 200, their 100-step mean
+    train losses are 5.64, 6.06 and 5.90, against AME-B's 5.90, 5.63 and 5.68.
+  - AME's runs come back to within 0.016 of each other by the end. Dense's keep their
+    order and end 0.05-0.07 apart. D-F3 also spiked at steps 206-207, as the original
+    dense run did at 196-200.
+  - The original dense run (`x0xlqroj`, LEM, bf16 attention) scores 2.982607, inside
+    D-F's range.
+  - For Q-X2, the dense terms will dominate the interval. D-B ×3 will show whether
+    production dense spreads the same way.
 - **Q-P1 (A2, the bf16 compute copy), final (09:05): not harmful.**
   - AME-B − P1 = **+0.00030** against the 0.0216 threshold, 70× below it. The 95% Welch
     interval is [−0.0157, +0.0163].
