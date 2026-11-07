@@ -8,13 +8,17 @@ Its follow-up, [ame_bf16_scalars_plan.md](ame_bf16_scalars_plan.md) (full-length
 entropy, X2 × AME), runs from here. Its results go to the sections "Full-length runs on
 entropy" and "X2 × AME" below.
 
-**Follow-up status (2026-11-07, 06:45):** Steps 0-2 done. Wave 1 has finished and is
-scored: AME-B ×3 at 3.1320 ± 0.0072, P1-2 and P1-3 at 3.1245 and 3.1322 (common evaluator;
-section "Scores"). The Q-P1 preview is not harmful (+0.0036 against a 0.0216 threshold);
-P1-1 trains now (ends about 08:25). The other 13 runs are training or queued on entropy, to
-finish around 15:30. The 06:40 health check found all 8 running runs on schedule, with no
-NaNs. Each AME run's train loss is within 0.03 nats of AME-B's at the same step; the dense
-runs are below it, as expected. Two setbacks so far:
+**Follow-up status (2026-11-07, 09:05):** Steps 0-2 done.
+- **Q-P1 is final: not harmful.** AME-B − P1 = +0.0003 nats against a threshold of 0.0216.
+  AME-B ×3 scores 3.1320 ± 0.0072 and P1 ×3 3.1317 ± 0.0069 (common evaluator; section
+  "Scores").
+- **The first error timeline is in.** With bf16 attention, the scalars' gradient error
+  grows from 1.5-3% at step 500 to 4-15% from step 1,000 on. fp32 attention holds it at
+  0.3-0.6% at every checkpoint (section "X2 × AME").
+- **Still running:** 7 trainings, with 5 more queued, on entropy. Expected to finish
+  around 15:30. Q-X2 and Q-REF follow from them.
+
+Two setbacks so far:
 - the `/home` quota killed P1-1 at step 1,500 (fixed: checkpoints now go to NVMe);
 - AME-F ran 10× slow on flex's IEEE fp32 kernel (fixed: tf32x3, equally accurate,
   re-validated).
@@ -748,12 +752,12 @@ below with full-length A/Bs on entropy, with replicates.
 | Run | Config | Change | Jobs | Status |
 |---|---|---|---|---|
 | AME-B ×3 | `fe_ame_b{1,2,3}` | none (production) | 36400, 36404, 36407 | **done** 04:01-04:07 (3:48-3:55 h each) |
-| P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | P1-1: 36408 **died at step 1,500** (quota), rerun 36455; P1-2 36409, P1-3 36411 | P1-2, P1-3 done 04:10-04:12; P1-1 running since 04:35 (3.45 s/step), ends about 08:25 |
+| P1 ×3 | `fe_p1_{1,2,3}` | `mem_parallel_size: null` (A2 off; A1, A3 are exact) | P1-1: 36408 **died at step 1,500** (quota), rerun 36455; P1-2 36409, P1-3 36411 | **done**: P1-2, P1-3 04:10-04:12, P1-1 08:29 |
 | P-REF | `fe_pref` | mp null + reference attention, micro-batch 8 × 64 | 36399 | running since 00:12 (9.5 s/step), ends about 10:30 |
 | AME-F ×3 | `fe_ame_f{1,2,3}` | P1 + `parity_attention_fp32` with tf32x3 dots and a 32×128 backward tile (`parity_flex_kernel_options`, below), **micro-batch 16** | 36463, 36464, 36465 (first tries 36445, 36447, 36449 cancelled: 34 s/step) | AME-F1 running since 02:36 (ends about 10:40), AME-F2 and AME-F3 since 04:03 (about 12:00) |
-| P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36452, 36453, 36454 | queued |
+| P1-16 ×3 | `fe_p1_16_{1,2,3}` | P1 at micro-batch 16: AME-F's matched control | 36452, 36453, 36454 | P1-16_1 running since 08:14 (3.62 s/step, ends about 12:07), P1-16_2 since 09:00 (about 12:55), P1-16_3 queued |
 | D-B ×3 | `fe_db{1,2,3}` | none (dense production) | 36456, 36457, 36458 | queued |
-| D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | D-F1 36416; D-F2 36450, D-F3 36451 | D-F1 running since 00:50 (6.6 s/step, ends about 08:10), D-F2 since 04:08, D-F3 since 04:13 (about 11:20; each requeued once, below) |
+| D-F ×3 | `fe_df{1,2,3}` | `parity_dense_attention_fp32` | D-F1 36416; D-F2 36450, D-F3 36451 | D-F1 **done** 08:13; D-F2 running since 04:08, D-F3 since 04:13 (6.66 s/step, end about 11:25; each requeued once, below) |
 | P0b | `fe_p0b` | AME-B at micro-batch 16 × 32 | 36459 | queued (first to cut if the budget tightens) |
 
 The first submissions of the 12 queued runs (36417-36428) failed at launch; see the
@@ -788,9 +792,18 @@ path. Tool: `parity_score_runs.sh` → `parity_numerics.py score`. Verdicts:
 | AME-B3 | 36407 | `w4hmw00o` | 3.1328 | 3.131156 | 3.131303 (`ame_prod`) | +0.000147 | 3.38 |
 | P1-2 | 36409 | `1flt0emv` | 3.1260 | 3.124540 | 3.124686 (`ame_std`) | +0.000146 | 3.45 |
 | P1-3 | 36411 | `t6cqf6fy` | 3.1328 | 3.132150 | 3.132287 (`ame_std`) | +0.000137 | 3.44 |
+| P1-1 | 36455 | `c7vyd1n7` | 3.1387 | 3.138342 | 3.138491 (`ame_std`) | +0.000149 | 3.45 |
+| D-F1 | 36416 | `vzfga5w2` | 2.9658 | 2.966446 | 2.966587 (`dense_f`) | +0.000141 | 6.65 |
 | *`doi36p8k` (LEM, the original run, for reference)* | | | *3.125* | *3.125227* | *3.125377* | *+0.000150* | |
 
-Scoring job: 36479 (04:12-04:35, 0.38 GPU-h).
+Scoring jobs:
+- 36479: wave 1 (04:12-04:35, 0.38 GPU-h);
+- 36493: P1-1, D-F1 and P1-1's error timeline (08:29-09:00, 0.52 GPU-h).
+
+36493 was queued with a dependency on P1-1. While it waited, the queued trainings' `nice`
+was raised by 500, so that it, not P1-16_2, took P1-1's GPU. The `nice` was restored once
+it had started. That moved P1-16_2's start from 08:29 to 09:00, which costs nothing: D-B3
+sets the finish.
 
 - **AME-B: 3.131973 ± 0.00719** (mean ± sd, n = 3). The original LEM run, 3.125227, sits
   at its low end. One run's spread is 0.007 nats, so the plan's Q-P1 / Q-REF threshold,
@@ -802,11 +815,26 @@ Scoring job: 36479 (04:12-04:35, 0.38 GPU-h).
   steps 30-36 (7.31-7.41, where the others were at 7.0-7.1) and stayed behind: +0.2 nats
   over steps 0-99, +0.015 at the end. The bump comes before its first checkpoint, so the
   500-step saves cannot be the cause.
-- **Q-P1, preview with two of the three P1 runs (04:40):** AME-B − P1 = **+0.0036**
-  against the 0.0216 threshold; 95% Welch interval [−0.015, +0.022]. **Not harmful.** The
-  50-step paired train-loss gap is positive over all of the last 1,000 steps (+0.0047), but
-  AME-B1's offset alone does that, which is why the rule also needs the size. Final once
-  P1-1 is in (about 08:40).
+- **The floor.** P1 ×3 scores 3.131677 ± 0.00691, so AME-B and P1 have the same spread.
+  - At 4B tokens, one run's CE is uncertain by about ±0.007 from run-to-run
+    nondeterminism alone, with the seed fixed.
+  - Two groups of three can resolve a difference of about ±0.016 (95%).
+- **Q-P1 (A2, the bf16 compute copy), final (09:05): not harmful.**
+  - AME-B − P1 = **+0.00030** against the 0.0216 threshold, 70× below it. The 95% Welch
+    interval is [−0.0157, +0.0163].
+  - The 50-step paired train-loss gap keeps its sign over 92% of the last 1,000 steps.
+    But at +0.0007 it is 30× below the threshold, and the rule needs both.
+  - *(The 04:40 preview, without P1-1, gave +0.0036: P1-1 lands at the high end, as
+    AME-B1 does.)*
+- **The per-head scalars cannot tell AME-B from P1 either.** The trainer logs tau, alpha,
+  beta and attention entropy per layer (`parity_full.py`, trajectories):
+  - at steps 500, 1,000, 2,000, 3,000 and 3,800, the gap between the two groups' layer
+    means lies inside its 95% interval for all four;
+  - the largest single-layer gap is 3.2 within-group sd, about what the largest of 12
+    layers gives by chance with n = 3;
+  - an AME-B run is no farther from a P1 run (0.054-0.063) than two runs of one group
+    are from each other (0.059-0.069; permutation p 0.6-0.9). The distance is the RMS over
+    tau, alpha, beta and the 12 layers, each scaled by its across-run RMS.
 
 ### The /home quota incident (2026-11-07, 01:52)
 
@@ -932,6 +960,7 @@ the runs finish.
 | 04:12 | 31.1 GPU-h | **about 114** | measured: P-REF 9.9 s/step (10.5 h), D-F 7.0 s/step (7.4 h), AME-F 7.4 s/step (~8.1 h with startup and evals) |
 | 04:37 | 35.2 GPU-h | **about 114** | wave 1 and its scoring done (0.38 GPU-h for 5 runs) |
 | 06:41 | 51.7 GPU-h | **about 113** | health check: the 8 running runs need 31 GPU-h more, the 7 queued about 27, analysis about 2.5 |
+| 09:03 | 70.7 GPU-h | **about 112** | D-F1, P1-1 and job 36493 done; the 8 running need about 22 GPU-h more, the 5 queued about 18, analysis about 2 |
 
 The projection assumes P1-16 at about 4.2 h per run and D-F at 7.3 h, plus about 3 GPU-h
 for scoring and the error timeline. P0b, the first cut, stays while the projection holds
@@ -1048,6 +1077,35 @@ the checkpoint's own moments, at the final LR 3.9e-4.
     switches, which the plan does not ask for.
 - What matters for Q-X2 is that AME-F removes the error at every scale measured: per
   group, summed, and through Adam.
+
+**Step 4, Stage A along the run.** Job 36493 ran `scalars` on each 500-step checkpoint
+with two held-out groups of 512 (`parity_timeline_submit.sh`, read by
+`parity_timeline.py`). Each cell is the scalars' gradient error against the fp32 oracle:
+one group's relative error, averaged over the two groups. The cells are tau / alpha /
+beta, in %. AME-F1's own checkpoints follow when it finishes.
+
+| Step | P1-1 weights, `ame_std` (bf16 attention) | P1-1 weights, `ame_f3x` (fp32 attention) |
+|---|---|---|
+| 500 | 1.5 / 2.4 / 3.0 | 0.3 / 0.6 / 0.5 |
+| 1,000 | 3.7 / 4.6 / 4.2 | 0.3 / 0.4 / 0.3 |
+| 1,500 | 5.4 / 8.4 / 11.3 | 0.3 / 0.3 / 0.4 |
+| 2,000 | 6.2 / 5.6 / 5.6 | 0.6 / 0.5 / 0.5 |
+| 2,500 | 9.6 / 12.8 / 13.9 | 0.5 / 0.4 / 0.4 |
+| 3,000 | 4.1 / 4.0 / 8.4 | 0.4 / 0.4 / 0.5 |
+| 3,500 | 6.4 / 8.6 / 15.3 | 0.5 / 0.5 / 0.4 |
+| 3,814 | 7.2 / 7.3 / 11.2 | 0.5 / 0.4 / 0.4 |
+
+- **The error appears early.** It is 0.5-0.9% at init (Phase 1, 1.6), 1.5-3% by step 500
+  and about 4% by step 1,000. From step 1,500 on it moves between 4% and 15% with no
+  trend, beta usually the worst. With two groups per checkpoint, each cell is rough. The
+  final checkpoint matches Step 2's production figures on `doi36p8k` (7.2 / 10.0 / 18.5%
+  over 16 groups).
+- **It does not push the scalars one way all run long.** Its component along the true
+  gradient (the summed-error projection) changes sign from one checkpoint to the next,
+  from −0.044 to +0.046.
+- **fp32 attention removes it at every checkpoint:** 0.3-0.6% throughout, on the same
+  weights. The error belongs to the bf16 attention path at every stage of training, not
+  only late in it.
 
 ## Proposed full-length runs: prepared, not run
 
