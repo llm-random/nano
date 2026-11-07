@@ -914,7 +914,9 @@ sets the finish.
   - *(At 12:25, from D-F alone, this read "4.6× AME's".)*
 - **Dense's spread comes from early events; AME has none.** The events are counted by
   stage_1_report.md's spike rule: a train loss more than 0.5 above the median of the
-  previous 50 steps.
+  previous 50 steps. The tools, on `parity_audit`, read `parity_full.py`'s cached
+  histories: `parity_spikes.py` (the rule), `parity_early.py` (100-step means) and
+  `parity_pairgap.py AME-B D-B` (the per-pair gaps, crossovers and leads below).
   - **D-B1 spiked at steps 349-373:** the loss went from 4.9 to 8.38 at step 354, with
     gradient norm 3.64. It ends 0.074 above D-B2.
   - **D-B3 took a bump at steps 81-88 and trained slower for the rest of the run.** The
