@@ -303,18 +303,82 @@ its checkpoint. That is all the comparison needs, so it is all that gets built n
 
 - [x] **Load path:** train the tiny model and save it, then run eval-only on it. Its
       `final_ce` matches the training run's. (2026-11-06, CPU: 8.451300859451294 in
-      both, `configs/tiny_local_eval.yaml`.)
+      both, `configs/tiny_local_eval.yaml`. Re-run 2026-11-09: same value.)
 - [x] **Scoring:** piqa and hellaswag with `limit: 20` log `eval/<task>/<metric>`.
+      (Re-run 2026-11-09.)
 - [x] **Guard:** a generative task with `world_size > 1` fails at startup with a
       clear message. (`WORLD_SIZE=2`, tasks `[piqa, gsm8k]`: names gsm8k only.)
-- [ ] **GPU path, on entropy:** the laptop has no CUDA, so the FSDP2 sharded load,
+- [x] **GPU path, on entropy:** the laptop has no CUDA, so the FSDP2 sharded load,
       compiled blocks under `force_eager`, and lm-eval's multi-rank split are untested.
-      A short tiny job with fsdp2 that saves, then eval-only on it with `limit: 20`.
+      (2026-11-09: covered by the real job, w0lwnckd on 4× H100. Its `final_ce`
+      equals the source run's and all nine tasks scored, in 349 s.)
 - [ ] *(Optional)* `NanoLM` on gpt2 vs lm-eval's own HF backend, on piqa with a
       small `limit`. The numbers should be close, which validates the scoring
       itself. Required if absolute scores are ever quoted: `NanoLM` tokenizes
       context and continuation separately, while the HF backend tokenizes the joined
       string and splits it.
+
+### Scoring step 1's checkpoint (94vzm552)
+
+Checked 2026-11-09.
+
+- **ctx_scl side is in W&B.** oswoqjtk and e9i2mveg (`ideas_cv/llm-random-test`, same
+  config, identical code snapshots) each log all nine tasks at step 29999, as
+  `steps/eval/<task>/<metric>` (and `tokens/...`). They log acc and acc_stderr for
+  every task; arc, hellaswag, piqa, openbookqa and sciq also log acc_norm, and
+  lambada logs perplexity. The run used `limit: null`, `max_length: 1024`,
+  `max_gen_toks: 8` and `batch_size: 32`, which is our `joint.yaml`. Scoring took
+  ~4 min on 4× H100.
+- **Same harness on both sides:** both locks pin lm-eval 0.4.11 and datasets 3.1.0.
+  The runs' `eval.py`, `joint.yaml`, `trainer.py` and `main.py` equal
+  `jm_ctx_scl_branch_compare`'s.
+- **Source:** 94vzm552 (same project, slurm 32931, `final_ce` 2.677734375). Its
+  checkpoint is `/storage_nvme_4/nano/pretraining/j321m/checkpoints/32931/0/step_29999`;
+  the `/0` is the array task id. `configs/jm/h16_chinchilla_eval.yaml` composes to
+  94vzm552's logged config on every model, trainer, data and `common` key, and
+  `src/` hasn't changed since its snapshot.
+- **Launch:** `run_exp.py --config-path configs/jm --config-name h16_chinchilla_eval`.
+  It passes when `final_ce` ≈ 2.6777 and all nine tasks log, in a new W&B run
+  `h16_chinchilla_eval`.
+- **Ran 2026-11-09:** W&B w0lwnckd (slurm 37132). `final_ce` 2.677734375, exactly
+  94vzm552's, so the load is right. 349 s from W&B init to the last log; scoring took
+  170 s.
+
+**Result: no difference beyond noise.** No metric's gap to the ctx_scl mean reaches
+2.8σ. The largest is winogrande, +2.7 against a 3.9 threshold, and it sits near
+chance. On the headline metric per task (acc_norm for arc_challenge, hellaswag, piqa
+and openbookqa, acc for the rest), the nine-task mean is 46.5 here against 46.0 and
+45.6 on ctx_scl. pretraining-jm is ahead on 11 of 15 metrics, but acc and acc_norm of
+one task aren't independent, so that's no evidence either way. The benchmarks show
+no breakage.
+
+The two ctx_scl runs differ by up to 3 pt (openbookqa acc_norm) and 1.8 pt
+(lambada acc) with the same config: that's the run-to-run noise floor, in line with
+the 2.8σ column.
+
+| Task | Metric | oswoqjtk | e9i2mveg | 94vzm552 | Δ vs ctx_scl mean | Needed (2.8σ) |
+|---|---|---:|---:|---:|---:|---:|
+| arc_easy | acc | 58.8 | 59.0 | 59.5 | +0.5 | 2.8 |
+| arc_easy | acc_norm | 51.9 | 53.4 | 53.5 | +0.9 | 2.9 |
+| arc_challenge | acc | 24.8 | 24.9 | 26.5 | +1.7 | 3.6 |
+| arc_challenge | acc_norm | 28.5 | 27.4 | 28.8 | +0.8 | 3.7 |
+| hellaswag | acc | 32.3 | 32.2 | 32.1 | −0.2 | 1.3 |
+| hellaswag | acc_norm | 38.0 | 37.8 | 37.5 | −0.4 | 1.4 |
+| piqa | acc | 65.6 | 66.8 | 67.0 | +0.8 | 3.1 |
+| piqa | acc_norm | 64.3 | 65.5 | 65.9 | +1.0 | 3.1 |
+| winogrande | acc | 50.0 | 50.4 | 53.0 | +2.7 | 3.9 |
+| openbookqa | acc | 21.8 | 21.2 | 21.4 | −0.1 | 5.1 |
+| openbookqa | acc_norm | 34.0 | 31.0 | 32.8 | +0.3 | 5.9 |
+| sciq | acc | 82.0 | 80.0 | 80.3 | −0.7 | 3.5 |
+| sciq | acc_norm | 71.0 | 71.2 | 71.8 | +0.7 | 4.0 |
+| social_iqa | acc | 38.2 | 37.4 | 38.8 | +1.0 | 3.1 |
+| lambada_standard | acc | 20.4 | 22.2 | 22.4 | +1.1 | 1.6 |
+| lambada_standard | perplexity | 208.2 | 165.7 | 179.1 | −7.8 | |
+
+**Eval loss isn't comparable as logged.** Mean train loss over the last 100 steps is
+equal (2.831 and 2.841 on ctx_scl, 2.831 here), but periodic eval loss is 2.875 on
+ctx_scl and 2.672 here. The eval sets differ (see step 2), and that gap is bigger
+than anything the comparison is looking for.
 
 ### Later: not needed for this comparison
 

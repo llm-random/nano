@@ -1,5 +1,5 @@
 # Eval-only: scores h16_chinchilla's final checkpoint (final_ce + the nine benchmarks).
-# final_ce must match the training run's final_ce.
+# Source: W&B 94vzm552 (slurm 32931), final_ce 2.677734375; this run's final_ce must match.
 defaults:
   - h16_chinchilla
   - ../_downstream_eval@_here_: joint
@@ -10,8 +10,8 @@ eval_only: true
 trainer:
   checkpoint:
     load:
-      # The training run's <save.path>/<slurm job id>/step_29999.
-      path: ???
+      # <save.path>/<slurm job id>/<array task id>/step_29999
+      path: /storage_nvme_4/nano/pretraining/j321m/checkpoints/32931/0/step_29999
       training_state_filename: __training_state_filename.pt
 
 infrastructure:
