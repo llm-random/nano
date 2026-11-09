@@ -53,7 +53,7 @@ def update_remote_pixi(cfg: OmegaConf):
     slurm_config["cpus-per-task"] = (
         4  # requires your create_slurm_parameters to map this
     )
-    slurm_config["mem"] = "8G"  # normal mem, not mem-per-gpu
+    slurm_config["mem"] = "32G"  # torch/CUDA wheel install can exceed 8G
     slurm_config["time"] = "00:30:00"
 
     print(f"Cluster: {server}")
@@ -163,8 +163,6 @@ if [ -f "{remote_tmp_dir}/pixi.lock" ]; then
   mv -f "{remote_tmp_dir}/pixi.lock" "$PIXI_HOME/"
   chmod 777 "$PIXI_HOME/pixi.lock"
 fi
-
-env
 
 cd "$PIXI_HOME"
 pixi install

@@ -1,0 +1,28 @@
+# @package _global_
+# Smoke run of h16_chinchilla: checks the job builds, trains, logs, saves and evals. Not an experiment.
+defaults:
+  - h16_chinchilla
+  - _self_
+
+trainer:
+  n_steps: 100
+  eval_interval: 50
+
+  checkpoint:
+    save:
+      path: ${oc.env:PROJECT_HOME_PATH,/storage_nvme_4/nano/pretraining/unset/ctx_scl}/checkpoints/smoke
+
+downstream_evaluator:
+  limit: 20
+
+infrastructure:
+  metric_logger:
+    name: h16_chinchilla_ctx_scl_smoke
+    tags:
+      - nano
+      - remote
+      - h16
+      - smoke
+
+  slurm:
+    time: "00:30:00"

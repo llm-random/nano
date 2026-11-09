@@ -19,6 +19,10 @@ infrastructure:
     
     # export pixi variables
     - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    # caches on local NVMe; unpacking wheels into NFS ~/.cache is very slow
+    - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
+    - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
+    - 'export XDG_STATE_HOME="$PIXI_HOME/state"'
     - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
     - 'export PATH="$HOME/.pixi/bin:$PATH"'
     

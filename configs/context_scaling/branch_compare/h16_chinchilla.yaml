@@ -1,0 +1,114 @@
+# @package _global_
+# ctx_scl twin of pretraining-jm's configs/jm/h16_chinchilla.yaml (branch comparison, step 2).
+# relative refs: work with --config-path configs/context_scaling/branch_compare and with --config-path configs
+defaults:
+  - ../../_cluster@_here_:                entropy
+  - ../../_model/context_scaling@_here_:  template
+  - ../../_dataset@_here_:                fineweb
+  - ../../_checkpoints@_here_:            none
+  - ../../_infrastructure@_here_:         default
+  - ../../_downstream_eval@_here_:        joint
+  - ../../_feedforward:                   swiglu
+  - _self_
+
+# h16 h-balanced: 354.6M params
+common:
+  n_blocks: 16
+  dmodel: 1024
+  datt: 1024
+  dff: 4096
+  q_heads: 16
+  kv_heads: 8
+  vocab_size: 50304
+  init_scale: 1
+  tokenizer: EleutherAI/gpt-neox-20b
+  model_seed: 123
+  data_seed: 123
+  sequence_length: 1024
+  batch_size: 256
+
+model:
+  encoder:
+    block_fn:
+      attention_fn:
+        pre_attn_fn: null  # no QK-norm
+        rope_base: 10000
+        rope_scale_freqs: false
+
+# Written in full: no _trainer default fits (llama.yaml has stale Trainer keys, context_scaling.yaml is WSD).
+trainer:
+  _partial_: true
+  _target_: src.core.trainer.Trainer
+
+  n_steps: 30_000
+  learning_rate: 10
+  weight_decay: 0.1
+  # eager OOMs at 64 seqs/GPU; 2 x 32 keeps the 256 x 1024 global batch and the same step
+  gradient_accumulation_steps: 2
+  gradient_clipping: 1.0
+
+  eval_interval: 100
+  n_eval_steps: 10
+  fixed_eval: false
+
+  scheduler:
+    _partial_: true
+    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
+    n_steps: ${trainer.n_steps}
+    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
+    final_lr_fraction: 0.1
+
+  distributed:
+    fsdp2:
+      modules_to_shard:
+        - ${model.embedding._target_}
+        - ${model.encoder.block_fn._target_}
+        - ${model.head._target_}
+
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt_neox_tokenize_fn
+
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt_neox_tokenize_fn
+
+  checkpoint:
+    save:
+      # job sets PROJECT_HOME_PATH; the fallback only satisfies run_exp.py's laptop-side summary
+      path: ${oc.env:PROJECT_HOME_PATH,/storage_nvme_4/nano/pretraining/unset/ctx_scl}/checkpoints
+
+infrastructure:
+  # Replaces the entropy script: storage_nvme_4 next to pretraining-jm, own pixi env, shared HF cache.
+  script:
+    - '${export_env_variables_placeholders:}'
+    - 'export PROJECT_HOME_PATH=/storage_nvme_4/nano/pretraining/$USER/ctx_scl'
+    - 'export HYDRA_FULL_ERROR=1'
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    # caches on local NVMe; unpacking wheels into NFS ~/.cache is very slow
+    - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
+    - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
+    - 'export XDG_STATE_HOME="$PIXI_HOME/state"'
+    - 'export HF_HOME=/storage_nvme_4/nano/pretraining/hf_cache'
+    - 'export PATH="$HOME/.pixi/bin:$PATH"'
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
+    - 'cd "$PIXI_HOME"'
+    - 'eval "$(pixi shell-hook)"'
+    - 'cd -'
+
+  metric_logger:
+    heavy_metrics_calculation_interval: 100
+    name: h16_chinchilla_ctx_scl
+    tags:
+      - nano
+      - remote
+      - h16
+      - chinchilla
+      - branch_compare
+
+  slurm:
+    time: "2-00:00:00"
+    gres: gpu:4
+    job-name: ${infrastructure.metric_logger.name}
