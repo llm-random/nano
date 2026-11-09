@@ -327,8 +327,8 @@ def test_eval_data_is_not_the_training_data():
 
     fineweb has only a `train` directory on every cluster: no validation split was ever
     downloaded, which is why eval was pointed at the training data. There is no second
-    directory to point at, so the fix is `holdout`, which reserves the tail of the rows
-    for eval and gives the rest to train. The two slices come from the same row count,
+    directory to point at, so the fix is `holdout`, which reserves the end of each of 64
+    segments for eval and gives the rest to train. The two slices cut at the same places,
     so they cannot overlap, and the shared path is then no longer a defect.
 
     This test accepts a shared path only when the config declares that split. Anything
@@ -597,9 +597,9 @@ def test_no_config_writes_a_bare_none():
 def test_both_fineweb_dataloaders_hold_out_the_same_rows():
     """The two slices are defined by one number; if they disagree they overlap.
 
-    `holdout: train` keeps rows [0, total - holdout_rows) and `holdout: eval` takes
-    [total - holdout_rows, total). They are disjoint only because both compute the same
-    cut. Making holdout_rows an overridable key means someone can now override one and
+    Both loaders hold out the last holdout_rows / 64 rows of each of 64 segments, `train`
+    keeping the rest and `eval` taking those. They are disjoint only because both compute
+    the same cuts. Making holdout_rows an overridable key means someone can now override one and
     not the other, which puts eval rows back into training silently -- the exact thing
     the holdout was added to stop.
     """
