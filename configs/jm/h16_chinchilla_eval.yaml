@@ -1,0 +1,31 @@
+# Eval-only: scores h16_chinchilla's final checkpoint (final_ce + the nine benchmarks).
+# final_ce must match the training run's final_ce.
+defaults:
+  - h16_chinchilla
+  - ../_downstream_eval@_here_: joint
+  - _self_
+
+eval_only: true
+
+trainer:
+  checkpoint:
+    load:
+      # The training run's <save.path>/<slurm job id>/step_29999.
+      path: ???
+      training_state_filename: __training_state_filename.pt
+
+infrastructure:
+  metric_logger:
+    name: h16_chinchilla_eval
+    tags:
+      - nano
+      - remote
+      - h16
+      - chinchilla
+      - branch_compare
+      - eval_only
+      - h16_chinchilla
+  slurm:
+    time: "01:00:00"
+    # Same world size as training: no DCP resharding on load.
+    gres: gpu:4

@@ -1,0 +1,21 @@
+# Same tasks, max_gen_toks and batch_size as ctx_scl's _downstream_eval/joint.yaml.
+downstream_evaluator:
+  _partial_: true
+  _target_: src.core.eval.Evaluator
+  # Must match the training tokenize_fn (src.core.datasets.gpt_neox_tokenize_fn).
+  tokenizer: EleutherAI/gpt-neox-20b
+  tasks:
+    - arc_easy
+    - arc_challenge
+    - hellaswag
+    - piqa
+    - winogrande
+    - openbookqa
+    - sciq
+    - social_iqa
+    - lambada_standard
+  limit: null
+  # RoPE tables are built for common.sequence_length; longer inputs fail.
+  max_length: ${common.sequence_length}
+  max_gen_toks: 8
+  batch_size: 32

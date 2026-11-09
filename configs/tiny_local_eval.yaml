@@ -1,0 +1,26 @@
+# Eval-only test: scores the checkpoint that tiny_local.yaml writes. Run in order:
+#   pixi run python main.py --config-name tiny_local infrastructure.metric_logger.type=stdout
+#   pixi run python main.py --config-name tiny_local_eval
+# final_ce here must equal the training run's final_ce.
+defaults:
+  - tiny_local
+  - _downstream_eval@_here_: joint
+  - _self_
+
+eval_only: true
+
+downstream_evaluator:
+  tasks:
+    - piqa
+    - hellaswag
+  limit: 20
+
+trainer:
+  checkpoint:
+    load:
+      path: checkpoint/step_200
+      training_state_filename: __training_state_filename.pt
+
+infrastructure:
+  metric_logger:
+    type: stdout

@@ -60,15 +60,20 @@ ctx_scl's `context_scaling/workshop_icml/dense_mha.yaml`:
 ```yaml
 # @package _global_
 defaults:
-  - /_cluster@_here_: entropy
-  - /_model/context_scaling@_here_: template
-  - /_dataset@_here_: fineweb
-  - /_checkpoints@_here_: none
-  - /_infrastructure@_here_: default
-  - /_downstream_eval@_here_: joint
-  - /_feedforward: swiglu
+  - ../../_cluster@_here_: entropy
+  - ../../_model/context_scaling@_here_: template
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_infrastructure@_here_: default
+  - ../../_downstream_eval@_here_: joint
+  - ../../_feedforward: swiglu
   - _self_
 ```
+
+The refs are relative, not absolute like the workshop configs', so both launch
+patterns work and give identical configs:
+`--config-path configs/context_scaling/branch_compare --config-name h16_chinchilla`
+or `--config-path configs --config-name context_scaling/branch_compare/h16_chinchilla`.
 
 No `_attention` group (it sets kv_heads to 16 or 1). No `_parameterization`: simpleP
 parameter groups are not in step 1, and the cosine scheduler asserts a single group.
@@ -113,7 +118,16 @@ The block matches step 1: cosine to 10%, 1% warmup, eval every 100 steps × 10 b
 block, because ctx_scl's `main.py` passes the scheduler only `optimizer=`.
 
 Set as in step 1: `sequence_length: 1024`, `batch_size: 256`, `n_steps: 30_000`,
-`learning_rate: 10` (same 2^-n convention), `gradient_accumulation_steps: 1`.
+`learning_rate: 10` (same 2^-n convention).
+
+One deliberate difference: `gradient_accumulation_steps: 2` (step 1 has 1).
+- **Why:** the first smoke run (2026-11-06, job 36054) ran out of GPU memory in the
+  first backward, at 64 sequences × 1024 per GPU. ctx_scl runs eager, so it keeps every
+  intermediate activation; step 1 fits that size only because it compiles its blocks.
+- **Why it's still the same job:** ctx_scl splits each GPU's batch into equal chunks and
+  divides each chunk's loss by the number of chunks. The summed gradient is the
+  full-batch gradient, so the global batch (256 × 1024) and the optimizer step are
+  unchanged. Only the micro-batch is smaller (32 per GPU).
 
 **Rest.**
 - `heavy_metrics_calculation_interval: 100`. It is `???` in ctx_scl's
@@ -175,7 +189,7 @@ config and overrides: 100 steps, `eval_interval: 50`, downstream `limit: 20`, sa
 under `checkpoints/smoke`, a 30-minute limit, and a `smoke` tag instead of
 `branch_compare`. Its dry run composes cleanly (26M tokens, final checkpoint at step
 99). Launch with
-`run_exp.py --config-path configs --config-name context_scaling/branch_compare/h16_chinchilla_smoke`.
+`run_exp.py --config-path configs/context_scaling/branch_compare --config-name h16_chinchilla_smoke`.
 It passes when:
 
 - [ ] the model builds at 354,714,624 params (logged at startup) and trains on 4 GPUs
@@ -205,13 +219,11 @@ On a cold cache its four ranks load at once; if that breaks, rerun it.
 - Branch `jm_ctx_scl_branch_compare` off `ctx_scl` (worktree
   `/home/janek/Documents/IDEAS/ctx_scl_compare`), with the tokenizer function and
   `configs/context_scaling/branch_compare/h16_chinchilla.yaml`. Launch with
-  `run_exp.py --config-path configs --config-name context_scaling/branch_compare/h16_chinchilla`.
-  The config is `# @package _global_` with absolute group refs, like ctx_scl's
-  workshop configs.
+  `run_exp.py --config-path configs/context_scaling/branch_compare --config-name h16_chinchilla`.
 - entropy, 4× H100, same partition. ctx_scl's pixi env is new, at
   `/storage_nvme_4/nano/pretraining/$USER/ctx_scl/pixi`. Install it once before the
   smoke run with
-  `update_pixi.py --config-path configs --config-name context_scaling/branch_compare/h16_chinchilla`,
+  `update_pixi.py --config-path configs/context_scaling/branch_compare --config-name h16_chinchilla`,
   which reads `PIXI_HOME` from the config's script.
 - Downstream eval: `_downstream_eval/joint.yaml` already runs once at the end
   (`eval_interval: 0`, `final_eval: true`). It takes `tokenizer` from
@@ -289,11 +301,15 @@ its checkpoint. That is all the comparison needs, so it is all that gets built n
 
 **Tests** (on `tiny_local.yaml`, overrides baked into a config file):
 
-- [ ] **Load path:** train the tiny model and save it, then run eval-only on it. Its
-      `final_ce` matches the training run's.
-- [ ] **Scoring:** piqa and hellaswag with `limit: 20` log `eval/<task>/<metric>`.
-- [ ] **Guard:** a generative task with `world_size > 1` fails at startup with a
-      clear message.
+- [x] **Load path:** train the tiny model and save it, then run eval-only on it. Its
+      `final_ce` matches the training run's. (2026-11-06, CPU: 8.451300859451294 in
+      both, `configs/tiny_local_eval.yaml`.)
+- [x] **Scoring:** piqa and hellaswag with `limit: 20` log `eval/<task>/<metric>`.
+- [x] **Guard:** a generative task with `world_size > 1` fails at startup with a
+      clear message. (`WORLD_SIZE=2`, tasks `[piqa, gsm8k]`: names gsm8k only.)
+- [ ] **GPU path, on entropy:** the laptop has no CUDA, so the FSDP2 sharded load,
+      compiled blocks under `force_eager`, and lm-eval's multi-rank split are untested.
+      A short tiny job with fsdp2 that saves, then eval-only on it with `limit: 20`.
 - [ ] *(Optional)* `NanoLM` on gpt2 vs lm-eval's own HF backend, on piqa with a
       small `limit`. The numbers should be close, which validates the scoring
       itself. Required if absolute scores are ever quoted: `NanoLM` tokenizes

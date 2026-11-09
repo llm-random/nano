@@ -300,8 +300,55 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
     return model, optimizer, scheduler, training_state, metric_logger
 
 
+def check_eval_only_config(cfg):
+    eval_only = cfg.get("eval_only", False)
+    has_evaluator = cfg.get("downstream_evaluator") is not None
+    if has_evaluator and not eval_only:
+        raise ValueError(
+            "downstream_evaluator runs only with eval_only: true; in-loop scoring "
+            "is not implemented yet."
+        )
+    if not eval_only:
+        return
+    if not has_evaluator:
+        raise ValueError("eval_only: true needs a downstream_evaluator.")
+    if cfg.trainer.checkpoint.load.path is None:
+        # load_checkpoint_from_file skips a null path silently: a fresh init would be scored.
+        raise ValueError("eval_only: true needs trainer.checkpoint.load.path.")
+
+
+def evaluate_checkpoint(cfg, trainer, training_state, metric_logger):
+    """eval_only: final_ce on the held-out set, then the downstream benchmarks."""
+    evaluator = instantiate(cfg.downstream_evaluator)(
+        metric_logger=metric_logger, model=trainer.model
+    )
+    if cfg.trainer.checkpoint.load.training_state_filename is None:
+        logger.warning(
+            "No checkpoint.load.training_state_filename: scores are logged at step 0, "
+            "not the checkpoint's step."
+        )
+    # Log at the step the source run logged its final_ce.
+    metric_logger.set_step(max(training_state["next_step"] - 1, 0))
+    metric_logger.set_tokens(training_state["processed_tokens"])
+    if isinstance(metric_logger, WandbLogger) and metric_logger.run is not None:
+        metric_logger.run.config.update(
+            {
+                "eval_only_source": {
+                    "checkpoint": cfg.trainer.checkpoint.load.path,
+                    "run_id": training_state["run_id"],
+                }
+            },
+            allow_val_change=True,
+        )
+
+    trainer.final_eval()
+    evaluator.eval()
+    metric_logger.flush()
+
+
 def run(cfg: RootSchema, metric_logger=None):
     setup_enviroment()
+    check_eval_only_config(cfg)
 
     # The runtime object is a DictConfig (the RootSchema annotation is Pylance
     # sugar); `in` also guards configs that predate the schema'd key.
@@ -322,15 +369,18 @@ def run(cfg: RootSchema, metric_logger=None):
     if model is not None:
         logger.info(f"Model initialized")
 
-        trainer = instantiate(cfg.trainer)
-
-        trainer(
+        trainer = instantiate(cfg.trainer)(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
             training_state=training_state,
             metric_logger=metric_logger,
-        ).train()
+        )
+
+        if cfg.get("eval_only", False):
+            evaluate_checkpoint(cfg, trainer, training_state, metric_logger)
+        else:
+            trainer.train()
 
         # TODO
         # finetuning
