@@ -201,6 +201,7 @@ checkpoint/
 # local scratch / nested repos (not for experiment branches)
 pc_paper/
 claude-memory-nano.tar.gz
+.claude/
 internships.md
 # intermediate renders of the channel-influence figures; only generated_final/ is committed
 influences_figs/plotly_regen/generated/
