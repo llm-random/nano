@@ -334,17 +334,17 @@ def test_the_logged_training_state_path_is_where_the_file_lands(tmp_path, caplog
 # was ever downloaded -- so eval was pointed at the training data and scored the
 # batches the model was training on, in the same order, flattering in exactly
 # the direction nobody checks. There is no second directory to point at, so the
-# fix carves one: the last holdout_fraction of rows goes to eval and the rest to
-# train, both computed from the same row count. These assert the two slices are
+# fix carves one: the end of each of 64 segments goes to eval and the rest to
+# train, both cut at the same places. These assert the two slices are
 # genuinely disjoint rather than merely configured to be.
 
 
-def _holdout_stream(n, holdout, monkeypatch, rows=60, max_samples=None):
+def _holdout_dataset(holdout, monkeypatch, rows=60, max_samples=None):
     from src.core.datasets import FineWebEduDataset, gpt2_tokenize_fn
 
     monkeypatch.setenv("WORLD_SIZE", "1")
     monkeypatch.setenv("RANK", "0")
-    dataset = FineWebEduDataset(
+    return FineWebEduDataset(
         sequence_length=16,
         tokenize_fn=gpt2_tokenize_fn(),
         path=os.path.join(REPO_ROOT, "data"),
@@ -355,6 +355,10 @@ def _holdout_stream(n, holdout, monkeypatch, rows=60, max_samples=None):
         holdout_rows=rows,
         max_samples=max_samples,
     )
+
+
+def _holdout_stream(n, holdout, monkeypatch, rows=60, max_samples=None):
+    dataset = _holdout_dataset(holdout, monkeypatch, rows, max_samples)
     return [tuple(sequence) for sequence in itertools.islice(iter(dataset), n)]
 
 
@@ -366,6 +370,23 @@ def test_the_holdout_slices_do_not_overlap(monkeypatch):
     assert train and evaluation
     shared = set(train) & set(evaluation)
     assert not shared, f"{len(shared)} sequences appear in both train and eval holdouts"
+
+
+@needs_local_data
+def test_every_row_is_train_or_eval_and_eval_spans_the_corpus(monkeypatch):
+    """The split is by row, so check rows: none shared, none lost, eval not one tail."""
+    from datasets import load_from_disk
+
+    data = load_from_disk(os.path.join(REPO_ROOT, "data"))
+    data = data.add_column("row", list(range(len(data))))
+    train = set(_holdout_dataset("train", monkeypatch)._holdout_split(data)["row"])
+    evaluation = set(_holdout_dataset("eval", monkeypatch)._holdout_split(data)["row"])
+    assert not train & evaluation, f"{len(train & evaluation)} rows are in both slices"
+    assert train | evaluation == set(range(len(data))), "some rows are in neither slice"
+    assert len(evaluation) == 60, f"eval has {len(evaluation)} rows, not holdout_rows"
+    assert (
+        min(evaluation) < len(data) // 10 and max(evaluation) > len(data) * 9 // 10
+    ), f"eval rows {min(evaluation)}..{max(evaluation)} do not span the corpus"
 
 
 @needs_local_data
@@ -510,6 +531,21 @@ def test_the_eval_set_is_the_same_samples_every_time(monkeypatch):
     first = _holdout_stream(5, "eval", monkeypatch, max_samples=5)
     second = _holdout_stream(5, "eval", monkeypatch, max_samples=5)
     assert first == second, "the eval set changed between evaluations"
+
+
+@needs_local_data
+def test_a_capped_stream_is_packed_once_and_replayed_from_memory(monkeypatch):
+    """Later passes must match the first without reading the data again."""
+    dataset = _holdout_dataset("eval", monkeypatch, max_samples=5)
+    first = [tuple(sequence) for sequence in dataset]
+
+    def read_again():
+        raise AssertionError("a replay read the dataset again")
+
+    monkeypatch.setattr(dataset, "get_infinite_sampler", read_again)
+    second = [tuple(sequence) for sequence in dataset]
+    assert len(first) == 5 and first == second, "the replay differs from the first pass"
+    assert dataset._cached_samples.nbytes == 5 * 16 * 4, "the cache is not int32"
 
 
 # ---------------------------------------------------------------------------
