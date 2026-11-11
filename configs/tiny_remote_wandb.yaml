@@ -27,7 +27,7 @@ infrastructure:
 
   metric_logger:
     type: wandb
-    wandb_entity: ideas_cv
+    wandb_entity: ideascv_llms
     project_name: llm-random-test
     name: tiny_remote
     tags:
