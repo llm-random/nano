@@ -18,7 +18,7 @@ downstream_evaluator:
 trainer:
   checkpoint:
     load:
-      path: checkpoint/step_200
+      path: checkpoint/step_199
       training_state_filename: __training_state_filename.pt
 
 infrastructure:

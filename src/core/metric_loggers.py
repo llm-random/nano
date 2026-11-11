@@ -23,7 +23,11 @@ class MetricLogger(ABC):
         return (
             self.step is not None
             and self.heavy_metrics_calculation_interval > 0
-            and (self.step) % self.heavy_metrics_calculation_interval == 0
+            and (
+                self.step == 0
+                # last step of each interval, so a run ends on step n_steps-1
+                or (self.step + 1) % self.heavy_metrics_calculation_interval == 0
+            )
         )
 
     @abstractmethod

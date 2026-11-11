@@ -204,6 +204,7 @@ def test_ordinary_steps_are_unchanged(step):
 class _RecordingLogger:
     def __init__(self):
         self.logged = {}
+        self.step = 0
 
     def log(self, name, value):
         self.logged[name] = value
@@ -213,6 +214,9 @@ class _RecordingLogger:
 
     def flush_accumulated_metrics(self):
         pass
+
+    def set_step(self, step):
+        self.step = step
 
 
 class _FinalEvalStub:

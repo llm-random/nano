@@ -154,7 +154,8 @@ def test_resuming_reproduces_the_uninterrupted_run(tmp_path):
         name="straight",
         extra=[f"trainer.checkpoint.save.interval={RESUME_AT}"],
     )
-    checkpoint = os.path.join(uninterrupted, f"step_{RESUME_AT}")
+    # saved after RESUME_AT completed steps, which is 0-indexed step RESUME_AT - 1
+    checkpoint = os.path.join(uninterrupted, f"step_{RESUME_AT - 1}")
     assert os.path.isdir(checkpoint), f"no mid-run checkpoint at {checkpoint}"
 
     _, output_b = _run(
@@ -174,7 +175,7 @@ def test_resuming_reproduces_the_uninterrupted_run(tmp_path):
     straight = _losses_by_step(output_a)
     resumed = _losses_by_step(output_b)
 
-    compared = [s for s in range(RESUME_AT + 1, RESUME_STEPS) if s in straight]
+    compared = [s for s in range(RESUME_AT, RESUME_STEPS) if s in straight]
     assert len(compared) >= 5, f"too few steps to compare: {compared}"
     assert set(compared) <= set(resumed), (
         f"resumed run is missing steps {sorted(set(compared) - set(resumed))} -- "

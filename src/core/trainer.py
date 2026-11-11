@@ -220,19 +220,21 @@ class Trainer:
     def _should_evaluate(self) -> bool:
         return (
             self.eval_interval > 0
-            and self.step % self.eval_interval == 0
+            # last step of each interval, same grid as heavy metrics
+            and (self.step + 1) % self.eval_interval == 0
             and self.step != 0
         )
 
     @property
     def _should_log_eval_input(self) -> bool:
-        return self.step % (self.eval_interval * 100) == 0
+        return (self.step + 1) % (self.eval_interval * 100) == 0
 
     @property
     def _should_save_checkpoint(self) -> bool:
         return (
             self.checkpoint.save.interval > 0
-            and (self.step) % self.checkpoint.save.interval == 0
+            # same grid as eval, so the last periodic save is step_{n_steps-1}
+            and (self.step + 1) % self.checkpoint.save.interval == 0
             and self.step != 0
             and self.checkpoint.save.path is not None
         )
@@ -428,6 +430,8 @@ class Trainer:
             batches = itertools.islice(batches, self.n_eval_steps)
 
         self.model.eval()
+        saved_step = self.metric_logger.step
+        self.metric_logger.set_step(None)  # disables heavy logging, as in eval()
         # Accumulate a weighted sum and a count rather than a list of batch means. The
         # last batch of a fixed-size set is usually short, and with world_size_independent
         # the ranks get within one sample of each other but not exactly the same number,
@@ -453,6 +457,7 @@ class Trainer:
                 loss_sum += loss_metrics.reported_loss.detach().double() * size
                 n_samples += size
                 self.metric_logger.flush_accumulated_metrics()
+        self.metric_logger.set_step(saved_step)
 
         # One reduction, after the loop. Reducing inside it would deadlock the moment
         # two ranks got a different number of batches, which a fixed-size set split
