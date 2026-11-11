@@ -1,0 +1,22 @@
+# tiny_local_wsd without decay, checkpointed every 100 steps; tiny_local_wsd_branch resumes from it.
+defaults:
+  - tiny_local_wsd
+  - _self_
+
+trainer:
+  scheduler:
+    decay_steps: 0
+
+  checkpoint:
+    save:
+      path: checkpoint/tiny_local_wsd_stable
+      interval: 100
+
+infrastructure:
+  metric_logger:
+    name: tiny_local_wsd_stable
+    tags:
+      - nano
+      - local
+      - tiny
+      - wsd

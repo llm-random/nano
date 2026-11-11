@@ -2,22 +2,22 @@ import torch
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, ConstantLR
 
 
-class TrapezoidalLR(SequentialLR):
+class WSDScheduler(SequentialLR):
     def __init__(
         self,
-        optimizer,
-        warmup_steps,
-        constant_steps,
-        decay_steps,
+        optimizer: torch.optim.Optimizer,
+        n_steps: int,
+        warmup_steps: int,
+        decay_steps: int,
     ):
         self.warmup_steps = warmup_steps
-        self.constant_steps = constant_steps
         self.decay_steps = decay_steps
+        self.constant_steps = n_steps - warmup_steps - decay_steps
 
         # Define individual schedulers
         warmup_scheduler = LinearLR(
             optimizer,
-            start_factor=0.1,
+            start_factor=1e-12,  # can't use 0.0
             end_factor=1.0,
             total_iters=warmup_steps,
         )
@@ -25,22 +25,35 @@ class TrapezoidalLR(SequentialLR):
         constant_scheduler = ConstantLR(
             optimizer,
             factor=1.0,
-            total_iters=constant_steps,
+            total_iters=self.constant_steps,
         )
 
-        linear_decay_scheduler = LinearLR(
-            optimizer,
-            start_factor=1.0,
-            end_factor=0.0,
-            total_iters=decay_steps,
-        )
+        schedulers = [warmup_scheduler, constant_scheduler]
+        milestones = [warmup_steps]
 
-        schedulers = [warmup_scheduler, constant_scheduler, linear_decay_scheduler]
-        milestones = [warmup_steps, warmup_steps + constant_steps]
+        # Skip the decay branch when decay_steps=0: LinearLR(total_iters=0) divides by zero.
+        if decay_steps > 0:
+            linear_decay_scheduler = LinearLR(
+                optimizer,
+                start_factor=1.0,
+                end_factor=0.0,
+                total_iters=decay_steps,
+            )
+            schedulers.append(linear_decay_scheduler)
+            milestones.append(warmup_steps + self.constant_steps)
 
-        super(TrapezoidalLR, self).__init__(
+        # A milestone at step 0 never fires, so drop phases that are empty at the start.
+        while milestones and milestones[0] == 0:
+            schedulers.pop(0)
+            milestones.pop(0)
+
+        super(WSDScheduler, self).__init__(
             optimizer, schedulers=schedulers, milestones=milestones
         )
+
+    def state_dict(self):
+        # Just the step count: load_state_dict replays to it, whatever the config.
+        return {"last_epoch": self.last_epoch}
 
     def load_state_dict(self, loaded_state):
 
@@ -54,6 +67,9 @@ class TrapezoidalLR(SequentialLR):
         The problem is that the state_dict of SequentialLR is not obvious. State of particular scheduler changes after each step. 
         But when it is milestone step, both schedulers are updated. It is easier to just load state and then step to the last_epoch.
         """
+        # Optimizer state was loaded first: replay from our own LR, not the saved one.
+        for group, lr in zip(self.optimizer.param_groups, self.get_last_lr()):
+            group["lr"] = lr
         while loaded_state["last_epoch"] > self.last_epoch:
             self.step()
 

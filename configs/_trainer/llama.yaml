@@ -1,4 +1,9 @@
 
+defaults:
+  # A group, not a merged dict, so switching scheduler replaces the node whole.
+  - _scheduler@trainer.scheduler: cosine
+  - _self_
+
 trainer:
   _partial_: true
   _target_: src.core.trainer.Trainer
@@ -9,12 +14,6 @@ trainer:
   n_steps: null
   learning_rate: null
   weight_decay: 0.1
-
-  scheduler:
-    _partial_: true
-    _target_: src.core.schedulers.get_cosine_scheduler_with_warmup
-    final_lr_fraction: 0.1
-    warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
 
   distributed:
     fsdp2:

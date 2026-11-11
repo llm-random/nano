@@ -66,7 +66,23 @@ class SchedulerSchema:
     _target_: str = MISSING
     _partial_: bool = MISSING
     warmup_steps: int = MISSING
+
+
+@dataclass
+class CosineSchedulerSchema(SchedulerSchema):
     final_lr_fraction: float = MISSING
+
+
+@dataclass
+class WSDSchedulerSchema(SchedulerSchema):
+    decay_steps: int = MISSING
+
+
+# check_point types trainer.scheduler by its _target_; main.py passes n_steps.
+SCHEDULER_SCHEMAS = {
+    "src.core.schedulers.get_cosine_scheduler_with_warmup": CosineSchedulerSchema,
+    "src.core.schedulers.WSDScheduler": WSDSchedulerSchema,
+}
 
 
 @dataclass
@@ -155,18 +171,21 @@ def _base_schema_node() -> DictConfig:
     """The node stored as `base_schema`: strict exactly where scoped.
 
     A plain-dict root holding structured `common`/`trainer` children. Typed
-    nodes reject unknown keys through their object_type, with no struct *flag*
-    set anywhere -- flags inherit downward, so flag-based strictness on
+    nodes reject unknown keys through their object_type, with no closing struct
+    *flag* set anywhere -- flags inherit downward, so flag-based strictness on
     `trainer` would also close its untyped subtrees (train_dataloader,
     distributed.fsdp2), which merge freely today and must stay open. With no
     flags, the root stays open for today's idioms (`_run_: true` from
     _cluster/local.yaml, ad-hoc `+compile_model=true`, the model tree), while
     unknown keys under common/trainer still fail composition.
     """
+    trainer = OmegaConf.structured(TrainerSchema)
+    # Per-scheduler keys differ: open at compose, typed by _target_ in check_point.
+    OmegaConf.set_struct(trainer.scheduler, False)
     return OmegaConf.create(
         {
             "common": OmegaConf.structured(CommonSchema),
-            "trainer": OmegaConf.structured(TrainerSchema),
+            "trainer": trainer,
         }
     )
 
@@ -192,7 +211,13 @@ def check_point(point: "dict | DictConfig | RootSchema") -> DictConfig:
         # per-key validation, which would let a `+trainer.bogus=1` force-add
         # through. A plain container is re-validated key by key.
         point = OmegaConf.to_container(point, resolve=False)
-    merged = OmegaConf.merge(_base_schema_node(), OmegaConf.create(point))
+    point = OmegaConf.create(point)
+    base = _base_schema_node()
+    target = OmegaConf.select(point, "trainer.scheduler._target_")
+    schema = SCHEDULER_SCHEMAS.get(target)
+    if schema is not None:
+        base.trainer.scheduler = OmegaConf.structured(schema)
+    merged = OmegaConf.merge(base, point)
     validate(merged)
     return merged
 
@@ -261,6 +286,12 @@ def validate(cfg) -> None:
         f"trainer.n_eval_steps must be >= 0, got {t.n_eval_steps!r}",
     )
 
+    scheduler_schema = SCHEDULER_SCHEMAS.get(t.scheduler._target_)
+    check(
+        scheduler_schema is not None,
+        f"trainer.scheduler._target_ must be one of {sorted(SCHEDULER_SCHEMAS)}, "
+        f"got {t.scheduler._target_!r}",
+    )
     if t.n_steps is not None:
         # 0 is legitimate: finalize/conversion passes build a scheduler they
         # never step (see the assert in src/core/schedulers.py).
@@ -271,13 +302,26 @@ def validate(cfg) -> None:
         check(
             warmup >= 0, f"trainer.scheduler.warmup_steps must be >= 0, got {warmup!r}"
         )
-        # Mirrors the assert in get_cosine_scheduler_with_warmup: the cosine
-        # phase needs T_max >= 1, i.e. n_steps > warmup_steps + 1.
-        check(
-            t.n_steps == 0 or t.n_steps > warmup + 1,
-            f"trainer.n_steps={t.n_steps} must exceed scheduler.warmup_steps+1="
-            f"{warmup + 1}, or the scheduler divides by zero on step 1",
-        )
+        if scheduler_schema is CosineSchedulerSchema:
+            # Mirrors the assert in get_cosine_scheduler_with_warmup: the cosine
+            # phase needs T_max >= 1, i.e. n_steps > warmup_steps + 1.
+            check(
+                t.n_steps == 0 or t.n_steps > warmup + 1,
+                f"trainer.n_steps={t.n_steps} must exceed scheduler.warmup_steps+1="
+                f"{warmup + 1}, or the scheduler divides by zero on step 1",
+            )
+        elif scheduler_schema is WSDSchedulerSchema:
+            decay = t.scheduler.decay_steps
+            check(
+                decay >= 0,
+                f"trainer.scheduler.decay_steps must be >= 0, got {decay!r}",
+            )
+            # WSD's stable phase is n_steps - warmup_steps - decay_steps.
+            check(
+                t.n_steps == 0 or warmup + decay <= t.n_steps,
+                f"trainer.scheduler.warmup_steps+decay_steps={warmup + decay} must "
+                f"not exceed trainer.n_steps={t.n_steps}",
+            )
 
     save_interval = t.checkpoint.save.interval
     check(

@@ -1,0 +1,4 @@
+_partial_: true
+_target_: src.core.schedulers.WSDScheduler
+warmup_steps: ${eval:'int(${trainer.n_steps} * 0.01)'}
+decay_steps: ${eval:'int(${trainer.n_steps} * 0.1)'}

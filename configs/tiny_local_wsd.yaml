@@ -1,0 +1,9 @@
+defaults:
+  - tiny_local
+  - override _trainer/_scheduler@trainer.scheduler: wsd
+  - _self_
+
+trainer:
+  scheduler:
+    warmup_steps: 10
+    decay_steps: 50
