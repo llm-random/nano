@@ -8,7 +8,7 @@ stability).
 
 Usage:
     python scripts/mfu_window.py <run_name_or_id> [--project nano-mfu-audit]
-        [--entity ideas_cv] [--window 10 29] [--tokens-per-step 1048576]
+        [--entity ideascv_llms] [--window 10 29] [--tokens-per-step 1048576]
 """
 
 import argparse
@@ -19,7 +19,7 @@ import statistics
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("run", help="run name or id in the project")
-    parser.add_argument("--entity", default="ideas_cv")
+    parser.add_argument("--entity", default="ideascv_llms")
     parser.add_argument("--project", default="nano-mfu-audit")
     parser.add_argument("--window", nargs=2, type=int, default=[10, 29])
     parser.add_argument("--tokens-per-step", type=int, default=512 * 2048)

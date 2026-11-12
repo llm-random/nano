@@ -28,6 +28,7 @@ Without it, newest run first.
 
 Usage:
 pixi run python wandb_mfu.py \
+    --entity ideas_cv \
     --project llm-random-test \
     --tags jm_mfu_benchmarking \
     --exclude-tags remove \
@@ -189,7 +190,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--entity", default="ideas_cv")
+    parser.add_argument("--entity", default="ideascv_llms")
     parser.add_argument("--project", required=True)
     parser.add_argument(
         "--tags", nargs="+", required=True, help="a run must carry all of them"

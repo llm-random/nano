@@ -18,7 +18,7 @@ common:
 trainer:
   gradient_accumulation_steps: 1
   n_steps: 30_000
-  learning_rate: 10
+  ^learning_rate: [8, 9, 10, 11]
 
   checkpoint:
     save:
@@ -41,12 +41,10 @@ infrastructure:
     name: h16_chinchilla
     tags:
       - nano
-      - remote
       - h16
-      # - lr_tune
+      - lr_tune
       - chinchilla
       - wsd
-      - inloop_eval
 
   slurm:
     time: "08:00:00"
