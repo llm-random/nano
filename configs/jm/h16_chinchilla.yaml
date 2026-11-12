@@ -6,6 +6,9 @@ defaults:
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
+  - ../_downstream_eval@_here_: joint
+  # warmup 300, stable to step 26999, linear decay to 0 over the last 3_000
+  - override ../_trainer/_scheduler@trainer.scheduler: wsd
   - _self_
 
 common:
@@ -22,9 +25,14 @@ trainer:
       type: nano
       # job uses the cluster's PROJECT_HOME_PATH; the fallback only satisfies run_exp.py's laptop-side check
       path: ${oc.env:PROJECT_HOME_PATH,/storage_nvme_4/nano/pretraining}/${oc.env:USER}/checkpoints
-      interval: -1
+      # step_2999 .. step_29999; step_26999 is the last stable step, to branch a decay from
+      interval: 3_000
 
 compile_blocks_full: true
+
+downstream_evaluator:
+  # Same grid as checkpoints; step_29999 is scored after the final save.
+  eval_interval: 3_000
 
 infrastructure:
   max_concurrent_jobs: -1
@@ -37,7 +45,8 @@ infrastructure:
       - h16
       # - lr_tune
       - chinchilla
-      - branch_compare
+      - wsd
+      - inloop_eval
 
   slurm:
     time: "08:00:00"
