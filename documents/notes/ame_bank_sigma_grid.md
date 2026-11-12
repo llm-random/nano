@@ -101,10 +101,31 @@ commit `kf4q4t4s` ran.
 
 ### Runs
 
+Round 1 was submitted from `~/code/nano-bank-sigma` at `3a2a83c0`: array 38422, clone
+`/home/mstefaniak/llmrandom_cemetery/bank_sigma_m200_2026-11-12_18-29-53`.
+
 | Round | σ | m | Job | W&B | Started | Finished | State |
 |---|---|---|---|---|---|---|---|
+| 1 | 0.01 | 200 | 38422_0 | | | | PENDING |
+| 1 | 1e-4 | 400 | 38422_1 | | | | PENDING |
+| 1 | 1e-3 | 300 | 38422_2 | | | | PENDING |
+| 1 | 0.1 | 100 | 38422_3 | | | | PENDING |
 
 ### Checks
+
+- **Round 1, submit, 11-12 18:30:** PENDING (Priority). No other job of Maciej's is
+  on entropy.
+  - h100a is full: j321m holds 4 GPUs (8 h limit), and mateuszwyszynski holds 4
+    single-GPU jobs (2-day limit, started 09:08).
+  - Nine pending jobs rank above ours, among them 1-GPU jobs of 1.4-2 days (hegel,
+    nauman ×3). Our priority, 2,891, is the queue's lowest: our fairshare has fallen
+    after this week's runs. Our QOS preempts only `lukaskoz_h100`, which has nothing
+    running. Slurm's start estimate is 11-21 08:00; such estimates assume full time
+    limits and have been days off.
+  - **The time limit went from 7 h to 5 h** (`scontrol update`, 18:33). A run takes
+    about 3.8 h here, and a shorter job backfills more easily.
+- **Next check: when round 1 starts.** One watcher polls every 10 min. It wakes at
+  step 20 of the first runs, or at once on a failed task or a NaN.
 
 ### Results
 
