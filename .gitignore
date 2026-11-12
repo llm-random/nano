@@ -214,3 +214,5 @@ influences_figs/plotly_regen/backup_duplicated_attn_charts/
 smoke/generated/
 smoke_work/
 smoke_results/
+# personal work plan (today.md, future.md)
+plan/
