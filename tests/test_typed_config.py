@@ -36,7 +36,13 @@ CONFIGS_DIR = os.path.join(REPO_ROOT, "configs")
 # trainer = instantiate(cfg.trainer); trainer(model=..., optimizer=..., ...).
 # `scheduler` is deliberately NOT here: it is both a yaml node (the factory
 # config) and a call-time argument, so it belongs to the schema too.
-RUNTIME_INJECTED = {"model", "optimizer", "training_state", "metric_logger"}
+RUNTIME_INJECTED = {
+    "model",
+    "optimizer",
+    "training_state",
+    "metric_logger",
+    "downstream_evaluator",
+}
 
 
 def _compose(name, overrides=()):

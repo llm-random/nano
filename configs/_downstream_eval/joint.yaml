@@ -19,3 +19,6 @@ downstream_evaluator:
   max_length: ${common.sequence_length}
   max_gen_toks: 8
   batch_size: 32
+  # Training runs only; eval_only scores the checkpoint once regardless.
+  eval_interval: 0
+  final_eval: true

@@ -1,11 +1,13 @@
 import itertools
 import os
+import random
 import time
 from contextlib import contextmanager, nullcontext
 from attr import define
+import numpy as np
 import torch
 import torch.nn.functional as F
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -22,7 +24,27 @@ from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
 from src.core.mfu import model_flops_per_token, peak_flops_bf16
 from src.core.utils import create_batch_fingerprint
 
+if TYPE_CHECKING:
+    # Type-only: importing lm_eval at module load would slow every training start.
+    from src.core.eval import Evaluator
+
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def preserved_rng_state(device: torch.device):
+    """Restores torch CPU and CUDA (`device` only), Python and numpy RNG state on exit."""
+    on_cuda = device.type == "cuda"
+    torch_state = torch.get_rng_state()
+    cuda_state = torch.cuda.get_rng_state(device) if on_cuda else None
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    yield
+    torch.set_rng_state(torch_state)
+    if on_cuda:
+        torch.cuda.set_rng_state(cuda_state, device)
+    random.setstate(python_state)
+    np.random.set_state(numpy_state)
 
 
 @define(frozen=True)
@@ -119,6 +141,8 @@ class Trainer:
     learning_rate: float
     weight_decay: float
     distributed: Optional[dict]
+    # lm-eval benchmarks on the evaluator's own cadence; None when the config has none.
+    downstream_evaluator: Optional["Evaluator"]
     # The nanoGPT-style single-GPU configuration: a plain (unwrapped) module
     # whose forward+loss run under torch.autocast(bf16) while params, grads
     # and optimizer state stay fp32. Off by default; meant for runs with
@@ -194,6 +218,7 @@ class Trainer:
         # resume. Do not add the skip back without first removing that restart.
         self.eval_iterator = None
         self.step = self.start_step - 1
+        self._last_downstream_eval_step = None
         # Disabled placeholder so calculate_loss (also called from eval) can
         # always reference it; train() swaps in the enabled instance.
         self._timers = LoopTimers(False)
@@ -228,6 +253,27 @@ class Trainer:
     @property
     def _should_log_eval_input(self) -> bool:
         return (self.step + 1) % (self.eval_interval * 100) == 0
+
+    @property
+    def _downstream_interval_hit(self) -> bool:
+        if self.downstream_evaluator is None:
+            return False
+        interval = self.downstream_evaluator.eval_interval
+        return interval > 0 and self.step % interval == 0 and self.step != 0
+
+    @property
+    def _should_run_downstream_eval(self) -> bool:
+        # The last step's eval runs in train() after the final checkpoint.
+        return self._downstream_interval_hit and self.step < self.n_steps - 1
+
+    @property
+    def _should_run_final_downstream_eval(self) -> bool:
+        return (
+            self.downstream_evaluator is not None
+            and (self.downstream_evaluator.final_eval or self._downstream_interval_hit)
+            # Not twice at one step: the loop stops early when the data runs out.
+            and self._last_downstream_eval_step != self.step
+        )
 
     @property
     def _should_save_checkpoint(self) -> bool:
@@ -389,6 +435,10 @@ class Trainer:
             if self._should_evaluate:
                 self.eval()
 
+            # After the save above, so a same-step lm-eval crash can't cost the checkpoint.
+            if self._should_run_downstream_eval:
+                self.downstream_eval()
+
             self.metric_logger.flush()
 
         if torch.cuda.is_available():
@@ -400,6 +450,25 @@ class Trainer:
 
         if self._should_save_final_checkpoint:
             self.save_final_checkpoint()
+
+        # Last, so an lm-eval crash can't cost the final checkpoint.
+        if self._should_run_final_downstream_eval:
+            self.downstream_eval()
+            self.metric_logger.flush()
+
+    def downstream_eval(self):
+        """Score the lm-eval benchmarks at the current step without disturbing training."""
+        t0 = time.perf_counter()
+        # simple_evaluate reseeds every global RNG.
+        with preserved_rng_state(self.device):
+            self.downstream_evaluator.eval()
+        wall_time = time.perf_counter() - t0
+        self.model.train()
+        # Otherwise the next step's step_time and MFU would include the eval.
+        self._prev_log_time = None
+        self._last_downstream_eval_step = self.step
+        logger.info(f"Downstream eval at step {self.step} took {wall_time:.1f} s")
+        self.metric_logger.log("eval/downstream_wall_time_s", wall_time)
 
     def final_eval(self):
         """Score the held-out set once, after training, and log it as `final_ce`.

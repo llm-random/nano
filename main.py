@@ -301,27 +301,25 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
 
 
 def check_eval_only_config(cfg):
-    eval_only = cfg.get("eval_only", False)
-    has_evaluator = cfg.get("downstream_evaluator") is not None
-    if has_evaluator and not eval_only:
-        raise ValueError(
-            "downstream_evaluator runs only with eval_only: true; in-loop scoring "
-            "is not implemented yet."
-        )
-    if not eval_only:
+    if not cfg.get("eval_only", False):
         return
-    if not has_evaluator:
+    if cfg.get("downstream_evaluator") is None:
         raise ValueError("eval_only: true needs a downstream_evaluator.")
     if cfg.trainer.checkpoint.load.path is None:
         # load_checkpoint_from_file skips a null path silently: a fresh init would be scored.
         raise ValueError("eval_only: true needs trainer.checkpoint.load.path.")
 
 
+def build_downstream_evaluator(cfg, model, metric_logger):
+    if cfg.get("downstream_evaluator") is None:
+        return None
+    return instantiate(cfg.downstream_evaluator)(
+        metric_logger=metric_logger, model=model
+    )
+
+
 def evaluate_checkpoint(cfg, trainer, training_state, metric_logger):
     """eval_only: final_ce on the held-out set, then the downstream benchmarks."""
-    evaluator = instantiate(cfg.downstream_evaluator)(
-        metric_logger=metric_logger, model=trainer.model
-    )
     if cfg.trainer.checkpoint.load.training_state_filename is None:
         logger.warning(
             "No checkpoint.load.training_state_filename: scores are logged at step 0, "
@@ -342,7 +340,7 @@ def evaluate_checkpoint(cfg, trainer, training_state, metric_logger):
         )
 
     trainer.final_eval()
-    evaluator.eval()
+    trainer.downstream_eval()
     metric_logger.flush()
 
 
@@ -375,6 +373,7 @@ def run(cfg: RootSchema, metric_logger=None):
             scheduler=scheduler,
             training_state=training_state,
             metric_logger=metric_logger,
+            downstream_evaluator=build_downstream_evaluator(cfg, model, metric_logger),
         )
 
         if cfg.get("eval_only", False):

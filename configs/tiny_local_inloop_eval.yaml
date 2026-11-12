@@ -1,0 +1,28 @@
+# In-loop eval test: tiny_local scoring piqa + hellaswag every 80 steps and at the end.
+#   pixi run python main.py --config-name tiny_local_inloop_eval
+# Train loss must be bit-identical to the same run with downstream_evaluator.eval_interval=0.
+defaults:
+  - tiny_local
+  - _downstream_eval@_here_: joint
+  - _self_
+
+downstream_evaluator:
+  tasks:
+    - piqa
+    - hellaswag
+  limit: 20
+  # Fires at steps 80 and 160; the last step (200) is the final eval.
+  eval_interval: 80
+  final_eval: true
+
+trainer:
+  checkpoint:
+    save:
+      # Lands on the eval steps, to check the save runs first.
+      interval: 80
+      # Kept apart from checkpoint/step_200, which tiny_local_eval reads.
+      path: checkpoint/inloop_eval
+
+infrastructure:
+  metric_logger:
+    type: stdout

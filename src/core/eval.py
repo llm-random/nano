@@ -214,6 +214,9 @@ class Evaluator:
     max_length: int
     max_gen_toks: int
     batch_size: int
+    # Read by Trainer: score every eval_interval steps (0 = off) and/or once at the end.
+    eval_interval: int
+    final_eval: bool
     metric_logger: MetricLogger
     model: nn.Module
 
@@ -249,18 +252,26 @@ class Evaluator:
             max_gen_toks=self.max_gen_toks,
             batch_size=self.batch_size,
         )
-        # Eager: eval batches vary in length, which would recompile compiled blocks.
-        with torch.compiler.set_stance("force_eager"):
-            results = evaluator.simple_evaluate(
-                model=lm,
-                tasks=list(self.tasks),
-                limit=self.limit,
-                log_samples=False,
-                # Only lambada's perplexity stderr bootstraps; 100k draws keep the
-                # other ranks waiting on rank 0. 0 would drop every stderr.
-                bootstrap_iters=1000,
-                confirm_run_unsafe_code=True,
-            )
+        # lm-eval's bootstrap otherwise forks one worker per node CPU; serial gives the same stderr.
+        os.environ["DISABLE_MULTIPROC"] = "1"
+        step = self.metric_logger.step
+        # Step None stops Residual accumulating heavy metrics on every eval forward.
+        self.metric_logger.set_step(None)
+        try:
+            # Eager: eval batches vary in length, which would recompile compiled blocks.
+            with torch.compiler.set_stance("force_eager"):
+                results = evaluator.simple_evaluate(
+                    model=lm,
+                    tasks=list(self.tasks),
+                    limit=self.limit,
+                    log_samples=False,
+                    # Only lambada's perplexity stderr bootstraps; 100k draws keep the
+                    # other ranks waiting on rank 0. 0 would drop every stderr.
+                    bootstrap_iters=1000,
+                    confirm_run_unsafe_code=True,
+                )
+        finally:
+            self.metric_logger.set_step(step)
 
         # lm-eval returns results on rank 0 only.
         if results is not None:

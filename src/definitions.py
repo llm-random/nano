@@ -329,6 +329,13 @@ def validate(cfg) -> None:
         f"trainer.checkpoint.save.interval must be >= -1 (-1 means final-only), got {save_interval!r}",
     )
 
+    downstream = cfg.get("downstream_evaluator")
+    if downstream is not None:
+        check(
+            downstream.eval_interval >= 0,
+            f"downstream_evaluator.eval_interval must be >= 0 (0 = off), got {downstream.eval_interval!r}",
+        )
+
     if problems:
         raise ValueError(
             "config failed validation (src/definitions.py validate):\n  "
