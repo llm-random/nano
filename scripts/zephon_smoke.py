@@ -36,7 +36,7 @@ def one_rank(cache_dir, index_dir, steps):
                   f"{batch.dtype}, BOS {(batch == BOS).sum().item()}, EOS {(batch == EOS).sum().item()}",
                   file=sys.stderr, flush=True)
         rows.append([hashlib.sha256(r.numpy().tobytes()).hexdigest()[:16] for r in batch])
-    print(json.dumps({"rows": rows, "times": times}))
+    print(json.dumps({"rows": rows, "times": times}), flush=True)  # os._exit skips the flush
     os._exit(0)
 
 
