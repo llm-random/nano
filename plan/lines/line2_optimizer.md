@@ -11,13 +11,13 @@ New optimizer options, each off by default. Now: task 1/4, param groups, not sta
 
 **Needs Janek:** nothing.
 
-**Last change:** plan written; no task has landed yet.
+**Last change:** plan moved next to line 1's; no task has landed yet.
 
 ## AI
 
 Plan for line 2 of the pretraining switches (`plan/today.md`): param groups → muP for
 AdamW → Muon → muP for Muon. Each task builds on the one before. The per-switch survey
-is `pretraining_switches.md`.
+is `documents/notes/pretraining_switches.md`.
 
 ### How to use this file
 
