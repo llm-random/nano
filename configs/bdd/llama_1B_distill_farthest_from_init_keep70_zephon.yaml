@@ -1,8 +1,10 @@
 # llama_1B_distill_farthest_from_init_keep70 with the training data streamed by zephon
-# (llama_1B_distill_pruned_zephon). One learning rate, 16 (2**-16), the base default.
+# (llama_1B_distill_pruned_zephon), on lem. One learning rate, 16 (2**-16), the base
+# default. The same run on entropy: llama_1B_distill_farthest_from_init_keep70_zephon_entropy.
 #
 #   python run_exp.py --config-path configs/bdd --config-name llama_1B_distill_farthest_from_init_keep70_zephon
 defaults:
+  - ../_cluster@_here_: lem_zephon_user
   - llama_1B_distill_pruned_zephon
   - _self_
 

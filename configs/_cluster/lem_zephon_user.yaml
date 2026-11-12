@@ -40,6 +40,7 @@ infrastructure:
 
 
 cluster_switch:
+  nano_user_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}"
   # Lustre, so the cache outlives the job and a rerun starts from downloaded shards.
   zephon_cache_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/zephon/fineweb_edu"
   zephon_index_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/zephon/index"
