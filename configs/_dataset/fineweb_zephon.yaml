@@ -1,6 +1,11 @@
-# Training data streamed by zephon from the Hugging Face hub (src/core/zephon_dataset.py);
-# eval stays on the on-disk fineweb holdout of fineweb.yaml, so eval numbers stay
-# comparable with runs that trained on the on-disk copy.
+# Train and eval data streamed by zephon from the Hugging Face hub
+# (src/core/zephon_dataset.py), from different files: fineweb-edu is one directory per
+# Common Crawl dump, eval is the latest dump (CC-MAIN-2025-26, 50 files, 14.0M docs) and
+# train is config `default` (all 110 dumps, 2410 files) without that dump's files.
+#
+# Both paths are frozen URIs pinned to the commit the shard indexes were built from;
+# a plain hf://HuggingFaceFW/fineweb-edu/<config>/train would need datasets>=4.4 to
+# resolve. Indexes: build-index once per URI into cluster_switch.zephon_index_dir.
 defaults:
   - default
   - _self_
@@ -10,12 +15,13 @@ trainer:
   train_dataloader:
     dataset:
       _target_: src.core.zephon_dataset.ZephonDataset
+      name: fineweb_edu
       sequence_length: ${common.sequence_length}
       total_batch_size: ${common.batch_size}
-      # The full fineweb-edu (config `default`, 2410 parquet files), pinned to the commit
-      # the shard index was built from. A frozen URI is read as is; a plain
-      # hf://HuggingFaceFW/fineweb-edu/default/train would need datasets>=4.4 to resolve.
       hf_path: "hf://HuggingFaceFW/fineweb-edu@87f09149ef4734204d70ed1d046ddc9ca3f2b8f9~original/default/train"
+      # The eval dump; must match eval's hf_path config below.
+      exclude_prefixes:
+        - "data/CC-MAIN-2025-26/"
       cache_dir: ${cluster_switch.zephon_cache_dir}
       index_dir: ${cluster_switch.zephon_index_dir}
       tokenizer_id: "meta-llama/Llama-3.1-8B"
@@ -32,16 +38,22 @@ trainer:
 
   eval_dataloader:
     dataset:
-      _target_: src.core.datasets.FineWebEduDataset
-      tokenize_fn: ???
-      path: ${cluster_switch.eval_path_fineweb}
-      split: train
-      seed: 123
-      use_new_sampling_method: true
-      shuffle: true
-      world_size_independent: true
-      holdout: eval
-      holdout_rows: 262144
+      _target_: src.core.zephon_dataset.ZephonDataset
+      # A different name and cache_dir from train: zephon cannot share one cache between
+      # two datasets, and both pipelines are alive in the same process.
+      name: fineweb_edu_eval
       sequence_length: ${common.sequence_length}
+      total_batch_size: ${common.batch_size}
+      hf_path: "hf://HuggingFaceFW/fineweb-edu@87f09149ef4734204d70ed1d046ddc9ca3f2b8f9~original/CC-MAIN-2025-26/train"
+      cache_dir: ${cluster_switch.zephon_cache_dir}_eval
+      index_dir: ${cluster_switch.zephon_index_dir}
+      tokenizer_id: "meta-llama/Llama-3.1-8B"
+      seed: 123
+      canonical_replicas: 4
+      # A fixed eval set: every eval restarts the stream, so these are the same 8192
+      # rows (8192 x sequence_length tokens) each time, at any world size.
       max_samples: 8192
+      cache_limit_gb: 50
+      tokenize_parallelism: 4
+      prefetch_parallelism: 4
     num_workers: 0

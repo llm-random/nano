@@ -11,13 +11,6 @@ common:
   selection: farthest_from_init_huggingface_keep70
 
 
-trainer:
-  eval_dataloader:
-    dataset:
-      # cluster_switch.eval_path_fineweb on entropy already is the eval holdout.
-      holdout: null
-
-
 infrastructure:
   slurm:
     job-name: bdd_d_far70_ze

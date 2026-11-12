@@ -1,4 +1,4 @@
-"""Training data streamed with zephon (https://github.com/datologyai/zephon).
+"""Train and eval data streamed with zephon (https://github.com/datologyai/zephon).
 
 FineWebEduDataset reads a copy of fineweb saved with `save_to_disk`. This reads the
 parquet shards straight from the Hugging Face hub instead, caches them on local disk,
@@ -12,13 +12,19 @@ gets k of them per step, round-robin, which is exactly its DataLoader batch of
 `total_batch_size // world_size` rows -- so every step consumes each lane once and the
 global batch is the same at any world size that divides canonical_replicas.
 
+Train and eval are different *files*, not different rows of one file set: fineweb-edu
+is one directory of parquet files per Common Crawl dump, so eval reads one dump (its
+own hf:// config) and train reads config `default` with that dump's files left out
+(`exclude_prefixes`). Disjoint by construction, and the same on every cluster.
+
 Three things zephon 0.2.1 does not do on its own, set up in `_install_zephon_fixes`:
 - `persist_state`: CacheOptions has no such field and the store never passes it to the
   CacheManager, so every new process wipes the shard cache. Forced on here.
 - A shard index for hf:// data. Without one, every start opens all 2410 parquet footers
   of fineweb-edu (5-8 minutes, and enough requests to get HTTP 429 from the hub). The
   index can't live in the hub repo, so it is a local file (`index_dir`), built once by
-  `python -m src.core.zephon_dataset build-index <hf_path> <index_dir>`.
+  `python -m src.core.zephon_dataset build-index <hf_path> <index_dir>`. The index is
+  also where `exclude_prefixes` drops files: a file not in it does not exist for zephon.
 - `hf_path` should be the frozen URI (commit-pinned, `~original`). Resolving a plain
   `hf://org/name/config/split` needs datasets>=4.4, and nano pins 3.1; a frozen URI is
   used as is, with no resolution and no `datasets` import.
@@ -30,20 +36,36 @@ import hashlib
 import json
 import logging
 import os
+import urllib.parse
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 from torch.utils.data import IterableDataset
 
 logger = logging.getLogger(__name__)
 
-DATASET_NAME = "fineweb_edu"  # part of the zephon cache fingerprint; keep it stable
+# Dataset root -> repo path prefixes whose files the index leaves out. Filled by
+# ZephonDataset before zephon reads the index; zephon reads it again later (the catalog
+# is built lazily), so it stays for the life of the process.
+_EXCLUDED: dict[str, tuple[str, ...]] = {}
 
 
 def _index_file(index_dir: str, dataset_root: str) -> Path:
     key = hashlib.sha256(dataset_root.rstrip("/").encode()).hexdigest()[:16]
     return Path(index_dir) / f"{key}.json"
+
+
+def _without_excluded(index: dict, prefixes: Sequence[str]) -> dict:
+    # Index basenames are repo paths with "/" percent-encoded (data%2FCC-MAIN-...).
+    shards = [
+        s
+        for s in index["shards"]
+        if not urllib.parse.unquote(s["basename"]).startswith(tuple(prefixes))
+    ]
+    if len(shards) == len(index["shards"]):
+        raise ValueError(f"exclude_prefixes {list(prefixes)} match no file of the index")
+    return {**index, "shards": shards}
 
 
 def _install_zephon_fixes(index_dir: Optional[str]) -> None:
@@ -66,14 +88,21 @@ def _install_zephon_fixes(index_dir: Optional[str]) -> None:
 
         def find_with_local_index(dir_path, storage):
             f = _index_file(index_dir, dir_path)
-            if f.exists():
-                return json.loads(f.read_text())
-            logger.warning(
-                f"No local zephon index {f} for {dir_path}: every start will scan all "
-                f"shard footers. Build it once with `python -m src.core.zephon_dataset "
-                f"build-index {dir_path} {index_dir}`."
-            )
-            return find(dir_path, storage)
+            if not f.exists():
+                if dir_path.rstrip("/") in _EXCLUDED:
+                    raise FileNotFoundError(
+                        f"exclude_prefixes needs the local index {f}; build it with "
+                        f"`python -m src.core.zephon_dataset build-index {dir_path} {index_dir}`"
+                    )
+                logger.warning(
+                    f"No local zephon index {f} for {dir_path}: every start will scan "
+                    f"all shard footers. Build it once with `python -m "
+                    f"src.core.zephon_dataset build-index {dir_path} {index_dir}`."
+                )
+                return find(dir_path, storage)
+            index = json.loads(f.read_text())
+            excluded = _EXCLUDED.get(dir_path.rstrip("/"))
+            return _without_excluded(index, excluded) if excluded else index
 
         zephon_parquet.find_and_load_index = find_with_local_index
         zephon_dataset._find_and_load_index = find_with_local_index
@@ -87,6 +116,10 @@ class ZephonDataset(IterableDataset):
     `sequence_length` long, like FineWebEduDataset's. Documents are tokenized with BOS
     and EOS and packed back to back (`wrap`): a document that does not fit continues in
     the next row, nothing is dropped or padded.
+
+    `max_samples` caps the stream for the whole job, like FineWebEduDataset's: every
+    `iter()` starts over, so an eval set capped this way is the same rows each time it
+    is measured, at any world size.
 
     Use it with num_workers: 0. zephon runs its own fetch and tokenize threads; under
     DataLoader workers it would split the lanes again by worker.
@@ -102,6 +135,9 @@ class ZephonDataset(IterableDataset):
         seed: int = 42,
         canonical_replicas: int = 4,
         index_dir: Optional[str] = None,
+        exclude_prefixes: Sequence[str] = (),
+        max_samples: Optional[int] = None,
+        name: str = "fineweb_edu",
         cache_limit_gb: int = 200,
         tokenize_parallelism: int = 8,
         prefetch_parallelism: int = 8,
@@ -123,6 +159,15 @@ class ZephonDataset(IterableDataset):
                 f"canonical_replicas={canonical_replicas}: one zephon batch is one "
                 f"lane's share of a step."
             )
+        if max_samples is not None and max_samples % total_batch_size != 0:
+            # Each rank stops after its share of whole steps; a partial step would be
+            # cut from a different lane depending on the world size.
+            raise ValueError(
+                f"max_samples={max_samples} must be a multiple of "
+                f"total_batch_size={total_batch_size}"
+            )
+        if exclude_prefixes and index_dir is None:
+            raise ValueError("exclude_prefixes works through the local index; set index_dir")
         self.sequence_length = sequence_length
         self.rows_per_lane = total_batch_size // canonical_replicas
         self.hf_path = hf_path
@@ -131,6 +176,11 @@ class ZephonDataset(IterableDataset):
         self.seed = seed
         self.canonical_replicas = canonical_replicas
         self.index_dir = index_dir
+        self.exclude_prefixes = tuple(exclude_prefixes)
+        self.max_rows = None if max_samples is None else max_samples // self.world_size
+        # Part of the zephon cache fingerprint. Train and eval need different names and
+        # cache_dirs: two datasets with different fingerprints cannot share a cache.
+        self.name = name
         self.cache_limit_gb = cache_limit_gb
         self.tokenize_parallelism = tokenize_parallelism
         self.prefetch_parallelism = prefetch_parallelism
@@ -141,9 +191,11 @@ class ZephonDataset(IterableDataset):
         from zephon.work import MixtureSpec, StaticMixtureWorkSource
 
         _install_zephon_fixes(self.index_dir)
-        dataset = Dataset.from_path(DATASET_NAME, self.hf_path)
+        if self.exclude_prefixes:
+            _EXCLUDED[self.hf_path.rstrip("/")] = self.exclude_prefixes
+        dataset = Dataset.from_path(self.name, self.hf_path)
         work_source = StaticMixtureWorkSource(
-            datasets=[dataset], mixture=MixtureSpec({DATASET_NAME: 1.0}), seed=self.seed
+            datasets=[dataset], mixture=MixtureSpec({self.name: 1.0}), seed=self.seed
         )
         pipeline = (
             Pipeline(work_source)
@@ -172,10 +224,20 @@ class ZephonDataset(IterableDataset):
 
     def __iter__(self):
         """Restart the stream from the beginning (the resume path skips from here)."""
-        for batch in self._pipeline():
-            input_ids = batch.to_training(return_labels=False)["input_ids"]
-            for row in np.asarray(input_ids, dtype=np.int64):
-                yield row
+        pipeline = self._pipeline()
+        rows = 0
+        try:
+            for batch in pipeline:
+                input_ids = batch.to_training(return_labels=False)["input_ids"]
+                for row in np.asarray(input_ids, dtype=np.int64):
+                    if rows == self.max_rows:
+                        return
+                    rows += 1
+                    yield row
+        finally:
+            # Eval drops its iterator part-way and builds a new one next time; without
+            # this the old pipeline's threads would live until garbage collection.
+            pipeline.close()
 
 
 def build_index(hf_path: str, index_dir: str) -> Path:

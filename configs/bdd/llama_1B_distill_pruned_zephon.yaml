@@ -1,6 +1,7 @@
-# llama_1B_distill_pruned with the training data streamed by zephon from the HF hub
-# (_dataset/fineweb_zephon) instead of the on-disk fineweb copy. Everything else is the
-# same, so a run differs from its llama_1B_distill_pruned twin only in the data loader.
+# llama_1B_distill_pruned with train and eval data streamed by zephon from the HF hub
+# (_dataset/fineweb_zephon) instead of the on-disk fineweb copy: eval is one fineweb-edu
+# dump and train the rest, not the on-disk holdout, so eval numbers do not compare 1:1
+# with llama_1B_distill_pruned runs. Everything else is the same.
 #
 # No cluster here: the variant puts `../_cluster@_here_: <cluster>_zephon_user` first in
 # its defaults, and the cluster config supplies cluster_switch.nano_user_dir (selections,

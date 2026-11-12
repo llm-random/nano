@@ -1,15 +1,10 @@
-# entropy_user with zephon: a separate pixi environment that has zephon in it, the zephon
-# cache and shard index, and an eval set readable by this account.
+# entropy_user with zephon: a separate pixi environment that has zephon in it, and where
+# zephon keeps its shard cache and shard indexes (configs/_dataset/fineweb_zephon.yaml).
 #
 # The environment is the repo's pixi.toml plus zephon in $PROJECT_HOME_PATH/pixi_zephon
 # (/storage_nvme_4/$USER is visible only on h100a, so install it in a job there):
 #   cp <repo>/pixi.toml <repo>/pixi.lock . && pixi add --pypi "zephon[parquet]==0.2.1"
 # See lem_zephon_user.yaml for why zephon[parquet] and why not in the repo's pixi.lock.
-#
-# eval_path_fineweb: the shared fineweb copy on entropy is not readable by every
-# account, so this is a copy of exactly the eval holdout of lem's fineweb (its last
-# 262144 rows) -- the variant sets holdout: null to read all of it. Same rows, same
-# order, so eval numbers compare across the two clusters.
 # Only `script` is restated (Hydra replaces lists); keep it in step with entropy_user.yaml.
 defaults:
   - entropy_user
@@ -59,6 +54,5 @@ infrastructure:
 
 cluster_switch:
   nano_user_dir: "/storage_nvme_4/${oc.env:USER}/nano"
-  eval_path_fineweb: "/storage_nvme_4/${oc.env:USER}/nano/fineweb_eval_holdout"
   zephon_cache_dir: "/storage_nvme_4/${oc.env:USER}/zephon/fineweb_edu"
   zephon_index_dir: "/storage_nvme_4/${oc.env:USER}/zephon/index"
