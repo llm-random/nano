@@ -1,0 +1,35 @@
+defaults:
+  # A group, not a merged dict, so switching scheduler replaces the node whole.
+  - _scheduler@trainer.scheduler: wsd
+  - _self_
+
+trainer:
+  _partial_: true
+  _target_: src.core.trainer.Trainer
+  eval_interval: 100
+  n_eval_steps: 10
+  gradient_accumulation_steps: 1
+  gradient_clipping: 1.0
+  n_steps: null
+  learning_rate: null
+  weight_decay: 0.1
+
+  distributed:
+    fsdp2:
+      modules_to_shard:
+        - ${model.embedding._target_}
+        - ${model.encoder.block_fn._target_}
+        - ${model.head._target_}
+
+  train_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt_neox_tokenize_fn
+
+  eval_dataloader:
+    dataset:
+      tokenize_fn:
+        _target_: src.core.datasets.gpt_neox_tokenize_fn
+
+# Root key, read by main.py; this group is always mounted @_here_. Whole-block compile pairs with FSDP2.
+compile_blocks_full: true
