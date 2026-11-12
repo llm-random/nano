@@ -1,0 +1,5 @@
+# tiny_local with one AdamW group per role: no weight decay on gains and embedding.
+defaults:
+  - tiny_local
+  - override _trainer/_optimizer@optimizer: adamw_groups
+  - _self_

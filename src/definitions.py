@@ -1,4 +1,5 @@
-"""The repo's config schema: typed `common` and `trainer`, validated at submit time.
+"""The repo's config schema: typed `common`, `trainer` and `optimizer`, validated at
+submit time.
 
 Built per documents/notes/typed_config_goal.md. Three jobs:
 
@@ -6,10 +7,10 @@ Built per documents/notes/typed_config_goal.md. Three jobs:
    and typo-checks `cfg.common.*` / `cfg.trainer.*` in code.
 2. Compose-time strictness: `base_schema` is registered in Hydra's ConfigStore on
    import and sits first in every runnable config's defaults list. The stored node
-   is strict under `common` and `trainer` only (a mistyped key or wrong-typed value
-   there fails on the laptop, not on the cluster) and open everywhere else -- the
-   model tree, datasets, infrastructure and ad-hoc `+key=...` additions outside the
-   schema'd sections behave exactly as before.
+   is strict under `common`, `trainer` and `optimizer` only (a mistyped key or
+   wrong-typed value there fails on the laptop, not on the cluster) and open
+   everywhere else -- the model tree, datasets, infrastructure and ad-hoc
+   `+key=...` additions outside the schema'd sections behave exactly as before.
 3. Value sanity: `validate(cfg)` holds the range checks the file's original
    pydantic types (PositiveInt and friends) intended. OmegaConf does not run
    `__post_init__` on merged values, so the checks live here, called explicitly
@@ -150,13 +151,35 @@ class TrainerSchema:
 
 
 @dataclass
+class OptimizerRoleSchema:
+    weight_decay: float = MISSING
+
+
+@dataclass
+class OptimizerRolesSchema:
+    vector: OptimizerRoleSchema = field(default_factory=OptimizerRoleSchema)
+    embedding: OptimizerRoleSchema = field(default_factory=OptimizerRoleSchema)
+    head: OptimizerRoleSchema = field(default_factory=OptimizerRoleSchema)
+    hidden: OptimizerRoleSchema = field(default_factory=OptimizerRoleSchema)
+
+
+@dataclass
+class OptimizerSchema:
+    """Root `optimizer`, from configs/_trainer/_optimizer/; null roles is one group."""
+
+    roles: Optional[OptimizerRolesSchema] = MISSING
+
+
+@dataclass
 class RootSchema:
-    """Top level of every runnable config. Only `common` and `trainer` are
-    strict; the rest are typed Any so Pylance knows they exist but composition
-    stays permissive (the registered node reopens the root -- see register())."""
+    """Top level of every runnable config. Only `common`, `trainer` and
+    `optimizer` are strict; the rest are typed Any so Pylance knows they exist
+    but composition stays permissive (the registered node reopens the root --
+    see register())."""
 
     common: CommonSchema = field(default_factory=CommonSchema)
     trainer: TrainerSchema = field(default_factory=TrainerSchema)
+    optimizer: OptimizerSchema = field(default_factory=OptimizerSchema)
     model: Any = MISSING
     infrastructure: Any = MISSING
     cluster_switch: Any = MISSING
@@ -177,7 +200,7 @@ def _base_schema_node() -> DictConfig:
     distributed.fsdp2), which merge freely today and must stay open. With no
     flags, the root stays open for today's idioms (`_run_: true` from
     _cluster/local.yaml, ad-hoc `+compile_model=true`, the model tree), while
-    unknown keys under common/trainer still fail composition.
+    unknown keys under common/trainer/optimizer still fail composition.
     """
     trainer = OmegaConf.structured(TrainerSchema)
     # Per-scheduler keys differ: open at compose, typed by _target_ in check_point.
@@ -186,6 +209,7 @@ def _base_schema_node() -> DictConfig:
         {
             "common": OmegaConf.structured(CommonSchema),
             "trainer": trainer,
+            "optimizer": OmegaConf.structured(OptimizerSchema),
         }
     )
 

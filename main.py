@@ -18,6 +18,7 @@ from src.core.checkpointing import (
 )
 from src.core.metric_loggers import WandbLogger, get_metric_logger
 from src.core.model import Residual
+from src.core.optimizers import build_optimizer_and_scheduler
 
 # Importing src.definitions registers `base_schema` in Hydra's ConfigStore, which
 # every runnable config's defaults list references -- it must happen before compose.
@@ -205,17 +206,7 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         model.compile()
         logger.info("torch.compile applied to the whole model")
     model = setup_distributed_training(model, cfg.trainer.distributed)
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=cfg.trainer.weight_decay,
-        # The fused kernel exists only for CUDA tensors; CPU runs keep the
-        # default path, which also keeps the seeded CPU gates bit-identical.
-        fused=torch.cuda.is_available(),
-    )
-    scheduler = instantiate(cfg.trainer.scheduler)(
-        optimizer=optimizer, n_steps=cfg.trainer.n_steps
-    )
+    optimizer, scheduler = build_optimizer_and_scheduler(cfg, model, learning_rate)
 
     return model, optimizer, scheduler
 
@@ -279,19 +270,10 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
         model, optimizer, scheduler = get_model_optimizer_scheduler(
             cfg, model, learning_rate
         )
+        # only_weights loads the model alone, so the optimizer built above trains.
         load_checkpoint_from_file(
             cfg.trainer.checkpoint.load, model, optimizer, scheduler
         )
-        if cfg.trainer.checkpoint.load.only_weights:
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=learning_rate,
-                weight_decay=cfg.trainer.weight_decay,
-                fused=torch.cuda.is_available(),
-            )
-            scheduler = instantiate(cfg.trainer.scheduler)(
-                optimizer=optimizer, n_steps=cfg.trainer.n_steps
-            )
     else:
         raise Exception(
             f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}"

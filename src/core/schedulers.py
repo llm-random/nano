@@ -77,9 +77,10 @@ class WSDScheduler(SequentialLR):
 def get_cosine_scheduler_with_warmup(
     optimizer, warmup_steps: int, n_steps: int, final_lr_fraction: float
 ):
+    # eta_min is absolute, taken from group 0, so every group must share its LR.
     assert (
-        len(optimizer.param_groups) == 1
-    ), "Cosine scheduler only supports one param group"
+        len({group["lr"] for group in optimizer.param_groups}) == 1
+    ), "Cosine scheduler needs one LR shared by all param groups"
     optimizer_lr = optimizer.param_groups[0][
         "lr"
     ]  # param_groups changes when applying scheduler

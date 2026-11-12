@@ -2,16 +2,18 @@
 
 ## Human
 
-New optimizer options, each off by default. Now: task 1/4, param groups, not started.
+New optimizer options, each off by default. Now: task 2/4, muP for AdamW, not started.
 
-- [ ] Param groups: no weight decay on gains and embeddings
+- [x] Param groups: no weight decay on gains and embeddings
 - [ ] muP for AdamW: best LR stays put across widths
 - [ ] Muon: Muon for matrices, AdamW for the rest
 - [ ] muP for Muon: best LR stays put with Muon
 
-**Needs Janek:** nothing.
+**Needs Janek:**
+- The h12 param-groups sweep is written and ready to launch.
+- Not line 2: since the cleanup commit, the archived branch-testing configs don't compose, so one repo test fails. Left alone.
 
-**Last change:** plan moved next to line 1's; no task has landed yet.
+**Last change:** param groups landed. Gains and the embedding can skip weight decay; with the switch off, losses are unchanged.
 
 ## AI
 
@@ -56,7 +58,7 @@ it short and in plain words: no file paths, no sub-steps.
 
 | # | Task | Status | What landed |
 | --- | --- | --- | --- |
-| 1 | Param groups | todo | |
+| 1 | Param groups | done | `src/core/optimizers.py`: `param_roles` and `build_optimizer_and_scheduler`, called once from `main.get_model_optimizer_scheduler`. Groups in `ROLES` order (vector, embedding, head, hidden), each with `role`. Options `configs/_trainer/_optimizer/{adamw,adamw_groups}.yaml` fill root `optimizer.roles`: null is one group; otherwise `optimizer.roles.<role>.weight_decay` for all four roles. Typed as `OptimizerSchema`. Cosine takes several groups if they share one LR. `only_weights` now loads the model only, as Task 1 allowed (see "As landed" there). Configs `tiny_local_param_groups`, `jm/h12_param_groups`. Cluster: not run yet. |
 | 2 | muP for AdamW | todo | |
 | 3 | Muon | todo | |
 | 4 | muP for Muon | todo | |
@@ -132,8 +134,12 @@ edit the optimizer.
     `h16_chinchilla_wsd.yaml` does
   - on the CLI, `_trainer/_optimizer@optimizer=<option>`, only for configs that don't
     reach `_trainer` through `..`
-- Schema typing in `src/definitions.py` follows the scheduler precedent. Task 1 decides
-  how and records it.
+- Schema typing in `src/definitions.py` (decided in task 1): one `OptimizerSchema` (`roles`:
+  null, or all four roles, each `OptimizerRoleSchema`) in both `RootSchema` and
+  `_base_schema_node`, so `optimizer` is strict at compose like `common` and `trainer`.
+  `Trainer`/`TrainerSchema` are untouched. A later option adds its keys as fields there;
+  if options stop sharing keys, add a class key and type by it in `check_point`, as
+  `SCHEDULER_SCHEMAS` does. Task 1 has no class key, because AdamW is the only class.
 
 #### Acceptance check (every task)
 
@@ -195,6 +201,22 @@ Checks:
   rebuilding, which may fail on the group mismatch. If it does, make `only_weights` skip
   optimizer and scheduler state.
 - Stage 2: `configs/jm/h12_param_groups.yaml`.
+
+As landed:
+- The mismatch did fail on both paths: non-sharded with "loaded state dict has a different
+  number of parameter groups", sharded with "Missing key in checkpoint state_dict:
+  app.optim.param_groups.0.role". So `load_checkpoint_from_file` now skips optimizer and
+  scheduler state under `only_weights` (sharded through a new `ModelState`), and
+  `main.py` builds the optimizer once. The trained state is the same as before, because
+  the loaded optimizer was thrown away.
+- `fused=torch.cuda.is_available()` stays in the builder; `adamw.yaml` is just `roles: null`.
+- Stage 1 results: switch off, all 202 `train/loss` lines byte-identical to the baseline.
+  `adamw_groups` with every role's decay at 0.1 is identical too. Save/resume and the
+  `only_weights` load are covered by `tests/test_optimizers.py` (CPU and gloo FSDP2) and by
+  `main.py` runs on CPU.
+- Pre-existing, left alone: `test_every_runnable_config_composes_and_resolves` fails at
+  `581e2f73`, because `configs/jm/old/branch_testing/*.yaml` (moved in `eea91953`) can't
+  find `../_misc/default`. It is the only failure in the suite, before and after.
 
 ### Task 2: muP for AdamW
 

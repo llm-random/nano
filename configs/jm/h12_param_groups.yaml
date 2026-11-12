@@ -1,0 +1,16 @@
+# h12_chinchilla with one AdamW group per role: no weight decay on gains and embedding.
+defaults:
+  - h12_chinchilla
+  - override ../_trainer/_optimizer@optimizer: adamw_groups
+  - _self_
+
+infrastructure:
+  metric_logger:
+    name: h12_param_groups
+    tags:
+      - nano
+      - h12
+      - lr_tune
+      - chinchilla
+      - wsd
+      - param_groups

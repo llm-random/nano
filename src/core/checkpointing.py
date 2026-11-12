@@ -2,7 +2,12 @@ import os
 import torch
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.checkpoint.stateful import Stateful
-from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
+from torch.distributed.checkpoint.state_dict import (
+    get_model_state_dict,
+    get_state_dict,
+    set_model_state_dict,
+    set_state_dict,
+)
 import torch.distributed.checkpoint as dcp
 
 from src.core.metric_loggers import WandbLogger
@@ -36,6 +41,19 @@ class TrainingState(Stateful):
             optim_state_dict=state_dict["optim"],
         )
         self.scheduler.load_state_dict(state_dict["scheduler"])
+
+
+class ModelState(Stateful):
+    """The model half of a TrainingState checkpoint, for only_weights loads."""
+
+    def __init__(self, model):
+        self.model = model
+
+    def state_dict(self):
+        return {"model": get_model_state_dict(self.model)}
+
+    def load_state_dict(self, state_dict):
+        set_model_state_dict(self.model, state_dict["model"])
 
 
 def step_checkpoint_path(path, step):
@@ -122,7 +140,10 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
             or model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard"
         ):
             # Sharded load
-            state_dict = {"app": TrainingState(model, optimizer, scheduler)}
+            if load_config.only_weights:
+                state_dict = {"app": ModelState(model)}
+            else:
+                state_dict = {"app": TrainingState(model, optimizer, scheduler)}
             dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_path)
             logger.debug(f"Loaded sharded checkpoint from '{checkpoint_path}'")
         else:
@@ -133,7 +154,9 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
             checkpoint = torch.load(checkpoint_model)
             logger.info(f"Loading model from '{checkpoint_path}'")
             model.load_state_dict(checkpoint["model"])
-            optimizer.load_state_dict(checkpoint["optim"])
-            scheduler.load_state_dict(checkpoint["scheduler"])
-            logger.info(f"Loaded non-sharded sheduler from '{checkpoint_path}'")
+            # only_weights trains a fresh optimizer, maybe grouped unlike the saved one.
+            if not load_config.only_weights:
+                optimizer.load_state_dict(checkpoint["optim"])
+                scheduler.load_state_dict(checkpoint["scheduler"])
+                logger.info(f"Loaded non-sharded sheduler from '{checkpoint_path}'")
             logger.debug(f"Loaded non-sharded checkpoint from '{checkpoint_path}'")

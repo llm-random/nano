@@ -1,0 +1,2 @@
+# One AdamW group over model.parameters(), decayed by trainer.weight_decay.
+roles: null

@@ -1,0 +1,10 @@
+# One AdamW group per role (src/core/optimizers.py); gains and embedding not decayed.
+roles:
+  vector:
+    weight_decay: 0.0
+  embedding:
+    weight_decay: 0.0
+  head:
+    weight_decay: ${trainer.weight_decay}
+  hidden:
+    weight_decay: ${trainer.weight_decay}
