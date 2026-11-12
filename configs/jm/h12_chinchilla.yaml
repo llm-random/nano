@@ -1,0 +1,54 @@
+defaults:
+  # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
+  - ../_cluster@_here_: entropy
+  - ../_model/h_balanced@_here_: h12
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - ../_downstream_eval@_here_: joint
+  # warmup 120, stable to step 10799, linear decay to 0 over the last 1_200
+  - override ../_trainer/_scheduler@trainer.scheduler: wsd
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 256
+
+trainer:
+  # micro 64 x 1024 per GPU, as h16_chinchilla on 4 GPUs; 128 per GPU likely OOMs
+  gradient_accumulation_steps: 2
+  # 3.15B tokens, 21.7 per active param; ~1.24 h at 35% MFU (mfu_calculator.ipynb)
+  n_steps: 12_000
+  ^learning_rate: [8, 9, 10, 11]
+
+  checkpoint:
+    save:
+      type: nano
+      # job uses the cluster's PROJECT_HOME_PATH; the fallback only satisfies run_exp.py's laptop-side check
+      path: ${oc.env:PROJECT_HOME_PATH,/storage_nvme_4/nano/pretraining}/${oc.env:USER}/checkpoints
+      # step_1199 .. step_11999; step_10799 is the last stable step, to branch a decay from
+      interval: 1_200
+
+compile_blocks_full: true
+
+downstream_evaluator:
+  # Same grid as checkpoints; step_11999 is scored after the final save.
+  eval_interval: 1_200
+
+infrastructure:
+  max_concurrent_jobs: -1
+
+  metric_logger:
+    name: h12_chinchilla
+    tags:
+      - nano
+      - h12
+      - lr_tune
+      - chinchilla
+      - wsd
+
+  slurm:
+    time: "04:00:00"
+    gres: gpu:2
+    job-name: ${infrastructure.metric_logger.name}
