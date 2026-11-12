@@ -1,0 +1,17 @@
+# llama_1B_distill_farthest_from_init_keep70_zephon_entropy on 2x H100 instead of 4.
+# Same global batch (512) and per-GPU micro-batch (512 / (2 x 16) = 16): gradient
+# accumulation doubles. zephon's 4 lanes keep the data the same as on 4 GPUs.
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_distill_farthest_from_init_keep70_zephon_entropy_2gpu
+defaults:
+  - llama_1B_distill_farthest_from_init_keep70_zephon_entropy
+  - _self_
+
+
+trainer:
+  gradient_accumulation_steps: 16
+
+
+infrastructure:
+  slurm:
+    gres: "gpu:h100:2"
