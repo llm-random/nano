@@ -195,6 +195,10 @@ class TrainerDistillation(Trainer):
         distill_losses = []
         eval_fingerprint = []
 
+        # Restart the eval stream every time, as Trainer.eval does: Trainer no longer
+        # builds the iterator up front (it starts as None), so without this the first
+        # eval dies with "'NoneType' object is not an iterator".
+        self.eval_iterator = iter(self.eval_dataloader)
         with torch.no_grad():
             for _ in range(self.n_eval_steps):
                 batch = next(self.eval_iterator)
