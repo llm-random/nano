@@ -1,0 +1,22 @@
+# llama_1B_select_closest_to_init with the torchtitan depth_init reference instead of
+# HF's N(0, 0.02): gate N(0, 0.02), up/down N(0, 0.02 / sqrt(2 (layer + 1))).
+# Same grid (keep 30..90%, kept dff rounded to the nearest multiple of 8).
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_select_closest_to_init_torchtitan
+#
+# Output: /lustre/pd03/plgrid/plgllmefficont3/nano/$USER/channel_selection/llama_1B/
+#         closest_to_init_torchtitan_keep{30..90}.json
+defaults:
+  - llama_1B_select_closest_to_init
+  - _self_
+
+
+common:
+  reference: torchtitan
+
+
+infrastructure:
+  slurm:
+    job-name: bdd_select_tt
+  metric_logger:
+    name: bdd_llama1B_select_closest_to_init_torchtitan

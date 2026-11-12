@@ -1,0 +1,54 @@
+# Local CPU rehearsal of the bdd pipeline on the tiny model and the local C4 sample:
+#
+#   1. train the full tiny model, save it in HF format:
+#        python main.py --config-path configs --config-name tiny_local \
+#          trainer.n_steps=200 trainer.checkpoint.save.type=huggingface \
+#          trainer.checkpoint.save.path=outputs/bdd_tiny/base
+#   2. choose the FFN channels closest to the init distribution and save them as JSON
+#      (src/projected_compression/channel_selectors.py:select_closest_to_init)
+#        -> outputs/bdd_tiny/keep70_huggingface.json
+#   3. this config: load the HF checkpoint, prune it to the selection, train:
+#        python main.py --config-path configs/bdd --config-name tiny_local_closest_to_init
+#
+# The model config keeps the full dff (256); prune_from_selection shrinks the weights
+# after loading. Needs data/ and data_eval/ (scripts/prepare_test_dataset.py).
+defaults:
+  - ../_cluster@_here_: local
+  - ../_model@_here_: tiny
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: local_dummy
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - _self_
+
+
+# Same run settings as configs/tiny_local.yaml.
+common:
+  sequence_length: 16
+  batch_size: 2
+
+
+trainer:
+  gradient_accumulation_steps: 1
+  n_steps: 200
+  learning_rate: 1e-3
+
+  checkpoint:
+    load:
+      type: huggingface
+      path: outputs/bdd_tiny/base
+    save:
+      type: nano
+      path: outputs/bdd_tiny/pruned_closest_to_init
+
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune_from_selection
+    _partial_: true
+    selection_path: outputs/bdd_tiny/keep70_huggingface.json
+
+
+infrastructure:
+  metric_logger:
+    type: stdout
+    name: bdd_tiny_closest_to_init

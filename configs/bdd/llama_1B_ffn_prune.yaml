@@ -1,0 +1,58 @@
+# Retraining Llama-3.2-1B after structured FFN pruning, with the channels chosen so the
+# kept weights are closest to an init distribution (~/bdd/notebooks/ffn_weight_distribution.ipynb,
+# section 4; computed for every layer by scripts/bdd/ffn_channel_selection.py).
+#
+# Pipeline, all nano: HF weights -> src/projected_compression/pruning.py:prune() keeps
+# target_dff channels per layer (dmodel untouched) -> train as llama_1B_retrain.
+#
+# Grid: keep fraction x init reference = 5 x 2 = 10 runs.
+#   ffn_target  hf -- N(0, 0.02);  tt -- torchtitan depth_init
+#   keep_pct    percentage of the 8192 FFN channels KEPT in every layer
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_ffn_prune
+defaults:
+  - llama_1B_retrain
+  - _self_
+
+
+common:
+  ^keep_pct:
+    - 50
+    - 60
+    - 70
+    - 80
+    - 90
+  ^ffn_target:
+    - hf
+    - tt
+  # Must equal the script's round(keep * 8192): prune() keeps exactly target_dff.
+  target_dff: ${eval:'round(${common.keep_pct} / 100 * 8192)'}
+
+
+trainer:
+  # 2^-13; switch to the winner of the lr sweep (bdd_llama1B_retrain_lr_sweep) once known.
+  learning_rate: 13
+
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune
+    _partial_: true
+    dimensions_importances_path: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/ffn_selection/keep${common.keep_pct}_${common.ffn_target}.pt"
+    target_dmodel: ${common.dmodel}
+    target_dff: ${common.target_dff}
+
+
+infrastructure:
+  slurm:
+    job-name: bdd_ffn_prune
+  metric_logger:
+    # Fixed: run_exp.py reads this from the config before the grid is expanded, where
+    # common.keep_pct does not exist yet. The tags below tell the runs apart.
+    name: bdd_llama1B_ffn_prune
+    tags:
+      - nano
+      - bdd
+      - llama_1
+      - ffn_prune
+      - keep${common.keep_pct}
+      - ${common.ffn_target}

@@ -1,0 +1,13 @@
+# Continuation of llama_1B_retrain_lr_sweep (12-14) and _15_16: one more point below.
+#   17 -> 7.63e-6 (learning_rate n means 2**-n).
+# Same job-name, metric_logger name and tags as the rest of the sweep, so the runs group together.
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_retrain_lr_sweep_17
+defaults:
+  - llama_1B_retrain_lr_sweep
+  - _self_
+
+
+trainer:
+  ^learning_rate:
+    - 17

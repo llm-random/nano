@@ -1,0 +1,11 @@
+# llama_1B_farthest_from_init_keep70 at learning rate 15 (2**-15 = 3.05e-5).
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_farthest_from_init_keep70_lr15
+defaults:
+  - llama_1B_farthest_from_init_keep70
+  - _self_
+
+
+trainer:
+  ^learning_rate:
+    - 15

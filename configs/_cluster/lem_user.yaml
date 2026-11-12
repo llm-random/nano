@@ -1,0 +1,36 @@
+# lem, plus secrets read from files on the cluster when the job starts.
+#
+# Everything else comes from lem.yaml. Only `script` is restated, because Hydra
+# replaces lists instead of merging them; keep it in step with lem.yaml.
+#
+# Secrets live one per file (dir 700, files 600) in $HOME/.config/bdd/secrets, so the
+# values never reach git, the job script or the logs. A line only fills a variable the
+# submitting shell did not already forward through run_exp.py.
+defaults:
+  - lem
+  - _self_
+
+infrastructure:
+  script:
+    - '${export_env_variables_placeholders:}'
+    - 'SECRETS_DIR=$HOME/.config/bdd/secrets'
+    - 'if [ -z "$WANDB_API_KEY" ] && [ -s "$SECRETS_DIR/wandb_api_key" ]; then export WANDB_API_KEY="$(cat "$SECRETS_DIR/wandb_api_key")"; fi'
+    - 'if [ -z "$HF_TOKEN" ] && [ -s "$SECRETS_DIR/hf_token" ]; then export HF_TOKEN="$(cat "$SECRETS_DIR/hf_token")"; fi'
+    - 'export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/nano'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+    - 'export HYDRA_FULL_ERROR=1'
+    - 'export USER_HOME_PATH=$PROJECT_HOME_PATH/$USER'
+    - 'export HF_DATASETS_CACHE="$USER_HOME_PATH/hf_datasets"'
+    - 'export HF_MODULES_CACHE="$USER_HOME_PATH/hf_modules"'
+    - 'export HF_HUB_CACHE="$USER_HOME_PATH/hf_cache"'
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
+    - 'export PIXI_HOME=$USER_HOME_PATH/pixi'
+    - 'export PATH="$HOME/.pixi/bin:$PATH"'
+    - 'export XDG_DATA_HOME="$USER_HOME_PATH/data"'
+    - 'export XDG_CACHE_HOME="$USER_HOME_PATH/cache"'
+    - 'export XDG_STATE_HOME="$USER_HOME_PATH/state"'
+    - 'export RATTLER_CACHE_DIR="$XDG_CACHE_HOME/rattler"'
+    - 'export PIXI_CACHE_DIR="$XDG_CACHE_HOME/pixi"'
+    - 'cd "$PIXI_HOME"'
+    - 'eval "$(pixi shell-hook)"'
+    - 'cd -'

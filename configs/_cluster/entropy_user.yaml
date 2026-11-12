@@ -1,0 +1,58 @@
+# entropy (h100 partition), with everything this repo installs or caches kept in the
+# submitting user's own storage instead of the shared /storage_nvme_4/nano.
+#
+# Why it exists: /storage_nvme_4/nano is owned by a single account with mode 770, so a
+# user outside that group can neither use the shared pixi environment nor the shared HF
+# cache. /storage_nvme_4/$USER is writable by its owner and needs nobody else.
+#
+# Like entropy.yaml, /storage_nvme_4 is mounted on h100a only, so this config is for
+# the h100 partition. Install the environment once (and after every pixi.lock change):
+#   python update_pixi.py --config-path configs/bdd --config-name llama_1B_retrain
+#
+# Dataset paths are unchanged from entropy.yaml and still point at shared storage.
+infrastructure:
+  server: entropy
+  max_concurrent_jobs: null
+
+  slurm:
+    cpus_per_gpu: 14
+    gres: ???
+    job-name: test
+    mem_per_gpu: 90G
+    nodes: 1
+    partition: h100
+    time: "2-00:00:00"
+
+  script:
+    - '${export_env_variables_placeholders:}'
+    # Secrets kept on the cluster, one file each (dir 700, files 600), read when the job
+    # starts so the values never reach git, the job script or the logs. They only fill
+    # a variable the submitting shell did not already forward through run_exp.py.
+    - 'SECRETS_DIR=$HOME/.config/bdd/secrets'
+    - 'if [ -z "$WANDB_API_KEY" ] && [ -s "$SECRETS_DIR/wandb_api_key" ]; then export WANDB_API_KEY="$(cat "$SECRETS_DIR/wandb_api_key")"; fi'
+    - 'if [ -z "$HF_TOKEN" ] && [ -s "$SECRETS_DIR/hf_token" ]; then export HF_TOKEN="$(cat "$SECRETS_DIR/hf_token")"; fi'
+    - 'export PROJECT_HOME_PATH=/storage_nvme_4/$USER'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+
+    # hydra errors
+    - 'export HYDRA_FULL_ERROR=1'
+
+    # export pixi variables
+    - 'export PIXI_HOME=$PROJECT_HOME_PATH/pixi'
+    - 'export PATH="$HOME/.pixi/bin:$PATH"'
+    - 'export XDG_DATA_HOME="$PIXI_HOME/data"'
+    - 'export XDG_CACHE_HOME="$PIXI_HOME/cache"'
+    - 'export XDG_STATE_HOME="$PIXI_HOME/state"'
+    - 'export RATTLER_CACHE_DIR="$XDG_CACHE_HOME/rattler"'
+    - 'export PIXI_CACHE_DIR="$XDG_CACHE_HOME/pixi"'
+
+    # activate pixi
+    - 'cd "$PIXI_HOME"'
+    - 'eval "$(pixi shell-hook)"'
+    - 'cd -'
+
+cluster_switch:
+  train_path_c4: "/storage_nvme_1/llm-random/datasets/c4/train"
+  eval_path_c4: "/storage_nvme_1/llm-random/datasets/c4/validation"
+  train_path_fineweb: "/storage_nvme_4/llm-random/datasets/fineweb/train"
+  eval_path_fineweb: "/storage_nvme_4/llm-random/datasets/fineweb/train"

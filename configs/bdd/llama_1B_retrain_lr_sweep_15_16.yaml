@@ -1,0 +1,14 @@
+# Continuation of llama_1B_retrain_lr_sweep: 14 won among 12/13/14, so check below it.
+#   15 -> 3.05e-5, 16 -> 1.53e-5 (learning_rate n means 2**-n).
+# Same job-name, metric_logger name and tags as the 12-14 sweep, so the runs group together.
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_retrain_lr_sweep_15_16
+defaults:
+  - llama_1B_retrain_lr_sweep
+  - _self_
+
+
+trainer:
+  ^learning_rate:
+    - 15
+    - 16

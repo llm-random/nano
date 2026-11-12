@@ -1,0 +1,36 @@
+# llama_1B_closest_to_init_keep70 with the channels chosen against the torchtitan
+# depth_init reference (configs/bdd/llama_1B_select_closest_to_init_torchtitan.yaml):
+# 5736 of 8192 FFN channels per layer. Same training and lr grid (15, 16, 17).
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_closest_to_init_torchtitan_keep70
+defaults:
+  - llama_1B_closest_to_init_keep70
+  - _self_
+
+
+trainer:
+  checkpoint:
+    save:
+      path: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/checkpoints/bdd/llama_1B_closest_to_init_torchtitan_keep70"
+
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune_from_selection
+    _partial_: true
+    selection_path: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/channel_selection/llama_1B/closest_to_init_torchtitan_keep70.json"
+
+
+infrastructure:
+  slurm:
+    job-name: bdd_cti70_tt
+  metric_logger:
+    name: bdd_llama1B_closest_to_init_torchtitan_keep70
+    tags:
+      - nano
+      - bdd
+      - llama_1
+      - ffn_prune
+      - closest_to_init
+      - torchtitan
+      - keep70
+      - lr_sweep

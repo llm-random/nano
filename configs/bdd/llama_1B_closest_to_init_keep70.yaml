@@ -1,0 +1,46 @@
+# Retraining Llama-3.2-1B after structured FFN pruning to the 70% of channels closest to
+# the HF init distribution N(0, 0.02): 5736 of 8192 channels per layer (a multiple of 8),
+# chosen by configs/bdd/llama_1B_select_closest_to_init.yaml (lem job 6262007).
+#
+# Pipeline: HF weights -> prune_from_selection (dmodel untouched) -> train as
+# llama_1B_retrain (FineWeb-Edu, 2000 steps x 524,288 tokens, 4x H100).
+#
+# Grid: learning_rate n means 2**-n (src/core/utils.py:solve_config_lr):
+#   15 -> 3.05e-5, 16 -> 1.53e-5, 17 -> 7.63e-6
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_closest_to_init_keep70
+defaults:
+  - llama_1B_retrain
+  - _self_
+
+
+trainer:
+  ^learning_rate:
+    - 15
+    - 16
+    - 17
+
+  checkpoint:
+    save:
+      path: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/checkpoints/bdd/llama_1B_closest_to_init_keep70"
+
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune_from_selection
+    _partial_: true
+    selection_path: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/channel_selection/llama_1B/closest_to_init_huggingface_keep70.json"
+
+
+infrastructure:
+  slurm:
+    job-name: bdd_cti70
+  metric_logger:
+    name: bdd_llama1B_closest_to_init_keep70
+    tags:
+      - nano
+      - bdd
+      - llama_1
+      - ffn_prune
+      - closest_to_init
+      - keep70
+      - lr_sweep

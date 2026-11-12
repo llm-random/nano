@@ -1,0 +1,61 @@
+# Continued pretraining of Llama-3.2-1B on FineWeb-Edu, starting from the HuggingFace
+# weights (not a random init -- that is what pc_project/llama_1B_pretrain.yaml does).
+#
+# Run on lem:
+#   python update_pixi.py --config-path configs/bdd --config-name llama_1B_retrain  # once
+#   python run_exp.py     --config-path configs/bdd --config-name llama_1B_retrain
+#
+# Uses _cluster/lem_user: lem's per-user pixi and HF hub cache under
+# /lustre/pd03/plgrid/plgllmefficont3/nano/$USER, secrets read from
+# $HOME/.config/bdd/secrets. meta-llama/Llama-3.2-1B (weights) and
+# meta-llama/Llama-3.1-8B (tokenizer, see src/core/datasets.py:llama_tokenize_fn) are
+# gated: pre-fetch them into that HF hub cache.
+defaults:
+  - ../_cluster@_here_: lem_user
+  - ../_model@_here_: llama_3_1
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - _self_
+
+
+common:
+  sequence_length: 1024
+  # 512 x 1024 = 524,288 tokens per step.
+  batch_size: 512
+
+
+trainer:
+  # 2000 steps x 524,288 tokens = ~1.05B tokens.
+  n_steps: 2000
+  learning_rate: 0.00005
+  # Per-GPU micro-batch = 512 / (4 GPUs x 8) = 16 sequences. 32 (ga=4) runs out of
+  # memory on a 93 GiB H100 in loss.backward() (lem job 6204871): the 128k-vocab logits
+  # alone are several GiB per micro-batch.
+  gradient_accumulation_steps: 8
+
+  checkpoint:
+    load:
+      type: huggingface
+      path: "meta-llama/Llama-3.2-1B"
+    save:
+      type: nano
+      interval: 500
+      # ${oc.env:USER} resolves on the compute node: generated configs are dumped
+      # unresolved, so this is the cluster account, not the submitting laptop's.
+      path: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/checkpoints/bdd/llama_1B_retrain"
+
+
+infrastructure:
+  slurm:
+    # gres (gpu:hopper:4), partition and account come from _cluster/lem.
+    job-name: bdd_llama1B
+    time: "1-00:00:00"
+  metric_logger:
+    name: bdd_llama1B_retrain
+    tags:
+      - nano
+      - bdd
+      - llama_1
+      - retrain

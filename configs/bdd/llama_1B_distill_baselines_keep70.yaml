@@ -1,0 +1,41 @@
+# llama_1B_baselines_keep70 (magnitude, random) with distillation from the full
+# Llama-3.2-1B (llama_1B_distill_pruned). Grid: method x lr = 2 x 3 = 6 runs.
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_distill_baselines_keep70
+defaults:
+  - llama_1B_distill_pruned
+  - _self_
+
+
+common:
+  ^method:
+    - magnitude
+    - random
+  # Placeholder for run_exp.py, which resolves the config before expanding the grid;
+  # every grid point overwrites it with its ^method value.
+  method: magnitude
+  selection: ${common.method}_keep70
+
+
+trainer:
+  ^learning_rate:
+    - 15
+    - 16
+    - 17
+
+
+infrastructure:
+  slurm:
+    job-name: bdd_d_base70
+  metric_logger:
+    # Fixed: run_exp.py reads this before the grid is expanded. The tags tell runs apart.
+    name: bdd_llama1B_distill_baselines_keep70
+    tags:
+      - nano
+      - bdd
+      - llama_1
+      - ffn_prune
+      - distillation
+      - keep70
+      - lr_sweep
+      - ${common.method}

@@ -1,0 +1,51 @@
+# Base for the distillation versions of the pruning runs: student = Llama-3.2-1B (HF
+# weights) pruned with prune_from_selection, teacher = full meta-llama/Llama-3.2-1B
+# (HF weights, frozen). Same distillation trainer as llama_1B_distill_random_dff70
+# (alpha 0.5, temperature 1.0) and the same budget as llama_1B_retrain:
+# 2000 steps x 512 x 1024 = ~1.05B tokens, 4x H100.
+#
+# Not run directly: the variants set common.selection, the name of a selection file in
+#   /lustre/pd03/plgrid/plgllmefficont3/nano/$USER/channel_selection/llama_1B/
+# and the learning-rate grid (n means 2**-n).
+defaults:
+  - ../_cluster@_here_: lem_user
+  - ../_model@_here_: llama_3_1
+  - ../_trainer@_here_: llama3_1B_distillation
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - _self_
+
+
+common:
+  sequence_length: 1024
+  # 512 x 1024 = 524,288 tokens per step.
+  batch_size: 512
+  selection: ???
+
+
+trainer:
+  n_steps: 2000
+  learning_rate: 16
+  # Per-GPU micro-batch = 512 / (4 GPUs x 8) = 16 sequences, as llama_1B_retrain.
+  gradient_accumulation_steps: 8
+
+  checkpoint:
+    load:
+      type: huggingface
+      path: "meta-llama/Llama-3.2-1B"
+    save:
+      type: nano
+      interval: 500
+      path: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/checkpoints/bdd/llama_1B_distill_${common.selection}"
+
+
+apply_functions:
+  - _target_: src.projected_compression.pruning.prune_from_selection
+    _partial_: true
+    selection_path: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/channel_selection/llama_1B/${common.selection}.json"
+
+
+infrastructure:
+  slurm:
+    time: "1-00:00:00"

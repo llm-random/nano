@@ -1,0 +1,28 @@
+# LR sweep over llama_1B_retrain: one SLURM array task per value, each on 4x H100.
+# By convention a learning_rate of n means 2**-n (src/core/utils.py:solve_config_lr):
+#   12 -> 2.44e-4, 13 -> 1.22e-4, 14 -> 6.10e-5.
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_retrain_lr_sweep
+defaults:
+  - llama_1B_retrain
+  - _self_
+
+
+trainer:
+  ^learning_rate:
+    - 12
+    - 13
+    - 14
+
+
+infrastructure:
+  slurm:
+    job-name: bdd_llama1B_lr
+  metric_logger:
+    name: bdd_llama1B_retrain_lr_sweep
+    tags:
+      - nano
+      - bdd
+      - llama_1
+      - retrain
+      - lr_sweep

@@ -1,0 +1,83 @@
+# Baseline FFN channel selections of Llama-3.2-1B to compare with closest_to_init:
+# keep 70% of the 8192 channels per layer, rounded to the nearest multiple of 8 (5736).
+#   magnitude -- channels with the largest ||gate_i||^2 + ||up_i||^2 + ||down_i||^2
+#                (channel_selectors.select_ffn_magnitude, as in the notebook)
+#   random    -- uniformly random, independently per layer, seed 0
+#                (channel_selectors.select_random_dff)
+# No training: a short job on a compute node, because lem does not allow computation on
+# the login node (same setup as llama_1B_select_closest_to_init.yaml).
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_select_baselines_keep70
+#
+# Output: /lustre/pd03/plgrid/plgllmefficont3/nano/$USER/channel_selection/llama_1B/
+#         {magnitude,random}_keep70.json
+defaults:
+  - ../_cluster@_here_: lem_user
+  - ../_model@_here_: llama_3_1
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - _self_
+
+
+init_model_opt_sched_fn:
+  _target_: src.projected_compression.channel_selection_job.run_channel_selection
+  _partial_: true
+
+
+common:
+  ^method:
+    - magnitude
+    - random
+  # Placeholder for run_exp.py, which resolves the config before expanding the grid;
+  # every grid point overwrites it with its ^method value.
+  method: magnitude
+  keep_pct: 70
+  # Unused (no training); the trainer and dataset configs interpolate them.
+  sequence_length: 1024
+  batch_size: 512
+
+
+selectors:
+  magnitude:
+    _target_: src.projected_compression.channel_selectors.select_ffn_magnitude
+    _partial_: true
+    keep_fraction: ${eval:'${common.keep_pct} / 100'}
+    multiple_of: 8
+  random:
+    _target_: src.projected_compression.channel_selectors.select_random_dff
+    _partial_: true
+    drop_fraction: ${eval:'(100 - ${common.keep_pct}) / 100'}
+    seed: 0
+    multiple_of: 8
+
+
+channel_selection:
+  source_model: "meta-llama/Llama-3.2-1B"
+  selector: ${selectors.${common.method}}
+  notes: "configs/bdd/llama_1B_select_baselines_keep70.yaml"
+  # ${oc.env:USER} resolves on the compute node (generated configs are dumped unresolved).
+  save_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/channel_selection/llama_1B"
+  save_name: "${common.method}_keep${common.keep_pct}"
+
+
+trainer:
+  distributed: null
+  n_steps: 1  # unused (no training); keeps the trainer's interpolations resolvable
+
+
+infrastructure:
+  slurm:
+    job-name: bdd_select_base
+    # Seconds of CPU work; one GPU is the smallest allocation on this partition.
+    gres: "gpu:hopper:1"
+    time: "0-00:30:00"
+  metric_logger:
+    type: stdout
+    name: bdd_llama1B_select_baselines_keep70
+    tags:
+      - nano
+      - bdd
+      - llama_1
+      - channel_selection
