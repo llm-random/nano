@@ -259,7 +259,8 @@ class Trainer:
         if self.downstream_evaluator is None:
             return False
         interval = self.downstream_evaluator.eval_interval
-        return interval > 0 and self.step % interval == 0 and self.step != 0
+        # Last step of each interval, the same grid as eval and checkpoints.
+        return interval > 0 and (self.step + 1) % interval == 0 and self.step != 0
 
     @property
     def _should_run_downstream_eval(self) -> bool:

@@ -11,7 +11,7 @@ downstream_evaluator:
     - piqa
     - hellaswag
   limit: 20
-  # Fires at steps 80 and 160; the last step (200) is the final eval.
+  # Fires at steps 79 and 159; the last step (199) is the final eval.
   eval_interval: 80
   final_eval: true
 
@@ -20,7 +20,7 @@ trainer:
     save:
       # Lands on the eval steps, to check the save runs first.
       interval: 80
-      # Kept apart from checkpoint/step_200, which tiny_local_eval reads.
+      # Kept apart from checkpoint/step_199, which tiny_local_eval reads.
       path: checkpoint/inloop_eval
 
 infrastructure:
