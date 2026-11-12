@@ -1,0 +1,45 @@
+# lem_user with a separate pixi environment that has zephon in it, and where zephon keeps
+# its shard cache and shard index (configs/_dataset/fineweb_zephon.yaml).
+#
+# The environment is the repo's pixi.toml plus zephon, in $USER_HOME_PATH/pixi_zephon, so
+# the shared $USER_HOME_PATH/pixi that other runs use is left alone. zephon is not in the
+# repo's pixi.toml: adding it rewrites pixi.lock past the pinned lock version. Install
+# once on the login node, in $USER_HOME_PATH/pixi_zephon:
+#   cp <repo>/pixi.toml <repo>/pixi.lock . && pixi add --pypi "zephon[parquet]==0.2.1"
+# (zephon[parquet], not [hf]: [hf] wants datasets>=4.4 and nano pins 3.1; the frozen
+# hf:// URI in fineweb_zephon.yaml needs neither.)
+# Only `script` is restated (Hydra replaces lists); keep it in step with lem_user.yaml.
+defaults:
+  - lem_user
+  - _self_
+
+infrastructure:
+  script:
+    - '${export_env_variables_placeholders:}'
+    - 'SECRETS_DIR=$HOME/.config/bdd/secrets'
+    - 'if [ -z "$WANDB_API_KEY" ] && [ -s "$SECRETS_DIR/wandb_api_key" ]; then export WANDB_API_KEY="$(cat "$SECRETS_DIR/wandb_api_key")"; fi'
+    - 'if [ -z "$HF_TOKEN" ] && [ -s "$SECRETS_DIR/hf_token" ]; then export HF_TOKEN="$(cat "$SECRETS_DIR/hf_token")"; fi'
+    - 'export PROJECT_HOME_PATH=/lustre/pd03/plgrid/plgllmefficont3/nano'
+    - 'export HF_HOME=$PROJECT_HOME_PATH/hf_cache'
+    - 'export HYDRA_FULL_ERROR=1'
+    - 'export USER_HOME_PATH=$PROJECT_HOME_PATH/$USER'
+    - 'export HF_DATASETS_CACHE="$USER_HOME_PATH/hf_datasets"'
+    - 'export HF_MODULES_CACHE="$USER_HOME_PATH/hf_modules"'
+    - 'export HF_HUB_CACHE="$USER_HOME_PATH/hf_cache"'
+    - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
+    - 'export PIXI_HOME=$USER_HOME_PATH/pixi_zephon'
+    - 'export PATH="$HOME/.pixi/bin:$PATH"'
+    - 'export XDG_DATA_HOME="$USER_HOME_PATH/data"'
+    - 'export XDG_CACHE_HOME="$USER_HOME_PATH/cache"'
+    - 'export XDG_STATE_HOME="$USER_HOME_PATH/state"'
+    - 'export RATTLER_CACHE_DIR="$XDG_CACHE_HOME/rattler"'
+    - 'export PIXI_CACHE_DIR="$XDG_CACHE_HOME/pixi"'
+    - 'cd "$PIXI_HOME"'
+    - 'eval "$(pixi shell-hook)"'
+    - 'cd -'
+
+
+cluster_switch:
+  # Lustre, so the cache outlives the job and a rerun starts from downloaded shards.
+  zephon_cache_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/zephon/fineweb_edu"
+  zephon_index_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/${oc.env:USER}/zephon/index"

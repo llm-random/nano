@@ -1,0 +1,47 @@
+# Training data streamed by zephon from the Hugging Face hub (src/core/zephon_dataset.py);
+# eval stays on the on-disk fineweb holdout of fineweb.yaml, so eval numbers stay
+# comparable with runs that trained on the on-disk copy.
+defaults:
+  - default
+  - _self_
+
+
+trainer:
+  train_dataloader:
+    dataset:
+      _target_: src.core.zephon_dataset.ZephonDataset
+      sequence_length: ${common.sequence_length}
+      total_batch_size: ${common.batch_size}
+      # The full fineweb-edu (config `default`, 2410 parquet files), pinned to the commit
+      # the shard index was built from. A frozen URI is read as is; a plain
+      # hf://HuggingFaceFW/fineweb-edu/default/train would need datasets>=4.4 to resolve.
+      hf_path: "hf://HuggingFaceFW/fineweb-edu@87f09149ef4734204d70ed1d046ddc9ca3f2b8f9~original/default/train"
+      cache_dir: ${cluster_switch.zephon_cache_dir}
+      index_dir: ${cluster_switch.zephon_index_dir}
+      tokenizer_id: "meta-llama/Llama-3.1-8B"
+      seed: 123
+      # Lanes: the data order is fixed by these, not by the GPU count. 4 = one lane per
+      # GPU on a 4-GPU node; a resume on 2 or 1 GPUs sees the same global batches.
+      canonical_replicas: 4
+      cache_limit_gb: 200
+      tokenize_parallelism: 8
+      prefetch_parallelism: 8
+    # zephon runs its own fetch/tokenize threads; DataLoader workers would split the
+    # lanes again by worker.
+    num_workers: 0
+
+  eval_dataloader:
+    dataset:
+      _target_: src.core.datasets.FineWebEduDataset
+      tokenize_fn: ???
+      path: ${cluster_switch.eval_path_fineweb}
+      split: train
+      seed: 123
+      use_new_sampling_method: true
+      shuffle: true
+      world_size_independent: true
+      holdout: eval
+      holdout_rows: 262144
+      sequence_length: ${common.sequence_length}
+      max_samples: 8192
+    num_workers: 0

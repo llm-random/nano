@@ -1,0 +1,27 @@
+# llama_1B_distill_farthest_from_init_keep70 with the training data streamed by zephon
+# (llama_1B_distill_pruned_zephon). One learning rate, 16 (2**-16), the base default.
+#
+#   python run_exp.py --config-path configs/bdd --config-name llama_1B_distill_farthest_from_init_keep70_zephon
+defaults:
+  - llama_1B_distill_pruned_zephon
+  - _self_
+
+
+common:
+  selection: farthest_from_init_huggingface_keep70
+
+
+infrastructure:
+  slurm:
+    job-name: bdd_d_far70_z
+  metric_logger:
+    name: bdd_llama1B_distill_farthest_from_init_keep70_zephon
+    tags:
+      - nano
+      - bdd
+      - llama_1
+      - ffn_prune
+      - distillation
+      - farthest_from_init
+      - keep70
+      - zephon
