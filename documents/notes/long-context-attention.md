@@ -4,7 +4,8 @@
 the retention curves derived below *are* now in the FLOP notebook, as `ATTENTION_METHODS` behind its
 last two figures (added 2026-10-20, after this note, and split into a prefill and a decode figure on
 2026-11-07, when the notebook's model of AME was brought in line with AME's design; the AME sections
-below were updated with it). The question: a 200k-token context model almost
+below were updated with it, and again on 2026-11-13, when the notebook began to take AME's score table
+as precomputed). The question: a 200k-token context model almost
 certainly does not run dense causal attention over 200k tokens — what do the published methods
 actually do, which of them claim to be quality-lossless, and what would each one do to the curves in
 [`../scripts/h_balanced_flops.ipynb`](../scripts/h_balanced_flops.ipynb)?
@@ -46,8 +47,9 @@ that section separates the evidence from the inference.
    nothing from any of these methods and loses to all of them. Its claim lives at decode, where it is
    itself a top-k method - and the selection problem every method here solves with a query–key score
    (MoBA, NSA, DSA, Quest) it solves with its score table, which costs no Q/K pair work (the design's
-   "free lightning indexer"). What it pays instead is the score row and, with the KV shift, a scan over
-   every cached bigram, which puts NSA and DSA close to it at 1M tokens. See
+   "free lightning indexer") and, precomputed, no FLOPs at all. What it pays instead is a top-2048
+   value sum and, with the KV shift, a scan over every cached bigram, which keeps NSA and DSA close to
+   it up to about 1M tokens. See
    [What this means for AME](#what-this-means-for-ame).
 
 ## Translating a method into our charts
@@ -371,8 +373,10 @@ Per generated token, TFLOPs (weights are constant in `L`; this is the notebook's
 At 1M tokens dense decode attention is **43×** the weight cost at `H = 50` and **11×** at `H = 200`.
 No production system pays this. A 2048-token budget turns the curve from linear-in-`L` into a flat
 line a few percent above the weights. AME's decode curve in our notebook has that budget built in - a
-top-2048 value sum - but not that flatness: it also pays for its score row and, with the KV shift, a
-scan over every cached bigram that keeps growing at `3H²` per token, 1/85 of the dense rate.
+top-2048 value sum - but not that flatness: with the KV shift it also scans every cached bigram, which
+keeps growing at `3H²` per token, 1/85 of the dense rate. Its score row is a read from a precomputed
+table and costs no FLOPs; computing the row from the banks instead would add a term that grows until
+the context holds every token type.
 
 ### What the FLOP charts cannot show
 
@@ -413,7 +417,8 @@ is speculation.**
 The notebook's AME model follows the design record (`~/code/research/ame/ame.md` §2 and §4.4) and the
 implementation note's decode analysis ([ame_implementation.md](ame_implementation.md), "At decode");
 [ame-model.md](../concepts/ame-model.md) has the counting rules. Numbers below are AME at `H = 100`
-against vanilla `H = 80`, the notebook's last two figures, with no row cache and the KV shift on.
+against vanilla `H = 80`, the notebook's last two figures, with the score table precomputed and the
+KV shift on.
 
 1. **There is nothing to win per prefill.** An AME prefill is ordinary causal attention over gathered
    bank rows, so AME pays the full score path there - at `H = 100` 1.58x the dense `H = 80` prefill at
@@ -421,20 +426,24 @@ against vanilla `H = 80`, the notebook's last two figures, with no row cache and
    of an `H = 200` prefill and 58 % of an `H = 50` one, and under MInference-grade sparsity 4 % and 14 %:
    against a vanilla model that uses any of these methods, a prefill comparison is about weights alone.
 2. **Per generated token AME is itself a top-k method**: no `QKᵀ`, a top-2048 value sum, its score row
-   computed from the banks unless cached, and with the KV shift a scan over every cached bigram. It
-   carries 1.82x the reference's weight work, so the reference costs more than AME only once it scores
-   more than 91,779 keys per query at a 1M-token cache. That beats dense attention - and MInference,
-   which decodes densely - past 40k tokens, Gemma 2's 1:1 schedule past 89k, the 3:1 hybrids past 254k,
-   Gemma 3's 5:1 past 483k and the 7:1 hybrids past 680k; NSA and DSA only past 1.61M and 1.73M (718k and
-   768k with every row cached); and a plain 1k window **never**. At equal weights - AMEm, AME with its FF
-   widened to the vanilla `H = 80` weight count - it beats NSA and DSA past 485k and 510k.
+   read from the precomputed table, and with the KV shift a scan over every cached bigram. It carries
+   1.82x the reference's weight work, so the reference costs more than AME only once it scores more
+   than 52,479 keys per query at a 1M-token cache. That beats dense attention - and MInference, which
+   decodes densely - past 34k tokens, Gemma 2's 1:1 schedule past 65k, the 3:1 hybrids past 144k,
+   Gemma 3's 5:1 past 219k and the 7:1 hybrids past 312k; NSA and DSA past 718k and 768k (only past
+   1.61M and 1.73M if every row is computed from the banks instead); and a plain 1k window **never**.
+   At equal weights - AMEm, AME with its FF widened to the vanilla `H = 80` weight count - it beats NSA
+   and DSA at every context, as it does every other method except three: the 3:1 and 7:1 hybrids,
+   which it beats past 4k and 9k, and a 1k window, which it never beats.
 3. **The selection problem has an answer, and it moved the cost.** NSA, MoBA, DSA and Quest all decide
    *what to attend to* from a query–key similarity, which an id-scored layer does not compute. AME's
    answer is its own score table: the score of key `j` is `T[t_i, t_j]`, a "free lightning indexer"
    (design §2.3) - exact top-k over types, or over bigrams with the KV shift - at no Q/K pair cost. What
-   it costs instead is bandwidth: the score row, a matvec over the banks whose cache the design calls
-   load-bearing (§4.4), and the bigram postings, which the implementation note calls the real cost of
-   top-k decode. Both are unbuilt and unmeasured. **That is the open question to answer before the AME
+   it costs instead is memory and bandwidth: the precomputed table, `V²` entries per head and layer -
+   5.06 GB in bf16, 50.6 TB over the 10,000 head-layers of `H = 100`, which is why the design record
+   (§2.1) stores only the banks and computes rows on demand behind a row cache it calls load-bearing
+   (§4.4) - and the bigram postings, which the implementation note calls the real cost of top-k
+   decode. Neither is built or measured. **That is the open question to answer before the AME
    cost story is presented externally.** AME's per-token KV state is no smaller either: it drops the
    K-cache but keeps a full-width V-cache, the same `128H²` bytes per token as the GQA model's K and V.
 

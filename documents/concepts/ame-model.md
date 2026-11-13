@@ -1,8 +1,10 @@
 # AME — the cost model
 
 **Status:** the counting model behind [`../scripts/h_balanced_flops.ipynb`](../scripts/h_balanced_flops.ipynb),
-2026-11-07. AME (Attention Memory Embedding, formerly MAE) is the attention method in
-[`src/core/ame.py`](../../src/core/ame.py); what it is and why is in
+2026-11-07; since 2026-11-13 a decode step reads its score row from a precomputed score table rather
+than computing it (see [One generated token](#one-generated-token)). AME (Attention Memory
+Embedding, formerly MAE) is the attention method in [`src/core/ame.py`](../../src/core/ame.py); what
+it is and why is in
 [`../notes/ame_implementation.md`](../notes/ame_implementation.md) and in the design record
 `~/code/research/ame/ame.md` (outside this repo). This doc covers only what parameter and FLOP
 counts need. Until 2026-11-07 it was `sam-model.md`, after the method's earlier acronym; that version
@@ -22,7 +24,7 @@ A variant with the FF widened to the vanilla weight count, **AMEm**, is at the
 | `o_proj`, FF, head, embedding, norms | unchanged |
 | sinks and per-head scalars | a key and a value sink of `datt` each, α (2), β (2) and τ (1) per head: `2·datt + 5·H` per layer, no FLOPs |
 | prefill score path | ordinary causal attention over the gathered rows: the vanilla `QKᵀ` + `A@V` pair work |
-| decode score path | no `QKᵀ`; `A@V` over the top-k selected positions; the query token's score row, computed from the banks unless cached; with the KV shift, every cached bigram scored for the top-k |
+| decode score path | no `QKᵀ`; `A@V` over the top-k selected positions; the query token's score row, read from a precomputed `V x V` table per head and layer (computing it from the banks instead is a knob); with the KV shift, every cached bigram scored for the top-k |
 
 Per layer, the attention weights drop from `3·d²` to `2·d²` (`d = 64H`): GQA's
 `q + k + v + o = d² + d²/2 + d²/2 + d²`, and AME keeps `v + o = d² + d²` because its `v_proj` is full
@@ -104,7 +106,10 @@ score path takes over the pass: 0.1-1.2% at 1M.
 ### One generated token
 
 A decode step has no `QKᵀ`: the score of key `j` is an entry of the query token's score row
-`R = T[t_i, ·]`. What it pays (design §4.4; `ame_implementation.md`, "At decode"):
+`R = T[t_i, ·]`, its row of `T = Ê_Q·Ê_Kᵀ`, the table of every query type against every key type -
+one `V x V` table per head and layer. The counts here take `T` as **precomputed**, so reading a row
+costs no FLOPs (since 2026-11-13; until then every row was computed from the banks). What a step
+pays (design §4.4; `ame_implementation.md`, "At decode"):
 
 ```
 vanilla:  2·(61440·H³ + 64·V·H) + 256·H²·L
@@ -112,38 +117,43 @@ AME:      2·(57344·H³ + 64·V·H) + 128·H²·(min(L, k) + miss·U(L)) + 3·H
 ```
 
 - `min(L, k)`: the value sum over the top-k positions, `k = 2048`;
-- `miss·U(L)`: computing the row from the banks - a `d_head` dot product per head for each of the
-  `U(L)` distinct types in the context (`U(L) = 2.55·L^0.76`, capped at `L` and `V`: a fit to the
-  design's Zipf estimates, reaching the vocab at ~450k tokens) - on the share `miss` of steps whose row
-  is not cached, 1 by default because no row cache is built;
+- `miss·U(L)`: computing the row from the banks instead - a `d_head` dot product per head for each of
+  the `U(L)` distinct types in the context (`U(L) = 2.55·L^0.76`, capped at `L` and `V`: a fit to the
+  design's Zipf estimates, reaching the vocab at ~450k tokens) - on the share `miss` of steps that do.
+  **0 by default**, since the table is precomputed. Computing is the design record's own plan (§2.1):
+  the full table is `V²` entries per head and layer, 5.06 GB in bf16 and `5.06·H²` GB in all (729 GB
+  at `H = 12`, 50.6 TB at `H = 100`), so it stores only the banks and caches the rows of frequent
+  query tokens;
 - `3·H²·L`: with the KV shift a key's score is `α₁R[t_j] + α₂R[t_{j−1}]`, so the top-k index is keyed by
   bigram and every cached position is scored, 3 FLOPs per head.
 
 | H | 4k cache (AME / vanilla) | 32k cache | 1M cache |
 |---:|---|---|---|
-| 12 | 0.34 / 0.44 (−22.6%) | 0.45 / 1.50 (−69.7%) | 1.69 / 38.9 (−95.7%) |
-| 16 | 0.69 / 0.87 (−21.2%) | 0.89 / 2.75 (−67.6%) | 3.09 / 69.3 (−95.5%) |
-| 20 | 1.23 / 1.53 (−19.8%) | 1.54 / 4.47 (−65.5%) | 4.98 / 108.5 (−95.4%) |
-| 24 | 2.00 / 2.46 (−18.5%) | 2.46 / 6.69 (−63.3%) | 7.41 / 156.5 (−95.3%) |
-| 32 | 4.43 / 5.31 (−16.5%) | 5.24 / 12.8 (−59.2%) | 14.0 / 279.1 (−95.0%) |
-| 40 | 8.33 / 9.80 (−15.0%) | 9.59 / 21.5 (−55.5%) | 23.4 / 437.6 (−94.7%) |
-| 50 | 15.8 / 18.3 (−13.7%) | 17.8 / 36.7 (−51.5%) | 39.3 / 686.8 (−94.3%) |
-| 64 | 32.3 / 36.9 (−12.4%) | 35.6 / 67.0 (−46.9%) | 70.8 / 1,132 (−93.7%) |
-| 80 | 62.2 / 70.1 (−11.4%) | 67.2 / 117.1 (−42.6%) | 122.3 / 1,781 (−93.1%) |
-| 100 | 119.9 / 134.0 (−10.5%) | 127.8 / 207.4 (−38.4%) | 213.8 / 2,808 (−92.4%) |
-| 126 | 237.5 / 263.3 (−9.8%) | 250.0 / 379.8 (−34.2%) | 386.6 / 4,508 (−91.4%) |
-| 158 | 464.8 / 511.9 (−9.2%) | 484.4 / 695.1 (−30.3%) | 699.2 / 7,187 (−90.3%) |
-| 200 | 937.0 / 1,026 (−8.7%) | 968.5 / 1,320 (−26.6%) | 1,313 / 11,722 (−88.8%) |
-| 252 | 1,866 / 2,035 (−8.3%) | 1,916 / 2,501 (−23.4%) | 2,462 / 19,015 (−87.1%) |
+| 12 | 0.31 / 0.44 (−28.5%) | 0.33 / 1.50 (−78.1%) | 0.77 / 38.9 (−98.0%) |
+| 16 | 0.64 / 0.87 (−26.5%) | 0.67 / 2.75 (−75.8%) | 1.45 / 69.3 (−97.9%) |
+| 20 | 1.16 / 1.53 (−24.5%) | 1.19 / 4.47 (−73.4%) | 2.41 / 108.5 (−97.8%) |
+| 24 | 1.90 / 2.46 (−22.8%) | 1.95 / 6.69 (−70.9%) | 3.70 / 156.5 (−97.6%) |
+| 32 | 4.25 / 5.31 (−20.0%) | 4.33 / 12.8 (−66.2%) | 7.45 / 279.1 (−97.3%) |
+| 40 | 8.04 / 9.80 (−18.0%) | 8.17 / 21.5 (−62.1%) | 13.1 / 437.6 (−97.0%) |
+| 50 | 15.3 / 18.3 (−16.2%) | 15.6 / 36.7 (−57.6%) | 23.2 / 686.8 (−96.6%) |
+| 64 | 31.6 / 36.9 (−14.4%) | 32.0 / 67.0 (−52.3%) | 44.4 / 1,132 (−96.1%) |
+| 80 | 61.0 / 70.1 (−13.0%) | 61.5 / 117.1 (−47.5%) | 81.0 / 1,781 (−95.5%) |
+| 100 | 118.1 / 134.0 (−11.9%) | 118.9 / 207.4 (−42.7%) | 149.4 / 2,808 (−94.7%) |
+| 126 | 234.6 / 263.3 (−10.9%) | 236.0 / 379.8 (−37.9%) | 284.3 / 4,508 (−93.7%) |
+| 158 | 460.2 / 511.9 (−10.1%) | 462.4 / 695.1 (−33.5%) | 538.5 / 7,187 (−92.5%) |
+| 200 | 929.8 / 1,026 (−9.4%) | 933.2 / 1,320 (−29.3%) | 1,055 / 11,722 (−91.0%) |
+| 252 | 1,854 / 2,035 (−8.9%) | 1,860 / 2,501 (−25.6%) | 2,053 / 19,015 (−89.2%) |
 
 GFLOPs per generated token at the defaults. Three readings:
 
-1. **At a short cache the win is the weights and a cheaper score path** - 8-23% at 4k.
-2. **At a long cache the vanilla model pays for every key and AME for `k` of them**: 87-96% cheaper at
-   1M, less for large models, whose weights (`H³`) are a bigger counterweight to the score path (`H²`).
-3. **AME's own score cost is not small**: at `H = 16` and 1M it is 81% of the step, most of it the
-   score row, which is why the design calls the row cache load-bearing. Against a vanilla model that
-   runs a sparse method rather than dense attention the comparison is much closer - see
+1. **At a short cache the win is the weights and a cheaper score path** - 8.9-28.5% at 4k.
+2. **At a long cache the vanilla model pays for every key and AME for `k` of them**: 89.2-98.0%
+   cheaper at 1M, less for large models, whose weights (`H³`) are a bigger counterweight to the score
+   path (`H²`).
+3. **AME's own score cost is not small, even with the table**: at `H = 16` and 1M it is 60% of the
+   step, 56 points of it the bigram selection; computing every row as well would take the step from
+   1.45 to 3.09 GFLOPs, 53% of it the row. Against a vanilla model that runs a sparse method rather
+   than dense attention the comparison is much closer - see
    [../notes/long-context-attention.md](../notes/long-context-attention.md) and the notebook's last two
    figures.
 
@@ -153,13 +163,13 @@ GFLOPs per generated token at the defaults. Three readings:
 |---|---|---|
 | `prefill_cost` | 1.0 | share of the dense score path a prefill pays; 1 is AME as designed |
 | `top_k` | 2048 | positions whose values a decode step sums, per head (`None` = all) |
-| `row_miss` | 1.0 | share of decode steps that compute the score row from the banks |
+| `row_miss` | 0.0 | share of decode steps that compute the score row from the banks instead of reading the precomputed table |
 | `shift` | True | the KV shift's bigram selection, `3·H²·L` per decode step |
-| `heaps` | (2.55, 0.76) | the distinct-type estimate `U(L) = a·L^b` |
+| `heaps` | (2.55, 0.76) | the distinct-type estimate `U(L) = a·L^b`, used when rows are computed |
 
 At `H = 16`, GFLOPs per generated token:
 
-| cache | no attention cost | rows cached, no shift | rows cached | 25% row misses | no row cache (default) | vanilla |
+| cache | no attention cost | table, no shift | table (default) | 25% of rows computed | every row computed | vanilla |
 |---:|---:|---:|---:|---:|---:|---:|
 | 4,096 | 0.573 | 0.640 | 0.643 | 0.655 | 0.690 | 0.875 |
 | 32,768 | 0.573 | 0.640 | 0.665 | 0.722 | 0.891 | 2.754 |
@@ -167,9 +177,9 @@ At `H = 16`, GFLOPs per generated token:
 | 1,048,576 | 0.573 | 0.640 | 1.445 | 1.857 | 3.094 | 69.326 |
 
 "No attention cost" is every knob off - what this cost model assumed before AME was designed - and it
-is flat at the weights. A row cache is worth most at long contexts, 3.09 against 1.45 GFLOPs at 1M;
-once the row is cached the shift's selection is the only cost still growing, 0.81 GFLOPs of the 1.45;
-and even the default stays 22x under the vanilla model at 1M.
+is flat at the weights. The table is worth most at long contexts: 1.45 GFLOPs at 1M, against 3.09
+if every row is computed. With it the shift's selection is the only cost still growing, 0.81 GFLOPs
+of the 1.45, and the default is 48x under the vanilla model at 1M (22x if every row is computed).
 
 ## AMEm — the matched variant
 
@@ -210,29 +220,29 @@ FLOPs, so matching the rest matches the weight work per token.
 
 AMEm does the vanilla model's weight work per token, to the rounding, so its prefill *is* the vanilla
 prefill - both are dense attention - and its decode step differs from the vanilla one only in
-attention: AME's value sum, score row and selection against the vanilla `QKᵀ` and `A@V` over every
-cached key.
+attention: AME's value sum and selection, its score rows read from the table, against the vanilla
+`QKᵀ` and `A@V` over every cached key.
 
 | H | 4k cache (AMEm / vanilla) | 32k cache | 1M cache |
 |---:|---|---|---|
-| 12 | 0.36 / 0.44 (−19.4%) | 0.47 / 1.50 (−68.7%) | 1.71 / 38.9 (−95.6%) |
-| 16 | 0.72 / 0.87 (−17.2%) | 0.93 / 2.75 (−66.4%) | 3.13 / 69.3 (−95.5%) |
-| 20 | 1.29 / 1.53 (−15.6%) | 1.61 / 4.47 (−64.0%) | 5.05 / 108.5 (−95.3%) |
-| 24 | 2.12 / 2.46 (−13.9%) | 2.57 / 6.69 (−61.6%) | 7.52 / 156.5 (−95.2%) |
-| 32 | 4.70 / 5.31 (−11.5%) | 5.50 / 12.8 (−57.1%) | 14.3 / 279.1 (−94.9%) |
-| 40 | 8.86 / 9.80 (−9.6%) | 10.1 / 21.5 (−53.0%) | 23.9 / 437.6 (−94.5%) |
-| 50 | 16.8 / 18.3 (−8.1%) | 18.8 / 36.7 (−48.8%) | 40.3 / 686.8 (−94.1%) |
-| 64 | 34.5 / 36.9 (−6.5%) | 37.7 / 67.0 (−43.7%) | 73.0 / 1,132 (−93.6%) |
-| 80 | 66.3 / 70.1 (−5.4%) | 71.4 / 117.1 (−39.1%) | 126.4 / 1,781 (−92.9%) |
-| 100 | 128.1 / 134.0 (−4.4%) | 136.0 / 207.4 (−34.4%) | 222.0 / 2,808 (−92.1%) |
-| 126 | 253.9 / 263.3 (−3.6%) | 266.3 / 379.8 (−29.9%) | 402.9 / 4,508 (−91.1%) |
-| 158 | 497.0 / 511.9 (−2.9%) | 516.6 / 695.1 (−25.7%) | 731.4 / 7,187 (−89.8%) |
-| 200 | 1,002 / 1,026 (−2.3%) | 1,034 / 1,320 (−21.7%) | 1,378 / 11,722 (−88.2%) |
-| 252 | 1,997 / 2,035 (−1.8%) | 2,047 / 2,501 (−18.1%) | 2,593 / 19,015 (−86.4%) |
+| 12 | 0.33 / 0.44 (−25.3%) | 0.34 / 1.50 (−77.2%) | 0.78 / 38.9 (−98.0%) |
+| 16 | 0.68 / 0.87 (−22.5%) | 0.70 / 2.75 (−74.6%) | 1.48 / 69.3 (−97.9%) |
+| 20 | 1.22 / 1.53 (−20.3%) | 1.25 / 4.47 (−71.9%) | 2.47 / 108.5 (−97.7%) |
+| 24 | 2.01 / 2.46 (−18.1%) | 2.06 / 6.69 (−69.2%) | 3.82 / 156.5 (−97.6%) |
+| 32 | 4.51 / 5.31 (−15.0%) | 4.60 / 12.8 (−64.1%) | 7.72 / 279.1 (−97.2%) |
+| 40 | 8.57 / 9.80 (−12.6%) | 8.71 / 21.5 (−59.6%) | 13.6 / 437.6 (−96.9%) |
+| 50 | 16.4 / 18.3 (−10.6%) | 16.6 / 36.7 (−54.8%) | 24.2 / 686.8 (−96.5%) |
+| 64 | 33.8 / 36.9 (−8.5%) | 34.1 / 67.0 (−49.1%) | 46.6 / 1,132 (−95.9%) |
+| 80 | 65.2 / 70.1 (−7.1%) | 65.7 / 117.1 (−43.9%) | 85.2 / 1,781 (−95.2%) |
+| 100 | 126.3 / 134.0 (−5.7%) | 127.2 / 207.4 (−38.7%) | 157.6 / 2,808 (−94.4%) |
+| 126 | 251.0 / 263.3 (−4.7%) | 252.3 / 379.8 (−33.6%) | 300.7 / 4,508 (−93.3%) |
+| 158 | 492.4 / 511.9 (−3.8%) | 494.6 / 695.1 (−28.8%) | 570.7 / 7,187 (−92.1%) |
+| 200 | 995.1 / 1,026 (−3.0%) | 998.6 / 1,320 (−24.3%) | 1,120 / 11,722 (−90.4%) |
+| 252 | 1,985 / 2,035 (−2.4%) | 1,991 / 2,501 (−20.4%) | 2,184 / 19,015 (−88.5%) |
 
 GFLOPs per generated token at the defaults. AMEm sits a constant weight gap above AME of the same `H`
 - the `d²` per layer it puts back - and below the vanilla model by exactly the difference between the
-two attentions: 2-19% at 4k, 86-96% at 1M.
+two attentions: 2.4-25.3% at 4k, 88.5-98.0% at 1M.
 
 ## Where the numbers come from
 
