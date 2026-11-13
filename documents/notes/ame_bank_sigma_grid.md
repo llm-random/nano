@@ -1,6 +1,7 @@
 # AME bank-init σ grid at h12 (plan and log)
 
-**Status:** RUNNING, 2026-11-12: round 1 of 3.
+**Status:** QUEUED on LEM, 2026-11-13: round 1 of 3 (moved from entropy, where it
+never started).
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -11,6 +12,8 @@ Maciej, 2026-11-12: "do a sequential grid to find optimal σ for h12 4B tokens
 training, submit at most 4 x 1 gpu jobs at once for entropy, so no more than 2 gpus
 are occupied by my jobs, use optimal lr for this grid search, stop after 12
 experiments and draw a chart of results".
+Maciej, 2026-11-13, with round 1 still queued on entropy: "move them to lem, they
+will start there faster, dont run anything on entropy".
 
 ## The runs
 
@@ -21,14 +24,15 @@ experiments and draw a chart of results".
   - **Only σ changes.** With one seed, every run sees the same batches, and every
     weight but the banks starts the same. The banks start as σ × the same standard
     normals. So any two runs are an exact pair.
-- **Three differences from `kf4q4t4s`, none in the training:**
-  - entropy (h100a, one H100 per run) instead of LEM;
-  - no final checkpoint, so no `token_counts.pt`: 12 checkpoints of 13 GB don't
-    fit entropy's 120 GB `/home` quota (83 GB in use);
+- **On LEM, as `kf4q4t4s` ran** (one H100 per run, node r16-11 excluded). Two
+  differences from `kf4q4t4s`, neither in the training:
+  - no final checkpoint, so no `token_counts.pt` (`count_token_updates` off): the
+    grid needs only the curves and final_ce (*Decisions* 2);
   - names: σ = 10^(−m/100), run `bank_sigma_m<m>` (m200 is σ = 0.01), so names
     carry no ".".
 - **Concurrency, Maciej's limit:** each round is one sbatch array of 4 runs with at
-  most 2 running (`--array=0-3%2`). One round takes about 7.8 h.
+  most 2 running (`--array=0-3%2`). One round takes about 9 h (`kf4q4t4s`: 4.3 h).
+  Nothing runs on entropy.
 - **Configs:** `configs/bank_sigma/round<k>.yaml` on branch `bank_sigma_grid`
   (worktree `~/code/nano-bank-sigma`). Tools on the branch:
   [scripts/grid_points.py](../../scripts/grid_points.py) (compose and check a grid as
@@ -41,22 +45,24 @@ experiments and draw a chart of results".
 ## The measure
 
 - **g(σ):** the last-500 paired train-loss gap against `bank_sigma_m200`, the σ =
-  0.01 run on entropy. Lower is better.
+  0.01 run on LEM. Lower is better.
 - **A difference inside ±0.022 is a tie** (AME's same-seed floor).
 - **Also logged:** final_ce (bf16, ±0.008), spikes, the grad-norm max, s/step, and
   the banks' share of the clipped gradient norm.
 - **Points for free, shown on the chart but not used to pick:**
+  - `kf4q4t4s` (σ = 0.01) and `doi36p8k` (σ = 1), both on LEM;
   - σ = 1 on entropy: the parity study's three same-seed runs of `doi36p8k`'s
-    config (W&B `nano-ame-parity`: `u1zpx7lt`, `s65ebe41`, `w4hmw00o`), their mean;
-  - `kf4q4t4s` (σ = 0.01) and `doi36p8k` (σ = 1), both on LEM.
+    config (W&B `nano-ame-parity`: `u1zpx7lt`, `s65ebe41`, `w4hmw00o`), their mean,
+    one cluster away.
 
 ## The rounds
 
 x = log10 σ; x* is the best measured point so far (lowest g). A point already
 measured is skipped, and the next rule fills the slot.
 
-- **Round 1, decades:** x = −2 (σ = 0.01 again, on entropy: every pair then stays on
-  one cluster), −4, −3, −1. The array runs −2 and −4 first.
+- **Round 1, decades:** x = −2 (σ = 0.01 again: the anchor of every pair, and a
+  same-cluster replicate of `kf4q4t4s`), −4, −3, −1. The array runs −2 and −4
+  first.
 - **Round 2, half-decades.** In order, until there are 4:
   1. if x* is the lowest x measured, x* − 1: the curve may still be falling;
   2. x* − 0.5 and x* + 0.5;
@@ -111,15 +117,19 @@ commit `kf4q4t4s` ran.
 
 ### Runs
 
-Round 1 was submitted from `~/code/nano-bank-sigma` at `3a2a83c0`: array 38422, clone
-`/home/mstefaniak/llmrandom_cemetery/bank_sigma_m200_2026-11-12_18-29-53`.
+- **Round 1 went to entropy first.** It was submitted from `~/code/nano-bank-sigma`
+  at `3a2a83c0` as array 38422 (clone
+  `/home/mstefaniak/llmrandom_cemetery/bank_sigma_m200_2026-11-12_18-29-53`). It sat
+  PENDING from 11-12 18:30. It was cancelled on 11-13 at 13:30, before any task
+  started: Maciej moved the grid to LEM (*Decisions* 7).
+- **Round 1 on LEM:** see the table.
 
-| Round | σ | m | Job | W&B | Started | Finished | State |
-|---|---|---|---|---|---|---|---|
-| 1 | 0.01 | 200 | 38422_0 | | | | PENDING |
-| 1 | 1e-4 | 400 | 38422_1 | | | | PENDING |
-| 1 | 1e-3 | 300 | 38422_2 | | | | PENDING |
-| 1 | 0.1 | 100 | 38422_3 | | | | PENDING |
+| Round | σ | m | Cluster | Job | W&B | Started | Finished | State |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.01 | 200 | entropy | 38422_0 | | | 11-13 13:30 | CANCELLED while pending |
+| 1 | 1e-4 | 400 | entropy | 38422_1 | | | 11-13 13:30 | CANCELLED while pending |
+| 1 | 1e-3 | 300 | entropy | 38422_2 | | | 11-13 13:30 | CANCELLED while pending |
+| 1 | 0.1 | 100 | entropy | 38422_3 | | | 11-13 13:30 | CANCELLED while pending |
 
 ### Checks
 
@@ -145,6 +155,13 @@ Round 1 was submitted from `~/code/nano-bank-sigma` at `3a2a83c0`: array 38422, 
   - Slurm's estimate is now 11-15 09:50.
   - LEM still refuses the key (`Permission denied (publickey)`), so entropy stays
     the only option.
+- **11-13 13:30: moved to LEM** (*Decisions* 7). The entropy array was cancelled
+  while pending.
+  - The config now points at LEM: `gpu:hopper:1`, `exclude=r16-11`, 6 h.
+  - Point 0 against `kf4q4t4s`'s logged config: the dataset paths now match. The
+    checkpoint path and `count_token_updates` still differ; neither touches the
+    training.
+  - LEM accepts the key again (it refused on 11-12 and 11-13 01:30).
 
 ### Results
 
@@ -165,8 +182,10 @@ is the fraction of steps whose norm was clipped.
 2. **No checkpoints:** the grid's answer needs only the training curves and final_ce,
    which is computed before the save. A per-frequency analysis would need them;
    none is planned.
-3. **σ = 0.01 is rerun on entropy** (1 of the 12): it anchors every comparison on
-   one cluster. Against `kf4q4t4s` it also measures the cluster offset at σ = 0.01.
+3. **σ = 0.01 is rerun** (1 of the 12): it anchors every comparison. It was planned
+   on entropy, to keep every pair on one cluster. On LEM it is also a same-cluster
+   replicate of `kf4q4t4s`, so it measures the rerun noise at σ = 0.01. It stays
+   task 0: a start check against `kf4q4t4s`, step for step, tests the whole setup.
 4. **Scratch tools went into the repo:** the earlier session's scratchpad was wiped
    on 2026-11-11.
 5. **A fallback rule for picks** (11-13, while round 1 was still queued): the plan's
@@ -180,3 +199,16 @@ is the fraction of steps whose norm was clipped.
    - the fraction of steps clipped.
 
    The tiny-σ risk shows in these columns. `kf4q4t4s` reads 0.18 and 1%.
+7. **Moved to LEM** (Maciej, 11-13 13:30: "move them to lem, they will start there
+   faster, dont run anything on entropy"). Nothing of this grid runs on entropy
+   any more.
+   - The entropy array 38422 was cancelled while pending.
+   - LEM's `sbatch --test-only` for one 1-GPU job of 5-6 h predicted a start on
+     11-16 at 21:55. entropy's estimate was 11-15 09:50; realistically about 11-14
+     09:10.
+   - Slurm's forecasts have been days off on both clusters, so the array was
+     submitted at once.
+   - LEM offers no faster QoS: our association has only `plgllmefficont3`.
+   - The W&B key reaches the job as on every earlier LEM run (`run_exp.py` writes it
+     into `exp.job`). The cemetery's grant directory is `drwxrws---`, so only the
+     group `plggllmeffi3` can read it.
