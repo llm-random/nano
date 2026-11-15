@@ -1,7 +1,7 @@
 # AME bank-init σ grid at h12 (plan and log)
 
-**Status:** RUNNING, 2026-11-15: round 1 done (11-14 12:38); round 2 next, on
-LEM.
+**Status:** RUNNING, 2026-11-15: round 1 done (11-14 12:38); round 2 queued on LEM
+as array 6330648 (11-15 17:58).
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -122,6 +122,11 @@ commit `kf4q4t4s` ran.
   `/home/mstefaniak/llmrandom_cemetery/bank_sigma_m200_2026-11-12_18-29-53`). It sat
   PENDING from 11-12 18:30. It was cancelled on 11-13 at 13:30, before any task
   started: Maciej moved the grid to LEM (*Decisions* 7).
+- **Round 2 on LEM:** array 6330648, submitted 11-15 17:58 with `run_exp.py` from
+  `~/code/nano-bank-sigma` at `8b881dc6`. LEM's GitHub access was back (a test clone
+  took 19 s). Clone
+  `.../llmrandom_cemetery/bank_sigma_m500_2026-11-15_17-58-20`; its `exp.job` was
+  then set to mode 600.
 - **Round 1 on LEM:** array 6312652, submitted 11-13 14:02. It ran `sbatch` by
   hand in the clone `.../llmrandom_cemetery/bank_sigma_m200_2026-11-13_13-45-51`
   (cemetery commit `7aa630c4`, from `42c6779b`), because LEM's GitHub access was
@@ -137,6 +142,10 @@ commit `kf4q4t4s` ran.
 | 1 | 1e-4 | 400 | LEM | 6312652_1 | `7te9jv9u` | 11-14 03:58 (r18-7) | 11-14 08:23 | COMPLETED, exit 0, 4 h 25 min |
 | 1 | 1e-3 | 300 | LEM | 6312652_2 | `sbr8nocc` | 11-14 08:23 (r18-7) | 11-14 12:39 | COMPLETED, exit 0, 4 h 16 min |
 | 1 | 0.1 | 100 | LEM | 6312652_3 | `15vi3h23` | 11-14 08:24 (r10-10) | 11-14 12:38 | COMPLETED, exit 0, 4 h 14 min |
+| 2 | 1e-5 | 500 | LEM | 6330648_0 | | | | PENDING |
+| 2 | 3.16e-5 | 450 | LEM | 6330648_1 | | | | PENDING |
+| 2 | 3.16e-4 | 350 | LEM | 6330648_2 | | | | PENDING |
+| 2 | 0.0316 | 150 | LEM | 6330648_3 | | | | PENDING |
 
 ### Checks
 
@@ -203,6 +212,12 @@ commit `kf4q4t4s` ran.
   - No NaN.
   - The grad-norm maximum after step 100: 0.82 (0.01), 0.56 (1e-4), 1.43 (1e-3,
     in its spike), 5.50 (0.1, in its spike).
+- **Round 2, submitted 11-15 17:58** (array 6330648): one array, throttle 2, 6 h,
+  r16-11 excluded, no placeholder left in `exp.job`. Nothing else of Maciej's on
+  LEM; nothing on entropy.
+- **Next check: when round 2 ends.** Maciej asked for checks only at the end of
+  training. The watcher polls `sacct` and W&B every 10 min, with a 4-day deadline.
+  It wakes when every task has ended, or at once on a failed task or a NaN.
 
 ### Results
 
