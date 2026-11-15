@@ -1,7 +1,7 @@
 # AME bank-init σ grid at h12 (plan and log)
 
-**Status:** QUEUED on LEM, 2026-11-13 14:02: round 1 of 3, array 6312652 (moved
-from entropy, where it never started).
+**Status:** RUNNING, 2026-11-15: round 1 done (11-14 12:38); round 2 next, on
+LEM.
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -133,10 +133,10 @@ commit `kf4q4t4s` ran.
 | 1 | 1e-4 | 400 | entropy | 38422_1 | | | 11-13 13:30 | CANCELLED while pending |
 | 1 | 1e-3 | 300 | entropy | 38422_2 | | | 11-13 13:30 | CANCELLED while pending |
 | 1 | 0.1 | 100 | entropy | 38422_3 | | | 11-13 13:30 | CANCELLED while pending |
-| 1 | 0.01 | 200 | LEM | 6312652_0 | | | | PENDING |
-| 1 | 1e-4 | 400 | LEM | 6312652_1 | | | | PENDING |
-| 1 | 1e-3 | 300 | LEM | 6312652_2 | | | | PENDING |
-| 1 | 0.1 | 100 | LEM | 6312652_3 | | | | PENDING |
+| 1 | 0.01 | 200 | LEM | 6312652_0 | `plabns2v` | 11-14 03:58 (r14-8) | 11-14 08:23 | COMPLETED, exit 0, 4 h 25 min |
+| 1 | 1e-4 | 400 | LEM | 6312652_1 | `7te9jv9u` | 11-14 03:58 (r18-7) | 11-14 08:23 | COMPLETED, exit 0, 4 h 25 min |
+| 1 | 1e-3 | 300 | LEM | 6312652_2 | `sbr8nocc` | 11-14 08:23 (r18-7) | 11-14 12:39 | COMPLETED, exit 0, 4 h 16 min |
+| 1 | 0.1 | 100 | LEM | 6312652_3 | `15vi3h23` | 11-14 08:24 (r10-10) | 11-14 12:38 | COMPLETED, exit 0, 4 h 14 min |
 
 ### Checks
 
@@ -193,9 +193,16 @@ commit `kf4q4t4s` ran.
     - Exactly one array: `ArrayTaskThrottle=2`, 1 H100 each, r16-11 excluded,
       6 h.
     - The helper script was then deleted.
-- **Next check: when round 1 starts.** A watcher polls `sacct` and W&B every
-  10 min (deadline 6 days, since LEM's forecast before the outage was 11-16 21:55).
-  It wakes at step 20, or at once on a failed task or a NaN.
+- **Round 1 ran 11-14 03:58-12:39**, about 14 h after submission. Its watcher died
+  with the session, so the end went unseen until 11-15 17:50.
+- **Round 1's end checks (11-15):**
+  - All four tasks COMPLETED, exit 0, in 4 h 14 min to 4 h 25 min, under the 6 h
+    limit.
+  - All four logged steps 0-3814 and a final_ce.
+  - s/step 3.75-3.78 (`kf4q4t4s`: 3.76); peak memory 70.4-70.6 GiB.
+  - No NaN.
+  - The grad-norm maximum after step 100: 0.82 (0.01), 0.56 (1e-4), 1.43 (1e-3,
+    in its spike), 5.50 (0.1, in its spike).
 
 ### Results
 
@@ -204,8 +211,60 @@ is the fraction of steps whose norm was clipped.
 
 | σ | m | Round | g, last 500 | final_ce | Spikes | Bank share | Clipped | Verdict |
 |---|---|---|---:|---:|---:|---:|---:|---|
+| 1e-4 | 400 | 1 | −0.0050 | 3.0400 | 0 | 0.26 | 1% | best |
+| 1e-3 | 300 | 1 | +0.0089 | 3.0498 | 23: one episode, steps 234-256 | 0.24 | 1% | tie |
+| 0.01 | 200 | 1 | 0 (anchor) | 3.0430 | 0 | 0.19 | 1% | tie |
+| 0.1 | 100 | 1 | +0.0800 | 3.1133 | 37: one episode, steps 620-657 | 0.10 | 1% | worse |
+
+Context points, against the same anchor (`bank_sigma_m200`):
+
+| Run | σ | Cluster | g, last 500 | final_ce |
+|---|---|---|---:|---:|
+| `kf4q4t4s` | 0.01 | LEM | −0.0083 | 3.0352 |
+| `doi36p8k` | 1 | LEM | +0.0971 | 3.1250 |
+| parity runs (`u1zpx7lt`, `s65ebe41`, `w4hmw00o`) | 1 | entropy | +0.1128, +0.0973, +0.1024 (mean +0.1042) | 3.1396, 3.1250, 3.1328 |
 
 ### Analysis
+
+**Round 1 (decades):**
+- **Everything from σ = 1e-4 to 0.01 ties.** The last-500 gaps are −0.0050 (1e-4),
+  +0.0089 (1e-3) and 0 (0.01). All three are inside the ±0.022 band, and they span
+  0.014. That spread is the size of the rerun noise: `kf4q4t4s` and
+  `bank_sigma_m200`, the same config on the same cluster, differ by 0.0083. So
+  round 1 can't rank σ inside this range.
+- **Above 0.01 it gets worse:** σ = 0.1 is +0.080, and σ = 1 is +0.097 on LEM
+  (`doi36p8k`) and +0.104 on entropy (mean of three).
+- **Smaller σ learns faster early, and the edge fades.** Steps 0-99, against σ =
+  0.01: σ = 1e-4 −0.206, 1e-3 −0.063, 0.1 +0.391. First quarter: −0.089, +0.028,
+  +0.340. By the last quarter: −0.005, +0.010, +0.082.
+- **One spike episode each at σ = 1e-3 and σ = 0.1:**
+  - 1e-3: the loss went from 4.53 to 4.94 over steps 234-256 (grad norm peak 1.43
+    at 242).
+  - 0.1: the loss went from 3.89 to 8.19 over steps 620-657 (grad norm peak 5.50 at
+    637).
+  - Both recovered. σ = 1e-4 and 0.01 had none. With one run per σ, a single episode
+    can't be pinned on σ, but 1e-3's episode is likely why it trails 1e-4 and 0.01
+    through the second quarter (+0.023), until the gap closes.
+- **The tiny-σ risk did not show.** A bank row's gradient scales as 1/σ, yet the
+  banks' share of the gradient norm only rose from 0.10 (σ = 0.1) to 0.26 (σ =
+  1e-4). Every σ was clipped on 1% of steps.
+  - Likely why: Adam moves every element by about the LR (0.0039) per step. So
+    after the first steps the row norm comes from the updates, not the draw, and
+    the init stops mattering. That is the plateau "What to expect" predicted below
+    σ ≈ LR, and σ = 0.01 sits on it too.
+- **The setup reproduces:**
+  - At step 0 every run, `kf4q4t4s` included, has the same loss (11.25): the hard
+    QK-norm makes the forward pass blind to σ, and the data and every other draw
+    are shared.
+  - `bank_sigma_m200` matches `kf4q4t4s` step for step through step 20, then
+    drifts apart from step 38, the end of warmup. That is where run-to-run
+    nondeterminism gets amplified. The drift shrinks to 0.008 by the end.
+
+**Round 2's picks** (`scripts/bank_sigma_next.py 2`): x* = 1e-4, the lowest σ
+measured, so:
+- m500 (σ = 1e-5) by rule 1;
+- m450 (3.16e-5) and m350 (3.16e-4) by rule 2;
+- m150 (0.0316) by rule 3, the knee between 0.01 and 0.1, where |Δg| = 0.080.
 
 ### Decisions and issues
 
