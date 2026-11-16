@@ -1,0 +1,53 @@
+# 2-GPU smoke test of the h12_chinchilla setup on h4: builds, trains, logs, saves, evals.
+defaults:
+  # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h4
+  # WSD: warmup 10, stable to step 899, linear decay to 0 over the last 100
+  - ../_trainer@_here_: nano
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none
+  - ../_misc@_here_: default
+  - ../_downstream_eval@_here_: joint
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 256
+
+trainer:
+  # micro 64 x 1024 per GPU, as h12_chinchilla
+  gradient_accumulation_steps: 2
+  n_steps: 1_000
+  # 2 points, so the SLURM array path runs
+  ^learning_rate: [9, 10]
+
+  checkpoint:
+    save:
+      type: nano
+      # scratch dir, apart from the real runs' checkpoints/
+      path: ${oc.env:PROJECT_HOME_PATH,/lustre/pd03/plgrid/plgllmefficont3/nano/pretraining}/${oc.env:USER}/checkpoints_test
+      # step_99 .. step_999; step_899 is the last stable step, as in h12_chinchilla
+      interval: 100
+
+downstream_evaluator:
+  # small limit: checks the in-loop eval runs, not its scores
+  limit: 20
+  # Same grid as checkpoints and eval; step_999 is scored after the final save.
+  eval_interval: 100
+
+infrastructure:
+  max_concurrent_jobs: -1
+
+  metric_logger:
+    name: h4_remote_test
+    # no lr_tune/chinchilla tags: lr_plots and collect_checkpoints select runs by tag
+    tags:
+      - nano
+      - h4
+      - remote_test
+
+  slurm:
+    time: "01:00:00"
+    gres: gpu:hopper:2
+    job-name: ${infrastructure.metric_logger.name}

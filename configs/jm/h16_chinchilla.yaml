@@ -2,13 +2,12 @@ defaults:
   # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
   - ../_cluster@_here_: entropy
   - ../_model/h_balanced@_here_: h16
-  - ../_trainer@_here_: llama
+  # WSD: warmup 300, stable to step 26999, linear decay to 0 over the last 3_000
+  - ../_trainer@_here_: nano
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
   - ../_misc@_here_: default
   - ../_downstream_eval@_here_: joint
-  # warmup 300, stable to step 26999, linear decay to 0 over the last 3_000
-  - override ../_trainer/_scheduler@trainer.scheduler: wsd
   - _self_
 
 common:
@@ -27,8 +26,6 @@ trainer:
       path: ${oc.env:PROJECT_HOME_PATH,/storage_nvme_4/nano/pretraining}/${oc.env:USER}/checkpoints
       # step_2999 .. step_29999; step_26999 is the last stable step, to branch a decay from
       interval: 3_000
-
-compile_blocks_full: true
 
 downstream_evaluator:
   # Same grid as checkpoints; step_29999 is scored after the final save.
