@@ -1,7 +1,7 @@
 # AME bank-init σ grid at h12 (plan and log)
 
-**Status:** RUNNING, 2026-11-15: round 1 done (11-14 12:38); round 2 queued on LEM
-as array 6330648 (11-15 17:58).
+**Status:** RUNNING, 2026-11-16: rounds 1-2 done (8 of 12 runs); round 3 next, on
+LEM.
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -142,10 +142,10 @@ commit `kf4q4t4s` ran.
 | 1 | 1e-4 | 400 | LEM | 6312652_1 | `7te9jv9u` | 11-14 03:58 (r18-7) | 11-14 08:23 | COMPLETED, exit 0, 4 h 25 min |
 | 1 | 1e-3 | 300 | LEM | 6312652_2 | `sbr8nocc` | 11-14 08:23 (r18-7) | 11-14 12:39 | COMPLETED, exit 0, 4 h 16 min |
 | 1 | 0.1 | 100 | LEM | 6312652_3 | `15vi3h23` | 11-14 08:24 (r10-10) | 11-14 12:38 | COMPLETED, exit 0, 4 h 14 min |
-| 2 | 1e-5 | 500 | LEM | 6330648_0 | | | | PENDING |
-| 2 | 3.16e-5 | 450 | LEM | 6330648_1 | | | | PENDING |
-| 2 | 3.16e-4 | 350 | LEM | 6330648_2 | | | | PENDING |
-| 2 | 0.0316 | 150 | LEM | 6330648_3 | | | | PENDING |
+| 2 | 1e-5 | 500 | LEM | 6330648_0 | `a6hsdnzs` | 11-15 19:38 (r18-2) | 11-16 00:03 | COMPLETED, exit 0, 4 h 24 min |
+| 2 | 3.16e-5 | 450 | LEM | 6330648_1 | `c6pciyfb` | 11-15 19:39 (r10-14) | 11-16 00:03 | COMPLETED, exit 0, 4 h 24 min |
+| 2 | 3.16e-4 | 350 | LEM | 6330648_2 | `we6gxton` | 11-16 00:51 (r10-8) | 11-16 05:10 | COMPLETED, exit 0, 4 h 18 min |
+| 2 | 0.0316 | 150 | LEM | 6330648_3 | `bltgdoyf` | 11-16 00:51 (r10-9) | 11-16 05:08 | COMPLETED, exit 0, 4 h 17 min |
 
 ### Checks
 
@@ -215,9 +215,18 @@ commit `kf4q4t4s` ran.
 - **Round 2, submitted 11-15 17:58** (array 6330648): one array, throttle 2, 6 h,
   r16-11 excluded, no placeholder left in `exp.job`. Nothing else of Maciej's on
   LEM; nothing on entropy.
-- **Next check: when round 2 ends.** Maciej asked for checks only at the end of
-  training. The watcher polls `sacct` and W&B every 10 min, with a 4-day deadline.
-  It wakes when every task has ended, or at once on a failed task or a NaN.
+- **Round 2 ran 11-15 19:38 to 11-16 05:10.**
+  - It waited 1 h 40 min to start, and 48 min between its two pairs.
+  - Its watcher died with the session, so the end went unseen until 11-16 15:00.
+- **Round 2's end checks (11-16):**
+  - All four tasks COMPLETED, exit 0, in 4 h 17 min to 4 h 24 min.
+  - All four logged steps 0-3814 and a final_ce.
+  - s/step 3.75-3.78; peak memory 70.4-70.6 GiB; no NaN.
+  - The grad-norm maximum after step 100:
+    - 0.56 (3.16e-5) and 0.51 (3.16e-4);
+    - 3.94 for 0.0316, inside its spike episode;
+    - 2.19 for 1e-5, one step at 2855: clipped (factor 0.46), with no effect on
+      the loss, which equals `bank_sigma_m200`'s there.
 
 ### Results
 
@@ -226,10 +235,16 @@ is the fraction of steps whose norm was clipped.
 
 | σ | m | Round | g, last 500 | final_ce | Spikes | Bank share | Clipped | Verdict |
 |---|---|---|---:|---:|---:|---:|---:|---|
-| 1e-4 | 400 | 1 | −0.0050 | 3.0400 | 0 | 0.26 | 1% | best |
+| 1e-5 | 500 | 2 | −0.0107 | 3.0312 | 0 | 0.26 | 1% | tie |
+| 3.16e-5 | 450 | 2 | −0.0111 | 3.0322 | 0 | 0.26 | 1% | best |
+| 1e-4 | 400 | 1 | −0.0050 | 3.0400 | 0 | 0.26 | 1% | tie |
+| 3.16e-4 | 350 | 2 | −0.0084 | 3.0361 | 0 | 0.26 | 1% | tie |
 | 1e-3 | 300 | 1 | +0.0089 | 3.0498 | 23: one episode, steps 234-256 | 0.24 | 1% | tie |
 | 0.01 | 200 | 1 | 0 (anchor) | 3.0430 | 0 | 0.19 | 1% | tie |
+| 0.0316 | 150 | 2 | +0.0699 | 3.1084 | 33: one episode, steps 498-530 | 0.16 | 1% | worse |
 | 0.1 | 100 | 1 | +0.0800 | 3.1133 | 37: one episode, steps 620-657 | 0.10 | 1% | worse |
+
+Verdicts are against the best so far: a tie is within 0.022 of it (g ≤ +0.0109).
 
 Context points, against the same anchor (`bank_sigma_m200`):
 
@@ -280,6 +295,43 @@ measured, so:
 - m500 (σ = 1e-5) by rule 1;
 - m450 (3.16e-5) and m350 (3.16e-4) by rule 2;
 - m150 (0.0316) by rule 3, the knee between 0.01 and 0.1, where |Δg| = 0.080.
+
+**Round 2 (half-decades):**
+- **The plateau reaches down to 1e-5.** Every σ from 1e-5 to 0.01 is within 0.020
+  of every other (−0.0111 to +0.0089), inside one tie band.
+  - The best, 3.16e-5 (−0.0111), and 1e-5 (−0.0107) can't be told apart.
+- **Inside the plateau, a weak lean to small σ.** At the end:
+  - −0.011 (1e-5, 3.16e-5);
+  - −0.008 (3.16e-4) and −0.005 (1e-4);
+  - 0 (0.01) and +0.009 (1e-3, with its spike).
+
+  The whole slope, about 0.01 over three decades, is the size of the rerun noise
+  (0.008), so one run per σ can't confirm it.
+- **The edge is sharp, between 0.01 and 0.0316.** 0.0316 is already +0.070, almost
+  as bad as 0.1 (+0.080). The whole loss arrives within half a decade.
+- **Spike episodes grow with σ:**
+  - large ones at 0.0316 (steps 498-530, loss 4.06 to 7.38) and 0.1 (steps
+    620-657, loss 3.89 to 8.19);
+  - a small one at 1e-3 (steps 234-256, loss 4.53 to 4.94);
+  - none in the five runs at σ ≤ 3.16e-4, nor at 0.01.
+
+  That suggests, without proving it (single runs), that large σ invites spikes.
+- **The banks' share of the gradient norm saturates:** 0.26 at every σ ≤ 3.16e-4,
+  0.24 at 1e-3, 0.19 at 0.01, 0.16 at 0.0316, 0.10 at 0.1. Below about 3e-4 the
+  draw is forgotten after the first Adam steps, the plateau's mechanism. Clipping
+  stays at 1% of steps everywhere.
+- **The early lead repeats.** Steps 0-99 against 0.01: −0.12 (1e-5), −0.21
+  (3.16e-5), −0.21 (1e-4), −0.15 (3.16e-4), −0.06 (1e-3), +0.30 (0.0316), +0.39
+  (0.1).
+
+**Round 3's picks** (`scripts/bank_sigma_next.py 3`). x* = 3.16e-5; the tie band is
+g ≤ +0.0109.
+- m475 (1.78e-5) and m425 (5.62e-5) by rule 2. Rule 1 doesn't apply: 1e-5, not x*,
+  is the lowest σ measured.
+- m175 (0.0178) by rule 3: the band's edge on the high-σ side lies between 0.01
+  (inside) and 0.0316 (outside).
+- m325 (5.62e-4) by rule 4: the largest |Δg| left, between 3.16e-4 and 1e-3
+  (0.017).
 
 ### Decisions and issues
 
