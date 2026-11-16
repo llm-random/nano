@@ -1,0 +1,12 @@
+# tiny_local with QK-norm. Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_qk_norm
+defaults:
+  - ../../tiny_local@_global_
+  - _self_
+
+common:
+  attention:
+    qk_norm: true
+
+infrastructure:
+  metric_logger:
+    type: stdout

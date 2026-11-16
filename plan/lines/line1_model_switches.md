@@ -2,10 +2,10 @@
 
 ## Human
 
-Line 1 adds seven model-code switches, one task at a time. Now: plan written, no task started.
+Line 1 adds seven model-code switches, one task at a time. Now: Task 1/7, QK-norm, done.
 Every switch is off by default, and off means identical training to before.
 
-- [ ] QK-norm: normalize q and k, form picked by an open-model survey
+- [x] QK-norm: per-head RMSNorm on q, k before RoPE
 - [ ] Output gate: sigmoid gate on attention output
 - [ ] NoPE: skip RoPE on chosen layers
 - [ ] Document masking: attend only within each document
@@ -17,8 +17,9 @@ Every switch is off by default, and off means identical training to before.
 - Run tasks 5 and 6 in parallel once 4 lands? Recommended: yes.
 - Before task 5: still wanted, and at what sequence length and k?
 - Cluster tests inherit h12's 4-LR sweep (4 jobs per switch): keep, or pin one LR?
+- Launch the QK-norm cluster test (4 jobs, 2 GPUs each).
 
-**Last change:** 2026-11-13: AME dropped; QK-norm restarts with a survey of recent open models.
+**Last change:** 2026-11-16: QK-norm landed, Qwen-style per-head norm; its cluster config is ready.
 
 ## AI
 
@@ -76,7 +77,7 @@ Janek can't review everything, so most calls are yours.
 
 | # | Task | Status | What landed |
 | --- | --- | --- | --- |
-| 1 | QK-norm | todo | |
+| 1 | QK-norm | done | `common.attention.qk_norm`, off `false` in `base.yaml`. Pick: per-head RMSNorm over `dhead` (eps 1e-6) on q and k before RoPE, k on kv heads before `repeat_kv`, SDPA's default scale, because 3 of the 4 surveyed models with full QK-norm use it (Qwen3.8, MiniMax-M3.1, Gemma 4; `documents/notes/qk_norm_survey.md`). Gain `(1 + w)`, w zero-init (`ZeroCenteredRMSNorm`, as Qwen3.8 and MiniMax), so weight decay pulls it to 1, not 0. No `scale` argument. Plumbing: `SWITCHES` in `attention.py`, `SWITCHES_OFF` in `tests/test_attention_registry.py`. Configs in `configs/jm/feature/`: `tiny_local_qk_norm`, `tiny_local_line1_all`, `h12_qk_norm`. |
 | 2 | Attention output gate | todo | |
 | 3 | NoPE (RoPE off switch) | todo | |
 | 4 | Document masking | todo | |
@@ -281,6 +282,13 @@ and into your report, not into the diff. Don't add new test files unless your se
   - the `_planned` builder raising when a switch is on;
   - the shared off-values dict in the tests;
   - `configs/jm/feature/tiny_local_line1_all.yaml`.
+- **As built (2026-11-16):**
+  - `SWITCHES` in `src/core/attention.py` lists the keys. `build_attention` passes
+    `attention[key]` for each to the builder, and `_planned` raises when any is truthy. A later
+    task appends its key there and to `SWITCHES_OFF` in `tests/test_attention_registry.py`, which
+    `tests/test_mfu.py` imports.
+  - The chosen models keep 1/√dhead, so `attention_mechanism` has no `scale` argument; task 4's
+    flex path uses the default scale.
 
 #### 2. Attention output gate
 

@@ -22,8 +22,11 @@ common:
   # registered type for the whole stack; an optional "mix" swaps a subset:
   #   attention: {type: gqa, mix: {type: mla, layers: every_4th}}
   # layers: every_2nd | every_4th | all | an explicit 0-based index list.
+  # The other keys are line-1 switches, written here at their off values.
   attention:
     type: gqa
+    # per-head RMSNorm on q and k before RoPE (documents/notes/qk_norm_survey.md)
+    qk_norm: false
 
 
 model:

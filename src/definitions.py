@@ -41,6 +41,7 @@ class AttentionSchema:
     # Optional per-layer override, e.g. {type: mla, layers: every_4th} -- see
     # resolve_layer_types in src/core/attention.py, which validates its keys.
     mix: Any = None
+    qk_norm: bool = MISSING
 
 
 @dataclass

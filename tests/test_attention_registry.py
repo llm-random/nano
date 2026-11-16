@@ -24,11 +24,15 @@ PLANNED = ("mla", "mamba2", "gated_deltanet")
 
 DIMS = dict(dmodel=64, q_heads=4, kv_heads=2, seq_len=16)
 
+# Every line-1 attention switch at its base.yaml off value; each task adds its key.
+SWITCHES_OFF = {"qk_norm": False}
+
 
 def _build(attention_type, seed=0, **overrides):
     torch.manual_seed(seed)
     kwargs = {**DIMS, **overrides}
-    return build_attention(0, attention={"type": attention_type}, n_blocks=1, **kwargs)
+    attention = {"type": attention_type, **SWITCHES_OFF}
+    return build_attention(0, attention=attention, n_blocks=1, **kwargs)
 
 
 def test_the_registry_holds_exactly_the_planned_set():
@@ -69,6 +73,13 @@ def test_planned_types_construct_but_refuse_to_run(name):
     x = torch.randn(2, DIMS["seq_len"], DIMS["dmodel"])
     with pytest.raises(NotImplementedError, match="registered interface"):
         module(x)
+
+
+@pytest.mark.parametrize("name", PLANNED)
+def test_a_planned_type_refuses_a_switch_at_build(name):
+    attention = {"type": name, **SWITCHES_OFF, "qk_norm": True}
+    with pytest.raises(ValueError, match="qk_norm"):
+        build_attention(0, attention=attention, n_blocks=1, **DIMS)
 
 
 def test_an_unknown_type_is_named_in_the_error():

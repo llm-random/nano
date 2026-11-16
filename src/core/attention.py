@@ -2,7 +2,8 @@
 
 Every type shares one constructor contract so they are interchangeable per layer:
 
-    (dmodel, q_heads, kv_heads, seq_len, rope_base, rope_scale_freqs, init_scale)
+    (dmodel, q_heads, kv_heads, seq_len, rope_base, rope_scale_freqs, init_scale,
+     **one keyword per SWITCHES entry)
 
 `mha`, `mqa` and `gqa` are real today and are all the same `RoPEAttention` -- they
 differ only in how many kv heads they keep (mha: q_heads, mqa: 1, gqa: the config's
@@ -22,6 +23,9 @@ import torch.nn as nn
 
 from src.core.model import Linear, RoPEAttention, llm_random_weight_init
 
+# Line-1 switch keys in common.attention, passed to every builder; base.yaml holds their off values.
+SWITCHES = ("qk_norm",)
+
 
 def _linear_fn(in_features, out_features, init_scale):
     return partial(
@@ -33,7 +37,7 @@ def _linear_fn(in_features, out_features, init_scale):
 
 
 def _rope_attention(
-    dmodel, q_heads, kv_heads, seq_len, rope_base, rope_scale_freqs, init_scale
+    dmodel, q_heads, kv_heads, seq_len, rope_base, rope_scale_freqs, init_scale, qk_norm
 ):
     dhead = dmodel // q_heads
     return RoPEAttention(
@@ -47,6 +51,7 @@ def _rope_attention(
         seq_len=seq_len,
         rope_base=rope_base,
         rope_scale_freqs=rope_scale_freqs,
+        qk_norm=qk_norm,
     )
 
 
@@ -114,6 +119,9 @@ class GatedDeltaNet(_PlannedAttention):
 
 def _planned(cls):
     def build(dmodel, q_heads, kv_heads, **kwargs):
+        on = [key for key in SWITCHES if kwargs.pop(key)]
+        if on:
+            raise ValueError(f"attention type {cls.__name__} does not support {on}")
         return cls(dmodel, q_heads, kv_heads, **kwargs)
 
     return build
@@ -199,12 +207,14 @@ def build_attention(
     """The `attention_fn` a TransformerBlock calls with its block id.
 
     `attention` is the config mapping: {"type": <name>} for a uniform stack, plus
-    an optional "mix" (see resolve_layer_types) to swap the type on some layers.
+    an optional "mix" (see resolve_layer_types) to swap the type on some layers,
+    plus every key in SWITCHES, which goes to the layer's builder as a keyword.
     """
-    unknown = set(attention) - {"type", "mix"}
+    unknown = set(attention) - {"type", "mix", *SWITCHES}
     if unknown:
         raise ValueError(
-            f"unknown attention config keys {sorted(unknown)}; expected type, mix"
+            f"unknown attention config keys {sorted(unknown)}; "
+            f"expected type, mix, {', '.join(SWITCHES)}"
         )
     if not 0 <= block_id < n_blocks:
         raise ValueError(f"block_id {block_id} outside 0..{n_blocks - 1}")
@@ -219,4 +229,5 @@ def build_attention(
         rope_base=rope_base,
         rope_scale_freqs=rope_scale_freqs,
         init_scale=init_scale,
+        **{key: attention[key] for key in SWITCHES},
     )

@@ -219,6 +219,19 @@ class RoPE(nn.Module):
         return x * cos_scaler + x_rotated * sin_scaler
 
 
+class ZeroCenteredRMSNorm(nn.Module):
+    """RMSNorm over the last dim with gain (1 + weight), weight zero-init, in fp32 (Qwen3.8 q/k norm)."""
+
+    def __init__(self, dim, eps):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.zeros(dim))
+
+    def forward(self, x):
+        normed = F.rms_norm(x.float(), (x.shape[-1],), eps=self.eps)
+        return (normed * (1.0 + self.weight.float())).type_as(x)
+
+
 class RoPEAttention(nn.Module):
     def __init__(
         self,
@@ -232,6 +245,7 @@ class RoPEAttention(nn.Module):
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
+        qk_norm: bool,
         factor=32,
         low_freq_factor=1,
         high_freq_factor=4,
@@ -260,6 +274,12 @@ class RoPEAttention(nn.Module):
             original_max_position_embeddings=original_max_position_embeddings,
         )
 
+        # Per-head gains, built last and only when on, so the off model is unchanged.
+        self.qk_norm = qk_norm
+        if qk_norm:
+            self.q_norm = ZeroCenteredRMSNorm(self.dhead, eps=1e-6)
+            self.k_norm = ZeroCenteredRMSNorm(self.dhead, eps=1e-6)
+
     def forward(self, x):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
@@ -267,8 +287,11 @@ class RoPEAttention(nn.Module):
 
         batch, seq_len = x.shape[:-1]
         q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
-        q = self.rope(q)
         k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        if self.qk_norm:
+            # Before RoPE; k on its kv heads, before repeat_kv.
+            q, k = self.q_norm(q), self.k_norm(k)
+        q = self.rope(q)
         k = self.rope(k)
 
         v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)

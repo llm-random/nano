@@ -1,0 +1,19 @@
+# h12_chinchilla with per-head QK-norm (documents/notes/qk_norm_survey.md).
+defaults:
+  - ../h12_chinchilla@_global_
+  - _self_
+
+common:
+  attention:
+    qk_norm: true
+
+infrastructure:
+  metric_logger:
+    name: h12_qk_norm
+    tags:
+      - nano
+      - h12
+      - lr_tune
+      - chinchilla
+      - wsd
+      - qk_norm

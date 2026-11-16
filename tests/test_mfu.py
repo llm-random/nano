@@ -17,6 +17,7 @@ import resolver  # noqa: F401
 from src.core.attention import build_attention
 from src.core.mfu import model_flops_per_token, peak_flops_bf16
 from src.core.trainer import Trainer
+from test_attention_registry import SWITCHES_OFF
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VOCAB = 50304
@@ -53,8 +54,12 @@ def test_the_embedding_lookup_is_not_counted_but_the_head_is():
 def test_an_mqa_layer_reports_its_smaller_kv_cost():
     """The count is measured, so kv_heads=1 must shave exactly the kv width."""
     dims = dict(dmodel=256, q_heads=4, kv_heads=2, seq_len=128)
-    gqa = build_attention(0, attention={"type": "gqa"}, n_blocks=1, **dims)
-    mqa = build_attention(0, attention={"type": "mqa"}, n_blocks=1, **dims)
+    gqa = build_attention(
+        0, attention={"type": "gqa", **SWITCHES_OFF}, n_blocks=1, **dims
+    )
+    mqa = build_attention(
+        0, attention={"type": "mqa", **SWITCHES_OFF}, n_blocks=1, **dims
+    )
     dhead = dims["dmodel"] // dims["q_heads"]
     gqa_params = sum(p.numel() for p in gqa.parameters() if p.dim() == 2)
     mqa_params = sum(p.numel() for p in mqa.parameters() if p.dim() == 2)
