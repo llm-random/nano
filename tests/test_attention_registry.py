@@ -2,7 +2,7 @@
 
 mha/mqa/gqa are the same RoPEAttention with different kv head counts, so mha must be
 bit-equal to gqa-with-kv_heads=q_heads -- not approximately, bitwise. The planned
-types (mla, mamba2, gated_deltanet, ame) must construct from a config today and fail
+types (mla, mamba2, gated_deltanet) must construct from a config today and fail
 only at forward, so the per-layer mixing can be wired and tested before their
 implementations land.
 """
@@ -20,7 +20,7 @@ from src.core.attention import ATTENTION_TYPES, build_attention, resolve_layer_t
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 REAL = ("mha", "mqa", "gqa")
-PLANNED = ("mla", "mamba2", "gated_deltanet", "ame")
+PLANNED = ("mla", "mamba2", "gated_deltanet")
 
 DIMS = dict(dmodel=64, q_heads=4, kv_heads=2, seq_len=16)
 
@@ -86,7 +86,7 @@ def test_a_block_id_outside_the_stack_is_a_build_error():
         build_attention(5, attention={"type": "gqa"}, n_blocks=4, **DIMS)
 
 
-@pytest.mark.parametrize("name", ["mha", "mqa", "mla", "ame"])
+@pytest.mark.parametrize("name", ["mha", "mqa", "mla"])
 def test_the_h4_config_builds_with_any_registered_type(name):
     """The config surface: overriding common.attention.type swaps every layer."""
     with initialize_config_dir(
@@ -104,7 +104,6 @@ def test_the_h4_config_builds_with_any_registered_type(name):
         "mha": "RoPEAttention",
         "mqa": "RoPEAttention",
         "mla": "MLAttention",
-        "ame": "AMEAttention",
     }[name]
     assert type(layer).__name__ == expected
     if name == "mha":
@@ -123,8 +122,8 @@ def test_every_2nd_replaces_the_odd_indices():
 
 
 def test_every_4th_never_touches_layer_zero():
-    types = resolve_layer_types(16, "gqa", {"type": "ame", "layers": "every_4th"})
-    assert [i for i, t in enumerate(types) if t == "ame"] == [3, 7, 11, 15]
+    types = resolve_layer_types(16, "gqa", {"type": "mla", "layers": "every_4th"})
+    assert [i for i, t in enumerate(types) if t == "mla"] == [3, 7, 11, 15]
     assert types[0] == "gqa"
 
 
@@ -186,12 +185,12 @@ def test_a_mixed_stack_builds_and_trains_on_cpu():
 
 
 def test_a_stubbed_type_mixes_in_but_fails_only_at_forward():
-    """The wiring is ready for AME before AME exists: the config composes, the
-    model instantiates, and the failure happens exactly at the stub's forward."""
+    """The wiring is ready for a type before it is implemented: the config composes,
+    the model instantiates, and the failure happens exactly at the stub's forward."""
     model = _h4_model(
-        ["+common.attention.mix={type: ame, layers: every_4th}"], device="cpu"
+        ["+common.attention.mix={type: mla, layers: every_4th}"], device="cpu"
     )
     names = [type(b.attention_layer.layer).__name__ for b in model.encoder.blocks]
-    assert names == ["RoPEAttention"] * 3 + ["AMEAttention"]
+    assert names == ["RoPEAttention"] * 3 + ["MLAttention"]
     with pytest.raises(NotImplementedError, match="registered interface"):
         model(torch.randint(0, 50304, (1, 16)))

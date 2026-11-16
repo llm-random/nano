@@ -77,7 +77,7 @@ after the stage-1 deletions.
 
 1. New `src/core/attention.py`:
    - `ATTENTION_TYPES` registry: `mha`, `mqa`, `gqa` (real), `mla`, `mamba2`,
-     `gated_deltanet`, `ame` (registered interfaces).
+     `gated_deltanet` (registered interfaces).
    - `mha/mqa/gqa` all build the existing `RoPEAttention` — they differ only in
      `kv_heads` (mha: `q_heads`, mqa: `1`, gqa: the config's `kv_heads`) and the
      k/v projection widths that follow. No new math, no new class.
@@ -112,9 +112,9 @@ after the stage-1 deletions.
    Omitting `mix` keeps a uniform stack.
 3. Tests: resolution table for every pattern form on H=4 and H=16; a seeded CPU
    e2e run on H4 mixing `gqa` + `mqa` (two real types) trains for a few steps; a
-   config naming a stubbed type (`ame` on every 4th layer) **composes and
+   config naming a stubbed type (`mla` on every 4th layer) **composes and
    instantiates**, failing only at forward — proving the wiring is ready for the
-   real AME.
+   real implementations.
 4. Gate: pytest + black + default (no-mix) config still bit-identical to Phase C.
 
 ## Phase F — close-out

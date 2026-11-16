@@ -38,7 +38,7 @@ from omegaconf import MISSING, DictConfig, OmegaConf
 @dataclass
 class AttentionSchema:
     type: str = MISSING
-    # Optional per-layer override, e.g. {type: ame, layers: every_4th} -- see
+    # Optional per-layer override, e.g. {type: mla, layers: every_4th} -- see
     # resolve_layer_types in src/core/attention.py, which validates its keys.
     mix: Any = None
 

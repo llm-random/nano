@@ -19,10 +19,10 @@ after the survey in `open_model_architectures.md`.
 | Token superposition | Missing | No code | None found |
 | nGPT (normalized activations) | Missing | No code | None found |
 | RoPE | Exists | Always on; base and llama-3 scaling configurable | |
-| QK-norm | Missing | No code | `pre_attn_fn` on `origin/ctx_scl`; `origin/ame_improve` |
+| QK-norm | Missing | No code | `pre_attn_fn` on `origin/ctx_scl` |
 | SwiGLU | Exists | Default FF; GELU MLP via `_target_` swap | |
 | GQA | Exists | Default; `common.attention.type` picks gqa, mha or mqa | |
-| Document masking | Missing | Documents are joined with EOS and attend across each other | Compiled `flex_attention` wrapper in `src/core/ame.py` on `origin/ame_improve` |
+| Document masking | Missing | Documents are joined with EOS and attend across each other | Compiled `flex_attention` wrapper (`_flex_attention` in `src/core/ame.py` on `origin/ame_improve`, an unrelated project; borrow the code only) |
 | Attention output gate | Missing | No code | None found |
 | Wider residual stream? | Missing | One residual stream, in `Residual` | None found |
 | Indexer sparse attention? | Missing | No code | None found |
@@ -55,7 +55,7 @@ asserts exactly one param group (`src/core/schedulers.py:65`).
 | H-net | Byte-level input with learned dynamic chunking: replaces the GPT-NeoX tokenizer in the data pipeline and the flat `LLM` with encoder, main network and decoder. Loss per token stops being comparable, so eval needs bits per byte. The largest change on the list. | [goombalab/hnet](https://github.com/goombalab/hnet) |
 | Token superposition | Not assessed: the paper hasn't been read yet, so what it touches is an open question. | [arXiv 2605.06546](https://arxiv.org/abs/2605.06546) |
 | nGPT | Unit-norm weights and hidden states: renormalize weights after every optimizer step, replace `RMSNorm` + `Residual` with normalized updates and learned step sizes, add a learned logit scale in `TransformerHead`. nGPT drops weight decay and warmup. | Nothing in the repo |
-| QK-norm | A `pre_attn_fn` (or `qk_norm`) argument on `RoPEAttention`, threaded through the shared `build_attention` contract so every attention type gets it. Pick ℓ2 + learned temperature or RMS; the AME notes warn against mixing them. | `RoPEAttention(pre_attn_fn=...)` on `origin/ctx_scl`; `tests/test_qk_norm.py` on `origin/ame_improve`; `documents/notes/ame_implementation.md:101` |
+| QK-norm | A `pre_attn_fn` (or `qk_norm`) argument on `RoPEAttention`, threaded through the shared `build_attention` contract so every attention type gets it. Which operator (RMSNorm per head, RMSNorm over the whole projection, ℓ2 + learned temperature) is picked by a short survey of recent open models, weighted by MFU cost (`plan/lines/line1_model_switches.md`, task 1). | `RoPEAttention(pre_attn_fn=...)` on `origin/ctx_scl` |
 | Document masking | `src/core/datasets.py` only appends EOS, so the dataloader must also emit document boundaries. `attention_mechanism` in `src/core/model.py` calls SDPA with `is_causal=True` and no mask; it needs a FlexAttention document block mask (compiles) or flash-attn varlen with `cu_seqlens`. Optionally reset RoPE positions per document. | SmolLM3 (`_use_doc_masking`) and Olmo-core long-context configs; the flex wrapper on `origin/ame_improve` |
 | Attention output gate | In `RoPEAttention.forward`, multiply the attention output by `sigmoid(W_g x)` before `o_proj`. One extra dmodel → q_heads·dhead projection (Qwen fuses it into a doubled `q_proj`); a per-head scalar gate is the cheap variant. Thread a flag through `build_attention`, as for QK-norm. | Qwen3.5 modeling code in transformers; Qwen's "Gated Attention for LLMs" paper |
 | Wider residual stream? | Replace the single stream carried through `Residual` and `TransformerEncoder` with n streams (DeepSeek and GLM use 4). Expand after the embedding, collapse before the head, and give each sublayer learned read and write mixing; mHC keeps the mixing matrix doubly stochastic with Sinkhorn iterations. Activation memory grows ×n. Collides with nGPT (both replace `Residual`) and with the residual-norm metrics logged there. | DeepSeek-V4 `inference/model.py` (mHC); Kimi K3 AttnRes; Qwen3.8-Flash-Next Gated Residual (report) |

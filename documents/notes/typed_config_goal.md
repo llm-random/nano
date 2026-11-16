@@ -217,7 +217,7 @@ tests/test_typed_config.py:
    explicitly, and the very next warmup check carved it out, unreachably).
    Now `>= 0`.
 3. `AttentionSchema` omitted `mix` — the live per-layer attention override
-   (`attention: {type: gqa, mix: {type: ame, layers: every_4th}}`,
+   (`attention: {type: gqa, mix: {type: mla, layers: every_4th}}`,
    configs/_model/h_balanced/base.yaml), which no route could submit any
    more since check_point guards grid points too. Declared `mix: Any = None`.
 

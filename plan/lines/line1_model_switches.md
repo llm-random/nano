@@ -5,7 +5,7 @@
 Line 1 adds seven model-code switches, one task at a time. Now: plan written, no task started.
 Every switch is off by default, and off means identical training to before.
 
-- [ ] QK-norm: normalize q and k, learned temperature
+- [ ] QK-norm: normalize q and k, form picked by an open-model survey
 - [ ] Output gate: sigmoid gate on attention output
 - [ ] NoPE: skip RoPE on chosen layers
 - [ ] Document masking: attend only within each document
@@ -18,13 +18,17 @@ Every switch is off by default, and off means identical training to before.
 - Before task 5: still wanted, and at what sequence length and k?
 - Cluster tests inherit h12's 4-LR sweep (4 jobs per switch): keep, or pin one LR?
 
-**Last change:** plan written; no task landed yet.
+**Last change:** 2026-11-13: AME dropped; QK-norm restarts with a survey of recent open models.
 
 ## AI
 
 Seven switches that edit the same model code, landed one after another on `pretraining-jm`.
 The per-switch survey is `documents/notes/pretraining_switches.md`. This file holds only what
 the task agents must share.
+
+Work only from `pretraining-jm`, a plain pretraining branch. AME (`origin/ame_*`) is a separate
+project, and branch `pretraining` is someone else's base; neither is a target or a reference
+design.
 
 ### How to use this file
 
@@ -141,7 +145,7 @@ and the strict `common` schema catches a typo at compose time.
     widens that to a list of switch keys, which each task extends.
   - `build_attention` passes every switch as a keyword to whichever builder `ATTENTION_TYPES`
     picks for the layer. `_rope_attention` forwards them to `RoPEAttention`.
-  - The `_planned` builder (mla, mamba2, gated_deltanet, ame) accepts every switch and raises
+  - The `_planned` builder (mla, mamba2, gated_deltanet) accepts every switch and raises
     `ValueError` at build time when one is on, naming the type and the switch.
   - A builder of a real type that can't honour a switch does the same. A combination that
     can't work fails at build time, never silently.
@@ -185,7 +189,7 @@ checked (identical GPU runs are not bit-reproducible).
    - `pixi run pytest <files>`.
 7. **Cluster config, only after 1–6 pass:** write `configs/jm/h12_<switch>.yaml` for Janek to
    launch. Agents never submit cluster jobs.
-   - **What goes in it:** follow `configs/jm/h16_chinchilla_wsd.yaml`'s pattern:
+   - **What goes in it:** follow `configs/jm/h12_param_groups.yaml`'s pattern:
      `defaults: [h12_chinchilla, _self_]`, then turn the switch on and set
      `infrastructure.metric_logger.name: h12_<switch>` and the tags. Nothing else, so the run
      compares directly with the `h12_chinchilla` baseline.
@@ -226,23 +230,47 @@ and into your report, not into the diff. Don't add new test files unless your se
 #### 1. QK-norm
 
 - **Key:** `common.attention.qk_norm: false`.
-- **Operator:** `origin/ame_improve`'s, so a later AME merge needs no reconciliation.
-  - q and k are ℓ2-normalized per head, over `dhead`, after the view into heads. This happens
-    before RoPE (a rotation, so the order doesn't matter) and, for k, on the kv heads before
-    `repeat_kv`.
-  - A learned per-query-head temperature `tau` (shape `[q_heads]`, fp32, init `sqrt(dhead)`) is
-    multiplied into q after RoPE, and the kernel runs at scale 1.
-  - `attention_mechanism` and `AttentionMechanism` gain a `scale` argument, where `None` means
-    SDPA's default.
-  - At init this equals the RMSNorm-per-head QK-norm in Qwen3 and OLMo2 (gain 1, 1/sqrt(d)
-    scale). Don't mix the two conventions (`documents/notes/ame_implementation.md`, "RMS vs ℓ2").
-- **Port from:** commit `7762da98` on `origin/ame_improve`: the `qk_norm` parts of
-  `RoPEAttention.__init__`/`forward` and the `scale` argument.
-- **Don't port:**
-  - its null-means-type-default semantics and per-type option blocks (`_layer_switch`,
-    `_TYPE_OPTIONS`);
-  - `shift`;
-  - `no_weight_decay_parameters` / `parameter_groups` (line 2's job).
+- **Step 1, pick the operator by a short survey, before any code.** Use the QK-norm form most
+  common in recent strong open models.
+  - **Models:** the latest release of each family as of today, about 10–12 models. At least the
+    four Janek named (DeepSeek, Kimi, Qwen, Mistral), plus Gemma, OLMo, GLM, Llama, MiniMax and
+    gpt-oss.
+  - **Sources:** primary only: the model's `config.json` and modeling code (transformers
+    `modeling_*.py` or the official repo), and the tech report where the code is unclear. Fetch raw
+    files with WebFetch, or `curl` a codeload tarball into `$CLAUDE_JOB_DIR/tmp`. `git clone`
+    outside the worktree is blocked.
+  - **Per model, record:**
+    - QK-norm or not;
+    - the operator (RMSNorm, LayerNorm, ℓ2 + learned scale) and what it normalizes over (per head
+      over `dhead`, or the whole q/k projection);
+    - the gain shape, where it sits relative to RoPE and the kv-head repeat, and the softmax scale;
+    - with no QK-norm, what the model does instead (another attention type, a logit clip or cap)
+      and whether that transfers to our GQA `RoPEAttention`.
+  - **Pick** the operator most QK-norm models use. Break a tie, or overrule the majority, only on
+    MFU grounds (below), and say why.
+  - **MFU, without GPU runs.** No GPU timings; reason it out and give an estimate:
+    - `mfu.py` counts only 2-D matmul weights and scores, so the norm and its 1-D gains add no
+      counted FLOPs. Any step-time cost shows up directly as lower MFU.
+    - The norm is memory-bound elementwise work on q and k. Estimate its time against the block's
+      matmuls at h12 (sequence length and batch from `configs/jm/h12_chinchilla.yaml`).
+    - The cluster runs use `compile_blocks_full`. Say whether the variant fuses with its
+      neighbours (projection output, RoPE) or forces a separate kernel or an extra reshape or copy.
+    - Under GQA, normalizing k on the kv heads before `repeat_kv` is cheaper than after. A
+      whole-projection norm needs the full q or k vector of each token.
+    - CPU timings don't reflect GPU cost, so they aren't evidence.
+  - **Write-up:** `documents/notes/qk_norm_survey.md` in your diff (under ~60 lines): the table with
+    a source link per row, the pick, and the MFU estimate. Put the pick and a one-line reason in
+    "what landed".
+  - **Ask Janek** only if no operator has a clear majority, or MFU argues against the majority.
+- **Step 2, implement the pick.**
+  - Place the norm where the surveyed models do. Under GQA, normalize k before `repeat_kv`.
+  - Gains are plain 1-D `nn.Parameter`s, created after the existing parameters and only when on.
+  - Keep the softmax scale the chosen models use. If it isn't SDPA's default, give
+    `attention_mechanism` / `AttentionMechanism` a `scale` argument (`None` means the default), so
+    task 4's flex path can reuse it.
+  - Throwaway check: on random input, your q/k path matches the chosen model's reference code to
+    float tolerance.
+  - `origin/ctx_scl` has a `pre_attn_fn` hook on `RoPEAttention` you may borrow from.
 - **Plumbing:** this task sets up the switch plumbing every later task reuses:
   - the switch list in `build_attention`;
   - the `_planned` builder raising when a switch is on;
@@ -279,7 +307,7 @@ and into your report, not into the diff. Don't add new test files unless your se
 - **What a builder gets:** `build_attention` resolves the pattern into a per-layer `rope` bool
   and passes that, so "on" for a planned type means `rope=False`.
 - **The layer:** `RoPEAttention` gets `rope: bool` and builds no `RoPE` module when it's false
-  (`origin/ame_improve` has exactly this). `RoPE` holds no parameters and non-persistent
+  `RoPE` holds no parameters and non-persistent
   buffers, so the state dict doesn't change.
 - **Out of scope:** partial RoPE (`rope_fraction`). Mention it in the report if it would be a
   few lines.
@@ -308,7 +336,8 @@ and into your report, not into the diff. Don't add new test files unless your se
   - `block_mask=None` means today's SDPA call, untouched.
   - With a mask, `RoPEAttention` calls flex with the same `scale` QK-norm uses.
   - A planned type raises at build when `document_masking` is on.
-- **Flex wrapper:** port `_flex_attention` from `src/core/ame.py` on `origin/ame_improve`. On
+- **Flex wrapper:** borrow `_flex_attention` from `src/core/ame.py` on `origin/ame_improve`, an
+  unrelated project (take the code, not its design). On
   CUDA it compiles flex when the caller isn't already tracing, and on CPU it makes a bare call.
   Its docstring explains why uncompiled flex is a trap. Also read the `_block_mask` docstring
   there: a `BlockMask` crossing a compile boundary once failed to lower when a sequence dimension
@@ -346,9 +375,9 @@ and into your report, not into the diff. Don't add new test files unless your se
     `AddAuxiliaryLoss`, so `trainer.py` is untouched.
   - The dense-warmup → sparse switch is a config value. Use a checkpoint branch, as in
     `tiny_local_wsd_branch`, if it needs two stages.
-- **MFU:** a `dsa` layer must report its own cost. Port the `attention_score_flops_per_token`
-  hook from `origin/ame_improve` (`mfu.py` asks each attention module), and count k keys plus the
-  indexer's dense scores.
+- **MFU:** a `dsa` layer must report its own cost. Add a hook that `mfu.py` asks each attention
+  module for (`origin/ame_improve` has an `attention_score_flops_per_token` one to borrow), and
+  count k keys plus the indexer's dense scores.
 - **Combines:** works with QK-norm, the gate and NoPE (the indexer's keys follow the layer's RoPE
   setting), and with document masking via the AND above.
 
@@ -405,7 +434,8 @@ and into your report, not into the diff. Don't add new test files unless your se
 It counts 6·P per token over 2-D weights plus dense score FLOPs per `RoPEAttention`, with no
 discount for the causal mask.
 
-- **QK-norm** (`tau` is 1-D) and **the gate** (a real matmul): counted correctly with no change.
+- **QK-norm** (1-D gains; the norm isn't counted, like RMSNorm today) and **the gate** (a real
+  matmul): counted correctly with no change. Task 1 estimates QK-norm's time cost.
 - **Document masking:** keep the dense count. The convention already ignores masking, so MFU
   with document masking is dense-equivalent and overstates useful work by up to the score share
   (~10% of FLOPs at h16, seq 1024). Compare throughput with masking on and off in tokens/s. Task
@@ -447,14 +477,12 @@ Keep the metric names and record what each one now measures in "what landed".
 
 #### Weight decay on new parameters
 
-Until line 2's param groups land, one AdamW group decays everything (RMSNorm gains already
-included), so `tau`, the gate weights and the α are decayed too. Nothing to do on line 1's side.
-nGPT configs set `trainer.weight_decay: 0`.
+Line 2's param groups have landed: with `optimizer: adamw_groups`, every 1-D parameter (QK-norm
+gains, nGPT's α) goes to the undecayed `vector` group with no change on line 1's side. The default
+optimizer, which `h12_chinchilla` uses, still decays everything in one group. nGPT configs set
+`trainer.weight_decay: 0`.
 
 #### Other lines and branches
 
 - **Line 3 (MoE)** may touch `TransformerBlock` for aux-loss collection. Keep task 4's change to
   `TransformerBlock.forward` to the extra argument.
-- **`origin/ame_improve`** (unmerged, 53 commits ahead) has its own `qk_norm`, `rope` and
-  `shift` on `RoPEAttention`. Line 1 reuses its names and operators so a later merge is
-  mechanical. Don't merge or edit that branch.

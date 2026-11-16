@@ -202,12 +202,12 @@ def test_n_steps_zero_passes_validate():
 
 def test_attention_mix_composes_and_passes_check_point():
     """The per-layer attention mix (configs/_model/h_balanced/base.yaml idiom
-    `attention: {type: gqa, mix: {type: ame, layers: every_4th}}`) is a live
+    `attention: {type: gqa, mix: {type: mla, layers: every_4th}}`) is a live
     knob; the schema must admit it through both the compose and grid paths."""
     cfg = _compose(
-        "tiny_local", ["common.attention.mix={type: ame, layers: every_4th}"]
+        "tiny_local", ["common.attention.mix={type: mla, layers: every_4th}"]
     )
-    assert cfg.common.attention.mix.type == "ame"
+    assert cfg.common.attention.mix.type == "mla"
     check_point(cfg)
     point = OmegaConf.to_container(cfg, resolve=False)
     check_point(point)

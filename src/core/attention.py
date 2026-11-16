@@ -6,9 +6,9 @@ Every type shares one constructor contract so they are interchangeable per layer
 
 `mha`, `mqa` and `gqa` are real today and are all the same `RoPEAttention` -- they
 differ only in how many kv heads they keep (mha: q_heads, mqa: 1, gqa: the config's
-kv_heads) and in the k/v projection widths that follow. `mla`, `mamba2`,
-`gated_deltanet` and `ame` are registered interfaces: they construct (so a config
-naming them composes and instantiates today) and raise on forward until their real
+kv_heads) and in the k/v projection widths that follow. `mla`, `mamba2` and
+`gated_deltanet` are registered interfaces: they construct (so a config naming them
+composes and instantiates today) and raise on forward until their real
 implementations land. Adding a type = one builder function + one registry line.
 
 The config surface lives in `common.attention` (see configs/_model/h_balanced/
@@ -112,10 +112,6 @@ class GatedDeltaNet(_PlannedAttention):
     """Gated DeltaNet linear-attention mixer; needs its chunked-scan kernel."""
 
 
-class AMEAttention(_PlannedAttention):
-    """AME (attention memory embedding) -- this project's own method."""
-
-
 def _planned(cls):
     def build(dmodel, q_heads, kv_heads, **kwargs):
         return cls(dmodel, q_heads, kv_heads, **kwargs)
@@ -130,7 +126,6 @@ ATTENTION_TYPES = {
     "mla": _planned(MLAttention),
     "mamba2": _planned(Mamba2Mixer),
     "gated_deltanet": _planned(GatedDeltaNet),
-    "ame": _planned(AMEAttention),
 }
 
 

@@ -8,7 +8,7 @@ One line per event; details live in the stage plan documents, not here.
 - `pretraining` branched from `main` at `e894422f` (post-#199 audit). `main` keeps the
   full PC project; this branch strips everything not needed for the new project:
   **pretraining models with different attention types** (GQA/MHA/MQA/MLA/Mamba-2/Gated
-  DeltaNet + our AME), H-balanced lineage, mixable per-layer attention patterns.
+  DeltaNet), H-balanced lineage, mixable per-layer attention patterns.
 - Key structural fact: the *live* generic transformer classes sit in
   `src/projected_compression/model.py`; `src/core/model.py` holds a second, dead stack
   no config targets. Every base llama config instantiates the PC-package classes.
@@ -22,7 +22,7 @@ One line per event; details live in the stage plan documents, not here.
   lineage in stage 2 (`documents/concepts/h-balanced-model.md` stays as the spec).
 - **Stage 2 ingredients** (user's words, not yet started): H-balanced architectures,
   GPT-NeoX tokenizer (~50k vocab), gated FF, cosine scheduler, fineweb-edu dataset,
-  switchable GQA/MHA/MQA/MLA/Mamba-2/Gated-DeltaNet, AME attention, layer-pattern
+  switchable GQA/MHA/MQA/MLA/Mamba-2/Gated-DeltaNet, layer-pattern
   mixing (every 4th / every 2nd / all / selected layers).
 - **pixi.toml dependency pruning** (lm_eval etc.): deferred — touching deps means
   re-solving `pixi.lock`, which must stay v6 (hygiene test guards it; re-solve only
@@ -164,7 +164,7 @@ One line per event; details live in the stage plan documents, not here.
   offline) final_ce 11.041799545288086, unchanged from pre-switch as expected.
   Gate: 126 passed, black clean, CI green.
 - **2026-10-30 15:10** Phase D done: src/core/attention.py registry (mha/mqa/gqa
-  real — all RoPEAttention with different kv counts; mla/mamba2/gated_deltanet/ame
+  real — all RoPEAttention with different kv counts; mla/mamba2/gated_deltanet
   constructable interfaces that raise at forward). TransformerBlock now passes
   block_id to attention_fn; base.yaml routes attention through the registry via
   common.attention.type. Orphan tripwire tuned: plain `base` counts as a fragment;
@@ -174,7 +174,7 @@ One line per event; details live in the stage plan documents, not here.
 - **2026-10-30 15:25** Phase E done: resolve_layer_types + "mix" key — every_2nd /
   every_4th / all / explicit 0-based list, convention (i+1)%N==0 so layer 0 is
   never silently replaced; bad patterns are named config errors. Tested: a
-  gqa+mqa mixed H4 trains end-to-end on CPU; an ame-on-every-4th config composes
+  gqa+mqa mixed H4 trains end-to-end on CPU; a stub-on-every-4th config composes
   and instantiates, failing exactly at the stub's forward. Gate: 153 passed,
   default config still bit-identical to the Phase B+C baseline.
 - **2026-10-30 15:40** Phase F done: h-balanced concept doc updated (vocab 50304
@@ -188,7 +188,7 @@ One line per event; details live in the stage plan documents, not here.
   stack's defaults) where the old llm-random instances used LayerNorm +
   truncated_normal_fixed 0.1; (9) h16/h24 are allowlisted orphans until their
   first experiment configs; (10) MLA stayed a stub (no CPU reference yet) —
-  real implementations of mla/mamba2/gated_deltanet/ame are stage 3.
+  real implementations of mla/mamba2/gated_deltanet are stage 3.
 - **2026-10-30 15:55** Two process remediations after stage-2 close. (a) The Phase-A
   commit (491903a8) was pushed on CI evidence alone, skipping the local
   after-every-commit gate; re-ran it retroactively in a detached worktree at that
@@ -198,7 +198,7 @@ One line per event; details live in the stage plan documents, not here.
   phase independently revertable.
 - **2026-10-30 16:00** Maciej reviewed and **accepted stage 2 as-is**. Parked
   defaults stand (RoPE 10000/no-scaling, vocab 50304, RMSNorm + init scale 1,
-  h16/h24 allowlisted, mla/mamba2/gated_deltanet/ame stubbed for stage 3).
+  h16/h24 allowlisted, mla/mamba2/gated_deltanet stubbed for stage 3).
 - **2026-10-30 16:20** Maciej confirmed the skipped pause was fine — the stage-2
   process record is closed; nothing outstanding from it.
 - **2026-10-30 (see plan)** Stage 3 REDEFINED by Maciej: not attention
@@ -485,3 +485,4 @@ One line per event; details live in the stage plan documents, not here.
   (code/workload/architecture); section 4c added. Local hiccup: session
   restart killed the first smoke (exit 137, transient WSL memory) -- retried
   clean. Peak 52.0 GiB.
+- **2026-11-13** pretraining-jm: AME is a separate project, so its stub attention type, its three notes and every mention were removed here.
