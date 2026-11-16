@@ -1,7 +1,7 @@
 # AME bank-init σ grid at h12 (plan and log)
 
-**Status:** RUNNING, 2026-11-16: rounds 1-2 done (8 of 12 runs); round 3 next, on
-LEM.
+**Status:** RUNNING, 2026-11-16: rounds 1-2 done (8 of 12 runs); round 3 queued on
+LEM as array 6338659 (11-16 15:05).
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -122,6 +122,10 @@ commit `kf4q4t4s` ran.
   `/home/mstefaniak/llmrandom_cemetery/bank_sigma_m200_2026-11-12_18-29-53`). It sat
   PENDING from 11-12 18:30. It was cancelled on 11-13 at 13:30, before any task
   started: Maciej moved the grid to LEM (*Decisions* 7).
+- **Round 3 on LEM:** array 6338659, submitted 11-16 15:05 with `run_exp.py` from
+  `~/code/nano-bank-sigma` at `17a2378e`. Clone
+  `.../llmrandom_cemetery/bank_sigma_m475_2026-11-16_15-04-40`; its `exp.job` was
+  then set to mode 600.
 - **Round 2 on LEM:** array 6330648, submitted 11-15 17:58 with `run_exp.py` from
   `~/code/nano-bank-sigma` at `8b881dc6`. LEM's GitHub access was back (a test clone
   took 19 s). Clone
@@ -146,6 +150,10 @@ commit `kf4q4t4s` ran.
 | 2 | 3.16e-5 | 450 | LEM | 6330648_1 | `c6pciyfb` | 11-15 19:39 (r10-14) | 11-16 00:03 | COMPLETED, exit 0, 4 h 24 min |
 | 2 | 3.16e-4 | 350 | LEM | 6330648_2 | `we6gxton` | 11-16 00:51 (r10-8) | 11-16 05:10 | COMPLETED, exit 0, 4 h 18 min |
 | 2 | 0.0316 | 150 | LEM | 6330648_3 | `bltgdoyf` | 11-16 00:51 (r10-9) | 11-16 05:08 | COMPLETED, exit 0, 4 h 17 min |
+| 3 | 1.78e-5 | 475 | LEM | 6338659_0 | | | | PENDING |
+| 3 | 5.62e-5 | 425 | LEM | 6338659_1 | | | | PENDING |
+| 3 | 0.0178 | 175 | LEM | 6338659_2 | | | | PENDING |
+| 3 | 5.62e-4 | 325 | LEM | 6338659_3 | | | | PENDING |
 
 ### Checks
 
@@ -227,6 +235,10 @@ commit `kf4q4t4s` ran.
     - 3.94 for 0.0316, inside its spike episode;
     - 2.19 for 1e-5, one step at 2855: clipped (factor 0.46), with no effect on
       the loss, which equals `bank_sigma_m200`'s there.
+- **Round 3, submitted 11-16 15:05** (array 6338659): one array, throttle 2, 6 h,
+  r16-11 excluded, no placeholder left. Nothing else of Maciej's on LEM.
+- **Next check: when round 3 ends.** That is the last round. Then the chart, the
+  Results and the answer.
 
 ### Results
 
