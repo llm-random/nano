@@ -1,5 +1,6 @@
 defaults:
-  - base_schema
+  # absolute, so configs/jm/feature/ can include tiny_local through ../../
+  - /base_schema
   - _cluster@_here_: local
   - _model/h_balanced@_here_: h4
   - _trainer@_here_: llama

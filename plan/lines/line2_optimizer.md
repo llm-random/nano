@@ -132,6 +132,8 @@ edit the optimizer.
     `tiny_local_wsd.yaml` does for the scheduler
   - `- override ../_trainer/_optimizer@optimizer: <option>` in `configs/jm/`, as
     `h16_chinchilla_wsd.yaml` does
+  - `- override ../../_trainer/_optimizer@optimizer: <option>` in `configs/jm/feature/`, where
+    feature test configs go
   - on the CLI, `_trainer/_optimizer@optimizer=<option>`, only for configs that don't
     reach `_trainer` through `..`
 - Schema typing in `src/definitions.py` (decided in task 1): one `OptimizerSchema` (`roles`:
@@ -144,31 +146,36 @@ edit the optimizer.
 #### Acceptance check (every task)
 
 Two stages, in this order. Copy `data/` and `data_eval/` from the main checkout before
-running anything.
+running anything. Every config for a feature test run, local or cluster, goes in
+`configs/jm/feature/`. Include the parent with `@_global_` (`../../tiny_local@_global_`,
+`../h12_chinchilla@_global_`); without it the parent lands in a relative package and
+interpolations and overrides fail.
 
 **Stage 1, local:**
 1. **Off is unchanged.** Before editing, record the losses of
    `pixi run python main.py --config-path configs --config-name tiny_local infrastructure.metric_logger.type=stdout`
    on CPU. After your change, the same command gives identical `train/loss` lines. Use
    CPU, because GPU runs aren't bit-reproducible.
-2. **On trains.** `configs/tiny_local_<switch>.yaml` holds the overrides, and `main.py`
-   trains with it on CPU.
+2. **On trains.** `configs/jm/feature/tiny_local_<switch>.yaml` holds the overrides
+   (defaults: `../../tiny_local@_global_`, the `override` entry, `_self_`), and
+   `main.py --config-path configs/jm/feature --config-name tiny_local_<switch>` trains with it
+   on CPU.
 3. **Tests.** `pixi run python -m pytest -m "not gpu and not slow"` passes. New unit tests
    go in `tests/test_optimizers.py`.
 4. Your task's own local checks, listed in its section.
 
 **Stage 2, cluster config** (only after stage 1 passes): write
-`configs/jm/h12_<switch>.yaml` on top of `h12_chinchilla`, following the pattern of
+`configs/jm/feature/h12_<switch>.yaml` on top of `h12_chinchilla`, following the pattern of
 `h16_chinchilla_wsd.yaml` (`git show ba679a70:configs/jm/h16_chinchilla_wsd.yaml` if it
 has since been deleted):
-- The defaults list is `h12_chinchilla`, then the
-  `- override ../_trainer/_optimizer@optimizer: <option>` entry, then `_self_`.
+- The defaults list is `../h12_chinchilla@_global_`, then the
+  `- override ../../_trainer/_optimizer@optimizer: <option>` entry, then `_self_`.
 - The body sets only `infrastructure.metric_logger.name` and tags.
 - Everything else is inherited, including the `^learning_rate` sweep, so each point
   compares directly with the h12_chinchilla baseline.
 
 Janek launches it with
-`run_exp.py --config-path configs/jm --config-name h12_<switch>`; agents don't submit
+`run_exp.py --config-path configs/jm/feature --config-name h12_<switch>`; agents don't submit
 cluster jobs. A task lands when stage 1 passes and its h12 config is written. Cluster
 results are added to its row when they come in. Task-specific cluster runs, such as the
 muP width sweeps, come on top of the h12 config, not instead of it.
@@ -246,12 +253,12 @@ Checks:
   the H family scales depth with H). Run a few steps and log activation and update RMS per
   role: under SP they grow with width, under muP they stay flat. Add a script under
   `scripts/`, and the resulting table or plot here.
-- Stage 2: `configs/jm/h12_mup.yaml`. Pick a base width below h12 (a small proxy). If
+- Stage 2: `configs/jm/feature/h12_mup.yaml`. Pick a base width below h12 (a small proxy). If
   h12 is the base, every multiplier is 1 and the run differs from SP only in the init and
   decay rules.
 - Width sweep, on top of stage 2: an LR sweep at three or more widths, fixed depth, SP vs
   muP, with short WSD runs. The muP optimum should stay put across widths. Write the
-  configs under `configs/jm/`; Janek launches them.
+  configs under `configs/jm/feature/`; Janek launches them.
 
 ### Task 3: Muon
 
@@ -281,13 +288,13 @@ Scope:
 - MFU counts model FLOPs only, so compare optimizers by s/step.
 
 Checks:
-- `configs/tiny_local_muon.yaml` trains on CPU.
+- `configs/jm/feature/tiny_local_muon.yaml` trains on CPU.
 - Unit tests:
   - Newton–Schulz output has singular values near 1.
   - With every parameter in AdamW groups, the class matches `torch.optim.AdamW`.
   - The sharded step equals the unsharded one, in a 2-rank gloo CPU test built on the
     FSDP2 harness in `tests/test_distributed.py`.
-- Stage 2: `configs/jm/h12_muon.yaml`. h12_chinchilla runs on 2 GPUs, so this run
+- Stage 2: `configs/jm/feature/h12_muon.yaml`. h12_chinchilla runs on 2 GPUs, so this run
   exercises FSDP2 Muon. Compare it with h12_chinchilla by loss and s/step at each LR
   point. If your update scale doesn't reuse AdamW's LR, the inherited `^learning_rate`
   grid is in the wrong range: override it in this config and say so.
@@ -306,7 +313,7 @@ Scope:
 - The config surface is the same: a Muon + muP option in `_trainer/_optimizer/`.
 
 Checks: as in task 2, a CPU coordinate check at fixed depth. Then stage 2,
-`configs/jm/h12_muon_mup.yaml` with a base width below h12, and on top of it a width sweep
+`configs/jm/feature/h12_muon_mup.yaml` with a base width below h12, and on top of it a width sweep
 with Muon.
 
 ### Out of scope for line 2

@@ -99,8 +99,8 @@ touch different classes; see task 6).
   - `src/core/mfu.py`
   - the `AttentionSchema` / `CommonSchema` fields in `src/definitions.py`
   - `configs/_model/h_balanced/base.yaml`
-  - new `configs/tiny_local_<switch>.yaml`, and `configs/jm/h12_<switch>.yaml` for the cluster
-    test
+  - new `configs/jm/feature/tiny_local_<switch>.yaml`, and `configs/jm/feature/h12_<switch>.yaml`
+    for the cluster test
   - existing tests your change breaks
   - this file
 - **Not yours:**
@@ -168,6 +168,8 @@ Two stages, in order: local checks 1–6, then a cluster config (7) once they al
 This machine has no GPU, so local runs are on CPU, which is also where bit-identity can be
 checked (identical GPU runs are not bit-reproducible).
 
+Every config for a feature test run, local or cluster, goes in `configs/jm/feature/`.
+
 1. **Setup:** copy `data/` and `data_eval/` from `/home/janek/Documents/IDEAS/nano` into your
    worktree (`cp -r`, not a symlink). Always use `pixi run python`.
 2. **Baseline, before your first edit:**
@@ -175,36 +177,39 @@ checked (identical GPU runs are not bit-reproducible).
    with the output saved to `$CLAUDE_JOB_DIR/tmp/`.
 3. **Switch off:** the same command after your change prints identical loss values at every
    logged step.
-4. **Switch on:** add `configs/tiny_local_<switch>.yaml`:
-   - `defaults: [tiny_local, _self_]`, with the switch and `infrastructure.metric_logger.type:
-     stdout` baked in, and a one-line comment saying how to run it;
-   - `pixi run python main.py --config-name tiny_local_<switch>` trains all steps with no NaN;
+4. **Switch on:** add `configs/jm/feature/tiny_local_<switch>.yaml`:
+   - `defaults: [../../tiny_local@_global_, _self_]`, with the switch and
+     `infrastructure.metric_logger.type: stdout` baked in, and a one-line comment saying how to
+     run it. `@_global_` is required: without it the parent lands in a relative package and
+     interpolations fail;
+   - `pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_<switch>`
+     trains all steps with no NaN;
    - show the feature is active (parameter-count delta, or the task's own check).
-5. **Combined:** `configs/tiny_local_line1_all.yaml` turns on every line-1 switch that works with
+5. **Combined:** `configs/jm/feature/tiny_local_line1_all.yaml` turns on every line-1 switch that works with
    the others. Task 1 creates it, each later task adds its switch, and it must still train.
    Switches that raise in combination (task 7) instead show the build error.
 6. **Tests:** the tests under `tests/` that cover what you touched pass:
    - at least `test_attention_registry.py`, `test_mfu.py`, `test_typed_config.py` and
      `test_h_balanced.py`;
    - `pixi run pytest <files>`.
-7. **Cluster config, only after 1–6 pass:** write `configs/jm/h12_<switch>.yaml` for Janek to
-   launch. Agents never submit cluster jobs.
-   - **What goes in it:** follow `configs/jm/h12_param_groups.yaml`'s pattern:
-     `defaults: [h12_chinchilla, _self_]`, then turn the switch on and set
+7. **Cluster config, only after 1–6 pass:** write `configs/jm/feature/h12_<switch>.yaml` for
+   Janek to launch. Agents never submit cluster jobs.
+   - **What goes in it:** follow `configs/jm/h12_param_groups.yaml`'s pattern, one level down:
+     `defaults: [../h12_chinchilla@_global_, _self_]`, then turn the switch on and set
      `infrastructure.metric_logger.name: h12_<switch>` and the tags. Nothing else, so the run
      compares directly with the `h12_chinchilla` baseline.
    - **Tags:** the list is replaced, not merged, so restate `h12_chinchilla`'s tags and add the
      switch's name.
    - **Size:** it inherits `h12_chinchilla`'s `^learning_rate` grid, so it launches four jobs of
      2 GPUs each.
-   - **Group refs** are relative (`../`), and any `override` entry goes after the group
-     entries.
+   - **Group refs** are relative (`../../` from `configs/jm/feature/`), and any `override`
+     entry goes after the group entries.
    - **Check that it composes:**
-     `pixi run python scripts/expand_config.py --config-path configs/jm --config-name h12_<switch> --list`
+     `pixi run python scripts/expand_config.py --config-path configs/jm/feature --config-name h12_<switch> --list`
      prints 4 grid points. Then expand point 0 with `-o $CLAUDE_JOB_DIR/tmp/h12_<switch>.yaml`
      and confirm the switch is on in it.
    - **In the report,** give the launch command:
-     `pixi run python run_exp.py --config-path configs/jm --config-name h12_<switch>`.
+     `pixi run python run_exp.py --config-path configs/jm/feature --config-name h12_<switch>`.
 
 **Throwaway checks** (a script comparing two code paths, a timing) go in `$CLAUDE_JOB_DIR/tmp/`
 and into your report, not into the diff. Don't add new test files unless your section asks.
@@ -275,7 +280,7 @@ and into your report, not into the diff. Don't add new test files unless your se
   - the switch list in `build_attention`;
   - the `_planned` builder raising when a switch is on;
   - the shared off-values dict in the tests;
-  - `configs/tiny_local_line1_all.yaml`.
+  - `configs/jm/feature/tiny_local_line1_all.yaml`.
 
 #### 2. Attention output gate
 
