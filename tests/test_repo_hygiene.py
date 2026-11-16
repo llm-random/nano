@@ -110,9 +110,14 @@ def test_no_duplicate_yaml_keys():
 def _runnable_configs():
     """Top-level experiment configs: the ones a human passes to --config-name.
 
-    Component groups live in underscore-prefixed directories.
+    Component groups live in underscore-prefixed directories; `old/` holds archived
+    configs that don't have to work.
     """
-    return [path for path in _tracked("configs/*/*.yaml") if "/_" not in path]
+    return [
+        path
+        for path in _tracked("configs/*/*.yaml")
+        if "/_" not in path and "/old/" not in path
+    ]
 
 
 def test_every_runnable_config_composes_and_resolves():
