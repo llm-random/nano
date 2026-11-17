@@ -9,6 +9,7 @@ class WSDScheduler(SequentialLR):
         n_steps: int,
         warmup_steps: int,
         decay_steps: int,
+        final_lr_fraction: float,
     ):
         self.warmup_steps = warmup_steps
         self.decay_steps = decay_steps
@@ -33,10 +34,11 @@ class WSDScheduler(SequentialLR):
 
         # Skip the decay branch when decay_steps=0: LinearLR(total_iters=0) divides by zero.
         if decay_steps > 0:
+            # Relative to each group's own peak LR, unlike cosine's absolute eta_min.
             linear_decay_scheduler = LinearLR(
                 optimizer,
                 start_factor=1.0,
-                end_factor=0.0,
+                end_factor=final_lr_fraction,
                 total_iters=decay_steps,
             )
             schedulers.append(linear_decay_scheduler)

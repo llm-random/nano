@@ -1,0 +1,12 @@
+# tiny_local_wsd decaying to 10% of the peak LR, as cosine does, instead of to 0. Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_wsd_final_lr
+defaults:
+  - ../../tiny_local_wsd@_global_
+  - _self_
+
+trainer:
+  scheduler:
+    final_lr_fraction: 0.1
+
+infrastructure:
+  metric_logger:
+    type: stdout

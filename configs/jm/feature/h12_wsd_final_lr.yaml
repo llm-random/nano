@@ -1,0 +1,19 @@
+# h12_chinchilla with the WSD decay ending at 10% of the peak LR (cosine's fraction) instead of 0.
+defaults:
+  - ../h12_chinchilla@_global_
+  - _self_
+
+trainer:
+  scheduler:
+    final_lr_fraction: 0.1
+
+infrastructure:
+  metric_logger:
+    name: h12_wsd_final_lr
+    tags:
+      - nano
+      - h12
+      - lr_tune
+      - chinchilla
+      - wsd
+      - wsd_final_lr

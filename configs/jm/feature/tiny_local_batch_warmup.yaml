@@ -1,0 +1,20 @@
+# tiny_local at batch 8 (micro 4) whose first 40 steps run at batch 2, then 4. Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_batch_warmup
+defaults:
+  - ../../tiny_local@_global_
+  - _self_
+
+common:
+  batch_size: ${trainer.batch_size_warmup.final_batch_size}
+
+trainer:
+  gradient_accumulation_steps: 2
+  # 200 full batches of tokens: the 40 warmup steps cover 15 of them (5 + 10).
+  n_steps: 225
+  batch_size_warmup:
+    batch_sizes: [2, 4]
+    steps: [20, 20]
+    final_batch_size: 8
+
+infrastructure:
+  metric_logger:
+    type: stdout

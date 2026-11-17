@@ -78,6 +78,7 @@ class CosineSchedulerSchema(SchedulerSchema):
 @dataclass
 class WSDSchedulerSchema(SchedulerSchema):
     decay_steps: int = MISSING
+    final_lr_fraction: float = MISSING
 
 
 # check_point types trainer.scheduler by its _target_; main.py passes n_steps.
@@ -121,6 +122,15 @@ class DistributedSchema:
 
 
 @dataclass
+class BatchSizeWarmupSchema:
+    # Global batch size of each warmup stage and its length in steps.
+    batch_sizes: List[int] = MISSING
+    steps: List[int] = MISSING
+    # The batch size after the last stage; must equal common.batch_size.
+    final_batch_size: int = MISSING
+
+
+@dataclass
 class TrainerSchema:
     """Mirror of the yaml-supplied attributes of src.core.trainer.Trainer.
     tests/test_typed_config.py keeps the two from drifting. The runtime-injected
@@ -139,6 +149,7 @@ class TrainerSchema:
     scheduler: SchedulerSchema = field(default_factory=SchedulerSchema)
     checkpoint: CheckpointSchema = field(default_factory=CheckpointSchema)
     distributed: Optional[DistributedSchema] = MISSING
+    batch_size_warmup: Optional[BatchSizeWarmupSchema] = MISSING
     # Dataloaders are dataset-world `_target_` trees (out of scope this round);
     # eval_dataloader is null in the audit configs that switch eval off.
     train_dataloader: Any = MISSING
@@ -346,6 +357,45 @@ def validate(cfg) -> None:
                 t.n_steps == 0 or warmup + decay <= t.n_steps,
                 f"trainer.scheduler.warmup_steps+decay_steps={warmup + decay} must "
                 f"not exceed trainer.n_steps={t.n_steps}",
+            )
+            fraction = t.scheduler.final_lr_fraction
+            check(
+                0.0 <= fraction <= 1.0,
+                f"trainer.scheduler.final_lr_fraction must be in [0, 1], got {fraction!r}",
+            )
+
+    warmup = t.batch_size_warmup
+    if warmup is not None:
+        final = warmup.final_batch_size
+        check(
+            final == c.batch_size,
+            f"trainer.batch_size_warmup.final_batch_size={final} must equal "
+            f"common.batch_size={c.batch_size}, the loader's batch size",
+        )
+        check(
+            len(warmup.batch_sizes) == len(warmup.steps),
+            "trainer.batch_size_warmup needs one steps entry per batch_sizes entry",
+        )
+        for size, steps in zip(warmup.batch_sizes, warmup.steps):
+            # A stage cuts each loader batch of final_batch_size into `split` steps.
+            check(
+                0 < size < final and final % size == 0,
+                f"trainer.batch_size_warmup batch size {size} must divide "
+                f"final_batch_size={final} and be smaller",
+            )
+            # A size the check above rejects falls back to 1, so the next ones can't divide by 0.
+            split = final // size if 0 < size <= final else 1
+            check(
+                steps > 0 and steps % split == 0,
+                f"trainer.batch_size_warmup stage at batch {size} must end on a loader "
+                f"batch: its steps ({steps}) must be a multiple of {split}",
+            )
+            gas = t.gradient_accumulation_steps
+            check(
+                split % gas == 0 or gas % split == 0,
+                f"trainer.batch_size_warmup stage at batch {size} splits a loader batch "
+                f"into {split} steps; that or gradient_accumulation_steps={gas} must "
+                "divide the other",
             )
 
     save_interval = t.checkpoint.save.interval

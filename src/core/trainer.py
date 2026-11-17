@@ -143,6 +143,8 @@ class Trainer:
     distributed: Optional[dict]
     # lm-eval benchmarks on the evaluator's own cadence; None when the config has none.
     downstream_evaluator: Optional["Evaluator"]
+    # Smaller global batches first: batch_sizes and steps per stage, then final_batch_size; null is off.
+    batch_size_warmup: Optional[dict]
     # The nanoGPT-style single-GPU configuration: a plain (unwrapped) module
     # whose forward+loss run under torch.autocast(bf16) while params, grads
     # and optimizer state stay fp32. Off by default; meant for runs with
@@ -309,6 +311,8 @@ class Trainer:
         have seen. It costs one pass over the skipped batches, which is the price of a
         dataset that cannot seek.
         """
+        if self.batch_size_warmup is not None:
+            return self._warmup_batches()
         if not self.start_step:
             return self.train_dataloader
         logger.info(
@@ -316,6 +320,34 @@ class Trainer:
             "does not repeat data it has already trained on."
         )
         return itertools.islice(self.train_dataloader, self.start_step, None)
+
+    def _warmup_split(self, step):
+        """How many steps share one loader batch at `step`: final/stage batch size, 1 after warmup."""
+        warmup = self.batch_size_warmup
+        stage_end = 0
+        for batch_size, steps in zip(warmup.batch_sizes, warmup.steps):
+            stage_end += steps
+            if step < stage_end:
+                return warmup.final_batch_size // batch_size
+        return 1
+
+    def _warmup_batches(self):
+        """Batches under batch size warmup, from start_step on.
+
+        A warmup step is a 1/split slice of a loader batch, so the data order is the
+        one a run without warmup sees. validate() makes every stage end on a loader
+        batch. Resuming replays the slicing from step 0.
+        """
+        step = 0
+        for batch in self.train_dataloader:
+            split = self._warmup_split(step)
+            assert (
+                len(batch) % split == 0
+            ), f"{len(batch)} rows can't make {split} steps"
+            for piece in batch.chunk(split):
+                if step >= self.start_step:
+                    yield piece
+                step += 1
 
     def _kernel_profile_tick(self, step):
         """Open torch.profiler at step 12, close and dump it at step 14, so
@@ -394,7 +426,17 @@ class Trainer:
             # The model sees batch width - 1 tokens (the shift for next-token
             # targets); that is the sequence length the FLOPs count must use.
             self._seq_len_for_flops = batch.shape[-1] - 1
-            loss_metrics = self.calculate_loss(batch)
+            n_chunks = self.gradient_accumulation_steps
+            if self.batch_size_warmup is not None:
+                split = self._warmup_split(step)
+                final_batch_size = self.batch_size_warmup.final_batch_size
+                self.metric_logger.log("train/batch_size", final_batch_size // split)
+                # The full batch's micro-batch, in fewer chunks; one chunk below it.
+                n_chunks = max(1, n_chunks // split)
+                # Warmup's batch sizes made compiled graphs dynamic; recompile them static.
+                if step == sum(self.batch_size_warmup.steps):
+                    torch._dynamo.reset()
+            loss_metrics = self.calculate_loss(batch, n_chunks)
 
             with self._timers.gpu("clip"):
                 grad_norm = self.clip_gradient()
@@ -619,7 +661,10 @@ class Trainer:
         )
         return mask_loss.mean()
 
-    def calculate_loss(self, batch) -> LossMetrics:
+    def calculate_loss(self, batch, n_chunks: Optional[int] = None) -> LossMetrics:
+        # None: gradient_accumulation_steps; train() passes its own under batch size warmup.
+        if n_chunks is None:
+            n_chunks = self.gradient_accumulation_steps
         if self._forward_loss_fn is None:
             self._forward_loss_fn = (
                 torch.compile(self._forward_loss)
@@ -633,11 +678,11 @@ class Trainer:
             with self._forward_ctx():
                 reported_loss = self._forward_loss_fn(input_ids, target_ids)
             loss = reported_loss
-            reported_loss = reported_loss / self.gradient_accumulation_steps
-            loss = loss / self.gradient_accumulation_steps
+            reported_loss = reported_loss / n_chunks
+            loss = loss / n_chunks
             return loss, reported_loss
 
-        chunks = batch.chunk(self.gradient_accumulation_steps)
+        chunks = batch.chunk(n_chunks)
 
         def _to_device(chunk):
             # chunk() along dim 0 of the loader's pinned, contiguous batch

@@ -19,7 +19,7 @@ trainer:
   gradient_accumulation_steps: 2
   # 3.15B tokens, 21.7 per active param; ~1.24 h at 35% MFU (mfu_calculator.ipynb)
   n_steps: 12_000
-  ^learning_rate: [8, 9, 10, 11]
+  learning_rate: 10
 
   checkpoint:
     save:
