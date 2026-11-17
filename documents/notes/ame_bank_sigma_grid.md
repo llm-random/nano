@@ -166,6 +166,10 @@ commit `kf4q4t4s` ran.
   `/home/mstefaniak/llmrandom_cemetery/bank_sigma_m200_2026-11-12_18-29-53`). It sat
   PENDING from 11-12 18:30. It was cancelled on 11-13 at 13:30, before any task
   started: Maciej moved the grid to LEM (*Decisions* 7).
+- **Round 4 on LEM:** array 6344941, submitted 11-17 09:37 with `run_exp.py` from
+  `~/code/nano-bank-sigma` at `9e862928`. Clone
+  `.../llmrandom_cemetery/bank_sigma_m1000_2026-11-17_09-37-14`; its `exp.job` was
+  then set to mode 600.
 - **Round 3 on LEM:** array 6338659, submitted 11-16 15:05 with `run_exp.py` from
   `~/code/nano-bank-sigma` at `17a2378e`. Clone
   `.../llmrandom_cemetery/bank_sigma_m475_2026-11-16_15-04-40`; its `exp.job` was
@@ -198,8 +202,8 @@ commit `kf4q4t4s` ran.
 | 3 | 5.62e-5 | 425 | LEM | 6338659_1 | `nq8vkgvu` | 11-16 18:25 (r18-14) | 11-16 22:40 | COMPLETED, exit 0, 4 h 15 min |
 | 3 | 0.0178 | 175 | LEM | 6338659_2 | `nlvvix9w` | 11-16 22:39 (r18-11) | 11-17 02:55 | COMPLETED, exit 0, 4 h 16 min |
 | 3 | 5.62e-4 | 325 | LEM | 6338659_3 | `tas6ri7w` | 11-16 22:40 (r18-8) | 11-17 02:55 | COMPLETED, exit 0, 4 h 14 min |
-| 4 | 1e-10 | 1000 | LEM | | | | | to submit |
-| 4 | 1e-7 | 700 | LEM | | | | | to submit |
+| 4 | 1e-10 | 1000 | LEM | 6344941_0 | | | | PENDING |
+| 4 | 1e-7 | 700 | LEM | 6344941_1 | | | | PENDING |
 
 ### Checks
 
@@ -294,7 +298,10 @@ commit `kf4q4t4s` ran.
   - The grad-norm maximum after step 100: 0.59 (5.62e-5), 0.43 (0.0178), 0.45
     (5.62e-4), and 1.49 for 1.78e-5, the step-2855 batch (*The answer*). That step
     was clipped (factor 0.67), with no loss effect.
-- **No job of this grid is left on LEM or entropy.**
+- **Round 4, submitted 11-17 09:37** (array 6344941): 2 tasks, both at once, 6 h,
+  r16-11 excluded, no placeholder left. No other job of Maciej's on LEM.
+- **Next check: when round 4 ends**, or at once on a failed task or a NaN. Then
+  the chart is redrawn with the two new points.
 
 ### Results
 
