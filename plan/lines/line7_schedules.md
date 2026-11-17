@@ -2,7 +2,7 @@
 
 ## Human
 
-Two schedule switches, each off by default. Now: both written and checked locally; h12 runs not launched.
+Two schedule switches, each off by default; `jm/h12_chinchilla` turns the batch warmup on (2026-11-17). Now: both written and checked locally; h12 runs not launched.
 
 - [x] WSD: decay to a fraction of the peak LR, as cosine does, not always to 0
 - [x] Batch size warmup: small batches early, more steps for the unstable start
@@ -21,7 +21,7 @@ Two schedule switches, each off by default. Now: both written and checked locall
 | # | Task | Status | What landed |
 | --- | --- | --- | --- |
 | 1 | WSD final LR | done | `WSDScheduler(final_lr_fraction)` is `LinearLR`'s `end_factor`. `_scheduler/wsd.yaml` sets 0.0 (today's decay to 0). Typed in `WSDSchedulerSchema`, `validate` keeps it in [0, 1]. Configs `jm/feature/tiny_local_wsd_final_lr`, `jm/feature/h12_wsd_final_lr` (0.1, cosine's value). Cluster: not run yet. |
-| 2 | Batch size warmup | done | `trainer.batch_size_warmup`: null, or `batch_sizes` and `steps` (one entry per stage) plus `final_batch_size`, which must equal `common.batch_size` (the feature configs set `common.batch_size` from it). `Trainer._warmup_split` gives the steps per loader batch; `_warmup_batches` slices the loader's batch; `train()` sets accumulation from the split and logs `train/batch_size` while it's on. `validate` checks the stages. Configs `jm/feature/tiny_local_batch_warmup`, `jm/feature/h12_batch_warmup`. Tests `tests/test_schedules.py`. Cluster: not run yet. |
+| 2 | Batch size warmup | done | `trainer.batch_size_warmup`: null, or `batch_sizes` and `steps` (one entry per stage) plus `final_batch_size`, which must equal `common.batch_size` (the feature configs set `common.batch_size` from it). `Trainer._warmup_split` gives the steps per loader batch; `_warmup_batches` slices the loader's batch; `train()` sets accumulation from the split and logs `train/batch_size` while it's on. `validate` checks the stages. Configs `jm/feature/tiny_local_batch_warmup`, `jm/feature/h12_batch_warmup`. Tests `tests/test_schedules.py`. Cluster: not run yet. On in `jm/h12_chinchilla` since 2026-11-17: batch 64, then 128, over its LR warmup (360 steps, the tokens of the old 120); n_steps 12_240, decay and checkpoint grid 1_224. |
 
 ### Task 1: WSD final LR
 

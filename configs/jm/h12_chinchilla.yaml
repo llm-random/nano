@@ -1,8 +1,8 @@
 defaults:
   # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
-  - ../_cluster@_here_: entropy
+  - ../_cluster@_here_: lem
   - ../_model/h_balanced@_here_: h12
-  # WSD: warmup 120, stable to step 10799, linear decay to 0 over the last 1_200
+  # WSD: warmup 1_000 (the batch ramp), stable to step 12599, linear decay to 0 over the last 1_400
   - ../_trainer@_here_: nano
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
@@ -17,21 +17,31 @@ common:
 trainer:
   # micro 64 x 1024 per GPU, as h16_chinchilla on 4 GPUs; 128 per GPU likely OOMs
   gradient_accumulation_steps: 2
-  # 3.15B tokens, 21.7 per active param; ~1.24 h at 35% MFU (mfu_calculator.ipynb)
-  n_steps: 12_000
-  learning_rate: 10
+  # 3.51B tokens, 28.4 per active param; ~1.2 h at 35% MFU (config_summary.ipynb)
+  # = 13_400 steps at batch 256; the ramp's 1_000 steps hold 400 of them
+  n_steps: 14_000
+  ^learning_rate: [8, 9, 10]
+  # LR warmup's 105M tokens at batch 64 (26M), then 128 (79M): 4x, then 2x the updates
+  batch_size_warmup:
+    batch_sizes: [64, 128]
+    steps: [400, 600]
+    final_batch_size: 256
+  scheduler:
+    # warmup spans the ramp; decay = checkpoint interval, so the last stable step is saved
+    warmup_steps: 1_000
+    decay_steps: 1_400
 
   checkpoint:
     save:
       type: nano
       # job uses the cluster's PROJECT_HOME_PATH; the fallback only satisfies run_exp.py's laptop-side check
       path: ${oc.env:PROJECT_HOME_PATH,/storage_nvme_4/nano/pretraining}/${oc.env:USER}/checkpoints
-      # step_1199 .. step_11999; step_10799 is the last stable step, to branch a decay from
-      interval: 1_200
+      # step_1399 .. step_13999; step_12599 is the last stable step, to branch a decay from
+      interval: 1_400
 
 downstream_evaluator:
-  # Same grid as checkpoints; step_11999 is scored after the final save.
-  eval_interval: 1_200
+  # Same grid as checkpoints; step_13999 is scored after the final save.
+  eval_interval: 1_400
 
 infrastructure:
   max_concurrent_jobs: -1
@@ -44,8 +54,11 @@ infrastructure:
       - lr_tune
       - chinchilla
       - wsd
+      # tell these runs apart from the earlier h12_chinchilla runs, which had neither
+      - qk_norm
+      - batch_warmup
 
   slurm:
     time: "04:00:00"
-    gres: gpu:2
+    gres: gpu:hopper:2
     job-name: ${infrastructure.metric_logger.name}

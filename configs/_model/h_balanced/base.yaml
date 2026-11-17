@@ -2,7 +2,7 @@
 # `common.h` (see documents/concepts/h-balanced-model.md). H must be even.
 #
 #   n_blocks = H, q_heads = H, kv_heads = H/2 (GQA, always),
-#   dmodel = 64*H, dff = 4*dmodel = 256*H, head_dim = 64 by construction.
+#   dmodel = 64*H, dff = 3*dmodel = 192*H, head_dim = 64 by construction.
 #
 # `common` is an interpolation namespace, not an instantiated object: nothing
 # reads it but the ${...} references below and in the trainer/dataset configs.
@@ -10,7 +10,7 @@ common:
   h: ???
   dhead: 64
   dmodel: ${eval:'64 * ${common.h}'}
-  dff: ${eval:'256 * ${common.h}'}
+  dff: ${eval:'192 * ${common.h}'}
   n_blocks: ${common.h}
   q_heads: ${common.h}
   kv_heads: ${eval:'${common.h} // 2'}
@@ -22,11 +22,11 @@ common:
   # registered type for the whole stack; an optional "mix" swaps a subset:
   #   attention: {type: gqa, mix: {type: mla, layers: every_4th}}
   # layers: every_2nd | every_4th | all | an explicit 0-based index list.
-  # The other keys are line-1 switches, written here at their off values.
+  # The other keys are line-1 switches; new ones start off, qk_norm is on.
   attention:
     type: gqa
     # per-head RMSNorm on q and k before RoPE (documents/notes/qk_norm_survey.md)
-    qk_norm: false
+    qk_norm: true
 
 
 model:

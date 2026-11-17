@@ -17,3 +17,5 @@ infrastructure:
       - chinchilla
       - wsd
       - wsd_final_lr
+      - qk_norm
+      - batch_warmup

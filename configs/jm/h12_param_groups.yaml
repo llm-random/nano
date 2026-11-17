@@ -14,3 +14,5 @@ infrastructure:
       - chinchilla
       - wsd
       - param_groups
+      - qk_norm
+      - batch_warmup

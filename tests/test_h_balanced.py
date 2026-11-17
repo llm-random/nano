@@ -61,10 +61,11 @@ def test_every_dimension_follows_the_knob(h):
 @pytest.mark.parametrize("h", [4, 12, 16, 20, 24])
 def test_the_closed_form_parameter_count_is_exact(h):
     """non-embedding = 15*d^2 per layer = 61440*H^3; emb+head = 2*V*64H; plus the
-    RMSNorm weights (two per block and one in the head, each dmodel wide), which
-    the concept doc's closed form leaves out as negligible but an exact test must
-    not."""
+    RMSNorm weights (two per block and one in the head, each dmodel wide) and the
+    QK-norm gains (two per block, each dhead = 64 wide), which the concept doc's
+    closed form leaves out as negligible but an exact test must not."""
     model = _h_model(h)
     total = sum(p.numel() for p in model.parameters())
-    expected = 61440 * h**3 + 2 * VOCAB * 64 * h + (2 * h + 1) * 64 * h
+    norms = (2 * h + 1) * 64 * h + 2 * 64 * h
+    expected = 61440 * h**3 + 2 * VOCAB * 64 * h + norms
     assert total == expected, f"H={h}: {total} != {expected} ({total - expected:+d})"

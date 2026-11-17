@@ -1,9 +1,9 @@
 # 2-GPU smoke test of the h12_chinchilla setup on h4: builds, trains, logs, saves, evals.
 defaults:
   # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
-  - ../_cluster@_here_: lem
+  - ../_cluster@_here_: entropy
   - ../_model/h_balanced@_here_: h4
-  # WSD: warmup 10, stable to step 899, linear decay to 0 over the last 100
+  # WSD: warmup 30 (the batch ramp), stable to step 899, linear decay to 0 over the last 100
   - ../_trainer@_here_: nano
   - ../_dataset@_here_: fineweb
   - ../_checkpoints@_here_: none
@@ -20,7 +20,14 @@ trainer:
   gradient_accumulation_steps: 2
   n_steps: 1_000
   # 2 points, so the SLURM array path runs
-  ^learning_rate: [9, 10]
+  learning_rate: 9
+  # h12_chinchilla's batch ramp, shortened; checks the warmup slicing and the dynamo reset under FSDP2
+  batch_size_warmup:
+    batch_sizes: [64, 128]
+    steps: [100, 100]
+    final_batch_size: 256
+  scheduler:
+    warmup_steps: 200
 
   checkpoint:
     save:
@@ -48,6 +55,6 @@ infrastructure:
       - remote_test
 
   slurm:
-    time: "01:00:00"
-    gres: gpu:hopper:2
+    time: "00:30:00"
+    gres: gpu:2
     job-name: ${infrastructure.metric_logger.name}

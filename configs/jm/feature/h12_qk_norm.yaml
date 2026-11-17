@@ -1,4 +1,4 @@
-# h12_chinchilla with per-head QK-norm (documents/notes/qk_norm_survey.md).
+# h12_chinchilla with per-head QK-norm (documents/notes/qk_norm_survey.md); now its default, so this equals h12_chinchilla.
 defaults:
   - ../h12_chinchilla@_global_
   - _self_
@@ -17,3 +17,4 @@ infrastructure:
       - chinchilla
       - wsd
       - qk_norm
+      - batch_warmup

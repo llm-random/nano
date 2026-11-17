@@ -1,4 +1,4 @@
-# h12_chinchilla with batch size warmup: 800 steps at batch 64, 800 at 128, then 256; same 3.15B tokens.
+# h12_chinchilla with a longer batch size warmup: 800 steps at batch 64, 800 at 128, then 256; same 3.15B tokens.
 defaults:
   - ../h12_chinchilla@_global_
   - _self_
@@ -14,7 +14,7 @@ trainer:
     steps: [800, 800]
     final_batch_size: 256
   scheduler:
-    # h12_chinchilla's values, pinned: 1%/10% of the longer n_steps would shift them.
+    # h12_chinchilla's values before its ramp, pinned: 1%/10% of the longer n_steps would shift them.
     warmup_steps: 120
     decay_steps: 1_200
 
@@ -28,3 +28,4 @@ infrastructure:
       - chinchilla
       - wsd
       - batch_warmup
+      - qk_norm

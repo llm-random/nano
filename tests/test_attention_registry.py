@@ -24,7 +24,7 @@ PLANNED = ("mla", "mamba2", "gated_deltanet")
 
 DIMS = dict(dmodel=64, q_heads=4, kv_heads=2, seq_len=16)
 
-# Every line-1 attention switch at its base.yaml off value; each task adds its key.
+# Every line-1 attention switch off; each task adds its key.
 SWITCHES_OFF = {"qk_norm": False}
 
 
@@ -104,10 +104,11 @@ def test_the_h4_config_builds_with_any_registered_type(name):
         version_base=None,
         config_dir=os.path.join(REPO_ROOT, "configs", "_model", "h_balanced"),
     ):
-        cfg = compose(
-            config_name="h4",
-            overrides=["common.sequence_length=16", f"common.attention.type={name}"],
-        )
+        overrides = ["common.sequence_length=16", f"common.attention.type={name}"]
+        # planned types refuse every switch, and base.yaml turns qk_norm on
+        if name in PLANNED:
+            overrides.append("common.attention.qk_norm=false")
+        cfg = compose(config_name="h4", overrides=overrides)
     with torch.device("meta"):
         model = instantiate(cfg.model, _convert_="all")
     layer = model.encoder.blocks[0].attention_layer.layer
@@ -198,8 +199,13 @@ def test_a_mixed_stack_builds_and_trains_on_cpu():
 def test_a_stubbed_type_mixes_in_but_fails_only_at_forward():
     """The wiring is ready for a type before it is implemented: the config composes,
     the model instantiates, and the failure happens exactly at the stub's forward."""
+    # planned types refuse every switch, and base.yaml turns qk_norm on
     model = _h4_model(
-        ["+common.attention.mix={type: mla, layers: every_4th}"], device="cpu"
+        [
+            "+common.attention.mix={type: mla, layers: every_4th}",
+            "common.attention.qk_norm=false",
+        ],
+        device="cpu",
     )
     names = [type(b.attention_layer.layer).__name__ for b in model.encoder.blocks]
     assert names == ["RoPEAttention"] * 3 + ["MLAttention"]

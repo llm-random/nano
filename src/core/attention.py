@@ -23,7 +23,7 @@ import torch.nn as nn
 
 from src.core.model import Linear, RoPEAttention, llm_random_weight_init
 
-# Line-1 switch keys in common.attention, passed to every builder; base.yaml holds their off values.
+# Line-1 switch keys in common.attention, passed to every builder; base.yaml holds their defaults.
 SWITCHES = ("qk_norm",)
 
 

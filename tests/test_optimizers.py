@@ -85,7 +85,8 @@ def test_every_h4_parameter_gets_exactly_one_role():
     model, _, _ = _build("adamw")
     roles = param_roles(model)
     assert {r: len(ps) for r, ps in roles.items()} == {
-        "vector": 9,
+        # 2 RMSNorm and 2 QK-norm gains per block, plus the head's RMSNorm
+        "vector": 17,
         "embedding": 1,
         "head": 1,
         "hidden": 28,

@@ -77,7 +77,7 @@ Janek can't review everything, so most calls are yours.
 
 | # | Task | Status | What landed |
 | --- | --- | --- | --- |
-| 1 | QK-norm | done | `common.attention.qk_norm`, off `false` in `base.yaml`. Pick: per-head RMSNorm over `dhead` (eps 1e-6) on q and k before RoPE, k on kv heads before `repeat_kv`, SDPA's default scale, because 3 of the 4 surveyed models with full QK-norm use it (Qwen3.8, MiniMax-M3.1, Gemma 4; `documents/notes/qk_norm_survey.md`). Gain `(1 + w)`, w zero-init (`ZeroCenteredRMSNorm`, as Qwen3.8 and MiniMax), so weight decay pulls it to 1, not 0. No `scale` argument. Plumbing: `SWITCHES` in `attention.py`, `SWITCHES_OFF` in `tests/test_attention_registry.py`. Configs in `configs/jm/feature/`: `tiny_local_qk_norm`, `tiny_local_line1_all`, `h12_qk_norm`. |
+| 1 | QK-norm | done | `common.attention.qk_norm`, on (`true`) in `base.yaml` since 2026-11-17, off before. Pick: per-head RMSNorm over `dhead` (eps 1e-6) on q and k before RoPE, k on kv heads before `repeat_kv`, SDPA's default scale, because 3 of the 4 surveyed models with full QK-norm use it (Qwen3.8, MiniMax-M3.1, Gemma 4; `documents/notes/qk_norm_survey.md`). Gain `(1 + w)`, w zero-init (`ZeroCenteredRMSNorm`, as Qwen3.8 and MiniMax), so weight decay pulls it to 1, not 0. No `scale` argument. Plumbing: `SWITCHES` in `attention.py`, `SWITCHES_OFF` in `tests/test_attention_registry.py`. Configs in `configs/jm/feature/`: `tiny_local_qk_norm`, `tiny_local_line1_all`, `h12_qk_norm`. |
 | 2 | Attention output gate | todo | |
 | 3 | NoPE (RoPE off switch) | todo | |
 | 4 | Document masking | todo | |
