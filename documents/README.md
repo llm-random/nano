@@ -31,6 +31,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 |---|---|
 | [h_balanced_params.py](scripts/h_balanced_params.py) | Dimensions and parameter counts of the H-balanced family; regenerates the tables in `h-balanced-model.md` |
 | [h_balanced_flops.ipynb](scripts/h_balanced_flops.ipynb) | Inference FLOPs of an H-balanced model (exact causal attention) + plotly figures |
+| [h_balanced_flops_quotes.py](scripts/h_balanced_flops_quotes.py) | Re-derives every number the notebook's prose quotes from the notebook's own functions and names any that are stale; run it after changing a knob or the cost model |
 | [stage_results.py](scripts/stage_results.py) | AME Stage 1–2 results from W&B: the run tables, eval curves, readouts and loss-curve figures in `stage_1_report.md` and `stage_2_report.md` |
 | [ame_comparison_h12.py](scripts/ame_comparison_h12.py) | The best AME and dense h12 runs side by side from W&B: every table and figure in `ame_comparison_h12.md` |
 
