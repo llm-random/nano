@@ -185,6 +185,36 @@
    "bank_share": 0.2520218329948588,
    "clipped": 0.0060288335517693315,
    "verdict": "tie"
+  },
+  {
+   "id": "f2418w3u",
+   "name": "bank_sigma_m1000",
+   "sigma": 1e-10,
+   "m": 1000,
+   "round": 4,
+   "g": 0.44209375,
+   "n_paired": 500,
+   "last_step": 3814,
+   "final_ce": 3.4619140625,
+   "spikes": 76,
+   "bank_share": 0.36019050707618594,
+   "clipped": 0.16487549148099606,
+   "verdict": "worse"
+  },
+  {
+   "id": "8p2c5mt3",
+   "name": "bank_sigma_m700",
+   "sigma": 1e-07,
+   "m": 700,
+   "round": 4,
+   "g": 0.0640625,
+   "n_paired": 500,
+   "last_step": 3814,
+   "final_ce": 3.103515625,
+   "spikes": 36,
+   "bank_share": 0.23766316998563208,
+   "clipped": 0.15543905635648755,
+   "verdict": "worse"
   }
  ],
  "context": [

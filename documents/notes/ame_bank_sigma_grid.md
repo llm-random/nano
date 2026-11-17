@@ -1,7 +1,7 @@
 # AME bank-init σ grid at h12 (plan and log)
 
-**Status:** EXTENDED, 2026-11-17: 12 runs in 3 rounds on LEM, then round 4 (σ =
-1e-10 and 1e-7) to find the lower failure edge, which the 12 runs never reached.
+**Status:** DONE, 2026-11-17: 14 runs on LEM. Rounds 1-3 ran 12; round 4 added σ =
+1e-10 and 1e-7, which found the lower failure edge the 12 runs never reached.
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -27,21 +27,35 @@ two experiemnts and replot the chart with them".
 [ame_bank_sigma_figures/sigma_grid.json](ame_bank_sigma_figures/sigma_grid.json);
 redraw it with `scripts/bank_sigma_chart.py`.)
 
-- **The optimum is a plateau, not a point.** All ten σ from 1e-5 to 0.0178 tie.
+- **The optimum is a plateau with two failure edges.** All ten σ from 1e-5 to
+  0.0178 tie; below 1e-5 and above 0.0178 the init fails.
   - Their last-500 gaps against σ = 0.01 run from −0.0111 to +0.0089. That spread,
     0.020, is inside one tie band (0.022).
   - The same config rerun differs by 0.008 (`kf4q4t4s` against `bank_sigma_m200`).
   - So one run per σ can't rank σ inside the plateau.
   - The measured best is **σ = 3.16e-5** (−0.0111; final_ce 3.032 against 3.043).
-- **A cliff between 0.0178 and 0.0316:** from −0.0005 to +0.070 within a
-  quarter-decade. 0.1 is +0.080, and σ = 1 is +0.097 (`doi36p8k`).
+- **The lower edge, between 1e-5 and 1e-7** (round 4):
+  - σ = 1e-7 is +0.064, as bad as 0.0316 above the plateau.
+  - σ = 1e-10 is +0.442, far worse than σ = 1 (+0.097).
+  - The edge itself lies somewhere in those two decades; nothing between was run.
+  - **Why it fails: the clip.** A token's first sighting gives its bank row a
+    gradient ∝ 1/‖row‖, and at tiny σ that gradient alone is the whole norm. The
+    global clip (1.0) then shrinks the step for every weight.
+    - At 1e-7 and 1e-10 that hit about 600 steps (16%), against 26-28 steps, almost
+      all in warmup, at 1e-5 and 0.01.
+    - At 1e-10 a hit step was scaled by about 1e-4 (median) and effectively
+      skipped; at 1e-7, by about 0.1.
+    - Both also had a large loss spike at steps 141-198. At 1e-10 the loss reached
+      20.4, above its step-0 value.
+- **The upper edge, a cliff between 0.0178 and 0.0316:** from −0.0005 to +0.070
+  within a quarter-decade. 0.1 is +0.080, and σ = 1 is +0.097 (`doi36p8k`).
   - Above the cliff, early learning is slower: +0.30 in steps 0-99 at 0.0316.
   - Both runs above it had a large loss-spike episode, and neither caught up by 4B
     tokens.
   - At 0.0178 the init still costs early (+0.12 in steps 0-99), but the gap is
     gone by the second quarter.
-- **A soft floor near 2e-5.** At step 2855, the same batch in every run, the
-  banks' gradient norm grows steeply as σ falls:
+- **The lower edge's first sign is already on the plateau.** At step 2855, the
+  same batch in every run, the banks' gradient norm grows steeply as σ falls:
   - 0.005-0.007 at σ ≥ 0.0178;
   - 0.28 at 1e-4;
   - 1.49 at 1.78e-5 and 2.19 at 1e-5.
@@ -51,7 +65,8 @@ redraw it with `scripts/bank_sigma_chart.py`.)
   Most likely a rare token's row was still near its tiny draw: under the hard
   QK-norm its gradient scales as 1/‖row‖.
 - **Recommendation: σ = 1e-4** (or anything from about 3e-5 to 1e-3), mid-plateau.
-  - It sits two decades below the cliff and well above the floor.
+  - It sits two decades below the cliff and a decade above the last σ known to be
+    safe (1e-5).
   - It ties the measured best: −0.0050, within noise of −0.0111.
   - σ = 0.01, the current recipe, ties too, but it is only a quarter-decade below
     the cliff.
@@ -202,8 +217,8 @@ commit `kf4q4t4s` ran.
 | 3 | 5.62e-5 | 425 | LEM | 6338659_1 | `nq8vkgvu` | 11-16 18:25 (r18-14) | 11-16 22:40 | COMPLETED, exit 0, 4 h 15 min |
 | 3 | 0.0178 | 175 | LEM | 6338659_2 | `nlvvix9w` | 11-16 22:39 (r18-11) | 11-17 02:55 | COMPLETED, exit 0, 4 h 16 min |
 | 3 | 5.62e-4 | 325 | LEM | 6338659_3 | `tas6ri7w` | 11-16 22:40 (r18-8) | 11-17 02:55 | COMPLETED, exit 0, 4 h 14 min |
-| 4 | 1e-10 | 1000 | LEM | 6344941_0 | | | | PENDING |
-| 4 | 1e-7 | 700 | LEM | 6344941_1 | | | | PENDING |
+| 4 | 1e-10 | 1000 | LEM | 6344941_0 | `f2418w3u` | 11-17 12:55 (r18-10) | 11-17 17:09 | COMPLETED, exit 0, 4 h 13 min |
+| 4 | 1e-7 | 700 | LEM | 6344941_1 | `8p2c5mt3` | 11-17 13:02 (r14-2) | 11-17 17:14 | COMPLETED, exit 0, 4 h 12 min |
 
 ### Checks
 
@@ -300,8 +315,15 @@ commit `kf4q4t4s` ran.
     was clipped (factor 0.67), with no loss effect.
 - **Round 4, submitted 11-17 09:37** (array 6344941): 2 tasks, both at once, 6 h,
   r16-11 excluded, no placeholder left. No other job of Maciej's on LEM.
-- **Next check: when round 4 ends**, or at once on a failed task or a NaN. Then
-  the chart is redrawn with the two new points.
+- **Round 4 ran 11-17 12:55 to 17:14**, 3 h 18 min after submission. Its watcher
+  woke at 17:19.
+- **Round 4's end checks:**
+  - Both tasks COMPLETED, exit 0, in 4 h 12-13 min.
+  - Both logged steps 0-3814 and a final_ce; no NaN.
+  - s/step 3.76; peak memory 70.4 GiB.
+  - The grad-norm maximum after step 100: 187,359 (1e-10, step 153) and 190 (1e-7,
+    step 2855). Both are bank gradients, clipped (*Analysis*, round 4).
+- **No job of this grid is left on LEM or entropy.**
 
 ### Results
 
@@ -310,6 +332,8 @@ is the fraction of steps whose norm was clipped.
 
 | σ | m | Round | g, last 500 | final_ce | Spikes | Bank share | Clipped | Verdict |
 |---|---|---|---:|---:|---:|---:|---:|---|
+| 1e-10 | 1000 | 4 | +0.4421 | 3.4619 | 76: 8 episodes, the first at steps 141-198 (loss to 20.4) | 0.36 | 16% | worse |
+| 1e-7 | 700 | 4 | +0.0641 | 3.1035 | 36: 6 episodes, the first at steps 141-193 (loss to 7.2) | 0.24 | 16% | worse |
 | 1e-5 | 500 | 2 | −0.0107 | 3.0312 | 0 | 0.26 | 1% | tie |
 | 1.78e-5 | 475 | 3 | −0.0065 | 3.0400 | 0 | 0.27 | 1% | tie |
 | 3.16e-5 | 450 | 2 | −0.0111 | 3.0322 | 0 | 0.26 | 1% | best |
@@ -434,6 +458,42 @@ g ≤ +0.0109.
     gradient through the hard QK-norm is about 1/‖row‖, the "risk for tiny σ" of
     *What to expect*. Here it showed once and cost no loss.
 
+**Round 4 (the lower edge, σ = 1e-10 and 1e-7):**
+- **Both fail:** +0.442 at 1e-10, +0.064 at 1e-7. Against σ = 0.01:
+
+  | | 1e-10 | 1e-7 |
+  |---|---:|---:|
+  | Steps 0-99 | +1.15 | +0.54 |
+  | First quarter | +2.74 | +0.64 |
+  | Second quarter | +0.92 | +0.16 |
+  | Last quarter | +0.45 | +0.07 |
+
+  Both recover slowly and are still far behind at 4B tokens.
+- **The mechanism is the clip**, steps whose norm was clipped:
+
+  | σ | Clipped steps (by quarter) | Factor when clipped: median, min | Banks' share of the norm then |
+  |---|---|---|---:|
+  | 1e-10 | 629 (472, 76, 53, 28) | 8.4e-5, 3.2e-8 | 1.00 |
+  | 1e-7 | 593 (436, 76, 53, 28) | 0.096, 3.2e-5 | 1.00 |
+  | 1e-5 | 28 (27, 0, 1, 0) | 0.58, 3.2e-3 | 0.19 |
+  | 0.01 | 26 (26, 0, 0, 0), all before step 32 | 0.72, 0.16 | 0.02 |
+
+  - At 1e-7 and below, every step that brings a not-yet-updated row also brings that
+    row's 1/‖row‖ gradient. The banks are then the whole norm, and the clip shrinks
+    the step for every weight: by about 1e-4 at 1e-10, an effectively skipped step;
+    by about 0.1 at 1e-7.
+  - After the first quarter both runs clip on the same steps (76, 53, 28): the data
+    decides when a row first sees a gradient, and at both σ that always trips the
+    clip.
+  - At 1e-5 the same rows trip it once (step 2855), so the plateau's lower edge lies
+    between 1e-7 and 1e-5.
+- **Both open with a large loss spike at steps 141-198**, the same data steps.
+  - At 1e-10 the loss went from 6.6 to 20.4, above its step-0 value (11.25),
+    followed by seven smaller episodes.
+  - At 1e-7 it went from 5.9 to 7.2, followed by five small ones.
+- **Not an eps effect:** at 1e-10 a head slice's norm (about 8e-10) is still 800×
+  `F.normalize`'s eps. The failure is the optimisation's, not the arithmetic's.
+
 ### Decisions and issues
 
 1. **LR n = 8.** "Use optimal lr": n = 8 is S2-PS's tuned optimum
@@ -476,6 +536,11 @@ g ≤ +0.0109.
      1e9 at 1e-10. Every first sighting of a token should trip the global clip and
      shrink that whole step. That is the failure mechanism the floor at 2e-5 hinted
      at (*The answer*).
+   - **Result:** both fail, by exactly that mechanism. The plateau is bounded on
+     both sides: its lower edge lies between 1e-7 and 1e-5, its upper edge between
+     0.0178 and 0.0316. The chart is redrawn with all 14 points. Its y-axes stop at
+     a gap of 0.15 and a final_ce of 3.16, and 1e-10 sits on the top edge with its
+     value: drawn to scale it would squash the plateau into one line.
 7. **Moved to LEM** (Maciej, 11-13 13:30: "move them to lem, they will start there
    faster, dont run anything on entropy"). Nothing of this grid runs on entropy
    any more.
