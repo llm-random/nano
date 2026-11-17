@@ -1,7 +1,8 @@
 # AME bank-init σ grid at h12 (plan and log)
 
-**Status:** DONE, 2026-11-17: 14 runs on LEM. Rounds 1-3 ran 12; round 4 added σ =
-1e-10 and 1e-7, which found the lower failure edge the 12 runs never reached.
+**Status:** RUNNING, 2026-11-17: 14 runs done on LEM. Rounds 1-3 ran 12; round 4
+added σ = 1e-10 and 1e-7, which found the lower failure edge the 12 runs never
+reached. Round 5 (σ = 1e-8, Maciej) is being submitted.
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -18,6 +19,7 @@ Maciej, 2026-11-17, on the 12-run answer: "you have failed the grid seach of opt
 sigma - you didnt go as far as you should into smaller number, and you havent found
 the smaller sigma that fail as a initialization, try 10^-10 now than -7 - run those
 two experiemnts and replot the chart with them".
+Maciej, 2026-11-17, after round 4: "submit also 10^-8".
 
 ## The answer
 
@@ -219,6 +221,7 @@ commit `kf4q4t4s` ran.
 | 3 | 5.62e-4 | 325 | LEM | 6338659_3 | `tas6ri7w` | 11-16 22:40 (r18-8) | 11-17 02:55 | COMPLETED, exit 0, 4 h 14 min |
 | 4 | 1e-10 | 1000 | LEM | 6344941_0 | `f2418w3u` | 11-17 12:55 (r18-10) | 11-17 17:09 | COMPLETED, exit 0, 4 h 13 min |
 | 4 | 1e-7 | 700 | LEM | 6344941_1 | `8p2c5mt3` | 11-17 13:02 (r14-2) | 11-17 17:14 | COMPLETED, exit 0, 4 h 12 min |
+| 5 | 1e-8 | 800 | LEM | | | | | to submit |
 
 ### Checks
 
