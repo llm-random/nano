@@ -1,7 +1,7 @@
 # AME bank-init σ grid at h12 (plan and log)
 
-**Status:** DONE, 2026-11-17: 12 runs in 3 rounds on LEM; the chart and the answer
-are below.
+**Status:** EXTENDED, 2026-11-17: 12 runs in 3 rounds on LEM, then round 4 (σ =
+1e-10 and 1e-7) to find the lower failure edge, which the 12 runs never reached.
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -14,6 +14,10 @@ are occupied by my jobs, use optimal lr for this grid search, stop after 12
 experiments and draw a chart of results".
 Maciej, 2026-11-13, with round 1 still queued on entropy: "move them to lem, they
 will start there faster, dont run anything on entropy".
+Maciej, 2026-11-17, on the 12-run answer: "you have failed the grid seach of optimal
+sigma - you didnt go as far as you should into smaller number, and you havent found
+the smaller sigma that fail as a initialization, try 10^-10 now than -7 - run those
+two experiemnts and replot the chart with them".
 
 ## The answer
 
@@ -194,6 +198,8 @@ commit `kf4q4t4s` ran.
 | 3 | 5.62e-5 | 425 | LEM | 6338659_1 | `nq8vkgvu` | 11-16 18:25 (r18-14) | 11-16 22:40 | COMPLETED, exit 0, 4 h 15 min |
 | 3 | 0.0178 | 175 | LEM | 6338659_2 | `nlvvix9w` | 11-16 22:39 (r18-11) | 11-17 02:55 | COMPLETED, exit 0, 4 h 16 min |
 | 3 | 5.62e-4 | 325 | LEM | 6338659_3 | `tas6ri7w` | 11-16 22:40 (r18-8) | 11-17 02:55 | COMPLETED, exit 0, 4 h 14 min |
+| 4 | 1e-10 | 1000 | LEM | | | | | to submit |
+| 4 | 1e-7 | 700 | LEM | | | | | to submit |
 
 ### Checks
 
@@ -447,6 +453,22 @@ g ≤ +0.0109.
    - the fraction of steps clipped.
 
    The tiny-σ risk shows in these columns. `kf4q4t4s` reads 0.18 and 1%.
+8. **Round 4: the lower edge** (Maciej, 11-17). The 12 runs found the upper failure
+   edge, the cliff at 0.0178-0.0316, but never a lower one. The plateau still held
+   at 1e-5, the smallest σ tried.
+   - **Why the rules missed it:** rule 1 went lower only while the best was also
+     the lowest σ measured. Round 2 put the best at 3.16e-5, above 1e-5, so round 3
+     refined around it instead of going down. A plateau has two edges; the rules
+     chased only the best point.
+   - **Round 4 runs σ = 1e-10 and σ = 1e-7** together, one array `--array=0-1%2`
+     (2 GPUs, inside Maciej's limit), configs/bank_sigma/round4.yaml.
+   - **At 1e-10 the QK-norm stays real:** a 64-dim head slice has norm about 8e-10,
+     800× above `F.normalize`'s eps (1e-12). bf16 holds 1e-10 too: its exponent
+     range is fp32's.
+   - **What to watch:** the bank gradient through the norm scales as 1/‖row‖, about
+     1e9 at 1e-10. Every first sighting of a token should trip the global clip and
+     shrink that whole step. That is the failure mechanism the floor at 2e-5 hinted
+     at (*The answer*).
 7. **Moved to LEM** (Maciej, 11-13 13:30: "move them to lem, they will start there
    faster, dont run anything on entropy"). Nothing of this grid runs on entropy
    any more.
