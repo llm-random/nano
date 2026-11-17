@@ -1,7 +1,7 @@
 # AME bank-init σ grid at h12 (plan and log)
 
-**Status:** RUNNING, 2026-11-16: rounds 1-2 done (8 of 12 runs); round 3 queued on
-LEM as array 6338659 (11-16 15:05).
+**Status:** DONE, 2026-11-17: 12 runs in 3 rounds on LEM; the chart and the answer
+are below.
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -14,6 +14,46 @@ are occupied by my jobs, use optimal lr for this grid search, stop after 12
 experiments and draw a chart of results".
 Maciej, 2026-11-13, with round 1 still queued on entropy: "move them to lem, they
 will start there faster, dont run anything on entropy".
+
+## The answer
+
+![σ grid: paired gap and final_ce against σ](ame_bank_sigma_figures/sigma_grid.png)
+
+(The numbers behind the chart:
+[ame_bank_sigma_figures/sigma_grid.json](ame_bank_sigma_figures/sigma_grid.json);
+redraw it with `scripts/bank_sigma_chart.py`.)
+
+- **The optimum is a plateau, not a point.** All ten σ from 1e-5 to 0.0178 tie.
+  - Their last-500 gaps against σ = 0.01 run from −0.0111 to +0.0089. That spread,
+    0.020, is inside one tie band (0.022).
+  - The same config rerun differs by 0.008 (`kf4q4t4s` against `bank_sigma_m200`).
+  - So one run per σ can't rank σ inside the plateau.
+  - The measured best is **σ = 3.16e-5** (−0.0111; final_ce 3.032 against 3.043).
+- **A cliff between 0.0178 and 0.0316:** from −0.0005 to +0.070 within a
+  quarter-decade. 0.1 is +0.080, and σ = 1 is +0.097 (`doi36p8k`).
+  - Above the cliff, early learning is slower: +0.30 in steps 0-99 at 0.0316.
+  - Both runs above it had a large loss-spike episode, and neither caught up by 4B
+    tokens.
+  - At 0.0178 the init still costs early (+0.12 in steps 0-99), but the gap is
+    gone by the second quarter.
+- **A soft floor near 2e-5.** At step 2855, the same batch in every run, the
+  banks' gradient norm grows steeply as σ falls:
+  - 0.005-0.007 at σ ≥ 0.0178;
+  - 0.28 at 1e-4;
+  - 1.49 at 1.78e-5 and 2.19 at 1e-5.
+
+  At σ ≤ 1.78e-5 that one batch tripped the global clip (1.0), which shrank the
+  whole step for every weight, by 0.67 and 0.46. It happened once and cost no loss.
+  Most likely a rare token's row was still near its tiny draw: under the hard
+  QK-norm its gradient scales as 1/‖row‖.
+- **Recommendation: σ = 1e-4** (or anything from about 3e-5 to 1e-3), mid-plateau.
+  - It sits two decades below the cliff and well above the floor.
+  - It ties the measured best: −0.0050, within noise of −0.0111.
+  - σ = 0.01, the current recipe, ties too, but it is only a quarter-decade below
+    the cliff.
+  - If the cliff tracks the LR, as the mechanism suggests, a lower LR would bring it
+    closer to 0.01. Here the cliff sits at 4.6-8.1× the LR (2⁻⁸). This is untested;
+    the grid ran only n = 8.
 
 ## The runs
 
@@ -150,10 +190,10 @@ commit `kf4q4t4s` ran.
 | 2 | 3.16e-5 | 450 | LEM | 6330648_1 | `c6pciyfb` | 11-15 19:39 (r10-14) | 11-16 00:03 | COMPLETED, exit 0, 4 h 24 min |
 | 2 | 3.16e-4 | 350 | LEM | 6330648_2 | `we6gxton` | 11-16 00:51 (r10-8) | 11-16 05:10 | COMPLETED, exit 0, 4 h 18 min |
 | 2 | 0.0316 | 150 | LEM | 6330648_3 | `bltgdoyf` | 11-16 00:51 (r10-9) | 11-16 05:08 | COMPLETED, exit 0, 4 h 17 min |
-| 3 | 1.78e-5 | 475 | LEM | 6338659_0 | | | | PENDING |
-| 3 | 5.62e-5 | 425 | LEM | 6338659_1 | | | | PENDING |
-| 3 | 0.0178 | 175 | LEM | 6338659_2 | | | | PENDING |
-| 3 | 5.62e-4 | 325 | LEM | 6338659_3 | | | | PENDING |
+| 3 | 1.78e-5 | 475 | LEM | 6338659_0 | `fe0fadis` | 11-16 18:21 (r18-11) | 11-16 22:39 | COMPLETED, exit 0, 4 h 18 min |
+| 3 | 5.62e-5 | 425 | LEM | 6338659_1 | `nq8vkgvu` | 11-16 18:25 (r18-14) | 11-16 22:40 | COMPLETED, exit 0, 4 h 15 min |
+| 3 | 0.0178 | 175 | LEM | 6338659_2 | `nlvvix9w` | 11-16 22:39 (r18-11) | 11-17 02:55 | COMPLETED, exit 0, 4 h 16 min |
+| 3 | 5.62e-4 | 325 | LEM | 6338659_3 | `tas6ri7w` | 11-16 22:40 (r18-8) | 11-17 02:55 | COMPLETED, exit 0, 4 h 14 min |
 
 ### Checks
 
@@ -237,8 +277,18 @@ commit `kf4q4t4s` ran.
       the loss, which equals `bank_sigma_m200`'s there.
 - **Round 3, submitted 11-16 15:05** (array 6338659): one array, throttle 2, 6 h,
   r16-11 excluded, no placeholder left. Nothing else of Maciej's on LEM.
-- **Next check: when round 3 ends.** That is the last round. Then the chart, the
-  Results and the answer.
+- **Round 3 ran 11-16 18:21 to 11-17 02:55.**
+  - It waited 3 h 16 min to start; the second pair started at once.
+  - Its watcher died with the session, so the end went unseen until 11-17 08:00.
+- **Round 3's end checks (11-17):**
+  - All four tasks COMPLETED, exit 0, in 4 h 14 min to 4 h 18 min.
+  - All four logged steps 0-3814 and a final_ce.
+  - s/step 3.77-3.79; peak memory 70.4-70.6 GiB.
+  - No NaN, no loss spike.
+  - The grad-norm maximum after step 100: 0.59 (5.62e-5), 0.43 (0.0178), 0.45
+    (5.62e-4), and 1.49 for 1.78e-5, the step-2855 batch (*The answer*). That step
+    was clipped (factor 0.67), with no loss effect.
+- **No job of this grid is left on LEM or entropy.**
 
 ### Results
 
@@ -248,15 +298,19 @@ is the fraction of steps whose norm was clipped.
 | σ | m | Round | g, last 500 | final_ce | Spikes | Bank share | Clipped | Verdict |
 |---|---|---|---:|---:|---:|---:|---:|---|
 | 1e-5 | 500 | 2 | −0.0107 | 3.0312 | 0 | 0.26 | 1% | tie |
+| 1.78e-5 | 475 | 3 | −0.0065 | 3.0400 | 0 | 0.27 | 1% | tie |
 | 3.16e-5 | 450 | 2 | −0.0111 | 3.0322 | 0 | 0.26 | 1% | best |
+| 5.62e-5 | 425 | 3 | −0.0081 | 3.0371 | 0 | 0.26 | 1% | tie |
 | 1e-4 | 400 | 1 | −0.0050 | 3.0400 | 0 | 0.26 | 1% | tie |
 | 3.16e-4 | 350 | 2 | −0.0084 | 3.0361 | 0 | 0.26 | 1% | tie |
+| 5.62e-4 | 325 | 3 | −0.0083 | 3.0332 | 0 | 0.25 | 1% | tie |
 | 1e-3 | 300 | 1 | +0.0089 | 3.0498 | 23: one episode, steps 234-256 | 0.24 | 1% | tie |
 | 0.01 | 200 | 1 | 0 (anchor) | 3.0430 | 0 | 0.19 | 1% | tie |
+| 0.0178 | 175 | 3 | −0.0005 | 3.0420 | 0 | 0.17 | 1% | tie |
 | 0.0316 | 150 | 2 | +0.0699 | 3.1084 | 33: one episode, steps 498-530 | 0.16 | 1% | worse |
 | 0.1 | 100 | 1 | +0.0800 | 3.1133 | 37: one episode, steps 620-657 | 0.10 | 1% | worse |
 
-Verdicts are against the best so far: a tie is within 0.022 of it (g ≤ +0.0109).
+Verdicts are against the best: a tie is within 0.022 of it (g ≤ +0.0109).
 
 Context points, against the same anchor (`bank_sigma_m200`):
 
@@ -344,6 +398,28 @@ g ≤ +0.0109.
   (inside) and 0.0316 (outside).
 - m325 (5.62e-4) by rule 4: the largest |Δg| left, between 3.16e-4 and 1e-3
   (0.017).
+
+**Round 3 (quarter-decades):**
+- **Nothing moved inside the plateau:** 1.78e-5 −0.0065, 5.62e-5 −0.0081, 5.62e-4
+  −0.0083. The best stays 3.16e-5 (−0.0111).
+- **The plateau reaches 0.0178** (−0.0005), so the cliff lies between 0.0178 and
+  0.0316, within a quarter-decade. Steps 0-99 against 0.01:
+  - 0.0178: +0.120 in steps 0-99, +0.032 in the first quarter, +0.001 by the second;
+  - 0.0316: +0.298 in steps 0-99, its spike episode at steps 498-530, still +0.071
+    in the last quarter.
+
+  Both runs above the cliff had a large spike episode. Below it, only 1e-3 had a
+  spike, a small one. With one run per σ it is open whether the cliff is the init's
+  slow start, the spike, or both.
+- **The step-2855 batch:**
+  - The banks' gradient norm there rises steeply as σ falls: 0.005-0.008 for σ ≥
+    0.01, 0.018 at 1e-3, 0.035-0.046 at 5.62e-4 to 3.16e-4, 0.28 at 1e-4 and
+    5.62e-5, 0.41 at 3.16e-5, 1.49 at 1.78e-5, 2.19 at 1e-5.
+  - The two smallest σ tripped the global clip on that one step.
+  - It is the only step after step 1000 in any run with a grad norm above 1.0.
+  - The likely cause is a rare token whose row was still near its draw. That row's
+    gradient through the hard QK-norm is about 1/‖row‖, the "risk for tiny σ" of
+    *What to expect*. Here it showed once and cost no loss.
 
 ### Decisions and issues
 
