@@ -75,6 +75,8 @@ def test_an_mqa_layer_reports_its_smaller_kv_cost():
     [
         ("NVIDIA H100 80GB HBM3", 989e12),
         ("NVIDIA H100 PCIe", 756e12),
+        ("NVIDIA H100 NVL", 835e12),
+        ("NVIDIA H100", 989e12),  # lem's SXM5 94GB
         ("NVIDIA A100-SXM4-80GB", 312e12),
         ("NVIDIA GH200 480GB", 989e12),
     ],

@@ -28,6 +28,7 @@ _PEAK_BF16 = (
     ("H100 NVL", 835e12),
     ("GH200", 989e12),
     ("A100", 312e12),
+    ("NVIDIA H100", 989e12),  # SXM5 94GB (lem) reports the bare name
 )
 
 
