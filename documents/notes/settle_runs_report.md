@@ -1,8 +1,8 @@
 # Settle runs: the open items of the standard-model digest
 
-**Status:** running, from 2026-11-18. Six jobs are on LEM, submitted at 14:21 CET. The
-plan below was written before any result. The log and the results are appended as the
-runs go.
+**Status:** running, from 2026-11-18. Eight jobs are on LEM: six submitted at 14:21 CET,
+and at 14:40 the two single-switch dense runs Maciej added to item 5. The plan below was
+written before any result. The log and the results are appended as the runs go.
 
 This note settles the "Runs that would settle what is left" table of
 [standard_model_improvements.md](standard_model_improvements.md). Maciej set the task on
@@ -22,7 +22,7 @@ This note settles the "Runs that would settle what is left" table of
 | 2 | The small init's own gain at h16, and how much of ST's h16 lead it explains | `bank_gates_h16_none_std001` | σ = 0.01, no gate | `hjw7znbz` (σ 1, no gate: 2.8594); the gate arms at σ 0.01, `ug8g2i2x` (ST: 2.7520) and `3yc7haqu` (B3: 2.8105) |
 | 3 | Where the σ grid's lower edge lies (σ = 1e-8) | done by the σ-grid session, see below | — | — |
 | 4 | Is the document mask's ≈0.02 real? | `dm_ame_h12_ps_lr8_rep`, `dm_dense_h12_lr8_rep` | none: same-seed replicates, on LEM instead of entropy | masked `j6wxx6h2` (3.1084), `k3xx6w71` (2.9639); unmasked `doi36p8k` (3.1250), `x0xlqroj` (2.9824) |
-| 5 | Do QK-norm and the KV shift help dense h12, and what do they cost per step? | `ai_dense_h12_qkn_shift_lr8` | `attention: {qk_norm: true, shift: true}` | `x0xlqroj` (2.9824) |
+| 5 | Do QK-norm and the KV shift help dense h12, alone or together, and what do they cost per step? | `ai_dense_h12_qkn_shift_lr8` (both), `ai_dense_h12_qkn_lr8` (QK-norm only), `ai_dense_h12_shift_lr8` (the shift only) | `attention.qk_norm: true`, `attention.shift: true`, or both. With `x0xlqroj` (neither), the full 2 × 2 (Maciej, 2026-11-18) | `x0xlqroj` (2.9824) |
 | 6 | Dense h16's best learning rate, at the grid's edge | `s1b_d_h16_lr8` | n = 8 | `eh2sjsh7` (n = 9: 2.7441) |
 
 All runs are h12 at 4B tokens (3,815 steps) or h16 at 8B (7,630), batch 512 × 2,048,
@@ -32,7 +32,7 @@ LR 2⁻⁸, seed 123, one LEM H100 each, no FSDP2 (so AME's readouts are logged)
 
 | # | Branch (worktree) | Commit | Config |
 |---|---|---|---|
-| 1, 5 | `settle_runs_improve` (`~/code/nano-settle-improve`), from `ame_improve_runs` `43a030e0` | `08b75753` | `configs/ame_improve/ame_h12_ps_bank4_std1e4.yaml`, `configs/ame_improve/dense_h12_qknorm_shift.yaml` |
+| 1, 5 | `settle_runs_improve` (`~/code/nano-settle-improve`), from `ame_improve_runs` `43a030e0` | `08b75753`; `01650535` adds the single-switch configs | `configs/ame_improve/ame_h12_ps_bank4_std1e4.yaml`; `configs/ame_improve/dense_h12_qknorm_shift.yaml`, `dense_h12_qknorm.yaml`, `dense_h12_shift.yaml` |
 | 2, 6 | `settle_runs_main` (`~/code/nano-settle-main`), from `ame_main` `4110b129` | `6929902a` | `configs/bank_gates/h16_none_std001.yaml` (on `h16_base.yaml`); `configs/stage_1b/dense_h16_lr_grid.yaml` with its list narrowed to `[8]` |
 | 4 | `settle_runs_doc_mask` (`~/code/nano-settle-docmask`), from `doc_mask` `ef68bc1d` | `b2dc57f8` | `configs/doc_mask/ame_h12_ps_docmask_rep.yaml`, `configs/doc_mask/dense_h12_docmask_rep.yaml` |
 
@@ -58,10 +58,12 @@ these differ:
 - **4** against `j6wxx6h2` and `k3xx6w71`: the dataset paths only. They point at LEM's
   FineWeb, of which entropy's is a copy. The code is `3974addd`'s, since `doc_mask` has
   no code commit after it.
-- **5** against `x0xlqroj`: `qk_norm: true`, `shift: true` and `bank_lr_ratio` 4.0.
+- **5** against `x0xlqroj`: `qk_norm: true`, `shift: true` and `bank_lr_ratio` 4.0. The
+  single-switch runs set only their own switch; the other stays at the gqa default, off.
   - The ratio is a no-op without banks (`parameter_groups`, `src/core/model.py`).
   - The schema keys listed under 1 are all off.
-  - The dense τ (QK-norm's learned temperature) sits in a no-decay group, by design.
+  - The dense τ (QK-norm's learned temperature) and the shift's coefficients sit in a
+    no-decay group, by design.
 - **6** against `eh2sjsh7`: `learning_rate` 8 against 9. Also `count_token_updates:
   false` and the schema keys listed under 1, all off. The name is pinned to
   `s1b_d_h16_lr8`; the grid's template would have given `lr8.0`.
@@ -90,8 +92,11 @@ The σ-grid session ran σ = 1e-8 as round 5: LEM job 6348965, W&B `n14uvt1n`, f
   - AME 11.25, at h12 and h16 alike: under the hard QK-norm, σ only scales the bank
     rows, so the init forward is the same at any σ.
   - Dense h12 11.1875, dense h16 11.25.
-  - Run 5 is the exception: QK-norm and the shift change the init forward, so its
-    step 0 is a new number.
+  - The three run-5 corners are the exception: their step 0 is a new number.
+    - QK-norm changes the init forward: unit q and k, scaled by τ = √d_head.
+    - The shift's coefficients start at c1 ~ U(0, 1) and c2 = 1 − c1, not at the
+      identity. They are drawn from the global RNG after the layer's own projections,
+      so the later layers' weights may differ from `x0xlqroj`'s as well.
 
 What each outcome means:
 1. **Run 1 against `7te9jv9u`** (they differ only in the ratio):
@@ -103,13 +108,25 @@ What each outcome means:
    - ST against it is ST's gain beyond the init;
    - B3 against it is B3's gain beyond the init. At h12 that was +0.0001.
 4. **Run 4:**
+   - every run here uses seed 123, so a replicate has its original's init and sees the
+     same batches in the same order. Only GPU nondeterminism differs, and here the
+     cluster too. That nondeterminism is the 0.0072 sd behind the 0.022 tie band, so a
+     replicate tests whether the ≈0.02 survives it. It does not test another seed: that
+     would need an unmasked baseline at the new seed as well;
    - each replicate against its unmasked LEM baseline is the mask's gain measured on
      one cluster;
    - each replicate against its masked original is the same-seed spread across
      clusters. Entropy runs of `doi36p8k`'s config paired at +0.0157, +0.0002 and
      +0.0053 against it (`reference_final_ce_precision`);
    - the ≈0.02 is confirmed if both replicates come out negative again, at about −0.02.
-5. **Run 5 against `x0xlqroj`:** the paired gap, and s/step against 3.272.
+5. **Run 5, the 2 × 2 against `x0xlqroj`:** each corner's paired gap, and its s/step
+   against 3.272.
+   - Each single switch against `x0xlqroj` is that switch's effect alone.
+   - Both together against the better single switch shows whether the second switch
+     adds anything.
+   - The interaction is (both − neither) − (QK-norm − neither) − (shift − neither).
+   - Dense same-seed runs spread 6–24× more than AME's, so only a large gap is
+     evidence.
 6. **Run 6 against `eh2sjsh7`:**
    - if n = 8 is lower, dense h16's best n is 8 or below, and n = 7 would be next;
    - if it is higher, n = 9 is an interior optimum and the grid is done.
@@ -137,7 +154,9 @@ cemetery is world-readable, so the W&B key never goes into `exp.job`.
 | # | Job | Cemetery clone | W&B | Node | Started | Ended | State | `final_ce` | Gap, last 500 |
 |---|---|---|---|---|---|---|---|---:|---:|
 | 1 | 6353710 | `ai_h12_ps_bank4_std1e4_lr8_2026-11-18_14-14-15` | | | | | PENDING | | |
-| 5 | 6353711 | `ai_dense_h12_qkn_shift_lr8_2026-11-18_14-14-43` | | | | | PENDING | | |
+| 5, both | 6353711 | `ai_dense_h12_qkn_shift_lr8_2026-11-18_14-14-43` | | | | | PENDING | | |
+| 5, QK-norm only | 6353892 | `ai_dense_h12_qkn_lr8_2026-11-18_14-38-16` | | | | | PENDING | | |
+| 5, shift only | 6353893 | `ai_dense_h12_shift_lr8_2026-11-18_14-38-39` | | | | | PENDING | | |
 | 2 | 6353712 | `bank_gates_h16_none_std001_2026-11-18_14-15-12` | | | | | PENDING | | |
 | 6 | 6353713 | `s1b_d_h16_lr8_2026-11-18_14-15-34` | | | | | PENDING | | |
 | 4 AME | 6353714 | `dm_ame_h12_ps_lr8_rep_2026-11-18_14-16-02` | | | | | PENDING | | |
@@ -154,6 +173,15 @@ cemetery is world-readable, so the W&B key never goes into `exp.job`.
   - All six are PENDING. 161 jobs were pending in the partition and 72 running.
   - Next: each job's start check about 2 minutes after it starts, then step 0. After
     that, nothing until the end of training unless a job fails or logs a NaN.
+- **14:30–14:40.** Maciej asked for every combination of the two dense switches, not
+  only both together.
+  - Two configs with one switch each, `dense_h12_qknorm.yaml` and `dense_h12_shift.yaml`,
+    committed as `01650535`.
+  - Each differs from `x0xlqroj` in its own switch only, besides the no-op ratio and the
+    off schema keys.
+  - Submitted at 14:40 in the same two halves: QK-norm only as job 6353892, the shift
+    only as 6353893. Both PENDING.
+  - Item 5 is now a 2 × 2, with `x0xlqroj` as the corner with neither switch.
 
 ## Results
 
