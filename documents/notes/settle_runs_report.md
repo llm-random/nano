@@ -182,6 +182,29 @@ cemetery is world-readable, so the W&B key never goes into `exp.job`.
   - Submitted at 14:40 in the same two halves: QK-norm only as job 6353892, the shift
     only as 6353893. Both PENDING.
   - Item 5 is now a 2 × 2, with `x0xlqroj` as the corner with neither switch.
+- **16:04, time limits (Maciej asked).** All eight jobs are still PENDING on Priority.
+  Slurm forecasts their starts for 11-20 07:40 to 11-21 08:16.
+  - **Limits as submitted:** 7 h for the six h12 jobs, 24 h for the two h16 jobs.
+  - **Measured LEM wall times of the same recipes** (sacct, completed runs since
+    11-05):
+
+    | Recipe | Wall time | Runs |
+    |---|---|---|
+    | AME h12 | 4:12–4:26 | about 25 |
+    | Dense h12 | 3:40–3:47 | |
+    | AME h16 | 14:59–15:35; the ST gate is the slowest, ungated runs about 15:05 | |
+    | Dense h16 | 13:10–13:15 | |
+
+  - **Shorter limits don't move Slurm's forecast.** `sbatch --test-only` gives a new
+    job the same start, 11-25 08:04, at 24 h, 18 h, 16 h, 7 h, 5 h 30 min and 5 h. The
+    queue is bound by priority (jobs ahead of ours), so a shorter limit helps only when
+    a backfill hole opens.
+  - **Proposed, not applied:** AME h12 5 h 30 min, dense h12 5 h, AME h16 18 h, dense
+    h16 16 h, at least 18% above the slowest comparable run.
+    - It would be done in place with `scontrol update`, which keeps the queue position.
+    - A user can only lower a limit, never raise it again.
+- **The watcher died with the previous session** at about 14:45, while every job was
+  still pending, so nothing was missed. Restarted at 16:10.
 
 ## Results
 
