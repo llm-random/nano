@@ -5,8 +5,8 @@
 - Round 4 added σ = 1e-10 and 1e-7, which found the lower failure edge the 12 runs
   never reached.
 - Round 5 added σ = 1e-8 (Maciej).
-- Round 6 (σ = 1e-6, Maciej), inside the lower edge's bracket, is being
-  submitted.
+- Round 6 (σ = 1e-6, Maciej), inside the lower edge's bracket, is queued on LEM
+  as job 6353662 (11-18 14:05).
 
 **Question:** which bank init std σ is best for S2-PS at h12, 4B tokens? Bank-gates
 stage 2 showed σ = 0.01 beats σ = 1 (−0.0895 in final_ce,
@@ -194,6 +194,10 @@ commit `kf4q4t4s` ran.
   `/home/mstefaniak/llmrandom_cemetery/bank_sigma_m200_2026-11-12_18-29-53`). It sat
   PENDING from 11-12 18:30. It was cancelled on 11-13 at 13:30, before any task
   started: Maciej moved the grid to LEM (*Decisions* 7).
+- **Round 6 on LEM:** job 6353662 (a one-task array), submitted 11-18 14:05 with
+  `run_exp.py` from `~/code/nano-bank-sigma` at `bedc01ec`. Clone
+  `.../llmrandom_cemetery/bank_sigma_m600_2026-11-18_14-04-36`; its `exp.job` was
+  then set to mode 600.
 - **Round 5 on LEM:** job 6348965 (a one-task array), submitted 11-17 20:28 with
   `run_exp.py` from `~/code/nano-bank-sigma` at `55ef9751`. Clone
   `.../llmrandom_cemetery/bank_sigma_m800_2026-11-17_20-28-05`; its `exp.job` was
@@ -237,7 +241,7 @@ commit `kf4q4t4s` ran.
 | 4 | 1e-10 | 1000 | LEM | 6344941_0 | `f2418w3u` | 11-17 12:55 (r18-10) | 11-17 17:09 | COMPLETED, exit 0, 4 h 13 min |
 | 4 | 1e-7 | 700 | LEM | 6344941_1 | `8p2c5mt3` | 11-17 13:02 (r14-2) | 11-17 17:14 | COMPLETED, exit 0, 4 h 12 min |
 | 5 | 1e-8 | 800 | LEM | 6348965_0 | `n14uvt1n` | 11-18 00:39 (r18-2) | 11-18 04:57 | COMPLETED, exit 0, 4 h 17 min |
-| 6 | 1e-6 | 600 | LEM | | | | | to submit |
+| 6 | 1e-6 | 600 | LEM | 6353662_0 | | | | PENDING |
 
 ### Checks
 
@@ -351,7 +355,10 @@ commit `kf4q4t4s` ran.
   - s/step 3.78; peak memory 70.4 GiB.
   - The grad-norm maximum after step 100: 4,600, at step 2855, a bank gradient,
     clipped.
-- **No job of this grid is left on LEM or entropy.**
+- **Round 6, submitted 11-18 14:05** (job 6353662): one task, 6 h, r16-11
+  excluded, no placeholder left. No other job of Maciej's on LEM.
+- **Next check: when round 6 ends**, or at once on a failure or a NaN. Then the
+  chart is redrawn with 16 points.
 
 ### Results
 
