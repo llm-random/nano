@@ -25,16 +25,21 @@ The work ran in five Claude Code sessions, kept in the "Overwatch" sessions fold
 | Learning rate: AME n = 8 at every size; dense n = 8 at h12, n = 9 at h16 and h20 | both | **Standard** | `ame_main` stage configs |
 | Bank init σ = 1e-4 (`bank_init_std`) | AME | **Adopt.** The largest gain found: −0.09 against σ = 1 | Setting on `ame_main`, default still 1.0 |
 | Document mask (`document_mask`) | both | **Adopt.** About −0.02 in both models at little cost; one replicate advised | `doc_mask` (local) |
-| Banks at 4× the learning rate (`bank_lr_ratio`) | AME | **Adopt only if it stacks with small σ.** −0.03 at σ = 1; never run with small σ | `ame_improve` (pushed) |
+| Banks at 4× the learning rate (`bank_lr_ratio`) | AME | **Adopt, by Maciej's call (2026-11-18).** −0.03 at σ = 1; never run with small σ | `ame_improve` (pushed) |
+| QK-norm and KV shift for dense | dense | **Adopt, by Maciej's call (2026-11-18).** Built, never trained | `ame_improve` (pushed) |
 | ST (stem) bank gate | AME | **Open.** Ties at h12, best at h16; the h16 baseline with small σ and no gate is missing | `ame_main`, off by default |
-| QK-norm and KV shift for dense | dense | **Untested.** Built, never trained | `ame_improve` (pushed) |
 | Bank gates B1, B2, B3 | AME | Reject | `ame_main`, off by default |
 | New init bundle: Xavier embedding and head, pkmf-scale Linears, undecayed embedding | both | Reject | `ame_initialization` (local) |
 
 ## Proposed standard configs
 
-What the tested pieces add up to. Two of the keys need branches that are not on `ame_main`
-yet ([Before merging](#before-merging)).
+What the tested pieces add up to, plus three switches Maciej added on 2026-11-18: the 4×
+bank learning rate for AME, and QK-norm and the KV shift for dense. None of the three has
+been tested in this combination. The 4× rate never ran with a small σ, and the two dense
+switches have never trained at all
+([Banks at 4× the learning rate](#banks-at-4-the-learning-rate-ame),
+[Built but never trained](#built-but-never-trained)). Four of the keys need branches that
+are not on `ame_main` yet ([Before merging](#before-merging)).
 
 AME:
 
@@ -49,7 +54,7 @@ common:
       bank_gate: none        # default
 trainer:
   learning_rate: 8           # LR 2^-8 at h12, h16 and h20
-  bank_lr_ratio: 1           # branch ame_improve (default 4 there); 4 only if the stacking run wins
+  bank_lr_ratio: 4           # branch ame_improve (its default there); never run with small σ
 ```
 
 Dense:
@@ -58,6 +63,8 @@ Dense:
 common:
   attention:
     type: gqa                # RoPE on by default
+    qk_norm: true            # branch ame_improve; never trained
+    shift: true              # branch ame_improve; never trained; needs document-boundary gating (caveat 2)
     document_mask: true      # branch doc_mask
 trainer:
   learning_rate: 8           # h12; 9 at h16 and h20
@@ -192,7 +199,7 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
 - **Lesson:** the compiled eval runs a no_grad graph that grad-mode GPU tests never build.
   Test it at production shapes.
 
-### Banks at 4× the learning rate (AME, conditional)
+### Banks at 4× the learning rate (AME)
 
 - **What it is:** `trainer.bank_lr_ratio` sets the Q/K banks' learning rate as a multiple
   of the base rate.
@@ -207,10 +214,13 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
   | h12 | 3.0938 `y5ogvt3k` | 3.1250 `doi36p8k` | −0.031 | −0.034 |
   | h16 | 2.8311 `hn1qal9z` | 2.8594 `hjw7znbz` | −0.028 | −0.033 |
 
-- **Verdict:** adopt only if it still helps on top of small σ.
+- **Verdict:** adopt, by Maciej's call (2026-11-18). Whether it still helps on top of
+  small σ is unmeasured:
   - Both changes pull the same lever. Under the hard QK-norm only a row's direction counts.
     A small σ lets Adam turn the rows faster, and so does a larger bank learning rate.
   - Small σ alone gains three times as much (−0.0895).
+  - The stacking run in [Runs that would settle what is left](#runs-that-would-settle-what-is-left)
+    checks it.
 - **Where:**
   - The feature: `ame_improve`, commit `e64a466c`, pushed (`origin/ame_improve`).
   - The run configs: `configs/ame_improve/` on the local branch `ame_improve_runs`
@@ -254,7 +264,8 @@ training runs. The two attention switches have never run on a GPU.
 
 The dense model matched to AME, `attention: {type: gqa, qk_norm: true, shift: true}`, has
 never trained. So nobody knows whether QK-norm or the shift helps dense, or what they cost
-in speed. The dense τ, α and β are also not instrumented.
+in speed. The dense τ, α and β are also not instrumented. Maciej put both switches into the
+standard dense config on 2026-11-18 ([Proposed standard configs](#proposed-standard-configs)).
 
 ## Tested and rejected
 
@@ -317,11 +328,12 @@ The counts include docs-only commits.
      (`continues_document`, in `src/core/ame.py`).
    - `ame_improve`'s dense shift (`RoPEAttention` in `src/core/model.py`) calls `_shift1`
      directly.
-   - So a merged dense model with both `shift` and `document_mask` on would still mix each
-     document's first key and value with the previous document's EOS. It needs the same
-     gating.
-3. **`bank_lr_ratio` defaults to 4** ([Banks at 4× the learning rate](#banks-at-4-the-learning-rate-ame-conditional)).
-   Merging it unchanged stacks 4× on top of small σ, and that combination has never run.
+   - The standard dense config turns on both `shift` and `document_mask`. Without the same
+     gating it would still mix each document's first key and value with the previous
+     document's EOS, so the merge must add it.
+3. **`bank_lr_ratio` defaults to 4** ([Banks at 4× the learning rate](#banks-at-4-the-learning-rate-ame)).
+   The standard config stacks it on small σ, a combination that has never run. Old AME
+   checkpoints need `bank_lr_ratio: 1` to resume.
 
 ## Runs that would settle what is left
 
@@ -333,6 +345,7 @@ None of these has been submitted. Costs are on one LEM H100 per run.
 | AME h16, σ = 0.01 and no gate | The init's own gain at h16, and how much of ST's h16 lead it explains | About 15.3 GPU-h |
 | σ = 1e-8 (round 5 of the σ grid) | Where the lower edge lies | LEM job 6348965, queued 2026-11-17 20:28; no result in [ame_bank_sigma_grid.md](ame_bank_sigma_grid.md) yet |
 | A same-seed replicate of each document-mask run | Is the ≈0.02 gain real? | Two h12 runs |
+| Dense h12 with QK-norm and the KV shift, against `x0xlqroj` | Do the two new dense switches help, and what do they cost per step? | About 3.5 GPU-h |
 | Dense h16 at n = 8 | Dense h16's best learning rate, at the grid edge | About 13.4 GPU-h |
 
 Lower priority:
