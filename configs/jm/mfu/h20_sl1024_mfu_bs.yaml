@@ -1,7 +1,7 @@
 # MFU batch size ladder, h20 at seq 1024: 128 steps at each batch 4..128; no checkpoints, evals or heavy metrics.
 defaults:
   - /base_schema
-  - ../../_cluster@_here_: entropy
+  - ../../_cluster@_here_: lem
   - ../../_model/h_balanced@_here_: h20
   - ../../_trainer@_here_: nano
   - ../../_dataset@_here_: fineweb
@@ -39,5 +39,5 @@ infrastructure:
 
   slurm:
     time: "01:00:00"
-    gres: gpu:4
+    gres: gpu:hopper:4
     job-name: ${infrastructure.metric_logger.name}
