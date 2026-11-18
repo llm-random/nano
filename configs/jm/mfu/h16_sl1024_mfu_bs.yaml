@@ -1,0 +1,43 @@
+# MFU batch size ladder, h16 at seq 1024: 128 steps at each batch 4..256; no checkpoints, evals or heavy metrics.
+defaults:
+  - /base_schema
+  - ../../_cluster@_here_: entropy
+  - ../../_model/h_balanced@_here_: h16
+  - ../../_trainer@_here_: nano
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 256
+
+trainer:
+  # micro 64 x 1024 per GPU at batch 256: 60.2 GiB peak (h16_chinchilla, before QK-norm); 512 would OOM
+  gradient_accumulation_steps: 1
+  n_steps: 896
+  learning_rate: 10
+  batch_size_warmup:
+    batch_sizes: [4, 8, 16, 32, 64, 128]
+    # 128, not 100: a stage must end on a loader batch (256 / 4 = 64 steps)
+    steps: [128, 128, 128, 128, 128, 128]
+    final_batch_size: ${common.batch_size}
+  eval_interval: 0
+  eval_dataloader: null
+
+infrastructure:
+  metric_logger:
+    name: h16_sl1024_mfu_bs
+    heavy_metrics_calculation_interval: 0
+    tags:
+      - nano
+      - h16
+      - qk_norm
+      - jm_mfu_benchmarking
+      - mfu_bs_ladder
+
+  slurm:
+    time: "01:00:00"
+    gres: gpu:4
+    job-name: ${infrastructure.metric_logger.name}
