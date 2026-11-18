@@ -215,6 +215,21 @@
    "bank_share": 0.23766316998563208,
    "clipped": 0.15543905635648755,
    "verdict": "worse"
+  },
+  {
+   "id": "n14uvt1n",
+   "name": "bank_sigma_m800",
+   "sigma": 1e-08,
+   "m": 800,
+   "round": 5,
+   "g": 0.1828125,
+   "n_paired": 500,
+   "last_step": 3814,
+   "final_ce": 3.2177734375,
+   "spikes": 61,
+   "bank_share": 0.2588799391783053,
+   "clipped": 0.15884665792922673,
+   "verdict": "worse"
   }
  ],
  "context": [
