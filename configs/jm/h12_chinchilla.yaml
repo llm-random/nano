@@ -19,7 +19,7 @@ trainer:
   gradient_accumulation_steps: 1
   # 3.28B tokens, 26.5 per active param; the batch-256 ramp runs had 3.51B (53_600 steps here)
   n_steps: 50_000
-  ^learning_rate: [8, 9, 10]
+  ^learning_rate: [8, 9, 10, 11, 12]
   scheduler:
     warmup_steps: 2_000
     # = checkpoint interval, so the last stable step is saved; keep n_steps a multiple of 10
@@ -48,7 +48,6 @@ infrastructure:
       - lr_tune
       - chinchilla
       - wsd
-      # tell these runs apart from earlier h12_chinchilla runs: no QK-norm before, batch 256 + ramp before
       - qk_norm
       - bs64
 
