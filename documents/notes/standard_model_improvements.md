@@ -31,7 +31,7 @@ The work ran in five Claude Code sessions, kept in the "Overwatch" sessions fold
 | Document mask (`document_mask`) | both | **Gain confirmed, at +12% s/step.** About −0.02 in both models, replicated. Whether the gain pays for the time is Maciej's call | `doc_mask` (local) |
 | Banks at 4× the learning rate (`bank_lr_ratio`) | AME | **Adopt, by Maciej's call (2026-11-18).** −0.03 at σ = 1, but only −0.008 (a tie) on top of σ = 1e-4. No cost | `ame_improve` (pushed) |
 | QK-norm and KV shift for dense | dense | **Adopt, by Maciej's call (2026-11-18).** Together −0.027 at +5% s/step. The shift carries it: −0.022 alone, at +2.7%. QK-norm adds only a tie (−0.006 on the shift) for +2.4% s/step and 4 GiB; Maciej keeps it for stability (2026-11-20) | `ame_improve` (pushed) |
-| ST (STEM) bank gate | AME | **Open.** A tie at h12; at h16 it gains −0.048 beyond the small init. +3.8% s/step, and it gives up the precomputable score table | `ame_main`, off by default |
+| ST (STEM) bank gate | AME | **Reject** (Maciej, 2026-11-21): it breaks AME's precomputed score table. A tie at h12; −0.048 beyond the small init at h16 | `ame_main`, off by default |
 | Bank gates B1, B2, B3 | AME | Reject | `ame_main`, off by default |
 | New init bundle: Xavier embedding and head, pkmf-scale Linears, undecayed embedding | both | Reject | `ame_initialization` (local) |
 
@@ -59,7 +59,7 @@ common:
     ame:
       shift: true            # ame_main default; the ALiBi ladder and the sink are defaults too
       bank_init_std: 1.0e-4  # ame_main default is 1.0
-      bank_gate: none        # default
+      bank_gate: none        # default; every gate is rejected
 trainer:
   learning_rate: 8           # LR 2^-8 at h12, h16 and h20
   bank_lr_ratio: 4           # branch ame_improve (its default there); a tie on sigma 1e-4 (-0.008)
@@ -262,7 +262,10 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
   - Old AME checkpoints have two optimizer groups, so they need `bank_lr_ratio: 1` to
     resume.
 
-## Open: the ST (stem) bank gate
+## Rejected: the ST (STEM) bank gate
+
+**Rejected by Maciej on 2026-11-21:** it breaks the precomputed score table, AME's
+decode-time payoff, so its gain at h16 does not count. The record below stays.
 
 - **What it is:** `common.attention.ame.bank_gate: stem`, on `ame_main` since `157c3122`
   (gates listed at [src/core/ame.py:77](../../src/core/ame.py#L77)).
@@ -341,6 +344,7 @@ and head at 1/√fan_in cut at ±2σ. The one exception is the banks' σ.
 |---|---|---|
 | B1, the confidence gate | 0.07–0.11 behind no gate at the same σ, from either start. Its trust stays where it starts | `ame_main`, `bank_gate: confidence` |
 | B2 (context gate) and B3 (backoff gate) | Nothing beyond the σ = 0.01 init at h12: B2 −0.0003, B3 +0.0001. B3 at σ = 1: −0.0079. All ties | `ame_main`, `bank_gate: context` and `backoff` |
+| ST, the STEM gate | A tie at h12; −0.048 beyond the small init at h16, one run. Rejected because it breaks the precomputed score table ([Rejected: the ST (STEM) bank gate](#rejected-the-st-stem-bank-gate)) | `ame_main`, `bank_gate: stem` |
 | The new init bundle: Xavier embedding, head and banks; pkmf's √(0.1/fan_in) Linears; no weight decay on the embedding | Paired gaps: AME h12 +0.014, dense h12 +1.271, AME h16 +0.032, dense h16 +0.213 ([ame_init_exp.md](ame_init_exp.md)) | `ame_initialization` `79108114` |
 | Part of that bundle: the Xavier embedding (σ ≈ 0.006) | Dense +0.999, AME +0.003 ([ame_init_embed_ablation.md](ame_init_embed_ablation.md)) | `ame_initialization` |
 | Part of that bundle: no weight decay on the embedding | AME +0.012, dense +0.039. It never helps | `ame_initialization` |
@@ -418,8 +422,6 @@ They ran on LEM on 2026-11-19, the two single-switch dense runs on 2026-11-20. T
 Lower priority:
 - **A block-sparse document mask:** a `BlockMask` that skips cross-document blocks could
   remove the mask's 12% cost.
-- **ST at h16, two more runs** (about 31 GPU-h): they would measure h16's own run-to-run
-  spread.
 - **The σ cliff at n = 7 and n = 9:** does it move with the learning rate?
 - **The pkmf Linears at n = 7:** could a retuned learning rate win back their +0.10? Even
   if it did, AME would still trail `kf4q4t4s` by about 0.06.
@@ -438,8 +440,8 @@ yet.
 | Banks at 4× the learning rate | −0.008 on σ = 1e-4, a tie (−0.034 at σ = 1) | None | **Apply** (Maciej, 2026-11-18). It is the default on `ame_improve`, and old checkpoints need `bank_lr_ratio: 1` to resume |
 | ALiBi, KV shift and sink (S2-PS), n = 8 | The recipe | — | **Keep.** Already the defaults |
 | Document mask | −0.016 to −0.018, resolved | +12% s/step | **Maciej's call.** Recommendation: off for now (below) |
-| ST (STEM) bank gate | A tie; −0.048 beyond the init at h16, one run | +3.1–3.8% s/step, and the precomputable score table | **Not yet.** Off at h12; at h16 and above only after two replicates, and only if the table can go |
 | Bank gates B1–B3; the new init bundle | Ties or losses | — | **Don't apply** |
+| ST (STEM) bank gate | A tie; −0.048 beyond the init at h16, one run | +3.1–3.8% s/step | **Don't apply** (Maciej, 2026-11-21): it breaks the precomputed score table |
 
 ### Dense
 
@@ -451,23 +453,27 @@ yet.
 | Document mask | −0.020 to −0.022, one unmasked baseline | +12% s/step | **Maciej's call**, as for AME |
 | The new init bundle and its parts | +0.04 to +1.27 | — | **Don't apply** |
 
-### The open calls
+### The open call: the document mask
 
-1. **Document mask: off in both models for now, on in both once it is free.**
-   - The gain is real, about −0.02 in each model. But it leaves the AME − dense gap where
-     it was (+0.143 without, +0.145 with), so the comparison does not need it, and it
-     costs 12% of every run.
-   - A `BlockMask` that skips the cross-document blocks may remove that cost. Whenever the
-     mask goes on, it goes on in both models.
-2. **ST gate: two more h16 runs first** (about 31 GPU-h). Its h16 lead comes from one run,
-   and no h16 run-to-run spread has been measured. At h12 it ties, so it stays off there.
-   Even if the lead holds, it costs AME its precomputable score table.
+**Recommendation: off in both models for now, on in both once it is free.**
+- The gain is real, about −0.02 in each model. But it leaves the AME − dense gap where it
+  was (+0.143 without, +0.145 with), so the comparison does not need it, and it costs 12%
+  of every run.
+- A `BlockMask` that skips the cross-document blocks may remove that cost. Whenever the
+  mask goes on, it goes on in both models.
 
-**Decided: dense keeps QK-norm, for stability** (Maciej, 2026-11-20).
-- At h12 it changes the loss by a tie either way, at +1.8–2.4% s/step and 4 GiB.
-- Its stability case lies at larger models and higher learning rates, which h12 at n = 8
-  does not test. Dense h16 at n = 8 was unstable without it (102 spike steps). Rerun with
-  QK-norm, it would test that case in one run, about 13 GPU-h.
+### Decided by Maciej
+
+- **Dense keeps QK-norm, for stability** (2026-11-20).
+  - At h12 it changes the loss by a tie either way, at +1.8–2.4% s/step and 4 GiB.
+  - Its stability case lies at larger models and higher learning rates, which h12 at
+    n = 8 does not test. Dense h16 at n = 8 was unstable without it (102 spike steps).
+    Rerun with QK-norm, it would test that case in one run, about 13 GPU-h.
+- **AME gets no ST gate** (2026-11-21). It breaks the precomputed score table, so its h16
+  gain does not count, and the two h16 replicates are off.
+  - The reason holds for any change to AME: a score must stay a function of token ids and
+    distance, so the table can be precomputed.
+  - Every bank gate is now rejected, and AME keeps `bank_gate: none`.
 
 ### What the changes do to the AME − dense gap
 
