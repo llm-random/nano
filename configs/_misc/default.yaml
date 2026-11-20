@@ -13,6 +13,10 @@ infrastructure:
   git:
     remote_name: cemetery
     remote_url: git@github.com:llm-random/llm-random-cemetery.git
+    # Top-level folders the clone on the cluster leaves out (run_exp.clone_command).
+    # The cemetery branch keeps them; a job never reads them, and each clone costs the
+    # cluster's file quota. [] clones everything.
+    sparse_exclude: [tests, scripts, documents]
 
   generated_configs_path: generated_configs
 

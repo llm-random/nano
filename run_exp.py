@@ -61,6 +61,63 @@ def run_remote(connection, command, what):
     )
 
 
+# A sparse_exclude entry goes into a shell command and a sparse-checkout pattern, so
+# only plain top-level folder names are accepted (.github yes; ., .., .git and paths no).
+_FOLDER_NAME = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_.-]*")
+_NOT_A_FOLDER = {".", "..", ".git"}
+
+
+def sparse_exclude_names(names) -> list[str]:
+    """infrastructure.git.sparse_exclude as a checked list of top-level folder names.
+
+    Called before anything is pushed, so a bad entry fails on the laptop.
+    """
+    checked = []
+    for name in names or []:
+        name = str(name).strip("/")
+        if not _FOLDER_NAME.fullmatch(name) or name in _NOT_A_FOLDER:
+            raise ValueError(
+                "infrastructure.git.sparse_exclude takes top-level folder names "
+                f"(letters, digits, _ . -), got {name!r}"
+            )
+        checked.append(name)
+    return checked
+
+
+def clone_command(remote_url, branch, experiment_dir, sparse_exclude=()) -> str:
+    """The shell command that clones an experiment's cemetery branch on the cluster.
+
+    The cemetery branch on GitHub always holds the whole repo; only the clone on the
+    cluster leaves out the top-level folders named in `sparse_exclude`
+    (infrastructure.git.sparse_exclude, configs/_misc/default.yaml). A job runs main.py
+    on generated_configs/, so it never reads tests/, scripts/ or documents/, while every
+    clone counts once per experiment against the cluster's file quota. On LEM the group
+    shares one quota of 1,048,576 files; on 2026-11-19 it was full, and eight runs failed
+    at their end-of-run save.
+
+    The clone uses git's classic sparse checkout (core.sparseCheckout, the patterns in
+    .git/info/sparse-checkout, then read-tree) instead of `git sparse-checkout`, so it
+    works with whatever git a cluster has. The left-out files stay in the clone's .git,
+    and `git -C <dir> sparse-checkout disable` brings them back without the network.
+
+    An empty `sparse_exclude` gives the plain full clone. The paths are not quoted:
+    cemetery dirs carry a literal $USER for the remote shell to expand.
+    """
+    excluded = sparse_exclude_names(sparse_exclude)
+    if not excluded:
+        return f"git clone --depth 1 -b {branch} {remote_url} {experiment_dir}"
+    patterns = "\\n".join(["/*"] + [f"!/{name}/" for name in excluded])
+    return " && ".join(
+        [
+            f"git clone --depth 1 --no-checkout -b {branch} {remote_url} {experiment_dir}",
+            f"git -C {experiment_dir} config core.sparseCheckout true",
+            f"mkdir -p {experiment_dir}/.git/info",
+            f"printf '{patterns}\\n' > {experiment_dir}/.git/info/sparse-checkout",
+            f"git -C {experiment_dir} read-tree -mu HEAD",
+        ]
+    )
+
+
 _SSH_HOSTS_TO_PASSPHRASES = {}
 
 
@@ -231,6 +288,10 @@ def submit_experiment(
     missing_keys: set[str] = OmegaConf.missing_keys(cfg)
     if missing_keys:
         raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
+    # Checked now, before version_code pushes anything; used by the remote clone.
+    sparse_exclude = sparse_exclude_names(
+        cfg.infrastructure.get("git", {}).get("sparse_exclude", None)
+    )
 
     # cast: the runtime object is a DictConfig; RootSchema is Pylance sugar.
     configs_grid = create_grid_config(cast(DictConfig, cfg))
@@ -287,7 +348,12 @@ def submit_experiment(
             if connection.run(f"test -d {experiment_dir}", warn=True).failed:
                 run_remote(
                     connection,
-                    f"git clone --depth 1 -b {experiment_branch_name} {cfg.infrastructure.git.remote_url} {experiment_dir}",
+                    clone_command(
+                        cfg.infrastructure.git.remote_url,
+                        experiment_branch_name,
+                        experiment_dir,
+                        sparse_exclude,
+                    ),
                     f"Cloning the experiment into {experiment_dir}",
                 )
             else:
