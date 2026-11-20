@@ -1,6 +1,6 @@
 # Settle runs: the open items of the standard-model digest
 
-**Status:** running, from 2026-11-18. Eight jobs are on LEM: six submitted at 14:21 CET,
+**Status:** stalled, 2026-11-20: all eight jobs FAILED on 11-19, over the team's file quota (see the log). From 2026-11-18. Eight jobs are on LEM: six submitted at 14:21 CET,
 and at 14:40 the two single-switch dense runs Maciej added to item 5. The plan below was
 written before any result. The log and the results are appended as the runs go.
 
@@ -205,6 +205,24 @@ cemetery is world-readable, so the W&B key never goes into `exp.job`.
     - A user can only lower a limit, never raise it again.
 - **The watcher died with the previous session** at about 14:45, while every job was
   still pending, so nothing was missed. Restarted at 16:10.
+
+- **11-19, all eight jobs FAILED.**
+  - Six ran their full length (wall 3:53 to 14:56) and failed at the end.
+  - 6353892 (QK-norm only) and 6353893 (the shift only) died at their start: 0 s, node
+    r10-8.
+  - Maciej's diagnosis: the team went over LEM's file quota. That is Lustre project 649,
+    the group directory, with a hard limit of 1,048,576 inodes.
+  - **11-20, 10:10:** the project held 812,701 inodes, 192,345 of them Maciej's:
+
+    | What | Inodes |
+    |---|---|
+    | The cemetery, 349 job clones | 104,678 |
+    | The pixi env | 70,770 |
+    | The rattler cache's unshared part | 7,468 |
+    | Other | 9,429 |
+
+  - **Next:** Maciej's call on cleanup and resubmission. Whether W&B holds the six
+    full-length runs' results is unchecked.
 
 ## Results
 
