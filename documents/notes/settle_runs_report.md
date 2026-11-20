@@ -416,9 +416,8 @@ The paired gaps add up: −0.0216 − 0.0055 = +0.0132 − 0.0403 = −0.0271.
   | Both (`chne4w91`) | 3.444 | +5.3% | 53.3 |
 
 - **So the shift alone keeps −0.022 of the −0.027 at half the time cost.** QK-norm's
-  share on top of it, −0.006, is a tie that costs +2.4% s/step and 4.0 GiB. What QK-norm
-  still offers dense is parity with AME, which normalizes its Q and K too. Whether that is
-  worth the cost is Maciej's call.
+  share on top of it, −0.006, is a tie that costs +2.4% s/step and 4.0 GiB. Maciej keeps
+  it for stability (2026-11-20; [the digest's conclusions](standard_model_improvements.md#conclusions-what-to-apply-to-ame-and-dense)).
 
 ### 6. Dense h16 at n = 8 is unstable: n = 9 is the optimum
 
