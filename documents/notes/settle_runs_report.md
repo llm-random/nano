@@ -1,11 +1,11 @@
 # Settle runs: the open items of the standard-model digest
 
-**Status:** results in, 2026-11-20, except item 5's two single-switch dense runs.
+**Status:** done, 2026-11-20: all six items have results.
 - All eight jobs of 11-18 hit LEM's file quota on 11-19.
   - Six had already trained to their last step and logged `final_ce`, so their results
     stand ([Results](#results)).
   - The two single-switch runs died at their start. They were resubmitted on 11-20 at
-    10:40 as jobs 6370656 and 6370657, and have run since 17:40 and 17:45.
+    10:40 as jobs 6370656 and 6370657, and completed at 21:28 and 21:33.
 - The plan below was written before any result; the log and the results follow it.
 
 This note settles the "Runs that would settle what is left" table of
@@ -164,8 +164,8 @@ failed at the end-of-run checkpoint save, over the file quota. The result stands
 | 5, both | 6353711 | `ai_dense_h12_qkn_shift_lr8_2026-11-18_14-14-43` | `chne4w91` | r18-1 | 11-19 13:12 | 17:05 | Done, then quota | 2.9561 | −0.0271 against `x0xlqroj` |
 | 5, QK-norm only | 6353892 | `ai_dense_h12_qkn_lr8_2026-11-18_14-38-16` | — | r10-8 | 11-19 17:05 | 17:05 | FAILED at start: 0 s, no log (quota) | | |
 | 5, shift only | 6353893 | `ai_dense_h12_shift_lr8_2026-11-18_14-38-39` | — | r10-8 | 11-19 17:06 | 17:06 | FAILED at start: 0 s, no log (quota) | | |
-| 5, QK-norm only | 6370656 | the same clone | `8lqp6pk3` | r18-1 | 11-20 17:40 | | RUNNING: resubmitted 11-20 10:40, 5 h limit | | |
-| 5, shift only | 6370657 | the same clone | `aak55dd1` | r10-2 | 11-20 17:45 | | RUNNING: resubmitted 11-20 10:40, 5 h limit | | |
+| 5, QK-norm only | 6370656 | the same clone | `8lqp6pk3` | r18-1 | 11-20 17:40 | 21:28 | COMPLETED: resubmitted 11-20 10:40, 5 h limit | 2.9941 | +0.0132 against `x0xlqroj` |
+| 5, shift only | 6370657 | the same clone | `aak55dd1` | r10-2 | 11-20 17:45 | 21:33 | COMPLETED: resubmitted 11-20 10:40, 5 h limit | 2.9629 | −0.0216 against `x0xlqroj` |
 | 2 | 6353712 | `bank_gates_h16_none_std001_2026-11-18_14-15-12` | `eeaz5uy1` | r10-9 | 11-19 13:13 | 11-20 04:09 | Done, then quota | 2.7959 | −0.0798 against `hjw7znbz` |
 | 6 | 6353713 | `s1b_d_h16_lr8_2026-11-18_14-15-34` | `ezzyvpn8` | r14-3 | 11-19 13:22 | 11-20 02:34 | Done, then quota | 3.4346 | +0.7544 against `eh2sjsh7` |
 | 4 AME | 6353714 | `dm_ame_h12_ps_lr8_rep_2026-11-18_14-16-02` | `h53srjtk` | r14-3 | 11-19 13:23 | 18:04 | Done, then quota | 3.1084 | −0.0014 against `j6wxx6h2`; −0.0177 against `doi36p8k` |
@@ -268,6 +268,12 @@ failed at the end-of-run checkpoint save, over the file quota. The result stands
     both switches (9.875, 9.375, 9.25, 8.75, 8.4375). The shift sets the early losses, and
     QK-norm leaves them as in `x0xlqroj`.
   - Next: the end of training, about 21:30–21:40.
+- **11-20, 21:28–21:45: both single-switch runs completed.**
+  - 6370656 ended at 21:28 and 6370657 at 21:33, after 3:47 each. Both logged all 3,815
+    steps and `final_ce`, saved their checkpoints and logged no error, so the file quota
+    held.
+  - Item 5's 2 × 2 is complete ([Results, 5](#5-dense-switches-the-kv-shift-carries-the-gain-qk-norm-adds-a-tie)).
+  - With that, all six items have results.
 
 ## Results
 
@@ -360,20 +366,59 @@ it here.
   skips no work. A `BlockMask` built from the document boundaries could skip the
   cross-document blocks.
 
-### 5. Dense with QK-norm and the shift together: −0.027, at +5% per step
+### 5. Dense switches: the KV shift carries the gain, QK-norm adds a tie
 
-| Run | Against | Gap | `final_ce` Δ |
-|---|---|---:|---:|
-| `chne4w91`: QK-norm and the shift | `x0xlqroj`: neither | −0.0271 | −0.0264 |
+Each corner's paired gap against `x0xlqroj` (neither switch), with its `final_ce`:
 
-- **Outside the AME tie band, but weaker evidence than that suggests:**
-  - dense same-seed runs spread more than AME's;
-  - `x0xlqroj` carries the spike episode at steps 194–203 (grad-norm maximum 2.58),
-    while `chne4w91` had none (maximum 0.59).
-- **The gap holds in every quarter:** −0.026, −0.053, −0.034, −0.028.
-- **Cost:** 3.444 s/step against 3.272 (+5.3%), and 53.3 GiB of memory against 47.0.
-- **Pending:** the single-switch runs 6370656 and 6370657 will split this between the
-  two switches.
+| | No shift | Shift |
+|---|---:|---:|
+| **No QK-norm** | `x0xlqroj`: 0 (2.9824) | `aak55dd1`: −0.0216 (2.9629) |
+| **QK-norm** | `8lqp6pk3`: +0.0132 (2.9941) | `chne4w91`: −0.0271 (2.9561) |
+
+Each switch alone, and added to the other:
+
+| Switch | Alone: gap (`final_ce` Δ) | Added to the other: gap (`final_ce` Δ) |
+|---|---:|---:|
+| Shift | −0.0216 (−0.0195) | −0.0403 (−0.0381), on QK-norm |
+| QK-norm | +0.0132 (+0.0117) | −0.0055 (−0.0068), on the shift |
+
+The paired gaps add up: −0.0216 − 0.0055 = +0.0132 − 0.0403 = −0.0271.
+
+- **The shift carries the gain.**
+  - Alone it gains −0.022, on the tie line (0.0216 against 0.022). Its gap is negative
+    in every quarter: −0.090, −0.049, −0.028, −0.022.
+  - On top of QK-norm it gains −0.040: −0.086, −0.069, −0.049, −0.041 by quarter.
+- **QK-norm adds nothing measurable.**
+  - Alone it is +0.013, a tie, and behind in every quarter: +0.059, +0.016, +0.014,
+    +0.013.
+  - On top of the shift it is −0.006, a tie: +0.063 in the first quarter, then −0.004 to
+    −0.006.
+  - So in both cases it costs about 0.06 early and then runs level.
+- **The interaction is −0.019:** −0.0271 − 0.0132 + 0.0216. QK-norm helps only with the
+  shift, and then only by a tie. This rests on four single-seed runs, so it is a hint.
+- **Loss spikes:**
+  - Neither run with the shift had one (grad-norm maxima 0.86 and 0.59).
+  - Both runs without the shift had an episode: `x0xlqroj` at steps 194–203 (maximum
+    2.58), and QK-norm only at steps 468–478 (20 spike steps, maximum 0.93).
+  - **Caveat:** every pair that measures the shift has such an episode on its no-shift
+    side. With one seed, it can't say whether the shift prevents the episodes or the two
+    runs were unlucky. The one pair without an episode, both against the shift, is
+    QK-norm's tie.
+  - Dense same-seed runs spread more than AME's, so one corner alone is weak evidence;
+    the pattern across the four is the stronger one.
+- **Cost:** median s/step, one run each, on different LEM nodes; peak memory.
+
+  | Run | s/step | Δ | Memory, GiB |
+  |---|---:|---:|---:|
+  | Neither (`x0xlqroj`) | 3.272 | | 47.0 |
+  | QK-norm (`8lqp6pk3`) | 3.332 | +1.8% | 51.0 |
+  | Shift (`aak55dd1`) | 3.362 | +2.7% | 49.3 |
+  | Both (`chne4w91`) | 3.444 | +5.3% | 53.3 |
+
+- **So the shift alone keeps −0.022 of the −0.027 at half the time cost.** QK-norm's
+  share on top of it, −0.006, is a tie that costs +2.4% s/step and 4.0 GiB. What QK-norm
+  still offers dense is parity with AME, which normalizes its Q and K too. Whether that is
+  worth the cost is Maciej's call.
 
 ### 6. Dense h16 at n = 8 is unstable: n = 9 is the optimum
 

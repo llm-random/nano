@@ -6,10 +6,8 @@ tests found, whether to adopt it, and which branch and commit hold it. Nothing b
 `ame_main` unless its *Where* says so. No code was run to write this note. Every number
 comes from the report cited next to it, and the branch facts are as of 2026-11-18.
 
-**Updated 2026-11-20** with the settle runs ([settle_runs_report.md](settle_runs_report.md)).
-- Five of the six open items are now measured.
-- The sixth, dense QK-norm and the shift, has its combined run. Its two single-switch
-  runs are pending.
+**Updated 2026-11-20** with the settle runs ([settle_runs_report.md](settle_runs_report.md)):
+all six open items are now measured.
 
 The work ran in five Claude Code sessions, kept in the "Overwatch" sessions folder:
 
@@ -31,7 +29,7 @@ The work ran in five Claude Code sessions, kept in the "Overwatch" sessions fold
 | Bank init σ = 1e-4 (`bank_init_std`) | AME | **Adopt.** The largest gain found: −0.09 against σ = 1 at h12, −0.08 at h16 | Setting on `ame_main`, default still 1.0 |
 | Document mask (`document_mask`) | both | **Gain confirmed, at +12% s/step.** About −0.02 in both models, replicated. Whether the gain pays for the time is Maciej's call | `doc_mask` (local) |
 | Banks at 4× the learning rate (`bank_lr_ratio`) | AME | **Adopt, by Maciej's call (2026-11-18).** −0.03 at σ = 1, but only −0.008 (a tie) on top of σ = 1e-4. No cost | `ame_improve` (pushed) |
-| QK-norm and KV shift for dense | dense | **Adopt, by Maciej's call (2026-11-18).** Together −0.027 at +5% s/step (one run). Each alone is pending | `ame_improve` (pushed) |
+| QK-norm and KV shift for dense | dense | **Adopt, by Maciej's call (2026-11-18).** Together −0.027 at +5% s/step. The shift carries it: −0.022 alone, at +2.7%. QK-norm adds only a tie (−0.006 on the shift) for +2.4% s/step and 4 GiB. Whether to keep it, for parity with AME, is Maciej's call | `ame_improve` (pushed) |
 | ST (stem) bank gate | AME | **Open.** A tie at h12; at h16 it gains −0.048 beyond the small init. +3.8% s/step | `ame_main`, off by default |
 | Bank gates B1, B2, B3 | AME | Reject | `ame_main`, off by default |
 | New init bundle: Xavier embedding and head, pkmf-scale Linears, undecayed embedding | both | Reject | `ame_initialization` (local) |
@@ -43,8 +41,8 @@ bank learning rate for AME, and QK-norm and the KV shift for dense. The settle r
 (2026-11-20) measured all three:
 - The 4× rate on top of σ = 1e-4 is a tie (−0.008)
   ([Banks at 4× the learning rate](#banks-at-4-the-learning-rate-ame)).
-- The two dense switches together gain −0.027, at +5% s/step. Each alone is pending
-  ([Built on ame_improve](#built-on-ame_improve)).
+- The two dense switches together gain −0.027, at +5% s/step. The shift carries it
+  (−0.022 alone), and QK-norm adds only a tie ([Built on ame_improve](#built-on-ame_improve)).
 - The document mask costs +12% s/step ([Document mask](#document-mask-both-models)).
 
 Four of the keys need branches that are not on `ame_main` yet
@@ -72,8 +70,8 @@ Dense:
 common:
   attention:
     type: gqa                # RoPE on by default
-    qk_norm: true            # branch ame_improve; with shift: -0.027 at +5% s/step
-    shift: true              # branch ame_improve; needs document-boundary gating (caveat 2)
+    qk_norm: true            # branch ame_improve; a tie on the shift (-0.006) at +2.4% s/step
+    shift: true              # branch ame_improve; -0.022 at +2.7% s/step; needs document-boundary gating (caveat 2)
     document_mask: true      # branch doc_mask; -0.02 at +12% s/step
 trainer:
   learning_rate: 8           # h12; 9 at h16 and h20
@@ -294,8 +292,8 @@ training runs. The two attention switches first ran on a GPU in the settle runs
 
 | Feature | Key | Commit | State |
 |---|---|---|---|
-| QK-norm for every attention type: ℓ2 per head, a learned per-head τ initialized at √d_head, τ exempt from weight decay | `common.attention.qk_norm`, or `gqa: {qk_norm: true}`. Off for dense, on for AME | `7762da98` | Trained with the shift: −0.027 at +5% s/step (`chne4w91`). Alone: pending |
-| KV shift for dense (Xu et al., arXiv 2411.19574), applied before RoPE and after QK-norm | `common.attention.shift`, or `gqa: {shift: true}` | `7345eebc` | Trained with QK-norm (above). Alone: pending |
+| QK-norm for every attention type: ℓ2 per head, a learned per-head τ initialized at √d_head, τ exempt from weight decay | `common.attention.qk_norm`, or `gqa: {qk_norm: true}`. Off for dense, on for AME | `7762da98` | Alone +0.013, a tie (`8lqp6pk3`), at +1.8% s/step and 4.0 GiB. On top of the shift −0.006, a tie |
+| KV shift for dense (Xu et al., arXiv 2411.19574), applied before RoPE and after QK-norm | `common.attention.shift`, or `gqa: {shift: true}` | `7345eebc` | Alone −0.022 (`aak55dd1`), at +2.7% s/step and 2.3 GiB. On top of QK-norm −0.040 |
 | Training length in billions of tokens, rounded down to whole batches. Setting steps as well is an error before anything is submitted | `trainer.n_tokens_b`, with `n_steps: null` | `62a59d2f` | Used by the ratio-4 runs. Its `run_exp.py` fix `83ebaa85` (the missing-key check runs on the resolved copy) is only on the local `ame_improve_runs` |
 
 The dense model matched to AME, `attention: {type: gqa, qk_norm: true, shift: true}`,
@@ -305,7 +303,22 @@ trained once in the settle runs (`chne4w91`,
 - +5.3% s/step and 6.3 GiB more memory;
 - no loss spike, while `x0xlqroj` had one early episode.
 
-Which switch carries the gain is pending: one run per switch, jobs 6370656 and 6370657.
+Each switch alone then ran too (2026-11-20), completing the 2 × 2. Each corner is a paired
+gap against `x0xlqroj`, with its `final_ce`:
+
+| | No shift | Shift |
+|---|---:|---:|
+| **No QK-norm** | `x0xlqroj`: 0 (2.9824) | `aak55dd1`: −0.022 (2.9629) |
+| **QK-norm** | `8lqp6pk3`: +0.013 (2.9941) | `chne4w91`: −0.027 (2.9561) |
+
+- **The shift carries the gain:** −0.022 alone, on the tie line, and −0.040 on top of
+  QK-norm. Neither run with the shift had a loss spike; both runs without it had an early
+  episode.
+- **QK-norm adds nothing measurable:** +0.013 alone and −0.006 on top of the shift, both
+  ties. In both it is about 0.06 behind in the first quarter, then level.
+- **The shift alone would keep −0.022 of the −0.027,** at +2.7% s/step instead of +5.3%
+  and with 4 GiB less memory. What QK-norm still offers dense is parity with AME.
+
 The dense τ, α and β are not instrumented. Maciej put both switches into the standard
 dense config on 2026-11-18 ([Proposed standard configs](#proposed-standard-configs)).
 
@@ -380,7 +393,7 @@ The counts include docs-only commits.
 
 ## The settle runs
 
-They ran on LEM on 2026-11-19. The record is
+They ran on LEM on 2026-11-19, the two single-switch dense runs on 2026-11-20. The record is
 [settle_runs_report.md](settle_runs_report.md).
 
 | Run | Question | Answer |
@@ -389,7 +402,7 @@ They ran on LEM on 2026-11-19. The record is
 | AME h16, σ = 0.01, no gate | The init's own gain at h16; how much of ST's lead it explains | The init gains −0.080. ST adds −0.048 beyond it, B3 nothing |
 | σ = 1e-8, round 5 of the σ grid | Where the lower edge lies | +0.183 ([ame_bank_sigma_grid.md](ame_bank_sigma_grid.md)) |
 | A same-seed replicate of each document-mask run | Is the ≈0.02 gain real? | Yes: each reproduced within 0.002, and the AME gain is resolved. But the mask costs +12% s/step |
-| Dense h12 with QK-norm and the shift | Do the dense switches help, and what do they cost? | Together −0.027 at +5% s/step. Each alone is pending: jobs 6370656 and 6370657 |
+| Dense h12 with QK-norm and the shift, then each alone | Do the dense switches help, and what do they cost? | Together −0.027 at +5% s/step. The shift carries it (−0.022 alone, +2.7%); QK-norm adds a tie |
 | Dense h16 at n = 8 | Is dense h16's best n at the grid edge? | No: n = 8 is unstable (+0.69), so n = 9 is bracketed |
 
 Lower priority:
