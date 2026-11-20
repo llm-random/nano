@@ -14,7 +14,7 @@ Several of us submit hundreds of experiments each, and every run leaves its own 
 
 We are now planning a large series of short experiments, each of which writes many log files. We also noticed that the MDT of /lustre/pd03 is nearly full (99% in lfs df -i). We understand that file counts are a shared constraint, so we are asking for a moderate increase.
 
-We would like to ask for a permanent increase of our file quota to 2 million files, or more if possible. On our side, we will cut the files each experiment leaves behind, for example by packing each run's logs into one archive.
+We would like to ask for a permanent increase of our file quota to 2 million files, or more if possible. On our side, we will cut the files each experiment leaves behind, for example by packing the directories of finished runs into single archives.
 
 Thank you very much for your help.
 
@@ -34,4 +34,4 @@ PLGrid login: plgmstefaniak
 | 11-19 job failures | `OSError: [Errno 122] Disk quota exceeded: 'checkpoint'` (project quota, not a full MDT) | `slurm-6353710_0.out` |
 
 A quota of 2M lets the team add about 1.24M files. `lfs df -i` estimates about 1.28M free inodes in
-the whole filesystem, so the offer to pack logs may decide the answer.
+the whole filesystem, so the offer to pack finished runs may decide the answer.
