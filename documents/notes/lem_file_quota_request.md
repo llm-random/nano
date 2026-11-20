@@ -16,8 +16,6 @@ We are now planning a large series of short experiments, each of which writes ma
 
 Would it be possible to raise our file quota permanently to 2 million files? On our side, we will cut the files each experiment leaves behind, for example by packing each run's logs into one archive.
 
-Out of curiosity, are there plans to expand the metadata capacity of pd03, for example with a larger or a second MDT? It would help us plan our future experiments.
-
 Thank you very much for your help.
 
 Best regards,
