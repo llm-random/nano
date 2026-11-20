@@ -1,16 +1,21 @@
 # What to fold into the standard AME and dense models
 
-**Status:** proposed, 2026-11-18. This is a digest of every improvement and configuration
-test run on AME and dense from 2026-11-04 to 2026-11-17. For each change it gives what the
-tests found, whether to adopt it, and which branch and commit hold it. Nothing below is on
-`ame_main` unless its *Where* says so. No code was run to write this note. Every number
-comes from the report cited next to it, and the branch facts are as of 2026-11-18.
+**Status:** decided on 2026-11-21, except the document mask. This digest covers every
+improvement and configuration test run on AME and dense from 2026-11-04 to 2026-11-20, the
+settle runs included ([settle_runs_report.md](settle_runs_report.md)). For each change it
+gives what the tests found, the verdict, and which branch and commit hold it. Nothing below
+is on `ame_main` unless its *Where* says so. Every number comes from the report cited next
+to it, and the branch facts are as of 2026-11-21.
 
-**Updated 2026-11-20** with the settle runs ([settle_runs_report.md](settle_runs_report.md)):
-all six open items are now measured. What to apply to each model is in
-[Conclusions](#conclusions-what-to-apply-to-ame-and-dense).
+- **AME:** the S2-PS recipe, plus the bank init σ = 1e-4 and the 4× bank learning rate. No
+  bank gate.
+- **Dense:** RoPE, plus the KV shift, and QK-norm for stability.
+- **Open:** the document mask, about −0.02 in both models at +12% s/step.
 
-The work ran in five Claude Code sessions, kept in the "Overwatch" sessions folder:
+The configs are in [Proposed standard configs](#proposed-standard-configs), and the reasoning
+in [Conclusions](#conclusions-what-to-apply-to-ame-and-dense).
+
+The work ran in six Claude Code sessions, kept in the "Overwatch" sessions folder:
 
 | Session | What it did | Records |
 |---|---|---|
@@ -19,6 +24,7 @@ The work ran in five Claude Code sessions, kept in the "Overwatch" sessions fold
 | AME Implement Mask | Document masking for packed rows, run on both models | [doc_mask_report.md](doc_mask_report.md) |
 | AME Experiments GATE | Four bank gates (stage 1, h12 and h16), then the bank-init ablation (stage 2) | [ame_bank_gates_report.md](ame_bank_gates_report.md), [ame_bank_gates_stage2_report.md](ame_bank_gates_stage2_report.md) |
 | AME Experiment INIT | A new init bundle and its ablations, then the bank-init σ grid | [ame_init_exp.md](ame_init_exp.md), [ame_init_embed_ablation.md](ame_init_embed_ablation.md), [ame_init_pkmf_linears.md](ame_init_pkmf_linears.md), [ame_bank_sigma_grid.md](ame_bank_sigma_grid.md) |
+| AME and Dense model improvements | This digest, then the settle runs and the decisions, 2026-11-18 to 11-21 | [settle_runs_report.md](settle_runs_report.md) |
 
 ## Summary
 
@@ -26,28 +32,27 @@ The work ran in five Claude Code sessions, kept in the "Overwatch" sessions fold
 |---|---|---|---|
 | ALiBi + KV shift (S2-PS) | AME | **Standard.** Already the layer's default | `ame_main` |
 | RoPE | dense | **Standard.** NoPE costs +0.28 | `ame_main` |
-| Learning rate: AME n = 8 at every size; dense n = 8 at h12, n = 9 at h16 and h20 | both | **Standard.** Dense h16's n = 9 is now bracketed: n = 8 is unstable | `ame_main` stage configs |
-| Bank init σ = 1e-4 (`bank_init_std`) | AME | **Adopt.** The largest gain found: −0.09 against σ = 1 at h12, −0.08 at h16 | Setting on `ame_main`, default still 1.0 |
-| Document mask (`document_mask`) | both | **Gain confirmed, at +12% s/step.** About −0.02 in both models, replicated. Whether the gain pays for the time is Maciej's call | `doc_mask` (local) |
-| Banks at 4× the learning rate (`bank_lr_ratio`) | AME | **Adopt, by Maciej's call (2026-11-18).** −0.03 at σ = 1, but only −0.008 (a tie) on top of σ = 1e-4. No cost | `ame_improve` (pushed) |
-| QK-norm and KV shift for dense | dense | **Adopt, by Maciej's call (2026-11-18).** Together −0.027 at +5% s/step. The shift carries it: −0.022 alone, at +2.7%. QK-norm adds only a tie (−0.006 on the shift) for +2.4% s/step and 4 GiB; Maciej keeps it for stability (2026-11-20) | `ame_improve` (pushed) |
-| ST (STEM) bank gate | AME | **Reject** (Maciej, 2026-11-21): it breaks AME's precomputed score table. A tie at h12; −0.048 beyond the small init at h16 | `ame_main`, off by default |
-| Bank gates B1, B2, B3 | AME | Reject | `ame_main`, off by default |
-| New init bundle: Xavier embedding and head, pkmf-scale Linears, undecayed embedding | both | Reject | `ame_initialization` (local) |
+| Learning rate: AME n = 8 at every size; dense n = 8 at h12, n = 9 at h16 and h20 | both | **Standard.** Dense h16's n = 9 is bracketed: n = 8 is unstable | `ame_main` stage configs |
+| Bank init σ = 1e-4 (`bank_init_std`) | AME | **Adopted.** The largest gain found: −0.09 against σ = 1 at h12, −0.08 at h16 | Setting on `ame_main`, default still 1.0 |
+| Banks at 4× the learning rate (`bank_lr_ratio`) | AME | **Adopted** (Maciej, 2026-11-18). −0.03 at σ = 1, but only −0.008 (a tie) on top of σ = 1e-4. No cost | `ame_improve` (pushed) |
+| KV shift for dense (`shift`) | dense | **Adopted.** −0.022 alone and −0.040 on top of QK-norm, at +2.7% s/step | `ame_improve` (pushed) |
+| QK-norm for dense (`qk_norm`) | dense | **Adopted for stability** (Maciej, 2026-11-20). A loss tie either way, at +1.8–2.4% s/step and 4 GiB | `ame_improve` (pushed) |
+| Document mask (`document_mask`) | both | **Open, Maciej's call.** About −0.02 in both models, replicated, at +12% s/step. Recommendation: off in both until a block-sparse mask makes it free | `doc_mask` (local) |
+| ST (STEM) bank gate | AME | **Rejected** (Maciej, 2026-11-21): it breaks AME's precomputed score table. A tie at h12; −0.048 beyond the small init at h16 | `ame_main`, off by default |
+| Bank gates B1, B2, B3 | AME | **Rejected.** Ties or losses beyond the small init | `ame_main`, off by default |
+| New init bundle: Xavier embedding and head, pkmf-scale Linears, undecayed embedding | both | **Rejected.** +0.014 (AME) to +1.271 (dense) at h12 | `ame_initialization` (local) |
 
 ## Proposed standard configs
 
-What the tested pieces add up to, plus three switches Maciej added on 2026-11-18: the 4×
-bank learning rate for AME, and QK-norm and the KV shift for dense. The settle runs
-(2026-11-20) measured all three:
-- The 4× rate on top of σ = 1e-4 is a tie (−0.008)
-  ([Banks at 4× the learning rate](#banks-at-4-the-learning-rate-ame)).
-- The two dense switches together gain −0.027, at +5% s/step. The shift carries it
-  (−0.022 alone), and QK-norm adds only a tie ([Built on ame_improve](#built-on-ame_improve)).
-- The document mask costs +12% s/step ([Document mask](#document-mask-both-models)).
+As decided on 2026-11-21 ([Conclusions](#conclusions-what-to-apply-to-ame-and-dense)):
+- AME adds the bank init σ = 1e-4 and the 4× bank learning rate to the S2-PS recipe, and
+  no bank gate.
+- Dense adds the KV shift, which carries the loss gain, and QK-norm, kept for stability.
+- The document mask is the one open call, so it is commented out in both. If it goes on,
+  it goes on in both models ([Open: the document mask](#open-the-document-mask-both-models)).
 
-Four of the keys need branches that are not on `ame_main` yet
-([Before merging](#before-merging)).
+Three of the keys, `bank_lr_ratio`, `qk_norm` and `shift`, need `ame_improve`, which is not
+on `ame_main` yet ([Before merging](#before-merging)).
 
 AME:
 
@@ -55,14 +60,14 @@ AME:
 common:
   attention:
     type: ame
-    document_mask: true      # branch doc_mask (eos_token_id 0, NeoX); -0.02 at +12% s/step
+    # document_mask: true    # open call: -0.02 at +12% s/step; branch doc_mask
     ame:
       shift: true            # ame_main default; the ALiBi ladder and the sink are defaults too
-      bank_init_std: 1.0e-4  # ame_main default is 1.0
+      bank_init_std: 1.0e-4  # ame_main default is still 1.0
       bank_gate: none        # default; every gate is rejected
 trainer:
   learning_rate: 8           # LR 2^-8 at h12, h16 and h20
-  bank_lr_ratio: 4           # branch ame_improve (its default there); a tie on sigma 1e-4 (-0.008)
+  bank_lr_ratio: 4           # branch ame_improve (its default there); a tie on sigma 1e-4, no cost
 ```
 
 Dense:
@@ -71,9 +76,9 @@ Dense:
 common:
   attention:
     type: gqa                # RoPE on by default
-    qk_norm: true            # branch ame_improve; kept for stability (Maciej); a loss tie at +2.4% s/step
-    shift: true              # branch ame_improve; -0.022 at +2.7% s/step; needs document-boundary gating (caveat 2)
-    document_mask: true      # branch doc_mask; -0.02 at +12% s/step
+    qk_norm: true            # branch ame_improve; for stability; a loss tie at +1.8-2.4% s/step
+    shift: true              # branch ame_improve; -0.022 alone, -0.040 with qk_norm; +2.7% s/step
+    # document_mask: true    # open call, as for AME; with the shift it needs caveat 2's gating
 trainer:
   learning_rate: 8           # h12; 9 at h16 and h20
 ```
@@ -135,7 +140,7 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
     [stage_1c/dense_h20_lr_grid.yaml](../../configs/stage_1c/dense_h20_lr_grid.yaml).
   - A run's logged W&B config is the truth about what it trained.
 
-## Adopt
+## Adopted
 
 ### Bank init σ (AME)
 
@@ -163,7 +168,7 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
     of the total gain comes from tokens seen in every step.
   - **h16 (settle run 2, 2026-11-20).** σ = 0.01 with no gate (`eeaz5uy1`) against σ = 1
     (`hjw7znbz`): paired −0.080, `final_ce` 2.7959 against 2.8594.
-- **Verdict:** adopt σ = 1e-4, mid-plateau and two decades below the cliff.
+- **Verdict:** adopted, σ = 1e-4: mid-plateau and two decades below the cliff.
   - σ = 0.01 ties at h12 and n = 8, and more runs used it.
   - However, 0.01 sits only a quarter-decade below the cliff, and the cliff may move with
     the learning rate (untested).
@@ -177,7 +182,73 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
   - small σ at h20;
   - any learning rate but n = 8.
 
-### Document mask (both models)
+### Banks at 4× the learning rate (AME)
+
+- **What it is:** `trainer.bank_lr_ratio` sets the Q/K banks' learning rate as a multiple
+  of the base rate.
+  - It holds through warmup and the cosine decay, and under memory parallelism.
+  - Each optimizer group gets its own cosine floor in `src/core/schedulers.py`. At ratio 1
+    the schedule is bit-identical to the old one.
+- **Evidence** ([ame_improve_runs_report.md](ame_improve_runs_report.md)): S2-PS at n = 8
+  and σ = 1. No cost in s/step, MFU or memory, and no NaN or spike. Only ratio 4 was tried.
+
+  | | Ratio 4 | Ratio 1 | `final_ce` Δ | Paired gap |
+  |---|---|---|---:|---:|
+  | h12 | 3.0938 `y5ogvt3k` | 3.1250 `doi36p8k` | −0.031 | −0.034 |
+  | h16 | 2.8311 `hn1qal9z` | 2.8594 `hjw7znbz` | −0.028 | −0.033 |
+  | h12 on σ = 1e-4 (settle run 1) | 3.0312 `zdmv3qci` | 3.0400 `7te9jv9u` | −0.009 | −0.008 |
+
+- **Verdict:** adopted, by Maciej's call (2026-11-18). On top of σ = 1e-4 it is a tie:
+  −0.008, against −0.034 at σ = 1 ([settle_runs_report.md](settle_runs_report.md), 1).
+  - **The two levers mostly overlap.** Under the hard QK-norm only a row's direction
+    counts. A small σ lets Adam turn the rows faster, and so does a larger bank learning
+    rate.
+  - **It costs nothing:** the same s/step and memory, no spike. Keeping it is harmless.
+- **Where:**
+  - The feature: `ame_improve`, commit `e64a466c`, pushed (`origin/ame_improve`).
+  - The run configs: `configs/ame_improve/` on the local branch `ame_improve_runs`
+    (`cb7704cd`).
+- **Caveat:** the branch makes 4.0 the default, in the trainer schema and in
+  `configs/_trainer/llama.yaml`.
+  - Merged as-is, it moves every AME config to 4×.
+  - Old AME checkpoints have two optimizer groups, so they need `bank_lr_ratio: 1` to
+    resume.
+
+### QK-norm and the KV shift (dense)
+
+- **What they are:** two switches on `ame_improve` that give dense attention what AME
+  already has. Both passed the CPU suite and small end-to-end CPU training runs, and first
+  ran on a GPU in the settle runs.
+  - `common.attention.qk_norm`, or `gqa: {qk_norm: true}` (`7762da98`): ℓ2 per head, with a
+    learned per-head τ initialized at √d_head and exempt from weight decay. Off for dense
+    by default, on for AME.
+  - `common.attention.shift`, or `gqa: {shift: true}` (`7345eebc`): the KV shift of Xu et
+    al. (arXiv 2411.19574), after QK-norm and before RoPE. One (c1, c2) pair per KV head
+    for the keys and one for the values.
+- **Evidence:** the full 2 × 2 at h12 ([settle_runs_report.md](settle_runs_report.md), 5).
+  Each corner is a paired gap against `x0xlqroj`, with its `final_ce`:
+
+  | | No shift | Shift |
+  |---|---:|---:|
+  | **No QK-norm** | `x0xlqroj`: 0 (2.9824) | `aak55dd1`: −0.022 (2.9629) |
+  | **QK-norm** | `8lqp6pk3`: +0.013 (2.9941) | `chne4w91`: −0.027 (2.9561) |
+
+  - **The shift carries the gain:** −0.022 alone, on the tie line, and −0.040 on top of
+    QK-norm. Neither run with the shift had a loss spike, while both runs without it had an
+    early episode.
+  - **QK-norm adds nothing measurable to the loss:** +0.013 alone and −0.006 on top of the
+    shift, both ties. In both it is about 0.06 behind in the first quarter, then level.
+  - **Cost:** the shift +2.7% s/step and 2.3 GiB; QK-norm +1.8% alone, +2.4% on top of the
+    shift, and 4.0 GiB; both together +5.3% and 6.3 GiB.
+- **Verdict:** adopt both. Maciej put them into the standard dense config on 2026-11-18,
+  before these runs.
+  - The runs back the shift.
+  - Maciej keeps QK-norm for stability (2026-11-20). Its case lies at larger models and
+    higher learning rates, which h12 at n = 8 does not test. Dense h16 at n = 8, unstable
+    without it, would test it in one run.
+- **Not measured:** either switch at h16 or h20. The dense τ, α and β are not instrumented.
+
+## Open: the document mask (both models)
 
 - **What it is:** `common.attention.document_mask: true`.
   - Attention stays inside each document of a packed row, in every layer, and AME's KV
@@ -214,11 +285,14 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
 
   The first report's "unchanged" and "+1.5%" compared entropy with LEM, and entropy runs
   this workload about 10% faster.
-- **Verdict:** the gain is real in both models, about −0.02. It costs about 12% more time
-  per step, so adopting it is a trade, and the call is Maciej's.
-  - The mask is a flex `score_mod`, so it skips no work.
-  - A `BlockMask` built from the document boundaries could skip the cross-document
-    blocks, and might make the mask free. Untested.
+- **Verdict: open, Maciej's call.** The gain is real in both models, about −0.02, and it
+  costs about 12% more time per step.
+  - **Recommendation: off in both models for now, on in both once it is free.** It leaves
+    the AME − dense gap where it was, so the comparison does not need it.
+  - The mask is a flex `score_mod`, so it skips no work. A `BlockMask` built from the
+    document boundaries could skip the cross-document blocks, and might make the mask
+    free. Untested.
+  - Whenever it goes on, it goes on in both models.
 - **Where:** the local branch `doc_mask` (not pushed), cut from `ame_main` `3ef6e363`.
 
   | Commit | What |
@@ -230,39 +304,9 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
 - **Lesson:** the compiled eval runs a no_grad graph that grad-mode GPU tests never build.
   Test it at production shapes.
 
-### Banks at 4× the learning rate (AME)
+## Tested and rejected
 
-- **What it is:** `trainer.bank_lr_ratio` sets the Q/K banks' learning rate as a multiple
-  of the base rate.
-  - It holds through warmup and the cosine decay, and under memory parallelism.
-  - Each optimizer group gets its own cosine floor in `src/core/schedulers.py`. At ratio 1
-    the schedule is bit-identical to the old one.
-- **Evidence** ([ame_improve_runs_report.md](ame_improve_runs_report.md)): S2-PS at n = 8
-  and σ = 1. No cost in s/step, MFU or memory, and no NaN or spike. Only ratio 4 was tried.
-
-  | | Ratio 4 | Ratio 1 | `final_ce` Δ | Paired gap |
-  |---|---|---|---:|---:|
-  | h12 | 3.0938 `y5ogvt3k` | 3.1250 `doi36p8k` | −0.031 | −0.034 |
-  | h16 | 2.8311 `hn1qal9z` | 2.8594 `hjw7znbz` | −0.028 | −0.033 |
-  | h12 on σ = 1e-4 (settle run 1) | 3.0312 `zdmv3qci` | 3.0400 `7te9jv9u` | −0.009 | −0.008 |
-
-- **Verdict:** adopt, by Maciej's call (2026-11-18). On top of σ = 1e-4 it is a tie:
-  −0.008, against −0.034 at σ = 1 ([settle_runs_report.md](settle_runs_report.md), 1).
-  - **The two levers mostly overlap.** Under the hard QK-norm only a row's direction
-    counts. A small σ lets Adam turn the rows faster, and so does a larger bank learning
-    rate.
-  - **It costs nothing:** the same s/step and memory, no spike. Keeping it is harmless.
-- **Where:**
-  - The feature: `ame_improve`, commit `e64a466c`, pushed (`origin/ame_improve`).
-  - The run configs: `configs/ame_improve/` on the local branch `ame_improve_runs`
-    (`cb7704cd`).
-- **Caveat:** the branch makes 4.0 the default, in the trainer schema and in
-  `configs/_trainer/llama.yaml`.
-  - Merged as-is, it moves every AME config to 4×.
-  - Old AME checkpoints have two optimizer groups, so they need `bank_lr_ratio: 1` to
-    resume.
-
-## Rejected: the ST (STEM) bank gate
+### The ST (STEM) bank gate
 
 **Rejected by Maciej on 2026-11-21:** it breaks the precomputed score table, AME's
 decode-time payoff, so its gain at h16 does not count. The record below stays.
@@ -297,45 +341,7 @@ decode-time payoff, so its gain at h16 does not count. The record below stays.
   - So at h16, ST is the one gate that helps beyond the init. At h12 its gain beyond the
     init was a tie.
 
-## Built on ame_improve
-
-All three are on `ame_improve`, pushed. Each passed the CPU suite and small end-to-end CPU
-training runs. The two attention switches first ran on a GPU in the settle runs
-(2026-11-19).
-
-| Feature | Key | Commit | State |
-|---|---|---|---|
-| QK-norm for every attention type: ℓ2 per head, a learned per-head τ initialized at √d_head, τ exempt from weight decay | `common.attention.qk_norm`, or `gqa: {qk_norm: true}`. Off for dense, on for AME | `7762da98` | Alone +0.013, a tie (`8lqp6pk3`), at +1.8% s/step and 4.0 GiB. On top of the shift −0.006, a tie |
-| KV shift for dense (Xu et al., arXiv 2411.19574), applied before RoPE and after QK-norm | `common.attention.shift`, or `gqa: {shift: true}` | `7345eebc` | Alone −0.022 (`aak55dd1`), at +2.7% s/step and 2.3 GiB. On top of QK-norm −0.040 |
-| Training length in billions of tokens, rounded down to whole batches. Setting steps as well is an error before anything is submitted | `trainer.n_tokens_b`, with `n_steps: null` | `62a59d2f` | Used by the ratio-4 runs. Its `run_exp.py` fix `83ebaa85` (the missing-key check runs on the resolved copy) is only on the local `ame_improve_runs` |
-
-The dense model matched to AME, `attention: {type: gqa, qk_norm: true, shift: true}`,
-trained once in the settle runs (`chne4w91`,
-[settle_runs_report.md](settle_runs_report.md), 5):
-- paired −0.027 against `x0xlqroj`; `final_ce` 2.9561 against 2.9824;
-- +5.3% s/step and 6.3 GiB more memory;
-- no loss spike, while `x0xlqroj` had one early episode.
-
-Each switch alone then ran too (2026-11-20), completing the 2 × 2. Each corner is a paired
-gap against `x0xlqroj`, with its `final_ce`:
-
-| | No shift | Shift |
-|---|---:|---:|
-| **No QK-norm** | `x0xlqroj`: 0 (2.9824) | `aak55dd1`: −0.022 (2.9629) |
-| **QK-norm** | `8lqp6pk3`: +0.013 (2.9941) | `chne4w91`: −0.027 (2.9561) |
-
-- **The shift carries the gain:** −0.022 alone, on the tie line, and −0.040 on top of
-  QK-norm. Neither run with the shift had a loss spike; both runs without it had an early
-  episode.
-- **QK-norm adds nothing measurable:** +0.013 alone and −0.006 on top of the shift, both
-  ties. In both it is about 0.06 behind in the first quarter, then level.
-- **The shift alone would keep −0.022 of the −0.027,** at +2.7% s/step instead of +5.3%
-  and with 4 GiB less memory. Maciej keeps QK-norm anyway, for stability (2026-11-20).
-
-The dense τ, α and β are not instrumented. Maciej put both switches into the standard
-dense config on 2026-11-18 ([Proposed standard configs](#proposed-standard-configs)).
-
-## Tested and rejected
+### The other gates, the init bundle and the ablations
 
 Keep the current init: the embedding N(0, 1) cut at ±2 with weight decay, and the Linears
 and head at 1/√fan_in cut at ±2σ. The one exception is the banks' σ.
@@ -344,7 +350,6 @@ and head at 1/√fan_in cut at ±2σ. The one exception is the banks' σ.
 |---|---|---|
 | B1, the confidence gate | 0.07–0.11 behind no gate at the same σ, from either start. Its trust stays where it starts | `ame_main`, `bank_gate: confidence` |
 | B2 (context gate) and B3 (backoff gate) | Nothing beyond the σ = 0.01 init at h12: B2 −0.0003, B3 +0.0001. B3 at σ = 1: −0.0079. All ties | `ame_main`, `bank_gate: context` and `backoff` |
-| ST, the STEM gate | A tie at h12; −0.048 beyond the small init at h16, one run. Rejected because it breaks the precomputed score table ([Rejected: the ST (STEM) bank gate](#rejected-the-st-stem-bank-gate)) | `ame_main`, `bank_gate: stem` |
 | The new init bundle: Xavier embedding, head and banks; pkmf's √(0.1/fan_in) Linears; no weight decay on the embedding | Paired gaps: AME h12 +0.014, dense h12 +1.271, AME h16 +0.032, dense h16 +0.213 ([ame_init_exp.md](ame_init_exp.md)) | `ame_initialization` `79108114` |
 | Part of that bundle: the Xavier embedding (σ ≈ 0.006) | Dense +0.999, AME +0.003 ([ame_init_embed_ablation.md](ame_init_embed_ablation.md)) | `ame_initialization` |
 | Part of that bundle: no weight decay on the embedding | AME +0.012, dense +0.039. It never helps | `ame_initialization` |
@@ -367,22 +372,24 @@ to 0.01.
 - In W&B, 0 of 38 finished FSDP2 AME runs logged `alpha_2` or `tau`, and the h20 stage
   ran on FSDP2 ([stage_2c_report.md](stage_2c_report.md), "Readouts").
 - The fix is small: `instrumentation(token_ids=None)` works under FSDP2, so split the two
-  halves. It is not applied on `ame_main`: no commit since `683c316b` touches the readout.
+  halves. It is not applied on `ame_main` as of 2026-11-21: no commit since `683c316b`
+  touches the readout.
 - Until it is fixed, runs that need readouts use `distributed: null` or DDP.
 
 ## Before merging
 
-### Where everything is (2026-11-18)
+### Where everything is (2026-11-21)
 
 | Branch | On origin | Commits ahead / behind `ame_main` | Holds |
 |---|---|---|---|
-| `ame_main` | No: 127 commits ahead of `origin/ame_main` (`e6116135`, 2026-11-07) | — | The stage configs and reports, the bank gates and `bank_init_std`, and every report cited here |
-| `ame_improve` | Yes (`7345eebc`) | 4 / 179 | `n_tokens_b`, `qk_norm`, `bank_lr_ratio` and the dense `shift` |
-| `ame_improve_runs` | No | 17 / 179 | `ame_improve`, plus the ratio-4 run configs `cb7704cd` and the `run_exp.py` fix `83ebaa85` |
-| `doc_mask` | No | 17 / 43 | The document mask, its fix and configs, and `doc_mask_results.py` |
-| `ame_initialization` | No | 13 / 86 | The rejected init bundle and its ablation configs, and `scripts/paired_gap.py` |
-| `bank_sigma_grid` | No | 20 / 18 | The σ-grid configs and scripts: `grid_points.py`, `watch_array.py`, `paired_gap.py`, `bank_sigma_next.py`, `bank_sigma_chart.py` |
-| `bank_gates_lem` | No | 0 / 53 | Nothing new: it is merged into `ame_main` |
+| `ame_main` | No: 152 commits ahead of `origin/ame_main` (`e6116135`, 2026-11-07) | — | The stage configs and reports, the bank gates and `bank_init_std`, and every report cited here |
+| `ame_improve` | Yes (`7345eebc`) | 4 / 204 | `qk_norm` (`7762da98`), the dense `shift` (`7345eebc`), `bank_lr_ratio` (`e64a466c`), and `trainer.n_tokens_b` (`62a59d2f`), the training length in billions of tokens |
+| `ame_improve_runs` | No | 17 / 204 | `ame_improve`, plus the ratio-4 run configs `cb7704cd` and the `run_exp.py` fix `83ebaa85` (the missing-key check runs on the resolved copy) |
+| `doc_mask` | No | 17 / 68 | The document mask, its fix and configs, and `doc_mask_results.py` |
+| `ame_initialization` | No | 13 / 111 | The rejected init bundle and its ablation configs, and `scripts/paired_gap.py` |
+| `bank_sigma_grid` | No | 24 / 43 | The σ-grid configs and scripts: `grid_points.py`, `watch_array.py`, `paired_gap.py`, `bank_sigma_next.py`, `bank_sigma_chart.py` |
+| `settle_runs_improve`, `settle_runs_main`, `settle_runs_doc_mask` | No | 19 / 204, 1 / 20, 18 / 68 | The settle runs' configs, each on top of the branch it ran from: `ame_improve_runs`, `ame_main` and `doc_mask` |
+| `bank_gates_lem` | No | 0 / 78 | Nothing new: it is merged into `ame_main` |
 | `stage12_lem`, `stage1b2b_lem`, `stage2_lem`, `stage2b_lem`, `s2d0_lem`, `stage1c2c_helios`, `stage1c2c_lem` | No | 0 ahead. `stage1c2c_lem`'s one commit has a twin on `ame_main`, `acb68ff5` | Snapshots the jobs were submitted from |
 
 The counts include docs-only commits.
@@ -391,19 +398,19 @@ The counts include docs-only commits.
 
 1. **Expect merge conflicts.** `ame_improve` and `doc_mask` both edit
    `src/core/attention.py`, `src/core/model.py` and `src/definitions.py`, and
-   `ame_improve` is 179 commits behind `ame_main`.
-2. **The dense KV shift would cross document boundaries.**
+   `ame_improve` is 204 commits behind `ame_main`.
+2. **The dense KV shift would cross document boundaries, if the mask goes on.**
    - `doc_mask` zeroes the predecessor at document starts only inside AME's forward
      (`continues_document`, in `src/core/ame.py`).
    - `ame_improve`'s dense shift (`RoPEAttention` in `src/core/model.py`) calls `_shift1`
      directly.
-   - The standard dense config turns on both `shift` and `document_mask`. Without the same
-     gating it would still mix each document's first key and value with the previous
-     document's EOS, so the merge must add it.
+   - The standard dense config has the shift on and the mask off, so this matters only if
+     the mask goes on. The merge must then add the same gating, or each document's first
+     key and value mix with the previous document's EOS.
 3. **`bank_lr_ratio` defaults to 4** ([Banks at 4× the learning rate](#banks-at-4-the-learning-rate-ame)).
-   The standard config stacks it on small σ, which ran once in the settle runs: a tie,
-   −0.008. Old AME
-   checkpoints need `bank_lr_ratio: 1` to resume.
+   Merged as-is, it moves every AME config to 4×. The standard config sets 4 explicitly,
+   on small σ, where it ran once: a tie, −0.008. Old AME checkpoints need
+   `bank_lr_ratio: 1` to resume.
 
 ## The settle runs
 
@@ -419,18 +426,11 @@ They ran on LEM on 2026-11-19, the two single-switch dense runs on 2026-11-20. T
 | Dense h12 with QK-norm and the shift, then each alone | Do the dense switches help, and what do they cost? | Together −0.027 at +5% s/step. The shift carries it (−0.022 alone, +2.7%); QK-norm adds a tie |
 | Dense h16 at n = 8 | Is dense h16's best n at the grid edge? | No: n = 8 is unstable (+0.69), so n = 9 is bracketed |
 
-Lower priority:
-- **A block-sparse document mask:** a `BlockMask` that skips cross-document blocks could
-  remove the mask's 12% cost.
-- **The σ cliff at n = 7 and n = 9:** does it move with the learning rate?
-- **The pkmf Linears at n = 7:** could a retuned learning rate win back their +0.10? Even
-  if it did, AME would still trail `kf4q4t4s` by about 0.06.
-
 ## Conclusions: what to apply to AME and dense
 
-Drawn on 2026-11-20, once the settle runs were in. Every change was measured alone or in
-pairs, at h12 (some also at h16), with one seed. No run has trained a full standard config
-yet.
+Drawn on 2026-11-20, once the settle runs were in, and updated with Maciej's decisions on
+2026-11-21. Every change was measured alone or in pairs, at h12 (some also at h16), with one
+seed. No run has trained a full standard config yet.
 
 ### AME
 
@@ -500,8 +500,17 @@ yet.
 2. **The merge** ([Before merging](#before-merging)):
    - gate the dense shift at document starts, if the document mask goes on (caveat 2);
    - settle `bank_lr_ratio`'s default (caveat 3);
-   - expect conflicts between `ame_improve` and `doc_mask` (caveat 1).
+   - expect conflicts between `ame_improve` and `doc_mask`, whenever the mask merges
+     (caveat 1).
 3. **Fix the FSDP2 readout defect** ([Known defect](#known-defect-to-fix-in-standard-ame)),
    so the h20 runs, which use FSDP2, log AME's readouts.
 4. **Still not measured:** any change at h20; σ at any learning rate but n = 8; AME h16 at
    n = 7 (its best n is at the edge of the grid); dense h16 with QK-norm and the shift.
+
+### Lower priority
+
+- **A block-sparse document mask:** a `BlockMask` that skips cross-document blocks could
+  remove the mask's 12% cost.
+- **The σ cliff at n = 7 and n = 9:** does it move with the learning rate?
+- **The pkmf Linears at n = 7:** could a retuned learning rate win back their +0.10? Even
+  if it did, AME would still trail `kf4q4t4s` by about 0.06.
