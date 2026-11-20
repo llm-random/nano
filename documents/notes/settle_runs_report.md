@@ -1,8 +1,12 @@
 # Settle runs: the open items of the standard-model digest
 
-**Status:** stalled, 2026-11-20: all eight jobs FAILED on 11-19, over the team's file quota (see the log). From 2026-11-18. Eight jobs are on LEM: six submitted at 14:21 CET,
-and at 14:40 the two single-switch dense runs Maciej added to item 5. The plan below was
-written before any result. The log and the results are appended as the runs go.
+**Status:** results in, 2026-11-20, except item 5's two single-switch dense runs.
+- All eight jobs of 11-18 hit LEM's file quota on 11-19.
+  - Six had already trained to their last step and logged `final_ce`, so their results
+    stand ([Results](#results)).
+  - The two single-switch runs died at their start. They were resubmitted on 11-20 at
+    10:40 as jobs 6370656 and 6370657, and are pending.
+- The plan below was written before any result; the log and the results follow it.
 
 This note settles the "Runs that would settle what is left" table of
 [standard_model_improvements.md](standard_model_improvements.md). Maciej set the task on
@@ -151,16 +155,21 @@ cemetery is world-readable, so the W&B key never goes into `exp.job`.
 
 ## Runs
 
+"Done, then quota" means the job trained to its last step and logged `final_ce`, then
+failed at the end-of-run checkpoint save, over the file quota. The result stands.
+
 | # | Job | Cemetery clone | W&B | Node | Started | Ended | State | `final_ce` | Gap, last 500 |
 |---|---|---|---|---|---|---|---|---:|---:|
-| 1 | 6353710 | `ai_h12_ps_bank4_std1e4_lr8_2026-11-18_14-14-15` | | | | | PENDING | | |
-| 5, both | 6353711 | `ai_dense_h12_qkn_shift_lr8_2026-11-18_14-14-43` | | | | | PENDING | | |
-| 5, QK-norm only | 6353892 | `ai_dense_h12_qkn_lr8_2026-11-18_14-38-16` | | | | | PENDING | | |
-| 5, shift only | 6353893 | `ai_dense_h12_shift_lr8_2026-11-18_14-38-39` | | | | | PENDING | | |
-| 2 | 6353712 | `bank_gates_h16_none_std001_2026-11-18_14-15-12` | | | | | PENDING | | |
-| 6 | 6353713 | `s1b_d_h16_lr8_2026-11-18_14-15-34` | | | | | PENDING | | |
-| 4 AME | 6353714 | `dm_ame_h12_ps_lr8_rep_2026-11-18_14-16-02` | | | | | PENDING | | |
-| 4 dense | 6353715 | `dm_dense_h12_lr8_rep_2026-11-18_14-16-22` | | | | | PENDING | | |
+| 1 | 6353710 | `ai_h12_ps_bank4_std1e4_lr8_2026-11-18_14-14-15` | `zdmv3qci` | r14-1 | 11-19 12:22 | 16:38 | Done, then quota | 3.0312 | −0.0083 against `7te9jv9u` |
+| 5, both | 6353711 | `ai_dense_h12_qkn_shift_lr8_2026-11-18_14-14-43` | `chne4w91` | r18-1 | 11-19 13:12 | 17:05 | Done, then quota | 2.9561 | −0.0271 against `x0xlqroj` |
+| 5, QK-norm only | 6353892 | `ai_dense_h12_qkn_lr8_2026-11-18_14-38-16` | — | r10-8 | 11-19 17:05 | 17:05 | FAILED at start: 0 s, no log (quota) | | |
+| 5, shift only | 6353893 | `ai_dense_h12_shift_lr8_2026-11-18_14-38-39` | — | r10-8 | 11-19 17:06 | 17:06 | FAILED at start: 0 s, no log (quota) | | |
+| 5, QK-norm only | 6370656 | the same clone | | | | | PENDING: resubmitted 11-20 10:40, 5 h limit | | |
+| 5, shift only | 6370657 | the same clone | | | | | PENDING: resubmitted 11-20 10:40, 5 h limit | | |
+| 2 | 6353712 | `bank_gates_h16_none_std001_2026-11-18_14-15-12` | `eeaz5uy1` | r10-9 | 11-19 13:13 | 11-20 04:09 | Done, then quota | 2.7959 | −0.0798 against `hjw7znbz` |
+| 6 | 6353713 | `s1b_d_h16_lr8_2026-11-18_14-15-34` | `ezzyvpn8` | r14-3 | 11-19 13:22 | 11-20 02:34 | Done, then quota | 3.4346 | +0.7544 against `eh2sjsh7` |
+| 4 AME | 6353714 | `dm_ame_h12_ps_lr8_rep_2026-11-18_14-16-02` | `h53srjtk` | r14-3 | 11-19 13:23 | 18:04 | Done, then quota | 3.1084 | −0.0014 against `j6wxx6h2`; −0.0177 against `doi36p8k` |
+| 4 dense | 6353715 | `dm_dense_h12_lr8_rep_2026-11-18_14-16-22` | `igfkre78` | r14-12 | 11-19 13:37 | 17:45 | Done, then quota | 2.9629 | −0.0019 against `k3xx6w71`; −0.0222 against `x0xlqroj` |
 
 ## Log
 
@@ -223,7 +232,137 @@ cemetery is world-readable, so the W&B key never goes into `exp.job`.
 
   - **Next:** Maciej's call on cleanup and resubmission. Whether W&B holds the six
     full-length runs' results is unchecked.
+- **11-20, 10:10–10:40.**
+  - **W&B holds all six full-length runs.** Each logged every step (3,815 or 7,630) and
+    `final_ce`. The jobs failed after that, at the end-of-run checkpoint save, when the
+    project ran out of inodes. The results stand.
+  - **Step 0 matched in all six:** 11.25 for AME at h12 and h16 and for dense h16;
+    11.1875 for dense h12. That includes the run with both dense switches, which equals
+    `x0xlqroj`'s at bf16 resolution. The replicates also match their originals at step 1.
+  - **Maciej: the file quota is fixed, resubmit what broke.**
+    - The two single-switch runs never started: no Slurm log, no W&B run.
+    - Resubmitted at 10:40 from their existing clones, the key on stdin: QK-norm only as
+      6370656, the shift only as 6370657.
+    - Each has a 5 h limit, following Maciej's point that shorter limits schedule faster.
+      The slowest dense h12 run took 3:53.
+  - The watcher was restarted for the two. Next: their start check, then the end of
+    training.
 
 ## Results
 
-Pending.
+Paired gap: the mean of (run − reference) train loss over the last 500 steps.
+`final_ce` Δ is the difference of the bf16-rounded held-out losses. A tie is a gap under
+0.022. Every health check below covers the steps after step 100.
+
+### 1. The two bank levers barely stack
+
+| Run | Against | Gap | `final_ce` Δ |
+|---|---|---:|---:|
+| `zdmv3qci`: ratio 4, σ 1e-4 | `7te9jv9u`: ratio 1, σ 1e-4 | −0.0083 | −0.0088 |
+| | `kf4q4t4s`: ratio 1, σ 0.01 | −0.0051 | −0.0039 |
+| | `plabns2v`: ratio 1, σ 0.01, LEM | −0.0133 | −0.0117 |
+
+- **Ratio 4 on top of σ = 1e-4 is a tie: −0.008,** the size of one rerun's noise (0.008).
+  At σ = 1 it gave −0.034.
+- So the two levers mostly overlap. A small σ already lets Adam turn the bank rows fast,
+  and a 4× rate adds little to that.
+- **It costs nothing:**
+  - s/step 3.762 against 3.768, memory 70.4 GiB;
+  - no spike;
+  - a lower grad-norm maximum: 0.39 against 0.56.
+- **Reading:** ratio 4 is harmless in the standard AME config, but buys nothing
+  measurable once σ is small.
+
+### 2. At h16 the small init gains 0.08, and ST adds 0.05 beyond it
+
+| Run | Against | Gap | `final_ce` Δ |
+|---|---|---:|---:|
+| `eeaz5uy1`: σ 0.01, no gate | `hjw7znbz`: σ 1, no gate | −0.0798 | −0.0635 |
+| `ug8g2i2x`: ST, σ 0.01 | `eeaz5uy1` | −0.0478 | −0.0439 |
+| `3yc7haqu`: B3, σ 0.01 | `eeaz5uy1` | +0.0170 | +0.0146 |
+
+- **The init's own gain at h16 is −0.080,** about as large as at h12 (−0.0895 on the
+  common evaluator).
+- **ST's lead splits in two.** ST led `hjw7znbz` by 0.107 in `final_ce`.
+  - The init explains 0.064 of that.
+  - ST adds 0.044 on top (paired −0.048), twice the tie band. At h12 ST's gain beyond
+    the init was a tie (−0.0167).
+  - No h16 noise floor exists, so the h12 one stands in.
+- **B3 adds nothing at h16 either:** +0.017, a tie. It also had a spike episode around
+  steps 390–408 (grad-norm maximum 3.35).
+- **ST's cost:** 7.02 s/step against 6.76 (+3.8%), and 1.3 GiB more memory.
+- **The new run is healthy:** no spike, grad-norm maximum 0.56, 6.76 s/step (`hjw7znbz`
+  6.81).
+
+### 3. σ = 1e-8
+
++0.183 against σ = 0.01, from the σ-grid session's round 5 (above). Nothing was run for
+it here.
+
+### 4. The document mask's gain is real, but it costs 12% per step
+
+| Run | Against | Gap | `final_ce` Δ |
+|---|---|---:|---:|
+| `h53srjtk`: AME masked, LEM | `j6wxx6h2`: masked original, entropy | −0.0014 | 0.0000 |
+| | `doi36p8k`: unmasked, LEM | −0.0177 | −0.0166 |
+| `igfkre78`: dense masked, LEM | `k3xx6w71`: masked original, entropy | −0.0019 | −0.0010 |
+| | `x0xlqroj`: unmasked, LEM | −0.0222 | −0.0195 |
+
+- **The replicates reproduce their originals almost exactly:** −0.0014 and −0.0019.
+- **AME: the gain is resolved.**
+  - The parity study holds three more unmasked runs of `doi36p8k`'s config, made on
+    entropy (W&B `nano-ame-parity`).
+  - Both masked runs come out below all four unmasked runs, in every one of the eight
+    pairs: −0.016 to −0.033, mean −0.022.
+
+  | Masked run | `doi36p8k` (LEM) | `u1zpx7lt` | `s65ebe41` | `w4hmw00o` |
+  |---|---:|---:|---:|---:|
+  | `j6wxx6h2` (entropy) | −0.0163 | −0.0319 | −0.0164 | −0.0215 |
+  | `h53srjtk` (LEM) | −0.0177 | −0.0334 | −0.0179 | −0.0230 |
+
+- **Dense: the gain reproduces,** −0.020 on entropy and −0.022 on LEM.
+  - Both are against `x0xlqroj`, the only unmasked dense run of this config.
+  - `x0xlqroj` had a spike episode at steps 194–203 that the masked runs lack. The gap
+    shrinks from −0.15 in the first quarter to −0.022 at the end.
+- **The cost, newly measured: about +12% s/step in both models,** within one cluster:
+
+  | Model | Cluster | Unmasked s/step | Masked s/step |
+  |---|---|---:|---:|
+  | AME | LEM | 3.746 | 4.200 |
+  | Dense | LEM | 3.272 | 3.681 |
+  | AME | entropy | 3.36–3.38 (the parity runs) | 3.746 |
+
+  - [doc_mask_report.md](doc_mask_report.md) reported AME "unchanged" and dense
+    "+1.5%". Those numbers compared masked runs on entropy with unmasked runs on LEM,
+    and entropy runs this workload about 10% faster.
+- **A reading, untested.** The mask is a flex `score_mod`, a `where` per score, so it
+  skips no work. A `BlockMask` built from the document boundaries could skip the
+  cross-document blocks.
+
+### 5. Dense with QK-norm and the shift together: −0.027, at +5% per step
+
+| Run | Against | Gap | `final_ce` Δ |
+|---|---|---:|---:|
+| `chne4w91`: QK-norm and the shift | `x0xlqroj`: neither | −0.0271 | −0.0264 |
+
+- **Outside the AME tie band, but weaker evidence than that suggests:**
+  - dense same-seed runs spread more than AME's;
+  - `x0xlqroj` carries the spike episode at steps 194–203 (grad-norm maximum 2.58),
+    while `chne4w91` had none (maximum 0.59).
+- **The gap holds in every quarter:** −0.026, −0.053, −0.034, −0.028.
+- **Cost:** 3.444 s/step against 3.272 (+5.3%), and 53.3 GiB of memory against 47.0.
+- **Pending:** the single-switch runs 6370656 and 6370657 will split this between the
+  two switches.
+
+### 6. Dense h16 at n = 8 is unstable: n = 9 is the optimum
+
+| Run | Against | Gap | `final_ce` Δ |
+|---|---|---:|---:|
+| `ezzyvpn8`: n = 8 | `eh2sjsh7`: n = 9 | +0.7544 | +0.6904 |
+
+- **It never recovered:**
+  - 102 spike steps from step 271 on;
+  - a grad-norm maximum of 27.5, at step 1975;
+  - the gap was +1.60 in the first quarter and +0.75 at the end.
+- **So dense h16's best n is 9, bracketed:** n = 8 is unstable, and n = 10 was worse
+  ([stage_1b_report.md](stage_1b_report.md)). The "at the edge" caveat is settled.
