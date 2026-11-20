@@ -260,8 +260,10 @@ failed at the end-of-run checkpoint save, over the file quota. The result stands
   - **Step 0 is 11.1875, the same as `x0xlqroj`'s.** Steps 1–3 equal its losses too
     (9.9375, 9.375, 9.3125), and the two first differ at step 4 (8.75 against 8.6875).
   - 6370657 (shift only) started on r10-2 at 17:45 (W&B `aak55dd1`). At 2 minutes the
-    log was clean: 183,454,752 parameters, which is 144 more than the QK-norm run, one
-    shift coefficient per head in each of the 12 blocks.
+    log was clean: 183,454,752 parameters. Over the 183,454,464 of the run without either
+    switch, the shift adds 288: a (c1, c2) pair for keys and one for values per KV head,
+    6 heads in each of 12 blocks. QK-norm adds 144, one τ per query head, and `chne4w91`
+    carries both (183,454,896).
   - **Its step 0 is 11.1875 too.** Its steps 1–5 equal those of `chne4w91`, the run with
     both switches (9.875, 9.375, 9.25, 8.75, 8.4375). The shift sets the early losses, and
     QK-norm leaves them as in `x0xlqroj`.
