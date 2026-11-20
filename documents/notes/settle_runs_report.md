@@ -248,6 +248,13 @@ failed at the end-of-run checkpoint save, over the file quota. The result stands
   - The watcher was restarted for the two. Next: their start check, then the end of
     training.
 
+- **11-20, 11:18, freeing the quota (Maciej asked).** Deleted from all 349 job clones in
+  `mstefaniak/llmrandom_cemetery`: `configs/`, `tests/`, `scripts/` and `documents/`.
+  - 882 directories and 49,852 inodes.
+  - Project 649 went from 812,792 to 762,940 inodes (72.8% of the limit).
+  - A job never reads these folders: it runs with `--config-path=generated_configs`.
+  - Each clone's `.git` can restore them with `git checkout`.
+
 ## Results
 
 Paired gap: the mean of (run − reference) train loss over the last 500 steps.
