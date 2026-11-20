@@ -7,7 +7,8 @@ tests found, whether to adopt it, and which branch and commit hold it. Nothing b
 comes from the report cited next to it, and the branch facts are as of 2026-11-18.
 
 **Updated 2026-11-20** with the settle runs ([settle_runs_report.md](settle_runs_report.md)):
-all six open items are now measured.
+all six open items are now measured. What to apply to each model is in
+[Conclusions](#conclusions-what-to-apply-to-ame-and-dense).
 
 The work ran in five Claude Code sessions, kept in the "Overwatch" sessions folder:
 
@@ -413,3 +414,75 @@ Lower priority:
 - **The σ cliff at n = 7 and n = 9:** does it move with the learning rate?
 - **The pkmf Linears at n = 7:** could a retuned learning rate win back their +0.10? Even
   if it did, AME would still trail `kf4q4t4s` by about 0.06.
+
+## Conclusions: what to apply to AME and dense
+
+Drawn on 2026-11-20, once the settle runs were in. Every change was measured alone or in
+pairs, at h12 (some also at h16), with one seed. No run has trained a full standard config
+yet.
+
+### AME
+
+| Change | Effect at h12 | Cost | Conclusion |
+|---|---|---|---|
+| Bank init σ = 1e-4 | −0.09 against σ = 1; −0.08 at h16 | None | **Apply.** The default is still 1.0, so the standard configs must set it |
+| Banks at 4× the learning rate | −0.008 on σ = 1e-4, a tie (−0.034 at σ = 1) | None | **Apply** (Maciej, 2026-11-18). It is the default on `ame_improve`, and old checkpoints need `bank_lr_ratio: 1` to resume |
+| ALiBi, KV shift and sink (S2-PS), n = 8 | The recipe | — | **Keep.** Already the defaults |
+| Document mask | −0.016 to −0.018, resolved | +12% s/step | **Maciej's call.** Recommendation: off for now (below) |
+| ST bank gate | A tie; −0.048 beyond the init at h16, one run | +3.1–3.8% s/step | **Not yet.** Off at h12; at h16 and above, after two replicates |
+| Bank gates B1–B3; the new init bundle | Ties or losses | — | **Don't apply** |
+
+### Dense
+
+| Change | Effect at h12 | Cost | Conclusion |
+|---|---|---|---|
+| KV shift | −0.022 alone, −0.040 on top of QK-norm; neither run spiked | +2.7% s/step, 2.3 GiB | **Apply.** It must stop at document starts before it meets the document mask (caveat 2) |
+| QK-norm | +0.013 alone, −0.006 on the shift: both ties | +1.8–2.4% s/step, 4 GiB | **Maciej's call**, adopted on 2026-11-18, before these runs. Recommendation: drop it (below) |
+| RoPE; n = 8 at h12, n = 9 at h16 and h20 | The recipe. NoPE costs +0.28; n = 8 at h16 is unstable | — | **Keep** |
+| Document mask | −0.020 to −0.022, one unmasked baseline | +12% s/step | **Maciej's call**, as for AME |
+| The new init bundle and its parts | +0.04 to +1.27 | — | **Don't apply** |
+
+### The three open calls
+
+1. **Document mask: off in both models for now, on in both once it is free.**
+   - The gain is real, about −0.02 in each model. But it leaves the AME − dense gap where
+     it was (+0.143 without, +0.145 with), so the comparison does not need it, and it
+     costs 12% of every run.
+   - A `BlockMask` that skips the cross-document blocks may remove that cost. Whenever the
+     mask goes on, it goes on in both models.
+2. **Dense QK-norm: drop it, keep the shift.** It ties alone and on top of the shift. The
+   shift alone keeps −0.022 of the −0.027, at half the time cost and 4 GiB less memory.
+   Parity with AME is the one argument left for it.
+3. **ST gate: two more h16 runs first** (about 31 GPU-h). Its h16 lead comes from one run,
+   and no h16 run-to-run spread has been measured. At h12 it ties, so it stays off there.
+
+### What the changes do to the AME − dense gap
+
+`final_ce`, single runs, all without the document mask:
+
+| Runs | AME | Dense | AME − dense |
+|---|---|---|---:|
+| h12, before | 3.1250 `doi36p8k` | 2.9824 `x0xlqroj` | +0.143 |
+| h12: AME with σ = 1e-4 and the 4× rate; dense with the shift | 3.0312 `zdmv3qci` | 2.9629 `aak55dd1` | **+0.068** |
+| h12: the same, dense with QK-norm too | 3.0312 `zdmv3qci` | 2.9561 `chne4w91` | +0.075 |
+| h16, before | 2.8594 `hjw7znbz` | 2.7441 `eh2sjsh7` | +0.115 |
+| h16: AME with σ = 0.01 only | 2.7959 `eeaz5uy1` | 2.7441 `eh2sjsh7` | **+0.052** |
+
+- At h12 the changes halve AME's deficit. Nearly all of AME's part is the bank init: −0.085
+  of its −0.094 (`7te9jv9u`, σ = 1e-4 at ratio 1, scored 3.0400).
+- At h16 the AME init alone more than halves it. Dense h16 with the shift has not run.
+- h20 (+0.054 before) has run none of the changes.
+
+### Before they become the standard
+
+1. **One confirming run per model at h12:** the full standard config, paired against its
+   current baseline. No run has stacked every change, and two of them already overlap
+   (σ and the 4× rate). About 4 GPU-h each.
+2. **The merge** ([Before merging](#before-merging)):
+   - gate the dense shift at document starts, if the document mask goes on (caveat 2);
+   - settle `bank_lr_ratio`'s default (caveat 3);
+   - expect conflicts between `ame_improve` and `doc_mask` (caveat 1).
+3. **Fix the FSDP2 readout defect** ([Known defect](#known-defect-to-fix-in-standard-ame)),
+   so the h20 runs, which use FSDP2, log AME's readouts.
+4. **Still not measured:** any change at h20; σ at any learning rate but n = 8; AME h16 at
+   n = 7 (its best n is at the edge of the grid); dense h16 with the shift.
