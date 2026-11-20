@@ -5,7 +5,7 @@
   - Six had already trained to their last step and logged `final_ce`, so their results
     stand ([Results](#results)).
   - The two single-switch runs died at their start. They were resubmitted on 11-20 at
-    10:40 as jobs 6370656 and 6370657. 6370656 has run since 17:40; 6370657 is pending.
+    10:40 as jobs 6370656 and 6370657, and have run since 17:40 and 17:45.
 - The plan below was written before any result; the log and the results follow it.
 
 This note settles the "Runs that would settle what is left" table of
@@ -165,7 +165,7 @@ failed at the end-of-run checkpoint save, over the file quota. The result stands
 | 5, QK-norm only | 6353892 | `ai_dense_h12_qkn_lr8_2026-11-18_14-38-16` | — | r10-8 | 11-19 17:05 | 17:05 | FAILED at start: 0 s, no log (quota) | | |
 | 5, shift only | 6353893 | `ai_dense_h12_shift_lr8_2026-11-18_14-38-39` | — | r10-8 | 11-19 17:06 | 17:06 | FAILED at start: 0 s, no log (quota) | | |
 | 5, QK-norm only | 6370656 | the same clone | `8lqp6pk3` | r18-1 | 11-20 17:40 | | RUNNING: resubmitted 11-20 10:40, 5 h limit | | |
-| 5, shift only | 6370657 | the same clone | | | | | PENDING: resubmitted 11-20 10:40, 5 h limit | | |
+| 5, shift only | 6370657 | the same clone | `aak55dd1` | r10-2 | 11-20 17:45 | | RUNNING: resubmitted 11-20 10:40, 5 h limit | | |
 | 2 | 6353712 | `bank_gates_h16_none_std001_2026-11-18_14-15-12` | `eeaz5uy1` | r10-9 | 11-19 13:13 | 11-20 04:09 | Done, then quota | 2.7959 | −0.0798 against `hjw7znbz` |
 | 6 | 6353713 | `s1b_d_h16_lr8_2026-11-18_14-15-34` | `ezzyvpn8` | r14-3 | 11-19 13:22 | 11-20 02:34 | Done, then quota | 3.4346 | +0.7544 against `eh2sjsh7` |
 | 4 AME | 6353714 | `dm_ame_h12_ps_lr8_rep_2026-11-18_14-16-02` | `h53srjtk` | r14-3 | 11-19 13:23 | 18:04 | Done, then quota | 3.1084 | −0.0014 against `j6wxx6h2`; −0.0177 against `doi36p8k` |
@@ -254,13 +254,18 @@ failed at the end-of-run checkpoint save, over the file quota. The result stands
   - Project 649 went from 812,792 to 762,940 inodes (72.8% of the limit).
   - A job never reads these folders: it runs with `--config-path=generated_configs`.
   - Each clone's `.git` can restore them with `git checkout`.
-- **11-20, 17:40–17:47: QK-norm only started.**
+- **11-20, 17:40–17:50: both single-switch runs started.**
   - 6370656 started on r18-1 at 17:40 (W&B `8lqp6pk3`). At 2 minutes the log was clean:
     183,454,608 parameters, 12 blocks compiled, data loaded.
   - **Step 0 is 11.1875, the same as `x0xlqroj`'s.** Steps 1–3 equal its losses too
     (9.9375, 9.375, 9.3125), and the two first differ at step 4 (8.75 against 8.6875).
-  - 6370657 (shift only) is still pending, held by priority.
-  - Next: 6370657's start check, then the end of training.
+  - 6370657 (shift only) started on r10-2 at 17:45 (W&B `aak55dd1`). At 2 minutes the
+    log was clean: 183,454,752 parameters, which is 144 more than the QK-norm run, one
+    shift coefficient per head in each of the 12 blocks.
+  - **Its step 0 is 11.1875 too.** Its steps 1–5 equal those of `chne4w91`, the run with
+    both switches (9.875, 9.375, 9.25, 8.75, 8.4375). The shift sets the early losses, and
+    QK-norm leaves them as in `x0xlqroj`.
+  - Next: the end of training, about 21:30–21:40.
 
 ## Results
 
