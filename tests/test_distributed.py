@@ -184,6 +184,7 @@ def test_the_ame_readout_survives_sharding(cpu_process_group):
 
     for key in ("alpha_2/mean", "beta_2/mean", "tau/mean", "horizon/min"):
         assert key in readout, f"{key} missing from the sharded readout"
-    # The S2-PS defaults: alpha/beta start at (1, 0) per head, tau at sqrt(dhead).
+    # tau starts at sqrt(dhead). alpha/beta are drawn (c1 ~ U(0, 1)), so they
+    # have no fixed value to check here.
     assert readout["tau/mean"] == pytest.approx(16**0.5)
     assert not any(key.startswith("attention_entropy") for key in readout)
