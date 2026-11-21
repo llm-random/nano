@@ -577,7 +577,16 @@ class AMEAttention(nn.Module):
         # everything above they describe what attention *did* rather than what
         # its parameters are. A gate that reads x gets nothing here (see
         # attention_diagnostics).
-        if token_ids is not None:
+        #
+        # Not under FSDP2 either. This runs outside FSDP2's forward hooks, where
+        # the parameters are sharded DTensors: the diagnostics' embedding of
+        # plain int64 ids into a DTensor bank raises, and the trainer then turns
+        # off this layer's whole readout -- which is why no FSDP2 run ever logged
+        # alpha or tau (stage_2c_report.md, "Readouts"). The readouts above
+        # gather with `_full` and keep working; only entropy and top-k mass are
+        # lost on a sharded run.
+        sharded = any(hasattr(p, "full_tensor") for p in self.parameters())
+        if token_ids is not None and not sharded:
             readout.update(self.attention_diagnostics(token_ids))
         return readout
 

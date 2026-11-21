@@ -157,3 +157,33 @@ def test_the_weight_decay_grouping_survives_sharding(cpu_process_group):
     optimizer.step()
     assert (layer.tau - before[0]).abs().max().item() == 0.0
     assert (layer.alpha - before[1]).abs().max().item() == 0.0
+
+
+def test_the_ame_readout_survives_sharding(cpu_process_group):
+    """Under FSDP2 the AME readouts were never logged: 0 of 38 FSDP2 AME runs
+    have `alpha_2` or `tau` (stage_2c_report.md, "Readouts").
+
+    `instrumentation` runs outside FSDP2's forward hooks, where the parameters
+    are still sharded DTensors. Its parameter half gathers them with `_full`,
+    but `attention_diagnostics` embeds plain int64 ids into a DTensor bank and
+    raises "mixed torch.Tensor and DTensor". The trainer catches that and turns
+    off the layer's whole readout for the rest of the run, so alpha, beta, tau
+    and the horizons went with it. The readout now skips the diagnostics on a
+    sharded layer and keeps the rest.
+    """
+    from src.core.ame import AMEAttention
+
+    torch.manual_seed(0)
+    layer = _shard(
+        AMEAttention(32, 4, 4, 16, vocab_size=64, dhead=16, backend="reference")
+    )
+    assert any(hasattr(p, "full_tensor") for p in layer.parameters())
+    ids = torch.randint(0, 64, (2, 16), device=_mesh_device())
+
+    readout = layer.instrumentation(token_ids=ids)
+
+    for key in ("alpha_2/mean", "beta_2/mean", "tau/mean", "horizon/min"):
+        assert key in readout, f"{key} missing from the sharded readout"
+    # The S2-PS defaults: alpha/beta start at (1, 0) per head, tau at sqrt(dhead).
+    assert readout["tau/mean"] == pytest.approx(16**0.5)
+    assert not any(key.startswith("attention_entropy") for key in readout)
