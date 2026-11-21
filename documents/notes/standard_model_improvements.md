@@ -247,7 +247,7 @@ configs. It passes the tests and reproduces the two h12 standard runs, then merg
   - six standard configs: AME and dense at h12, h16 and h20.
 - The CPU suite passes, and the GPU tests pass on one cluster GPU.
 - The h12 reproduction runs match step 0 and tie with `zdmv3qci` and `chne4w91`.
-- Maciej approved, and `standard_models` is merged into `ame_main`. Push only if he asks.
+- `standard_models` is merged into `ame_main`, not pushed.
 
 **Rules:**
 - Never change the session's working directory. Reach the worktree by absolute path and
@@ -256,6 +256,11 @@ configs. It passes the tests and reproduces the two h12 standard runs, then merg
 - Never delete a branch; remove your own worktree when done.
 - LEM jobs exclude node r16-11.
 - If a GPU test fails, run it on `ame_main` too before you blame the merge.
+- Code goes on `standard_models`. Docs (.md) go on `ame_main` in `~/code/nano`, staging
+  only your own hunks. Keep the log and results in
+  `documents/notes/standard_models_report.md`.
+- Push nothing to origin. The cemetery snapshot that `run_exp.py` pushes at submit is fine.
+- Check each job about 2 minutes after it starts, then only at the end of training.
 
 ### What to gather
 
@@ -334,6 +339,8 @@ configs. It passes the tests and reproduces the two h12 standard runs, then merg
    - These catch config errors and running out of memory. Dense h16 and h20 have never run
      with QK-norm and the shift, which add 6.3 GiB at h12.
    - Check that the h20 AME smoke now logs `alpha_2/mean` and `tau/mean` (step 5).
+   - If a smoke runs out of memory, double `gradient_accumulation_steps`, which keeps the
+     batch, and record it.
 9. **Reproduce at h12:** run `ame_h12.yaml` and `dense_h12.yaml` from `standard_models`,
    about 4 GPU-h each on LEM.
    - **Submit** as in [settle_runs_report.md](settle_runs_report.md#submission). Check each
@@ -344,7 +351,8 @@ configs. It passes the tests and reproduces the two h12 standard runs, then merg
    - **AME passes** under 0.022.
    - **Dense has no measured tie band.** A gap under 0.022 passes. For a larger one, look
      at where it opens: a spike episode on either side explains most of them.
-10. **Merge into `ame_main`,** after Maciej approves.
+10. **Merge into `ame_main`** once steps 7–9 pass, without asking (Maciej, 2026-11-21). If
+    any of them fails, do not merge: record why and tell Maciej.
     - Other sessions work in `~/code/nano`. First check that no file the merge touches has
       uncommitted changes there: compare `git -C ~/code/nano status --short` with
       `git -C ~/code/nano diff --name-only ame_main...standard_models`.
