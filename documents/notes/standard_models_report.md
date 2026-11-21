@@ -1,9 +1,9 @@
 # Standard models: build, test and merge
 
-**Status (2026-11-21 23:55):** in progress. Branch `standard_models` holds every
+**Status (2026-11-21 23:59):** in progress. Branch `standard_models` holds every
 approved feature and the six standard configs (steps 1–6 done), the tests pass
 (step 7), and all six smokes pass (step 8). Both h12 reproductions are running on LEM
-(step 9); the AME one matches `zdmv3qci` at steps 0–7. Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
+and match their references at steps 0–7 (step 9); they end at about 03:35. Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
 
 ## The branch
 
@@ -107,7 +107,7 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 | Config | Cemetery branch | Job | W&B | Step 0 | Last-500 paired gap | `final_ce` |
 |---|---|---|---|---|---|---|
 | `ame_h12` | `std_ame_h12_lr8_2026-11-21_16-47-08` | 6383547 | `zs1bceoy` | 11.25: **matches**, and so do steps 1–7 | | |
-| `dense_h12` | `std_dense_h12_lr8_2026-11-21_16-47-23` | 6383548 | | | | |
+| `dense_h12` | `std_dense_h12_lr8_2026-11-21_16-47-23` | 6383548 | `q2yrtd9t` | 11.1875: **matches**, and so do steps 1–7 | | |
 
 ## Log
 
@@ -132,3 +132,4 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 | 23:43–23:49 | Smoke `dense_h20` (6383546) on r14-6: passes. **Step 8 passes** |
 | 23:48 | Maciej: use entropy for tests too, and move anything still pending on LEM there. Only the dense reproduction was pending. Prepared its move: entropy's FineWeb has the same 1,279,107,432 rows, GitHub answers, h100a's 8 GPUs held by 6 preemptible `lukaskoz` jobs and 2 `pzal` jobs. The cluster cannot be switched on the command line (Hydra's grammar rejects the `../_cluster@_global_` key), so the move would have used a copy of `dense_h12.yaml` |
 | 23:51 | Before the move, LEM started the dense reproduction (6383548) on r18-4: nothing pending is left, so nothing moved. It stays on the cluster of its reference |
+| 23:59 | Start check of the dense reproduction (`q2yrtd9t`): log clean; the W&B config differs from `chne4w91`'s only in the run name, tags, job name, `mem_per_gpu`, `sparse_exclude`, `count_token_updates: False` and the run paths; losses at steps 0–7 equal the reference's (11.1875, 9.875, 9.375, 9.25, 8.75, 8.4375, 8.0625, 7.90625); 3.443 s/step (reference 3.444). Both reproductions should end at about 03:35 |
