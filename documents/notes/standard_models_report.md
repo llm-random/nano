@@ -1,9 +1,10 @@
 # Standard models: build, test and merge
 
-**Status (2026-11-21 22:15):** in progress. Branch `standard_models` holds every
+**Status (2026-11-21 23:36):** in progress. Branch `standard_models` holds every
 approved feature and the six standard configs (steps 1–6 done), and the tests pass
-(step 7). The four h12 and h16 smokes pass; the two h20 smokes and the two h12
-reproductions are queued on LEM (steps 8–9). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
+(step 7). The four h12 and h16 smokes pass; the two h20 smokes are queued on LEM
+(step 8). The AME h12 reproduction is running and matches `zdmv3qci` at steps 0–7;
+the dense one is queued (step 9). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
 
 ## The branch
 
@@ -102,7 +103,7 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 
 | Config | Cemetery branch | Job | W&B | Step 0 | Last-500 paired gap | `final_ce` |
 |---|---|---|---|---|---|---|
-| `ame_h12` | `std_ame_h12_lr8_2026-11-21_16-47-08` | 6383547 | | | | |
+| `ame_h12` | `std_ame_h12_lr8_2026-11-21_16-47-08` | 6383547 | `zs1bceoy` | 11.25: **matches**, and so do steps 1–7 | | |
 | `dense_h12` | `std_dense_h12_lr8_2026-11-21_16-47-23` | 6383548 | | | | |
 
 ## Log
@@ -123,3 +124,4 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 | 21:54–22:01 | Smoke `dense_h12` (6383542) on r14-3: passes. Smokes `ame_h16` and `dense_h16` started at 21:55 and 22:02 |
 | 21:55–22:06 | Smoke `ame_h16` (6383543) on r18-1: passes |
 | 22:02–22:12 | Smoke `dense_h16` (6383544) on r14-3: passes. The four 1-GPU smokes all pass; the h20 smokes and the reproductions still pending |
+| 23:29 | Reproduction `ame_h12` (6383547, `zs1bceoy`) started on r18-14. Start check at 23:35: log clean; the W&B config differs from `zdmv3qci`'s only in the run name, tags, job name, `mem_per_gpu`, `sparse_exclude`, `count_token_updates: False` and the run paths; losses at steps 0–7 equal the reference's (11.25, 10.0625, 9.625, 9.5, 8.75, 8.5, 8.0625, 7.8125); 3.77 s/step (reference 3.762). About 4 h to go |
