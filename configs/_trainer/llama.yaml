@@ -12,7 +12,12 @@ trainer:
   n_tokens_b: null
   learning_rate: null
   # AME memory banks (q_bank/k_bank) train at this multiple of learning_rate,
-  # for the whole schedule. Ignored by a model without banks.
+  # for the whole schedule. Ignored by a model without banks. AME runs and
+  # checkpoints from before 4.0 became the default (standard_models,
+  # 2026-11-21) trained at 1.0: set bank_lr_ratio: 1 to reproduce or resume
+  # one. At 4.0 an old checkpoint fails to load on the ordinary path (the
+  # optimizer has one more param group), but under memory parallelism it
+  # resumes at 4x with no error.
   bank_lr_ratio: 4.0
   weight_decay: 0.1
 
