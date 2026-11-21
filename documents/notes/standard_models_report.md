@@ -1,9 +1,9 @@
 # Standard models: build, test and merge
 
-**Status (2026-11-21 22:10):** in progress. Branch `standard_models` holds every
+**Status (2026-11-21 22:15):** in progress. Branch `standard_models` holds every
 approved feature and the six standard configs (steps 1–6 done), and the tests pass
-(step 7). Smokes `ame_h12`, `dense_h12` and `ame_h16` pass, `dense_h16` is running, and
-the h20 smokes and the two h12 reproductions are queued on LEM (steps 8–9). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
+(step 7). The four h12 and h16 smokes pass; the two h20 smokes and the two h12
+reproductions are queued on LEM (steps 8–9). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
 
 ## The branch
 
@@ -89,7 +89,7 @@ log at steps 0, 20 and 40), a 1.5 h limit, named `smoke_std_<config>` and tagged
 | `ame_h12` | `smoke_std_ame_h12_2026-11-21_16-45-38` | 6383541 | `16jv7t55` | **Passes.** Step 0 11.25 (= `zdmv3qci`); 3.77 s/step (reference 3.762); peak 70.4 GiB; `final_ce` 7.164 logged; no NaN. Logs α/β, τ, the horizons, entropy and top-8 mass; `bank_lr` = 4 × `lr`. 9.5 min on r18-1 |
 | `dense_h12` | `smoke_std_dense_h12_2026-11-21_16-45-55` | 6383542 | `tjhhov4d` | **Passes.** Step 0 11.1875 (= `chne4w91`); 3.45 s/step (reference 3.444); peak 53.3 GiB; `final_ce` 7.166 logged; no NaN. 7 min on r14-3 |
 | `ame_h16` | `smoke_std_ame_h16_2026-11-21_16-46-09` | 6383543 | `40al2ex5` | **Passes.** Step 0 11.25; 6.77 s/step (a full run: 14.4 h of its 24 h limit); peak 72.2 GiB; `final_ce` 7.559 logged; no NaN. Logs all the readouts in all 16 layers; `bank_lr` = 4 × `lr`. 10.8 min on r18-1 |
-| `dense_h16` | `smoke_std_dense_h16_2026-11-21_16-46-24` | 6383544 | | pending |
+| `dense_h16` | `smoke_std_dense_h16_2026-11-21_16-46-24` | 6383544 | `ckw39rr4` | **Passes.** Step 0 11.25; 6.27 s/step (a full run: 13.3 h of its 24 h limit); peak 43.3 GiB; `final_ce` 7.125 logged; no NaN; the final LR is 10% of 2^-9. 9.9 min on r14-3 |
 | `ame_h20` | `smoke_std_ame_h20_2026-11-21_16-46-39` | 6383545 | | pending |
 | `dense_h20` | `smoke_std_dense_h20_2026-11-21_16-46-53` | 6383546 | | pending |
 
@@ -122,3 +122,4 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 | 21:54 | The readout test's comment fixed on `standard_models` (`5684bea6`): alpha/beta are drawn (c1 ~ U(0, 1)), not (1, 0). Test only; the jobs run `41b041db` |
 | 21:54–22:01 | Smoke `dense_h12` (6383542) on r14-3: passes. Smokes `ame_h16` and `dense_h16` started at 21:55 and 22:02 |
 | 21:55–22:06 | Smoke `ame_h16` (6383543) on r18-1: passes |
+| 22:02–22:12 | Smoke `dense_h16` (6383544) on r14-3: passes. The four 1-GPU smokes all pass; the h20 smokes and the reproductions still pending |
