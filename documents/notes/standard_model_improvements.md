@@ -16,7 +16,7 @@ row says otherwise. Negative is better. For AME, a change under 0.022 is a tie
 |---|---|---|---|
 | ALiBi + KV shift + sink (S2-PS), LR 2⁻⁸ | **Keep** (already the default) | Without the shift +0.12, without both +1.14 | — |
 | Bank init σ = 1e-4 | **Apply.** The config must set it: the default is still 1.0 | −0.09 vs σ = 1; at h16, σ = 0.01 gave −0.08 | None |
-| Banks at 4× the learning rate | **Apply** (Maciej, 2026-11-18) | −0.008 on top of σ = 1e-4, a tie (−0.034 at σ = 1) | None |
+| Banks at 4× the learning rate | **Apply** (Maciej, 2026-11-18), as the default (2026-11-21) | −0.008 on top of σ = 1e-4, a tie (−0.034 at σ = 1) | None |
 | Document mask | **Rejected** (Maciej, 2026-11-21): a small gain, 12% slower, and unmasked packed rows are a valid way to train | −0.016 to −0.018 | +12% s/step |
 | ST (STEM) bank gate | **Rejected** (Maciej, 2026-11-21): it breaks AME's precomputed score table | A tie at h12; −0.048 beyond the small bank init at h16 | +3.1–3.8% s/step |
 | Bank gates B1, B2, B3 | **Rejected**: no gain | B1 +0.07 to +0.11; B2 and B3 ties | — |
@@ -66,7 +66,7 @@ common:
       bank_gate: none        # default
 trainer:
   learning_rate: 8           # LR 2^-8 at h12, h16 and h20
-  bank_lr_ratio: 4           # branch ame_improve
+  bank_lr_ratio: 4           # branch ame_improve, where 4 is also the default
 ```
 
 Dense:
@@ -151,7 +151,8 @@ multiple of the base rate. Report: [ame_improve_runs_report.md](ame_improve_runs
 
 On top of the small σ it is a tie. Both levers let Adam turn the bank rows faster, and under
 QK-norm only a row's direction counts. It costs nothing (the same s/step and memory, no
-spikes), so it stays.
+spikes), so it stays, and 4 is the default (Maciej, 2026-11-21). Runs and checkpoints from
+before the merge need `bank_lr_ratio: 1` to reproduce or resume.
 
 ### KV shift and QK-norm (dense)
 
@@ -283,17 +284,18 @@ configs. It passes the tests and reproduces the two h12 standard runs, then merg
      `ame_improve`.
 3. **Take the run_exp fix.** `git -C ~/code/nano-standard cherry-pick 83ebaa85`. Without it,
    `run_exp.py` cannot submit a config that gives its length as `trainer.n_tokens_b`.
-4. **Set `bank_lr_ratio`'s default to 1.0.** This is recommended; Maciej may keep 4.0 instead.
-   - On `ame_improve` the default is 4.0, set in three places:
-     - `DEFAULT_BANK_LR_RATIO` in `src/definitions.py`;
-     - the `Trainer` field;
+4. **Keep `bank_lr_ratio`'s default at 4.0,** as `ame_improve` has it (Maciej, 2026-11-21).
+   - After the merge, all of these must say 4.0:
+     - `DEFAULT_BANK_LR_RATIO` and the schema field in `src/definitions.py`;
+     - the `Trainer` field in `src/core/trainer.py`, which the step-2 conflict touches;
      - `configs/_trainer/llama.yaml`.
-   - With 4.0, every older AME config would silently train at 4×, and resuming an old
-     checkpoint would fail on the extra param group.
-   - With 1.0, every logged run keeps its meaning, and the standard AME configs set 4.0
-     explicitly.
-   - Update the tests that assume 4.0 (`tests/test_bank_lr_ratio.py`).
-   - `bank_init_std` keeps its default of 1.0, for the same reason.
+   - Every AME config that does not set the key now trains its banks at 4×.
+   - To reproduce an AME run from before the merge, or to resume its checkpoint, set
+     `bank_lr_ratio: 1`. On the ordinary path an old checkpoint fails loudly at 4×, because
+     the optimizer has one more param group. Under memory parallelism it resumes at 4×
+     without an error.
+   - Add that rule to the comment beside the default in `configs/_trainer/llama.yaml`.
+   - `bank_init_std` keeps its default of 1.0, so the standard configs set 1e-4.
 5. **Fix the AME readouts under FSDP2.**
    - **The bug:** under FSDP2, α/β/τ, the horizons and attention entropy are never logged
      (0 of 38 FSDP2 AME runs logged `alpha_2` or `tau`; [stage_2c_report.md](stage_2c_report.md),
