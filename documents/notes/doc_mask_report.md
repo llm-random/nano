@@ -1,5 +1,14 @@
 # Document masking for packed rows — implementation and h12 runs (plan and log)
 
+**Decision (Maciej, 2026-11-21): no document mask in either model.**
+- The gain is small, about −0.02.
+- The mask costs about 12% more time per step. The settle runs measured this within one
+  cluster ([settle_runs_report.md](settle_runs_report.md), item 4). The 1.5% in Results
+  below compared entropy with LEM, and entropy runs this workload about 10% faster.
+- Unmasked packed rows are a valid way to train.
+
+The record: [standard_model_improvements.md](standard_model_improvements.md#the-document-mask-both-models).
+
 **Status (2026-11-10 23:35): done. Document masking helps both methods by about 0.02
 nats at h12 and 4B tokens: AME `final_ce` −0.017 (3.1084 against 3.1250), dense −0.019
 (2.9639 against 2.9824); paired train loss −0.016 and −0.020. Each gain is under its tie

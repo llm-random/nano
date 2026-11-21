@@ -1,6 +1,6 @@
 # What to fold into the standard AME and dense models
 
-**Status:** decided on 2026-11-21, except the document mask. This digest covers every
+**Status:** decided on 2026-11-21. This digest covers every
 improvement and configuration test run on AME and dense from 2026-11-04 to 2026-11-20, the
 settle runs included ([settle_runs_report.md](settle_runs_report.md)). For each change it
 gives what the tests found, the verdict, and which branch and commit hold it. Nothing below
@@ -10,7 +10,8 @@ to it, and the branch facts are as of 2026-11-21.
 - **AME:** the S2-PS recipe, plus the bank init σ = 1e-4 and the 4× bank learning rate. No
   bank gate.
 - **Dense:** RoPE, plus the KV shift, and QK-norm for stability.
-- **Open:** the document mask, about −0.02 in both models at +12% s/step.
+- **No document mask** in either model (Maciej): a gain of about −0.02 for +12% s/step,
+  and unmasked packed rows are a valid way to train.
 
 The configs are in [Proposed standard configs](#proposed-standard-configs), and the reasoning
 in [Conclusions](#conclusions-what-to-apply-to-ame-and-dense).
@@ -37,7 +38,7 @@ The work ran in six Claude Code sessions, kept in the "Overwatch" sessions folde
 | Banks at 4× the learning rate (`bank_lr_ratio`) | AME | **Adopted** (Maciej, 2026-11-18). −0.03 at σ = 1, but only −0.008 (a tie) on top of σ = 1e-4. No cost | `ame_improve` (pushed) |
 | KV shift for dense (`shift`) | dense | **Adopted.** −0.022 alone and −0.040 on top of QK-norm, at +2.7% s/step | `ame_improve` (pushed) |
 | QK-norm for dense (`qk_norm`) | dense | **Adopted for stability** (Maciej, 2026-11-20). A loss tie either way, at +1.8–2.4% s/step and 4 GiB | `ame_improve` (pushed) |
-| Document mask (`document_mask`) | both | **Open, Maciej's call.** About −0.02 in both models, replicated, at +12% s/step. Recommendation: off in both until a block-sparse mask makes it free | `doc_mask` (local) |
+| Document mask (`document_mask`) | both | **Rejected** (Maciej, 2026-11-21). About −0.02 in both models, replicated, but at +12% s/step, and unmasked packed rows are a valid way to train | `doc_mask` (local) |
 | ST (STEM) bank gate | AME | **Rejected** (Maciej, 2026-11-21): it breaks AME's precomputed score table. A tie at h12; −0.048 beyond the small init at h16 | `ame_main`, off by default |
 | Bank gates B1, B2, B3 | AME | **Rejected.** Ties or losses beyond the small init | `ame_main`, off by default |
 | New init bundle: Xavier embedding and head, pkmf-scale Linears, undecayed embedding | both | **Rejected.** +0.014 (AME) to +1.271 (dense) at h12 | `ame_initialization` (local) |
@@ -48,8 +49,8 @@ As decided on 2026-11-21 ([Conclusions](#conclusions-what-to-apply-to-ame-and-de
 - AME adds the bank init σ = 1e-4 and the 4× bank learning rate to the S2-PS recipe, and
   no bank gate.
 - Dense adds the KV shift, which carries the loss gain, and QK-norm, kept for stability.
-- The document mask is the one open call, so it is commented out in both. If it goes on,
-  it goes on in both models ([Open: the document mask](#open-the-document-mask-both-models)).
+- Neither model masks documents ([The document mask](#the-document-mask-both-models)). The
+  key exists only on the unmerged branch `doc_mask`, so the configs leave it out.
 
 Three of the keys, `bank_lr_ratio`, `qk_norm` and `shift`, need `ame_improve`, which is not
 on `ame_main` yet ([Before merging](#before-merging)).
@@ -60,7 +61,6 @@ AME:
 common:
   attention:
     type: ame
-    # document_mask: true    # open call: -0.02 at +12% s/step; branch doc_mask
     ame:
       shift: true            # ame_main default; the ALiBi ladder and the sink are defaults too
       bank_init_std: 1.0e-4  # ame_main default is still 1.0
@@ -78,7 +78,6 @@ common:
     type: gqa                # RoPE on by default
     qk_norm: true            # branch ame_improve; for stability; a loss tie at +1.8-2.4% s/step
     shift: true              # branch ame_improve; -0.022 alone, -0.040 with qk_norm; +2.7% s/step
-    # document_mask: true    # open call, as for AME; with the shift it needs caveat 2's gating
 trainer:
   learning_rate: 8           # h12; 9 at h16 and h20
 ```
@@ -248,7 +247,17 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
     without it, would test it in one run.
 - **Not measured:** either switch at h16 or h20. The dense τ, α and β are not instrumented.
 
-## Open: the document mask (both models)
+## Tested and rejected
+
+### The document mask (both models)
+
+**Rejected by Maciej on 2026-11-21,** for both models:
+- the gain is small, about −0.02 in each model;
+- it costs about 12% more time per step;
+- packed rows without a mask, where attention crosses documents, are a valid way to
+  train in their own right.
+
+The record below stays.
 
 - **What it is:** `common.attention.document_mask: true`.
   - Attention stays inside each document of a packed row, in every layer, and AME's KV
@@ -256,8 +265,8 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
   - Documents are found from `common.eos_token_id` (0, NeoX; set in the branch's
     `configs/_model/h_balanced/base.yaml`).
   - On CUDA it is a flex score_mod; on CPU, a materialized mask.
-  - Until now nothing masked across the documents in a row. That was a deliberate choice,
-    equal for both methods.
+  - Without it, attention crosses the documents in a row. That was the deliberate choice
+    before the mask, equal for both methods, and the standard keeps it.
 - **Evidence:** h12, n = 8, same seed. Sources: [doc_mask_report.md](doc_mask_report.md)
   for the first runs, [settle_runs_report.md](settle_runs_report.md) for the replicates.
   - The first masked runs ran on entropy, against LEM baselines.
@@ -285,15 +294,11 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
 
   The first report's "unchanged" and "+1.5%" compared entropy with LEM, and entropy runs
   this workload about 10% faster.
-- **Verdict: open, Maciej's call.** The gain is real in both models, about −0.02, and it
-  costs about 12% more time per step.
-  - **Recommendation: off in both models for now, on in both once it is free.** It leaves
-    the AME − dense gap where it was, so the comparison does not need it.
-  - The mask is a flex `score_mod`, so it skips no work. A `BlockMask` built from the
-    document boundaries could skip the cross-document blocks, and might make the mask
-    free. Untested.
-  - Whenever it goes on, it goes on in both models.
-- **Where:** the local branch `doc_mask` (not pushed), cut from `ame_main` `3ef6e363`.
+- **A free mask was not built.** The mask is a flex `score_mod`, so it skips no work. A
+  `BlockMask` built from the document boundaries could skip the cross-document blocks,
+  and might make the mask free. Untested, and not planned.
+- **Where:** the local branch `doc_mask` (not pushed, and not merging), cut from
+  `ame_main` `3ef6e363`.
 
   | Commit | What |
   |---|---|
@@ -303,8 +308,6 @@ Best run per arm and scale, `final_ce`, W&B project `ideas_cv/nano-ame`
   | `87acc781` | `documents/scripts/doc_mask_results.py`: a run against its baseline from W&B |
 - **Lesson:** the compiled eval runs a no_grad graph that grad-mode GPU tests never build.
   Test it at production shapes.
-
-## Tested and rejected
 
 ### The ST (STEM) bank gate
 
@@ -385,7 +388,7 @@ to 0.01.
 | `ame_main` | No: 152 commits ahead of `origin/ame_main` (`e6116135`, 2026-11-07) | — | The stage configs and reports, the bank gates and `bank_init_std`, and every report cited here |
 | `ame_improve` | Yes (`7345eebc`) | 4 / 204 | `qk_norm` (`7762da98`), the dense `shift` (`7345eebc`), `bank_lr_ratio` (`e64a466c`), and `trainer.n_tokens_b` (`62a59d2f`), the training length in billions of tokens |
 | `ame_improve_runs` | No | 17 / 204 | `ame_improve`, plus the ratio-4 run configs `cb7704cd` and the `run_exp.py` fix `83ebaa85` (the missing-key check runs on the resolved copy) |
-| `doc_mask` | No | 17 / 68 | The document mask, its fix and configs, and `doc_mask_results.py` |
+| `doc_mask` | No | 17 / 68 | The rejected document mask, its fix and configs, and `doc_mask_results.py`. It does not merge |
 | `ame_initialization` | No | 13 / 111 | The rejected init bundle and its ablation configs, and `scripts/paired_gap.py` |
 | `bank_sigma_grid` | No | 24 / 43 | The σ-grid configs and scripts: `grid_points.py`, `watch_array.py`, `paired_gap.py`, `bank_sigma_next.py`, `bank_sigma_chart.py` |
 | `settle_runs_improve`, `settle_runs_main`, `settle_runs_doc_mask` | No | 19 / 204, 1 / 20, 18 / 68 | The settle runs' configs, each on top of the branch it ran from: `ame_improve_runs`, `ame_main` and `doc_mask` |
@@ -396,18 +399,13 @@ The counts include docs-only commits.
 
 ### Integration caveats
 
-1. **Expect merge conflicts.** `ame_improve` and `doc_mask` both edit
-   `src/core/attention.py`, `src/core/model.py` and `src/definitions.py`, and
-   `ame_improve` is 204 commits behind `ame_main`.
-2. **The dense KV shift would cross document boundaries, if the mask goes on.**
-   - `doc_mask` zeroes the predecessor at document starts only inside AME's forward
-     (`continues_document`, in `src/core/ame.py`).
-   - `ame_improve`'s dense shift (`RoPEAttention` in `src/core/model.py`) calls `_shift1`
-     directly.
-   - The standard dense config has the shift on and the mask off, so this matters only if
-     the mask goes on. The merge must then add the same gating, or each document's first
-     key and value mix with the previous document's EOS.
-3. **`bank_lr_ratio` defaults to 4** ([Banks at 4× the learning rate](#banks-at-4-the-learning-rate-ame)).
+1. **One small conflict.** `ame_improve` is 204 commits behind `ame_main`. A trial merge
+   (`git merge-tree`, 2026-11-21) conflicts only in `src/core/trainer.py`, where both
+   branches add `Trainer` fields after `mem_parallel_size`: `count_token_updates` on
+   `ame_main`, `n_tokens_b` and `bank_lr_ratio` on `ame_improve`. Keep all three. The
+   other shared files merge without conflict, and the tests must pass after the merge.
+   `doc_mask` does not merge, so its edits to the same files are out of the way.
+2. **`bank_lr_ratio` defaults to 4** ([Banks at 4× the learning rate](#banks-at-4-the-learning-rate-ame)).
    Merged as-is, it moves every AME config to 4×. The standard config sets 4 explicitly,
    on small σ, where it ran once: a tie, −0.008. Old AME checkpoints need
    `bank_lr_ratio: 1` to resume.
@@ -439,7 +437,7 @@ seed. No run has trained a full standard config yet.
 | Bank init σ = 1e-4 | −0.09 against σ = 1; −0.08 at h16 | None | **Apply.** The default is still 1.0, so the standard configs must set it |
 | Banks at 4× the learning rate | −0.008 on σ = 1e-4, a tie (−0.034 at σ = 1) | None | **Apply** (Maciej, 2026-11-18). It is the default on `ame_improve`, and old checkpoints need `bank_lr_ratio: 1` to resume |
 | ALiBi, KV shift and sink (S2-PS), n = 8 | The recipe | — | **Keep.** Already the defaults |
-| Document mask | −0.016 to −0.018, resolved | +12% s/step | **Maciej's call.** Recommendation: off for now (below) |
+| Document mask | −0.016 to −0.018, resolved | +12% s/step | **Don't apply** (Maciej, 2026-11-21): a small gain for 12% more time per step, and unmasked rows are a valid way to train |
 | Bank gates B1–B3; the new init bundle | Ties or losses | — | **Don't apply** |
 | ST (STEM) bank gate | A tie; −0.048 beyond the init at h16, one run | +3.1–3.8% s/step | **Don't apply** (Maciej, 2026-11-21): it breaks the precomputed score table |
 
@@ -447,20 +445,11 @@ seed. No run has trained a full standard config yet.
 
 | Change | Effect at h12 | Cost | Conclusion |
 |---|---|---|---|
-| KV shift | −0.022 alone, −0.040 on top of QK-norm; neither run spiked | +2.7% s/step, 2.3 GiB | **Apply.** It must stop at document starts before it meets the document mask (caveat 2) |
+| KV shift | −0.022 alone, −0.040 on top of QK-norm; neither run spiked | +2.7% s/step, 2.3 GiB | **Apply** |
 | QK-norm | +0.013 alone, −0.006 on the shift: both ties | +1.8–2.4% s/step, 4 GiB | **Apply,** for stability (Maciej, 2026-11-20). At h12 the loss neither gains nor loses |
 | RoPE; n = 8 at h12, n = 9 at h16 and h20 | The recipe. NoPE costs +0.28; n = 8 at h16 is unstable | — | **Keep** |
-| Document mask | −0.020 to −0.022, one unmasked baseline | +12% s/step | **Maciej's call**, as for AME |
+| Document mask | −0.020 to −0.022, one unmasked baseline | +12% s/step | **Don't apply** (Maciej, 2026-11-21), as for AME |
 | The new init bundle and its parts | +0.04 to +1.27 | — | **Don't apply** |
-
-### The open call: the document mask
-
-**Recommendation: off in both models for now, on in both once it is free.**
-- The gain is real, about −0.02 in each model. But it leaves the AME − dense gap where it
-  was (+0.143 without, +0.145 with), so the comparison does not need it, and it costs 12%
-  of every run.
-- A `BlockMask` that skips the cross-document blocks may remove that cost. Whenever the
-  mask goes on, it goes on in both models.
 
 ### Decided by Maciej
 
@@ -474,6 +463,11 @@ seed. No run has trained a full standard config yet.
   - The reason holds for any change to AME: a score must stay a function of token ids and
     distance, so the table can be precomputed.
   - Every bank gate is now rejected, and AME keeps `bank_gate: none`.
+- **Neither model masks documents** (2026-11-21).
+  - The gain is small, about −0.02 in each model, and the mask costs 12% more time per
+    step.
+  - Packed rows without a mask are a valid way to train in their own right.
+  - The mask also left the AME − dense gap where it was: +0.143 without it, +0.145 with.
 
 ### What the changes do to the AME − dense gap
 
@@ -497,11 +491,8 @@ seed. No run has trained a full standard config yet.
 1. **One confirming run per model at h12:** the full standard config, paired against its
    current baseline. No run has stacked every change, and two of them already overlap
    (σ and the 4× rate). About 4 GPU-h each.
-2. **The merge** ([Before merging](#before-merging)):
-   - gate the dense shift at document starts, if the document mask goes on (caveat 2);
-   - settle `bank_lr_ratio`'s default (caveat 3);
-   - expect conflicts between `ame_improve` and `doc_mask`, whenever the mask merges
-     (caveat 1).
+2. **The merge** ([Before merging](#before-merging)): bring `ame_improve` onto `ame_main`,
+   resolving its one conflict (caveat 1), and settle `bank_lr_ratio`'s default (caveat 2).
 3. **Fix the FSDP2 readout defect** ([Known defect](#known-defect-to-fix-in-standard-ame)),
    so the h20 runs, which use FSDP2, log AME's readouts.
 4. **Still not measured:** any change at h20; σ at any learning rate but n = 8; AME h16 at
@@ -509,8 +500,6 @@ seed. No run has trained a full standard config yet.
 
 ### Lower priority
 
-- **A block-sparse document mask:** a `BlockMask` that skips cross-document blocks could
-  remove the mask's 12% cost.
 - **The σ cliff at n = 7 and n = 9:** does it move with the learning rate?
 - **The pkmf Linears at n = 7:** could a retuned learning rate win back their +0.10? Even
   if it did, AME would still trail `kf4q4t4s` by about 0.06.

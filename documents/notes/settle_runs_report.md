@@ -365,6 +365,9 @@ it here.
 - **A reading, untested.** The mask is a flex `score_mod`, a `where` per score, so it
   skips no work. A `BlockMask` built from the document boundaries could skip the
   cross-document blocks.
+- **Decision: no document mask in either model** (Maciej, 2026-11-21). The gain is
+  small, it costs 12% per step, and unmasked packed rows are a valid way to train
+  ([the digest](standard_model_improvements.md#the-document-mask-both-models)).
 
 ### 5. Dense switches: the KV shift carries the gain, QK-norm adds a tie
 
