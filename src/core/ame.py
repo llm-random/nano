@@ -487,7 +487,9 @@ class AMEAttention(nn.Module):
             # SwiGLU gate uses, drawn from a private generator.
             self.gate = _rng_neutral_linear(self.dmodel, datt, False, device)
             if not self.gate.weight.is_meta:
-                draw = torch.empty(datt, self.dmodel)
+                # On the CPU, where the private generator lives, even when the
+                # model is built under a CUDA default device; then copied over.
+                draw = torch.empty(datt, self.dmodel, device="cpu")
                 llm_random_weight_init(self.dmodel, init_scale)(
                     draw, generator=_private_generator()
                 )
