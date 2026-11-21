@@ -14,7 +14,8 @@ to it, and the branch facts are as of 2026-11-21.
   and unmasked packed rows are a valid way to train.
 
 The configs are in [Proposed standard configs](#proposed-standard-configs), and the reasoning
-in [Conclusions](#conclusions-what-to-apply-to-ame-and-dense).
+in [Conclusions](#conclusions-what-to-apply-to-ame-and-dense). A one-page table of the
+decisions is in [standard_model_decisions.md](standard_model_decisions.md).
 
 The work ran in six Claude Code sessions, kept in the "Overwatch" sessions folder:
 
