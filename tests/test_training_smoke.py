@@ -185,6 +185,42 @@ def test_an_ame_stack_trains_end_to_end_through_main(tmp_path):
     )
 
 
+def test_a_token_budget_trains_for_the_steps_it_resolves_to(tmp_path):
+    """trainer.n_tokens_b through the real entry point. The dumped/composed
+    config says tokens and leaves n_steps null; main.run must turn that into
+    steps before the scheduler, the loop and the checkpoint name read it. One
+    step of tiny_local is 2 x 16 = 32 tokens, so N_STEPS * 32 tokens is exactly
+    N_STEPS steps."""
+    budget = N_STEPS * 32 / 1e9
+    save_path, output = _run(
+        tmp_path,
+        "nano",
+        n_steps="null",
+        name="tokens",
+        extra=[f"trainer.n_tokens_b={budget}"],
+    )
+    steps = _losses_by_step(output)
+    assert max(steps) == N_STEPS - 1, f"trained steps {sorted(steps)}"
+    step_dir = os.path.join(save_path, f"step_{N_STEPS - 1}")
+    assert os.path.isdir(step_dir), f"no checkpoint at {step_dir}"
+
+
+def test_a_dense_stack_matching_ame_trains_end_to_end(tmp_path):
+    """The dense control with AME's QK-norm and KV shifting, through main.py:
+    composition of both switches, the temperature and shift coefficients
+    through the optimizer groups, the training loop."""
+    _, output = _run(
+        tmp_path,
+        "nano",
+        name="dense_matched",
+        extra=["common.attention.qk_norm=true", "common.attention.shift=true"],
+    )
+    losses = _losses_by_step(output)
+    assert len(losses) >= N_STEPS, f"expected >= {N_STEPS} losses, got {len(losses)}"
+    values = [float(v) for v in losses.values()]
+    assert all(v == v and v > 0 for v in values), f"bad losses {values}"
+
+
 RESUME_STEPS = 20
 RESUME_AT = 10
 

@@ -709,9 +709,12 @@ def test_the_lr_scheduler_accepts_the_grouped_optimizer():
     assert [group["weight_decay"] for group in optimizer.param_groups] == [0.1, 0.0]
 
 
-def test_the_scheduler_still_rejects_groups_at_different_learning_rates():
-    """Relaxing the guard must not delete it: differing lrs are the case eta_min
-    genuinely cannot express."""
+def test_the_scheduler_floors_each_group_at_its_own_learning_rate():
+    """Groups at different lrs used to be rejected, because torch's eta_min is
+    one value for all groups and a second lr would anneal to the wrong floor.
+    The banks' bank_lr_ratio needs exactly that case, so the cosine now floors
+    every group at final_lr_fraction of its OWN lr (CosineAnnealingToFraction):
+    the ratio holds at every step and each group ends on its own floor."""
     from src.core.schedulers import get_cosine_scheduler_with_warmup
 
     layer = _layer()
@@ -721,10 +724,18 @@ def test_the_scheduler_still_rejects_groups_at_different_learning_rates():
             {"params": [layer.alpha], "lr": 1e-4},
         ]
     )
-    with pytest.raises(AssertionError, match="one learning rate"):
-        get_cosine_scheduler_with_warmup(
-            optimizer, warmup_steps=2, n_steps=10, final_lr_fraction=0.1
-        )
+    scheduler = get_cosine_scheduler_with_warmup(
+        optimizer, warmup_steps=2, n_steps=10, final_lr_fraction=0.1
+    )
+    for _ in range(10):
+        high, low = (group["lr"] for group in optimizer.param_groups)
+        assert high == pytest.approx(10 * low, rel=1e-12)
+        optimizer.step()
+        scheduler.step()
+    # Step 10 is the cosine's T_max: every group sits exactly on its floor.
+    high, low = (group["lr"] for group in optimizer.param_groups)
+    assert high == pytest.approx(1e-4, rel=1e-12)
+    assert low == pytest.approx(1e-5, rel=1e-12)
 
 
 # ---------------------------------------------------------------------------

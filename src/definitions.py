@@ -31,7 +31,13 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 from hydra.core.config_store import ConfigStore
-from omegaconf import MISSING, DictConfig, OmegaConf
+from omegaconf import MISSING, DictConfig, OmegaConf, open_dict
+
+
+# trainer.bank_lr_ratio when a config leaves it out (a sweep config composed
+# without base_schema). TrainerSchema and src.core.trainer.Trainer carry the
+# same literal; tests/test_typed_config.py holds the pair together.
+DEFAULT_BANK_LR_RATIO = 4.0
 
 
 @dataclass
@@ -45,7 +51,15 @@ class AttentionSchema:
     # option list and names the offender, which a dataclass per type would
     # duplicate. One field per type that has options.
     ame: Any = None
-    gqa: Any = None  # {rope: false} is NoPE (_GQA_OPTIONS in src/core/attention.py)
+    # {rope: false} is NoPE; {qk_norm: true} and {shift: true} add AME's
+    # QK-norm and KV shifting (_GQA_OPTIONS in src/core/attention.py)
+    gqa: Any = None
+    # AME's QK-norm and KV shifting on every layer of every type: null keeps
+    # each type's default (mha/mqa/gqa off, ame on), true/false sets it
+    # everywhere. A type's own option of the same name may repeat it but not
+    # contradict it (build error).
+    qk_norm: Optional[bool] = None
+    shift: Optional[bool] = None
 
 
 @dataclass
@@ -126,7 +140,17 @@ class TrainerSchema:
     _target_: str = MISSING
     _partial_: bool = MISSING
     n_steps: Optional[int] = MISSING
+    # Training length in BILLIONS of tokens, the alternative to n_steps: set
+    # one, leave the other null. resolve_n_steps() turns it into whole steps
+    # of common.batch_size * common.sequence_length tokens, rounded down,
+    # before anything reads n_steps.
+    n_tokens_b: Optional[float] = None
     learning_rate: Optional[float] = MISSING
+    # The AME memory banks (q_bank/k_bank) train at this multiple of
+    # learning_rate, in their own param group or in the memory-parallel
+    # controller's optimizer, for the whole schedule. No effect on a model
+    # without banks; 1.0 is the old single-lr behavior.
+    bank_lr_ratio: float = 4.0  # == DEFAULT_BANK_LR_RATIO
     weight_decay: float = MISSING
     gradient_accumulation_steps: int = MISSING
     gradient_clipping: Optional[float] = MISSING
@@ -224,8 +248,77 @@ def check_point(point: "dict | DictConfig | RootSchema") -> DictConfig:
         # through. A plain container is re-validated key by key.
         point = OmegaConf.to_container(point, resolve=False)
     merged = OmegaConf.merge(_base_schema_node(), OmegaConf.create(point))
+    # On the merged copy: the caller's point stays as written, n_tokens_b and
+    # all, which is what run_exp.py dumps and the cluster-side run resolves
+    # again (main.run). Before validate, whose n_steps checks need the steps.
+    resolve_n_steps(merged)
     validate(merged)
     return merged
+
+
+def steps_for_tokens(n_tokens_b: float, batch_size: int, sequence_length: int) -> int:
+    """Whole optimizer steps in `n_tokens_b` billion tokens, rounded down.
+
+    One step is `batch_size * sequence_length` tokens: common.batch_size is the
+    GLOBAL batch (get_dataloader hands each rank batch_size // world_size), so
+    the count does not depend on the GPU count or gradient accumulation. These
+    are corpus tokens, the convention of the hand-written `n_steps: 7630 # 8B
+    tokens / 1,048,576 tokens per step` configs. The trainer's processed_tokens
+    (the W&B token axis) counts predicted tokens instead, sequence_length - 1
+    per sequence, so it ends 1/sequence_length below the budget (0.05% at 2048).
+
+    The token count is rounded to a whole number first, so a budget that is an
+    exact multiple of the step survives float noise: 1.001 * 10**9 is
+    1000999999.9999999 in floating point, and flooring that would lose a step.
+    """
+    tokens_per_step = batch_size * sequence_length
+    return round(n_tokens_b * 10**9) // tokens_per_step
+
+
+def resolve_n_steps(cfg) -> None:
+    """Fold `trainer.n_tokens_b` into `trainer.n_steps`, in place.
+
+    The training length is given in steps or in billions of tokens, never
+    both. A config that sets n_tokens_b must leave n_steps null; this fills it
+    in with steps_for_tokens(), so everything downstream -- the scheduler, the
+    warmup interpolation `${trainer.n_steps}`, checkpoint names, the training
+    loop -- keeps reading steps and nothing else has to know about tokens.
+
+    Runs in two places: on check_point's merged copy (run_exp.py, every grid
+    point, before anything is submitted; main.py at startup) and in place in
+    main.run, before anything reads n_steps. Once per config object: after it,
+    both keys are set, which is exactly what it rejects on input.
+    """
+    t = cfg.trainer
+    n_tokens_b = t.get("n_tokens_b")
+    if n_tokens_b is None:
+        return
+    if t.get("n_steps") is not None:
+        raise ValueError(
+            f"trainer.n_tokens_b={n_tokens_b} and trainer.n_steps={t.n_steps} are "
+            "both set: the training length is given one way or the other. Leave "
+            "n_steps empty when giving tokens (`n_steps: null` in yaml, "
+            "`trainer.n_steps=null` on the command line)."
+        )
+    if n_tokens_b <= 0:
+        raise ValueError(
+            f"trainer.n_tokens_b must be > 0 (billions of tokens), got {n_tokens_b!r}"
+        )
+    batch_size, sequence_length = cfg.common.batch_size, cfg.common.sequence_length
+    if not (batch_size and sequence_length and batch_size > 0 and sequence_length > 0):
+        raise ValueError(
+            "trainer.n_tokens_b needs common.batch_size and common.sequence_length "
+            f"> 0 to count steps, got {batch_size!r} and {sequence_length!r}"
+        )
+    n_steps = steps_for_tokens(n_tokens_b, batch_size, sequence_length)
+    if n_steps < 1:
+        raise ValueError(
+            f"trainer.n_tokens_b={n_tokens_b} is less than one optimizer step of "
+            f"common.batch_size * common.sequence_length = "
+            f"{batch_size * sequence_length:,} tokens"
+        )
+    with open_dict(t):
+        t.n_steps = n_steps
 
 
 def validate(cfg) -> None:
@@ -260,6 +353,11 @@ def validate(cfg) -> None:
         "(the n = 2**-n convention still means a positive number)",
     )
     check(t.weight_decay >= 0, f"trainer.weight_decay must be >= 0, got {t.weight_decay!r}")
+    bank_lr_ratio = getattr(t, "bank_lr_ratio", DEFAULT_BANK_LR_RATIO)
+    check(
+        bank_lr_ratio is not None and bank_lr_ratio > 0,
+        f"trainer.bank_lr_ratio must be > 0, got {bank_lr_ratio!r}",
+    )
     check(
         t.gradient_accumulation_steps >= 1,
         f"trainer.gradient_accumulation_steps must be >= 1, got {t.gradient_accumulation_steps!r}",
