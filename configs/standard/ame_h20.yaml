@@ -1,0 +1,89 @@
+# The standard AME model at h20: S2-PS (AME + ALiBi ladder + KV shift + sink)
+# with the bank init sigma = 1e-4 and the banks at 4x the learning rate, on 16B
+# tokens on one LEM node (4 H100). Decided by Maciej on 2026-11-21
+# (documents/notes/standard_model_improvements.md, "Decisions"). One submit =
+# 1 run. Never trained with the small bank init or the 4x banks at this size.
+#
+# A copy of configs/stage_2c/ame_h20_pe_shift.yaml (S2c-PS). Only these differ:
+#   - trainer.learning_rate: 8, where that file leaves it null: the best AME
+#     h20 run is at 2^-8 (tg4h4g66, final_ce 2.5596);
+#   - common.attention.ame.bank_init_std: 1.0e-4 and trainer.bank_lr_ratio: 4.0;
+#     the column-sharded banks (mem_parallel_size: 4) slice the full bank drawn
+#     at this sigma, and their own optimizer steps at 4x the lr;
+#   - the r16-11 exclusion, here instead of on the command line, and the run
+#     name, tags and comments.
+# Pair with tg4h4g66: the same seed, data order, steps and schedule. No
+# document mask and no bank gate (both rejected, 2026-11-21).
+#
+# FSDP2 is on. alpha/beta, tau and the horizons are logged since the readout
+# fix on standard_models; attention entropy and top-k mass are not, because
+# they need the unsharded banks (src/core/ame.py, AMEAttention.instrumentation).
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128, so flex blocks align
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # shift: true learns (alpha_1, alpha_2) and (beta_1, beta_2) per head and
+  # layer. slopes is unset, so AME uses its ALiBi ladder: horizons from 16 to
+  # 8192 tokens spread over the 20 heads. The sink and bank_gate: none are
+  # defaults.
+  attention:
+    type: ame
+    ame:
+      shift: true
+      bank_init_std: 1.0e-4 # N(0, sigma^2) bank rows; the code default is 1.0
+
+compile_blocks_full: true
+
+trainer:
+  # 4 GPUs, micro-batch 16 per GPU: 4 x 16 x 8 = 512 sequences per step.
+  # AME h20 fits 4 GPUs only with the backbone under FSDP2 and the banks
+  # column-sharded over all four (mem_parallel_size 1 or 2 runs out of memory,
+  # ame_optimization_report.md §1.3). FSDP2's MixedPrecisionPolicy computes in
+  # bf16, so autocast is off.
+  gradient_accumulation_steps: 8 # micro-batch 16 = 512 / (4 GPUs x 8)
+  mem_parallel_size: 4 # banks column-sharded over the 4 GPUs (Tier 3)
+  distributed:
+    fsdp2:
+      reshard_after_forward: false # O33, ame_optimization_report.md §1.10
+  autocast_bf16: false # bf16 comes from FSDP2's mixed precision
+
+  # The recipe. Everything not set here is a llama-trainer default:
+  #   - AdamW, weight decay 0.1 (the AME banks are exempt);
+  #   - cosine schedule, warmup 1% = 152 steps, final LR 10% of peak;
+  #   - eval every 100 steps on 10 batches;
+  #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
+  n_steps: 15259 # D = 16B tokens / 1,048,576 tokens per step, rounded up
+  learning_rate: 8 # LR = 2^-8, AME h20's best n
+  bank_lr_ratio: 4.0 # banks at 4 x 2^-8 for the whole schedule (also the default)
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1): the backbone sharded
+      # by FSDP2, and each GPU's column shard of the banks. It lands in the job's
+      # cemetery clone, under checkpoint/<job id>/. About 37 GB per checkpoint,
+      # banks and their optimizer state included.
+      path: checkpoint
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:4 # one whole LEM node; LEM's gres syntax
+    job-name: std_ame_h20
+    time: "1-00:00:00" # about 14.5 h per run on LEM, plus margin
+    exclude: r16-11 # bad GPU (2026-11-06)
+  metric_logger:
+    project_name: nano-ame
+    name: std_ame_h20_lr8
+    tags:
+      - ame
+      - h20
+      - standard
+      - bank_lr4
+      - bank_std1e4

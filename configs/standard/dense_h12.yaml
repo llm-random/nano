@@ -1,0 +1,62 @@
+# The standard dense model at h12: GQA with RoPE, QK-norm and the KV shift.
+# Decided by Maciej on 2026-11-21 (documents/notes/standard_model_improvements.md,
+# "Decisions"). One submit = 1 run.
+#
+# The recipe of W&B chne4w91 (settle_runs_improve:
+# configs/ame_improve/dense_h12_qknorm_shift.yaml, final_ce 2.9561); only the
+# run name, tags and comments differ. Pair with chne4w91 (or with x0xlqroj):
+# the same seed, data order, steps and schedule. No document mask (rejected,
+# 2026-11-21).
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h12
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128; kept equal to the AME runs
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # Dense attention with RoPE (base 10000), the h_balanced default.
+  attention:
+    type: gqa
+    qk_norm: true # stack-wide switch: l2 per head, learned tau (no weight decay)
+    shift: true # stack-wide switch: KV shift, after QK-norm and before RoPE
+
+compile_blocks_full: true
+
+trainer:
+  gradient_accumulation_steps: 16 # micro-batch 32
+  mem_parallel_size: null # dense attention has no banks
+  distributed: null # no FSDP2, as in the AME runs: one precision path
+  autocast_bf16: true # bf16 comes from autocast instead of FSDP2
+
+  # Everything not set here is a llama-trainer default: AdamW, weight decay
+  # 0.1, cosine schedule with 1% warmup (38 steps) to 10% of peak, eval every
+  # 100 steps on 10 batches, final_ce on the fixed 8192 x 2048 held-out set.
+  n_steps: 3815 # D = 4B tokens / 1,048,576 tokens per step
+  learning_rate: 8 # LR = 2^-8, dense h12's best n
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1), about 2 GB, in the
+      # job's cemetery clone under checkpoint/<job id>/.
+      path: checkpoint
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:1 # LEM's gres syntax
+    job-name: std_dense_h12
+    time: "0-07:00:00" # S1-D trained in 3.7 h on LEM; QK-norm and the shift add 5.3% per step
+    exclude: r16-11 # bad GPU (2026-11-06)
+  metric_logger:
+    project_name: nano-ame
+    name: std_dense_h12_lr8
+    tags:
+      - dense
+      - h12
+      - standard
+      - qk_norm
+      - kv_shift
