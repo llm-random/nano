@@ -1,10 +1,10 @@
 # Standard models: build, test and merge
 
-**Status (2026-11-21 23:36):** in progress. Branch `standard_models` holds every
+**Status (2026-11-21 23:48):** in progress. Branch `standard_models` holds every
 approved feature and the six standard configs (steps 1–6 done), and the tests pass
-(step 7). The four h12 and h16 smokes pass; the two h20 smokes are queued on LEM
-(step 8). The AME h12 reproduction is running and matches `zdmv3qci` at steps 0–7;
-the dense one is queued (step 9). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
+(step 7). Five smokes pass, the h20 AME one with the FSDP2 readouts; smoke
+`dense_h20` is running (step 8). The AME h12 reproduction is running and matches
+`zdmv3qci` at steps 0–7; the dense one is queued (step 9). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
 
 ## The branch
 
@@ -91,7 +91,7 @@ log at steps 0, 20 and 40), a 1.5 h limit, named `smoke_std_<config>` and tagged
 | `dense_h12` | `smoke_std_dense_h12_2026-11-21_16-45-55` | 6383542 | `tjhhov4d` | **Passes.** Step 0 11.1875 (= `chne4w91`); 3.45 s/step (reference 3.444); peak 53.3 GiB; `final_ce` 7.166 logged; no NaN. 7 min on r14-3 |
 | `ame_h16` | `smoke_std_ame_h16_2026-11-21_16-46-09` | 6383543 | `40al2ex5` | **Passes.** Step 0 11.25; 6.77 s/step (a full run: 14.4 h of its 24 h limit); peak 72.2 GiB; `final_ce` 7.559 logged; no NaN. Logs all the readouts in all 16 layers; `bank_lr` = 4 × `lr`. 10.8 min on r18-1 |
 | `dense_h16` | `smoke_std_dense_h16_2026-11-21_16-46-24` | 6383544 | `ckw39rr4` | **Passes.** Step 0 11.25; 6.27 s/step (a full run: 13.3 h of its 24 h limit); peak 43.3 GiB; `final_ce` 7.125 logged; no NaN; the final LR is 10% of 2^-9. 9.9 min on r14-3 |
-| `ame_h20` | `smoke_std_ame_h20_2026-11-21_16-46-39` | 6383545 | | pending |
+| `ame_h20` | `smoke_std_ame_h20_2026-11-21_16-46-39` | 6383545 | `ad7fdm5h` | **Passes.** Under FSDP2 with the banks column-sharded over 4 GPUs it logs `alpha_2/mean`, `beta_2/mean`, `tau/mean` (≈ 8 = √64) and the horizons in all 20 layers, and no attention entropy, as intended: **the readout fix works**. Step 0 11.1875; 2.96 s/step (a full run: 12.6 h of its 24 h limit); peak 64.7 GiB, so `gradient_accumulation_steps` stays 8; `final_ce` 7.201 logged; no NaN; `bank_lr` = 4 × `lr`. 7.4 min on r14-6 |
 | `dense_h20` | `smoke_std_dense_h20_2026-11-21_16-46-53` | 6383546 | | pending |
 
 ## Reproductions at h12
@@ -125,3 +125,4 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 | 21:55–22:06 | Smoke `ame_h16` (6383543) on r18-1: passes |
 | 22:02–22:12 | Smoke `dense_h16` (6383544) on r14-3: passes. The four 1-GPU smokes all pass; the h20 smokes and the reproductions still pending |
 | 23:29 | Reproduction `ame_h12` (6383547, `zs1bceoy`) started on r18-14. Start check at 23:35: log clean; the W&B config differs from `zdmv3qci`'s only in the run name, tags, job name, `mem_per_gpu`, `sparse_exclude`, `count_token_updates: False` and the run paths; losses at steps 0–7 equal the reference's (11.25, 10.0625, 9.625, 9.5, 8.75, 8.5, 8.0625, 7.8125); 3.77 s/step (reference 3.762). About 4 h to go |
+| 23:35–23:42 | Smoke `ame_h20` (6383545) on r14-6: passes, with the FSDP2 readouts. Smoke `dense_h20` started at about 23:43 |
