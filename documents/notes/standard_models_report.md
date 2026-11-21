@@ -1,8 +1,9 @@
 # Standard models: build, test and merge
 
-**Status (2026-11-21 16:51):** in progress. Branch `standard_models` holds every
+**Status (2026-11-21 21:54):** in progress. Branch `standard_models` holds every
 approved feature and the six standard configs (steps 1–6 done), and the tests pass
-(step 7). The six smoke runs and the two h12 reproductions are queued on LEM (steps 8–9). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
+(step 7). Smoke `ame_h12` passes; the other five smokes and the two h12 reproductions
+are queued on LEM (steps 8–9). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
 
 ## The branch
 
@@ -16,6 +17,7 @@ Worktree `~/code/nano-standard`, branch `standard_models`, from `ame_main` at `7
 | `8b78b805` | The FSDP2 readout fix, with its test |
 | `db1cdda2` | `configs/standard/`: the six standard configs |
 | `41b041db` | The ST gate's init draws on the CPU: a GPU test that also fails on `ame_main` ([Tests](#tests)) |
+| `5684bea6` | The readout test's comment: alpha/beta are drawn, only tau starts at a fixed value (after the jobs were submitted; test only) |
 
 - **The merge** had the one conflict the plan expected: `src/core/trainer.py`, where both
   branches add `Trainer` fields. All three kept (`count_token_updates`, `n_tokens_b`,
@@ -84,7 +86,7 @@ log at steps 0, 20 and 40), a 1.5 h limit, named `smoke_std_<config>` and tagged
 
 | Config | Cemetery branch | Job | W&B | Result |
 |---|---|---|---|---|
-| `ame_h12` | `smoke_std_ame_h12_2026-11-21_16-45-38` | 6383541 | | pending |
+| `ame_h12` | `smoke_std_ame_h12_2026-11-21_16-45-38` | 6383541 | `16jv7t55` | **Passes.** Step 0 11.25 (= `zdmv3qci`); 3.77 s/step (reference 3.762); peak 70.4 GiB; `final_ce` 7.164 logged; no NaN. Logs α/β, τ, the horizons, entropy and top-8 mass; `bank_lr` = 4 × `lr`. 9.5 min on r18-1 |
 | `dense_h12` | `smoke_std_dense_h12_2026-11-21_16-45-55` | 6383542 | | pending |
 | `ame_h16` | `smoke_std_ame_h16_2026-11-21_16-46-09` | 6383543 | | pending |
 | `dense_h16` | `smoke_std_dense_h16_2026-11-21_16-46-24` | 6383544 | | pending |
@@ -116,3 +118,5 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 | 16:45–16:47 | Local halves of all eight jobs; the cemetery branches pushed, `standard_models` restored at `41b041db` |
 | 16:48 | Clone check: GitHub refused port 22 from LEM's login node after two clones. Retried with sparse clones, 20 s apart; the first two made sparse after the fact |
 | 16:48–16:51 | All eight clones checked: sparse (138 files each), `#SBATCH` lines and configs as intended, no live secret export, both fixes in `src/core/ame.py`. Submitted at 16:51, the W&B key on stdin: smokes 6383541–6383546, reproductions 6383547 (AME) and 6383548 (dense). All pending. A watcher polls `sacct` every 5 min |
+| 21:43–21:53 | Smoke `ame_h12` (6383541) on r18-1, after 4 h 52 min in the queue: passes ([Smoke runs](#smoke-runs)). The other seven still pending |
+| 21:54 | The readout test's comment fixed on `standard_models` (`5684bea6`): alpha/beta are drawn (c1 ~ U(0, 1)), not (1, 0). Test only; the jobs run `41b041db` |
