@@ -420,7 +420,7 @@ The paired gaps add up: −0.0216 − 0.0055 = +0.0132 − 0.0403 = −0.0271.
 
 - **So the shift alone keeps −0.022 of the −0.027 at half the time cost.** QK-norm's
   share on top of it, −0.006, is a tie that costs +2.4% s/step and 4.0 GiB. Maciej keeps
-  it for stability (2026-11-20; [the digest's conclusions](standard_model_improvements.md#conclusions-what-to-apply-to-ame-and-dense)).
+  it for stability (2026-11-20; [the digest's decisions](standard_model_improvements.md#decisions)).
 
 ### 6. Dense h16 at n = 8 is unstable: n = 9 is the optimum
 
