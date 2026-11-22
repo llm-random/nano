@@ -1,12 +1,12 @@
 # Standard models: build, test and merge
 
-**Status (2026-11-22 13:35): not merged; an AME rerun is queued on entropy.** Steps 1–8
-pass, and so does the dense reproduction (gap +0.0075). The AME reproduction spiked at
-steps 330–360 and ends 0.077 above `zdmv3qci`, outside the 0.022 band, so under the
-plan's step 10 the merge waited for Maciej. For this config the merged code computes what
-the reference's code did, so a chance spike is the likely cause, but one run cannot prove
-it. At 13:2x Maciej answered "continue", taken as option 1 of [For Maciej](#for-maciej):
-one rerun, and a merge if it ties `zdmv3qci` ([Rerun](#rerun-on-entropy)). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
+**Status (2026-11-22 17:30): DONE. `standard_models` is merged into `ame_main` as
+`7597f382`; nothing is pushed.** Steps 1–9 pass. The dense reproduction ties `chne4w91`
+(+0.0075). The first AME reproduction spiked at steps 330–360 and ended 0.077 above
+`zdmv3qci`, outside the 0.022 band, so the merge waited for Maciej. On Maciej's
+"continue", an AME rerun on entropy ties `zdmv3qci` (+0.0017, `final_ce` 3.0312 on both),
+which points to a chance spike, not the merge. Details: [Rerun](#rerun-on-entropy),
+[Merge](#merge). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
 
 ## The branch
 
@@ -58,6 +58,7 @@ GPU tests on LEM's interactive node r18-15 (H100, torch 2.7.1+cu128), under `sru
 | The same ST test | `ame_main` (`eeae4448`) | **Fails the same way**: it predates the merge (job 6383514) |
 | `pytest -m gpu` | `41b041db`, with the ST fix | **13 passed** (job 6383514) |
 | `tests/test_distributed.py`, on CUDA with NCCL there | `db1cdda2`, `41b041db` | **4 passed** both times, the readout test included |
+| CPU gate, on the merged `ame_main` in `~/code/nano` | `7597f382` | **512 passed**, 0 skipped, 0 failed (6 min). The 18 tests skipped in the worktree need the gitignored dummy dataset (`data/`, `data_eval/`), which only `~/code/nano` has |
 
 **The ST failure and its fix (`41b041db`).** The ST gate's init made its draw with
 `torch.empty(datt, dmodel)`, which follows the default device, so under
@@ -111,10 +112,11 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 |---|---|---|---|---|---|---|
 | `ame_h12` | `std_ame_h12_lr8_2026-11-21_16-47-08` | 6383547 | `zs1bceoy` | 11.25: **matches**, and so do steps 1–7 | **+0.0771: fails** (band 0.022); a spike from step 335, [below](#why-the-ame-reproduction-fails) | 3.1035 (reference 3.0312) |
 | `dense_h12` | `std_dense_h12_lr8_2026-11-21_16-47-23` | 6383548 | `q2yrtd9t` | 11.1875: **matches**, and so do steps 1–7 | **+0.0075: passes** | 2.9629 (reference 2.9561) |
+| `ame_h12`, rerun on entropy | `std_ame_h12_lr8_rerun_2026-11-22_13-27-26` | 44202 | `6yx46ng1` | 11.25: **matches**, and so do steps 1–7 | **+0.0017: passes** ([Rerun](#rerun-on-entropy)) | 3.0312 (reference 3.0312) |
 
-Both jobs completed with no error in either log, and both saved their final checkpoints:
-AME ran 4 h 15 min on r18-14, dense 3 h 53 min on r18-4. GPU use for the whole plan is
-about 9.8 GPU-h of the 10 budgeted.
+Both LEM jobs completed with no error in either log, and both saved their final
+checkpoints: AME ran 4 h 15 min on r18-14, dense 3 h 53 min on r18-4. That is about 9.8 of
+the 10 GPU-h budgeted on LEM. The rerun added 3.8 GPU-h on entropy.
 
 ### Why the AME reproduction fails
 
@@ -144,7 +146,7 @@ regression cannot be ruled out, and the plan says not to merge after a failure.
 2. **Merge on this evidence:** for this config, the code that differs never runs or never
    changes what is computed.
 
-Nothing has been launched. The worktree `~/code/nano-standard` stays for the merge.
+Maciej chose option 1 at 13:2x on 11-22: [Rerun on entropy](#rerun-on-entropy).
 
 ### Rerun on entropy
 
@@ -167,6 +169,34 @@ LEM's budget is spent, and Maciej asked on 11-21 for tests to run there.
   reference's code (`482aaf56`) on entropy to separate code from recipe. The comparison
   crosses clusters (LEM reference, entropy rerun); earlier cross-cluster PC pairs differed
   by about ±0.002.
+- **Result: passes.** The job completed at 17:18 after 3 h 49 min, with the final
+  checkpoint saved and no error in the log.
+
+  | Check | Rerun `6yx46ng1` | Reference `zdmv3qci` |
+  |---|---|---|
+  | Steps 0–7 | Equal | — |
+  | Paired gap, by quarter | +0.0022, +0.0022, +0.0022, +0.0017: level, no episode | — |
+  | Last-500 paired gap | **+0.0017**, under 0.022 | — |
+  | `final_ce` | 3.0312 | 3.0312 |
+  | Spike steps (`paired_gap.py`) | 0 | 0 |
+  | Largest grad norm after step 100 | 0.46 (step 105) | 0.39 (step 116) |
+  | s/step, peak memory | 3.35 (H100, entropy), 70.4 GiB | 3.76 (LEM), 70.4 GiB |
+
+  The gap stays near the ±0.002 seen between clusters before. So the merged code
+  reproduces the reference, and `zs1bceoy`'s spike was chance. The recipe has spiked in 1
+  of its 3 runs.
+
+## Merge
+
+- **Overlap check:** none of the 24 files the merge touches had uncommitted changes in
+  `~/code/nano`, where other sessions had six files changed or untracked.
+- **Merge:** `7597f382`, by `git merge --no-ff standard_models`. Its tree equals the
+  `git merge-tree` preview (`6ed23f9e`), and the other sessions' files are untouched.
+  Nothing is pushed.
+- **CPU gate on the merged tree:** 512 passed, 0 skipped, 0 failed ([Tests](#tests)).
+- **Worktree** `~/code/nano-standard` is removed. Branch `standard_models` stays, at
+  `5684bea6`.
+- **GPU use:** about 9.8 GPU-h on LEM (of the 10 budgeted) and 3.8 GPU-h on entropy.
 
 ## Log
 
@@ -199,3 +229,8 @@ LEM's budget is spent, and Maciej asked on 11-21 for tests to run there.
 | 11-22 13:27–13:29 | Entropy copy of `ame_h12.yaml` composed and diffed (cluster keys only); local half from `5684bea6`; sparse clone checked on entropy (139 files, `--nice=10000`, `gpu:h100:1`, no live secret); submitted as 44202 with the W&B key on stdin. Pending at priority 1, behind the E3X jobs. The copy deleted from the worktree. A watcher polls entropy's `sacct` every 5 min |
 | 11-22 13:29 | Rerun 44202 started on h100a, on the GPU of one preempted `lukaskoz` job. E3X kept its 4 GPUs; its next job needs 4, and without the rerun only 2 `lukaskoz` GPUs could have been freed for it, so it was blocked either way |
 | 11-22 13:36 | Start check of the rerun (W&B `6yx46ng1`): log clean, the same 1,279,107,432 rows and held-out cut as on LEM; the W&B config differs from `zdmv3qci`'s only in cluster keys (data paths, cemetery, slurm, script), the run name, tags, `sparse_exclude` and `count_token_updates: False`; losses at steps 0–7 equal the reference's; 3.35 s/step on the H100 (LEM 3.77), so it ends at about 17:05 |
+| 11-22 17:18 | Rerun 44202 completed after 3 h 49 min: `final_ce` 3.0312, final checkpoint saved, no error in the log |
+| 11-22 17:21 | Paired gap +0.0017 against `zdmv3qci`, level across the quarters, no spike: **passes**, so step 9 passes |
+| 11-22 17:22 | Overlap check clean; merged as `7597f382`, its tree equal to the preview |
+| 11-22 17:22–17:28 | CPU gate on the merged tree: 512 passed, 0 skipped, 0 failed |
+| 11-22 17:29 | Worktree removed, branch kept. **Done** |

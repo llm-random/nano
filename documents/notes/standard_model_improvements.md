@@ -1,13 +1,13 @@
 # Standard AME and dense models
 
-**Status:** decided by Maciej on 2026-11-21. Nothing is open. The
-[implementation plan](#implementation-plan) at the end gathers the approved features on one
-branch and merges it into `ame_main`.
+**Status:** decided by Maciej on 2026-11-21, and merged into `ame_main` on 2026-11-22.
+Nothing is open. The [implementation plan](#implementation-plan) at the end gathered the
+approved features on branch `standard_models`.
 
-**Implementation (2026-11-22): not merged.** Steps 1–8 pass, and so does the dense
-reproduction. The AME reproduction spiked and missed the tie band (+0.077 against 0.022). On
-Maciej's "continue", one AME rerun is queued on entropy, and a tie means merge
-([standard_models_report.md](standard_models_report.md#rerun-on-entropy)).
+**Implementation (2026-11-22): merged** as `7597f382`. Steps 7–9 pass: the CPU and GPU
+tests, 60-step smokes of all six configs, and both h12 reproductions. The first AME
+reproduction spiked (+0.077 against the 0.022 band); its rerun on entropy ties `zdmv3qci`
+(+0.002). Log: [standard_models_report.md](standard_models_report.md).
 
 ## Decisions
 
@@ -45,19 +45,24 @@ row says otherwise. Negative is better. For AME, a change under 0.022 is a tie
 |---|---|---|---:|
 | h12, before | 3.1250 `doi36p8k` | 2.9824 `x0xlqroj` | +0.143 |
 | h12, the standard configs | 3.0312 `zdmv3qci` | 2.9561 `chne4w91` | **+0.075** |
+| h12, reproduced from `standard_models` (LEM) | 3.1035 `zs1bceoy`, a spike at steps 330–360 | 2.9629 `q2yrtd9t` | +0.141 |
+| h12, the AME rerun (entropy; dense from LEM) | 3.0312 `6yx46ng1` | 2.9629 `q2yrtd9t` | +0.068 |
 | h16, before | 2.8594 `hjw7znbz` | 2.7441 `eh2sjsh7` | +0.115 |
 | h16, AME σ = 0.01 only | 2.7959 `eeaz5uy1` | 2.7441 `eh2sjsh7` | **+0.052** |
 | h20, before | 2.5596 `tg4h4g66` | 2.5059 `1x82rzby` | +0.054 |
 
 - At h12, nearly all of AME's gain is the bank init: −0.085 of its −0.094 (`7te9jv9u`, σ =
   1e-4 at ratio 1, scored 3.0400).
-- No standard config has run at h16 or h20 yet.
+- The reproductions' last-500 paired gaps against the references: dense `q2yrtd9t` +0.0075;
+  AME `zs1bceoy` +0.0771 (the spike) and its rerun `6yx46ng1` +0.0017. The AME recipe has
+  spiked in 1 of its 3 runs.
+- No standard config has run at h16 or h20 yet, apart from the 60-step smokes.
 
 ## Standard configs
 
-`zdmv3qci` (AME) and `chne4w91` (dense) are these configs at h12. The keys `bank_lr_ratio`,
-`qk_norm` and `shift` exist only on branch `ame_improve` until the plan merges it. Neither
-config has a `document_mask` key: it exists only on the rejected branch `doc_mask`.
+The files are in `configs/standard/` on `ame_main`: AME and dense at h12, h16 and h20.
+`zdmv3qci` (AME) and `chne4w91` (dense) are these configs at h12. Neither config has a
+`document_mask` key: it exists only on the rejected branch `doc_mask`.
 
 AME:
 
@@ -71,7 +76,7 @@ common:
       bank_gate: none        # default
 trainer:
   learning_rate: 8           # LR 2^-8 at h12, h16 and h20
-  bank_lr_ratio: 4           # branch ame_improve, where 4 is also the default
+  bank_lr_ratio: 4           # also the default
 ```
 
 Dense:
@@ -80,8 +85,8 @@ Dense:
 common:
   attention:
     type: gqa                # RoPE on by default
-    qk_norm: true            # branch ame_improve
-    shift: true              # branch ame_improve
+    qk_norm: true            # default: off for gqa
+    shift: true              # default: off for gqa
 trainer:
   learning_rate: 8           # h12; 9 at h16 and h20
 ```
@@ -145,8 +150,9 @@ Key `common.attention.ame.bank_init_std`, on `ame_main`, default 1.0. Reports:
 
 ### Banks at 4× the learning rate (AME)
 
-Key `trainer.bank_lr_ratio`, on branch `ame_improve`: the Q/K banks' learning rate as a
-multiple of the base rate. Report: [ame_improve_runs_report.md](ame_improve_runs_report.md).
+Key `trainer.bank_lr_ratio`, from branch `ame_improve` (on `ame_main` since 2026-11-22): the
+Q/K banks' learning rate as a multiple of the base rate. Report:
+[ame_improve_runs_report.md](ame_improve_runs_report.md).
 
 | | Ratio 4 | Ratio 1 | `final_ce` Δ | Paired gap |
 |---|---|---|---:|---:|
@@ -161,7 +167,7 @@ before the merge need `bank_lr_ratio: 1` to reproduce or resume.
 
 ### KV shift and QK-norm (dense)
 
-Keys on branch `ame_improve`:
+Keys from branch `ame_improve` (on `ame_main` since 2026-11-22):
 - `common.attention.qk_norm`: ℓ2 per head, with a learned per-head τ initialized at
   √d_head and exempt from weight decay.
 - `common.attention.shift`: the KV shift of Xu et al.
@@ -240,6 +246,9 @@ current init stays:
 - the banks at σ = 1e-4.
 
 ## Implementation plan
+
+**Done on 2026-11-22:** merged as `7597f382`. The record is
+[standard_models_report.md](standard_models_report.md).
 
 **Goal:** one branch, `standard_models`, holds every approved feature and the standard
 configs. It passes the tests and reproduces the two h12 standard runs, then merges into
