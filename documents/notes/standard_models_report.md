@@ -1,11 +1,12 @@
 # Standard models: build, test and merge
 
-**Status (2026-11-22 04:00): not merged, because step 9 fails for AME.** Steps 1–8
+**Status (2026-11-22 13:35): not merged; an AME rerun is queued on entropy.** Steps 1–8
 pass, and so does the dense reproduction (gap +0.0075). The AME reproduction spiked at
 steps 330–360 and ends 0.077 above `zdmv3qci`, outside the 0.022 band, so under the
-plan's step 10 the merge waits for Maciej. For this config the merged code computes what
+plan's step 10 the merge waited for Maciej. For this config the merged code computes what
 the reference's code did, so a chance spike is the likely cause, but one run cannot prove
-it. Options: [For Maciej](#for-maciej). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
+it. At 13:2x Maciej answered "continue", taken as option 1 of [For Maciej](#for-maciej):
+one rerun, and a merge if it ties `zdmv3qci` ([Rerun](#rerun-on-entropy)). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
 
 ## The branch
 
@@ -145,6 +146,28 @@ regression cannot be ruled out, and the plan says not to merge after a failure.
 
 Nothing has been launched. The worktree `~/code/nano-standard` stays for the merge.
 
+### Rerun on entropy
+
+Maciej's "continue" (11-22, about 13:25) is taken as option 1. The rerun goes to entropy:
+LEM's budget is spent, and Maciej asked on 11-21 for tests to run there.
+
+- **Job:** 44202, from `standard_models` at `5684bea6` (its only change since `41b041db` is
+  a test comment). Cemetery branch `std_ame_h12_lr8_rerun_2026-11-22_13-27-26`, run
+  `std_ame_h12_lr8_rerun`, one H100, a 7 h limit.
+- **Config:** a copy of `ame_h12.yaml`, because the cluster can't be switched on the command
+  line. Composed, it differs only in cluster keys: data paths (entropy's FineWeb has the
+  same 1,279,107,432 rows), cemetery, slurm settings, name and tags. Every model and trainer
+  key is equal. The copy is in the cemetery commit only, never in `standard_models`.
+- **The rebuttal keeps its GPUs:** `--nice=10000`, so the job ranks below every E3X job
+  (priority 1 against 3875). One E3X job holds 4 of h100a's GPUs. `pzal`'s 2 GPUs can't be
+  preempted, so E3X can't use more than 6, and a 1-GPU rerun fits beside it. Only if
+  `pzal`'s jobs end during the rerun would the 8-GPU cap make a second E3X job wait for it.
+- **Pass rule:** as in step 9, step 0 equal to the reference's and a last-500 paired gap
+  under 0.022 against `zdmv3qci`. A tie means merge. A second spike means rerunning the
+  reference's code (`482aaf56`) on entropy to separate code from recipe. The comparison
+  crosses clusters (LEM reference, entropy rerun); earlier cross-cluster PC pairs differed
+  by about ±0.002.
+
 ## Log
 
 | Time (11-21) | Event |
@@ -172,3 +195,5 @@ Nothing has been launched. The worktree `~/code/nano-standard` stays for the mer
 | 11-22 03:43–03:44 | Both reproductions end (COMPLETED), with final checkpoints and no error in either log: dense (6383548) after 3 h 53 min, AME (6383547) after 4 h 15 min |
 | 11-22 03:50 | Paired gaps: dense +0.0075, **passes**; AME +0.0771, **fails**, with a spike from step 335 |
 | 11-22 03:52–04:00 | Diagnosis ([Why the AME reproduction fails](#why-the-ame-reproduction-fails)). No rerun: LEM's budget is spent, and the rebuttal's jobs fill entropy's cap. **Not merged**; the options go to Maciej |
+| 11-22 13:2x | Maciej: "continue", taken as option 1 (rerun once, merge on a tie) |
+| 11-22 13:27–13:29 | Entropy copy of `ame_h12.yaml` composed and diffed (cluster keys only); local half from `5684bea6`; sparse clone checked on entropy (139 files, `--nice=10000`, `gpu:h100:1`, no live secret); submitted as 44202 with the W&B key on stdin. Pending at priority 1, behind the E3X jobs. The copy deleted from the worktree. A watcher polls entropy's `sacct` every 5 min |
