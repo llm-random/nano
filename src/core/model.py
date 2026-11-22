@@ -230,6 +230,18 @@ class RoPE(nn.Module):
 
 
 class RoPEAttention(nn.Module):
+    # QK-norm's temperature and the KV-shift coefficients are scales, not
+    # weights: decoupled decay would move them whatever their gradient says --
+    # shrink tau, flattening every head, and walk alpha_2/beta_2 toward 0, the
+    # "model declined the shift" signal -- the reasons src.core.ame keeps its
+    # own out of decay too. parameter_groups skips a name the module does not
+    # have, so with both options off this declares nothing and the optimizer
+    # stays one group.
+    no_weight_decay_parameters = ("tau", "alpha", "beta")
+    # [kv_heads, 2] is 2-D but no matmul: src.core.mfu would otherwise charge
+    # 6*P FLOPs for them. Skipped when absent, like the line above.
+    non_matmul_parameters = ("alpha", "beta")
+
     def __init__(
         self,
         q_proj_fn,
@@ -247,6 +259,8 @@ class RoPEAttention(nn.Module):
         high_freq_factor=4,
         original_max_position_embeddings=8192,
         rope: bool = True,
+        qk_norm: bool = False,
+        shift: bool = False,
     ):
         super().__init__()
         self.q_proj = q_proj_fn()
@@ -279,19 +293,72 @@ class RoPEAttention(nn.Module):
             else None
         )
 
+        # QK-norm, the operator src.core.ame uses: q and k l2-normalized per
+        # head, and the score scaled by a learned per-head temperature tau in
+        # place of 1/sqrt(dhead). tau starts at sqrt(dhead): two random unit
+        # vectors in d dims have dot-product std 1/sqrt(d), so the scores start
+        # at std ~1. Off adds no parameter -- the state dict, the FLOP count and
+        # every existing run stay as they were.
+        self.qk_norm = qk_norm
+        if qk_norm:
+            self.tau = nn.Parameter(
+                torch.full((q_heads,), math.sqrt(self.dhead), dtype=torch.float32)
+            )
+
+        # KV shifting (Xu et al. 2024, arXiv 2411.19574), the operator
+        # src.core.ame applies to its banks, here on the projected keys and
+        # values: k_j <- a1*k_j + a2*k_{j-1} and v_j <- b1*v_j + b2*v_{j-1},
+        # BEFORE the rotary embedding as in the paper, so a mixed key is rotated
+        # as position j. Queries are not shifted. One (c1, c2) pair per kv head,
+        # c1 ~ U(0, 1) and c2 = 1 - c1 -- AME's _init_mix -- so the plain head
+        # (1, 0) and the fully shifted one (0, 1) are both reachable. Drawn after
+        # the projections, so a seed builds the same projections either way.
+        # Off adds no parameter and draws nothing.
+        self.shift = shift
+        if shift:
+            for name in ("alpha", "beta"):
+                c1 = torch.rand(kv_heads, 1, dtype=torch.float32)
+                setattr(self, name, nn.Parameter(torch.cat([c1, 1.0 - c1], dim=-1)))
+
     def forward(self, x):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
         value_states = self.v_proj(x)
 
+        # [B, n, heads, D] for the per-head work, [B, heads, n, D] from RoPE on.
         batch, seq_len = x.shape[:-1]
-        q = query_states.view(batch, seq_len, self.q_heads, -1).transpose(1, 2)
-        k = key_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        q = query_states.view(batch, seq_len, self.q_heads, -1)
+        k = key_states.view(batch, seq_len, self.kv_heads, -1)
+        v = value_states.view(batch, seq_len, self.kv_heads, -1)
+        if self.qk_norm:
+            # Per head and before the shift, as src.core.ame normalizes its rows
+            # before the mix; before RoPE, a rotation, so that order changes
+            # nothing; on the kv heads, before repeat_kv copies them.
+            q = F.normalize(q, dim=-1)
+            k = F.normalize(k, dim=-1)
+        if self.shift:
+            # AME's two lines (src/core/ame.py _mixed_qkv), on kv heads.
+            # Imported lazily: src.core.ame imports this module.
+            from src.core.ame import _shift1
+
+            alpha = self.alpha.to(k.dtype)
+            beta = self.beta.to(v.dtype)
+            a1, a2 = alpha[:, 0].view(1, 1, -1, 1), alpha[:, 1].view(1, 1, -1, 1)
+            b1, b2 = beta[:, 0].view(1, 1, -1, 1), beta[:, 1].view(1, 1, -1, 1)
+            k = a1 * k + a2 * _shift1(k)
+            v = b1 * v + b2 * _shift1(v)
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
         if self.rope is not None:
             q = self.rope(q)
             k = self.rope(k)
-
-        v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
+        scale = None  # SDPA's default, 1/sqrt(dhead)
+        if self.qk_norm:
+            # tau folded into q, so the kernel runs at scale 1 -- as in
+            # src.core.ame. q is [B, H, n, D] here.
+            q = q * self.tau.to(q.dtype).view(1, -1, 1, 1)
+            scale = 1.0
 
         # Imported lazily: src.core.llama imports AttentionMechanism from this
         # module, so a top-level import here would be circular.
@@ -300,7 +367,7 @@ class RoPEAttention(nn.Module):
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
         attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=True
+            query=q, key=k, value=v, causal=True, scale=scale
         )
 
         output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
@@ -628,7 +695,7 @@ class LLM(nn.Module):
         return self.head(x, targets=targets, chunk_size=ce_chunk_size)
 
 
-def parameter_groups(model, weight_decay, exclude=None):
+def parameter_groups(model, weight_decay, exclude=None, *, lr=None, bank_lr_ratio=1.0):
     """AdamW param groups: declared scales at wd=0, everything else at `weight_decay`.
 
     AdamW's decay is *decoupled* -- `p <- p*(1 - lr*wd)` runs whether or not the
@@ -649,6 +716,14 @@ def parameter_groups(model, weight_decay, exclude=None):
     the compute parameters it owns must not also be stepped here; they would be
     stepped on a gradient that is permanently None, which AdamW silently skips
     while still counting them in the state it allocates.
+
+    `bank_lr_ratio` (trainer.bank_lr_ratio) moves the parameters a module names
+    in `bank_parameters` -- AME's Q/K memory banks -- into a group of their own
+    at `lr * bank_lr_ratio`, keeping their decay setting. The scheduler holds
+    the ratio for the whole run (src.core.schedulers.CosineAnnealingToFraction).
+    At 1.0, with no banks in the model, or with every bank excluded because a
+    memory-parallel controller steps them (it applies the ratio itself), the
+    groups are exactly the ones described above.
     """
     excluded_ids = {id(parameter) for parameter in (exclude or ())}
 
@@ -660,27 +735,49 @@ def parameter_groups(model, weight_decay, exclude=None):
                 return None
         return module
 
-    undecayed = set()
-    for module in model.modules():
-        for name in getattr(module, "no_weight_decay_parameters", ()):
-            parameter = resolve(module, name)
-            # Buffers answer getattr too -- a pinned alpha is a buffer, not a
-            # parameter -- and must never reach the optimizer.
-            if isinstance(parameter, nn.Parameter):
-                undecayed.add(id(parameter))
+    def declared(attribute):
+        ids = set()
+        for module in model.modules():
+            for name in getattr(module, attribute, ()):
+                parameter = resolve(module, name)
+                # Buffers answer getattr too -- a pinned alpha is a buffer, not
+                # a parameter -- and must never reach the optimizer.
+                if isinstance(parameter, nn.Parameter):
+                    ids.add(id(parameter))
+        return ids
 
+    undecayed = declared("no_weight_decay_parameters")
     trainable = [p for p in model.parameters() if id(p) not in excluded_ids]
 
-    if not undecayed:
-        return [{"params": trainable, "weight_decay": weight_decay}]
+    banks = []
+    if bank_lr_ratio != 1.0:
+        bank_ids = declared("bank_parameters")
+        banks = [p for p in trainable if id(p) in bank_ids]
+        if banks and lr is None:
+            raise ValueError(
+                "parameter_groups: bank_lr_ratio needs the base `lr` to set the "
+                "bank group's learning rate"
+            )
+        trainable = [p for p in trainable if id(p) not in bank_ids]
 
-    groups = {True: [], False: []}
-    for parameter in trainable:
-        groups[id(parameter) in undecayed].append(parameter)
-    return [
-        {"params": groups[False], "weight_decay": weight_decay},
-        {"params": groups[True], "weight_decay": 0.0},
-    ]
+    if not undecayed:
+        groups = [{"params": trainable, "weight_decay": weight_decay}]
+    else:
+        split = {True: [], False: []}
+        for parameter in trainable:
+            split[id(parameter) in undecayed].append(parameter)
+        groups = [
+            {"params": split[False], "weight_decay": weight_decay},
+            {"params": split[True], "weight_decay": 0.0},
+        ]
+
+    for is_undecayed, decay in ((False, weight_decay), (True, 0.0)):
+        params = [p for p in banks if (id(p) in undecayed) == is_undecayed]
+        if params:
+            groups.append(
+                {"params": params, "weight_decay": decay, "lr": lr * bank_lr_ratio}
+            )
+    return groups
 
 
 def attention_mechanism(
@@ -688,7 +785,10 @@ def attention_mechanism(
     key: torch.Tensor,
     value: torch.Tensor,
     causal: bool,
+    scale: Optional[float] = None,
 ):
+    # `scale=None` is SDPA's own default, 1/sqrt(dhead); QK-norm passes 1.0
+    # because its temperature is already folded into the query.
     # https://github.com/pytorch/pytorch/blob/ce503c1b40207dab770c28cbd4568cd9e105277b/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp#L556
     with torch.nn.attention.sdpa_kernel(
         [SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]
@@ -699,6 +799,7 @@ def attention_mechanism(
             value=value,
             attn_mask=None,
             is_causal=causal,
+            scale=scale,
         )
 
 
@@ -712,10 +813,12 @@ class AttentionMechanism(nn.Module):
         key: torch.Tensor,
         value: torch.Tensor,
         causal: bool,
+        scale: Optional[float] = None,
     ):
         return attention_mechanism(
             query=query,
             key=key,
             value=value,
             causal=causal,
+            scale=scale,
         )

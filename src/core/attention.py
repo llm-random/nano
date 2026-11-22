@@ -19,6 +19,20 @@ base.yaml); `build_attention` is the `attention_fn` the transformer block calls
 with its block id, which is what makes per-layer switching possible. A type may
 take its own options block there -- `attention: {type: ame, ame: {...}}` -- which
 applies wherever that type appears, base or mix.
+
+Two of AME's mechanisms are switches every real type honors, with AME's own
+operator, so a dense baseline can match them one at a time:
+
+- `qk_norm`: q and k l2-normalized per head, the score scaled by a learned
+  per-head temperature (`tau`, init sqrt(dhead)) instead of 1/sqrt(dhead).
+- `shift`: KV shifting (Xu et al. 2024) -- each key and value a learned blend of
+  its own and the previous position's, per kv head, before the rotary embedding.
+
+`attention.<switch>` sets one on every layer of every type; left null, each type
+keeps its default (mha/mqa/gqa off, ame on). `gqa` and `ame` also take them as
+options; an option may repeat the stack-wide value but not contradict it -- that
+is a build error, not a silent win for either side. The planned types ignore
+both until they have a forward.
 """
 
 from functools import partial
@@ -47,6 +61,8 @@ def _rope_attention(
     rope_scale_freqs,
     init_scale,
     rope=True,
+    qk_norm=False,
+    shift=False,
 ):
     dhead = dmodel // q_heads
     return RoPEAttention(
@@ -61,6 +77,8 @@ def _rope_attention(
         rope_base=rope_base,
         rope_scale_freqs=rope_scale_freqs,
         rope=rope,
+        qk_norm=qk_norm,
+        shift=shift,
     )
 
 
@@ -74,22 +92,41 @@ def _rope_kwargs(kwargs):
     return {key: kwargs[key] for key in _ROPE_KEYS if key in kwargs}
 
 
-def _build_mha(dmodel, q_heads, kv_heads, **kwargs):
+def _build_mha(dmodel, q_heads, kv_heads, *, qk_norm=None, shift=None, **kwargs):
     """Multi-head attention: every query head has its own kv head."""
-    return _rope_attention(dmodel, q_heads, q_heads, **_rope_kwargs(kwargs))
+    return _rope_attention(
+        dmodel,
+        q_heads,
+        q_heads,
+        **_rope_kwargs(kwargs),
+        qk_norm=bool(qk_norm),
+        shift=bool(shift),
+    )
 
 
-def _build_mqa(dmodel, q_heads, kv_heads, **kwargs):
+def _build_mqa(dmodel, q_heads, kv_heads, *, qk_norm=None, shift=None, **kwargs):
     """Multi-query attention: one kv head shared by every query head."""
-    return _rope_attention(dmodel, q_heads, 1, **_rope_kwargs(kwargs))
+    return _rope_attention(
+        dmodel,
+        q_heads,
+        1,
+        **_rope_kwargs(kwargs),
+        qk_norm=bool(qk_norm),
+        shift=bool(shift),
+    )
 
 
-def _build_gqa(dmodel, q_heads, kv_heads, *, options=None, **kwargs):
+def _build_gqa(
+    dmodel, q_heads, kv_heads, *, options=None, qk_norm=None, shift=None, **kwargs
+):
     """Grouped-query attention: the config's kv_heads (H/2 in the H family).
 
-    `options` is the config's `attention.gqa` block. Its one knob, `rope`
-    (default true), drops the rotary encoding when false: the NoPE dense
-    baseline, `attention: {type: gqa, gqa: {rope: false}}`.
+    `options` is the config's `attention.gqa` block. `rope` (default true)
+    drops the rotary encoding when false: the NoPE dense baseline,
+    `attention: {type: gqa, gqa: {rope: false}}`. `qk_norm` and `shift` (both
+    default false) arrive already merged with the stack-wide switches by
+    build_attention, so the arguments are what this layer runs with, not the
+    options.
     """
     if q_heads % kv_heads:
         raise ValueError(f"gqa needs q_heads % kv_heads == 0, got {q_heads}/{kv_heads}")
@@ -106,15 +143,29 @@ def _build_gqa(dmodel, q_heads, kv_heads, *, options=None, **kwargs):
         kv_heads,
         **_rope_kwargs(kwargs),
         rope=bool(options.get("rope", True)),
+        qk_norm=bool(qk_norm),
+        shift=bool(shift),
     )
 
 
-def _build_ame(dmodel, q_heads, kv_heads, *, vocab_size=None, options=None, **kwargs):
+def _build_ame(
+    dmodel,
+    q_heads,
+    kv_heads,
+    *,
+    vocab_size=None,
+    options=None,
+    qk_norm=None,
+    shift=None,
+    **kwargs,
+):
     """AME: id-indexed Q/K banks (src.core.ame).
 
     MHA-shaped, so the config's `kv_heads` does not apply and is ignored, the
     same way `mha` ignores it. `vocab_size` is required -- the banks have one row
     per token type -- and `options` is the config's `attention.ame` block.
+    `qk_norm` and `shift` are the layer's merged settings (see build_attention);
+    None leaves AMEAttention's own defaults, which are both on.
     """
     if vocab_size is None:
         raise ValueError(
@@ -122,19 +173,26 @@ def _build_ame(dmodel, q_heads, kv_heads, *, vocab_size=None, options=None, **kw
             "Pass vocab_size to build_attention (the model config does this via "
             "`vocab_size: ${common.vocab_size}` under attention_fn)."
         )
-    unknown = set(options or {}) - set(_AME_OPTIONS)
+    options = dict(options or {})
+    unknown = set(options) - set(_AME_OPTIONS)
     if unknown:
         raise ValueError(
             f"unknown attention.ame options {sorted(unknown)}; "
             f"expected {sorted(_AME_OPTIONS)}"
         )
+    # The merged values replace the options: build_attention has already
+    # checked that the two agree whenever both are set.
+    for key, value in (("qk_norm", qk_norm), ("shift", shift)):
+        options.pop(key, None)
+        if value is not None:
+            options[key] = bool(value)
     return AMEAttention(
         dmodel,
         q_heads,
         kv_heads,
         vocab_size=vocab_size,
         **_rope_kwargs(kwargs),
-        **dict(options or {}),
+        **options,
     )
 
 
@@ -220,8 +278,13 @@ _AME_OPTIONS = (
     "backend",
 )
 
-# The options `attention.gqa` accepts. `rope: false` is NoPE (see _build_gqa).
-_GQA_OPTIONS = ("rope",)
+# The options `attention.gqa` accepts. `rope: false` is NoPE; `qk_norm: true`
+# and `shift: true` add AME's QK-norm and KV shifting (see _build_gqa).
+_GQA_OPTIONS = ("rope", "qk_norm", "shift")
+
+# The stack-wide switches: `attention.<name>` applies to every layer of every
+# real type, and must agree with any per-type option of the same name.
+_SWITCHES = ("qk_norm", "shift")
 
 # Which types accept an options block, and which options. Checked instead of
 # `ATTENTION_TYPES` so that a block for a type that has no options -- `{type:
@@ -239,6 +302,30 @@ def _check_type(name):
             f"unknown attention type {name!r}; registered: {sorted(ATTENTION_TYPES)}"
         )
     return name
+
+
+def _layer_switch(name, attention, switch):
+    """A switch (`qk_norm`, `shift`) for a layer of type `name`: True, False,
+    or None (the type's default).
+
+    A stack-wide `attention.<switch>` applies to every layer, and every
+    per-type option of the same name must agree with it -- checked across all
+    blocks, not just this layer's type, so a contradiction fails the build
+    even where the contradicting block happens to be unused. Without it, the
+    type's own option, if any.
+    """
+    stack = attention.get(switch)
+    if stack is not None:
+        for type_name in _TYPE_OPTIONS:
+            own = (attention.get(type_name) or {}).get(switch)
+            if own is not None and bool(own) != bool(stack):
+                raise ValueError(
+                    f"attention.{switch}={stack} contradicts attention.{type_name}"
+                    f".{switch}={own}: set {switch} in one place, or make them agree"
+                )
+        return bool(stack)
+    own = (attention.get(name) or {}).get(switch)
+    return None if own is None else bool(own)
 
 
 def resolve_layer_types(n_blocks, base_type, mix=None):
@@ -302,18 +389,20 @@ def build_attention(
 
     `attention` is the config mapping: {"type": <name>} for a uniform stack, plus
     an optional "mix" (see resolve_layer_types) to swap the type on some layers,
-    plus an optional options block per registered type name -- `{"type": "ame",
-    "ame": {...}}` -- which applies wherever that type is built, base or mix.
+    plus the optional stack-wide switches "qk_norm" and "shift" (see
+    _layer_switch), plus an optional options block per registered type name --
+    `{"type": "ame", "ame": {...}}` -- which applies wherever that type is
+    built, base or mix.
 
     `vocab_size` is only consumed by types whose parameters are indexed by token
     id (ame); the projection-based types ignore it.
     """
-    unknown = set(attention) - {"type", "mix"} - set(_TYPE_OPTIONS)
+    unknown = set(attention) - {"type", "mix", *_SWITCHES} - set(_TYPE_OPTIONS)
     if unknown:
         raise ValueError(
             f"unknown attention config keys {sorted(unknown)}; expected type, mix, "
-            f"or an options block for a type that takes options "
-            f"({sorted(_TYPE_OPTIONS)})"
+            f"{', '.join(_SWITCHES)}, or an options block for a type that takes "
+            f"options ({sorted(_TYPE_OPTIONS)})"
         )
     if not 0 <= block_id < n_blocks:
         raise ValueError(f"block_id {block_id} outside 0..{n_blocks - 1}")
@@ -330,4 +419,5 @@ def build_attention(
         init_scale=init_scale,
         vocab_size=vocab_size,
         options=attention.get(name),
+        **{switch: _layer_switch(name, attention, switch) for switch in _SWITCHES},
     )

@@ -1,0 +1,79 @@
+# The standard AME model at h16: S2-PS (AME + ALiBi ladder + KV shift + sink)
+# with the bank init sigma = 1e-4 and the banks at 4x the learning rate, on 8B
+# tokens. Decided by Maciej on 2026-11-21
+# (documents/notes/standard_model_improvements.md, "Decisions"). One submit =
+# 1 run. Never trained as a whole: the closest runs are eeaz5uy1 (sigma 0.01,
+# ratio 1) and hn1qal9z (sigma 1, ratio 4).
+#
+# A copy of configs/stage_2b/ame_h16_pe_shift.yaml (S2b-PS). Only these differ:
+#   - trainer.learning_rate: 8, where that file says 9: the best AME h16 run
+#     is at 2^-8 (hjw7znbz, final_ce 2.8594, the edge of the grid);
+#   - common.attention.ame.bank_init_std: 1.0e-4 and trainer.bank_lr_ratio: 4.0;
+#   - the r16-11 exclusion every LEM run gets, and the run name, tags and
+#     comments.
+# Pair with hjw7znbz or eeaz5uy1: the same seed, data order, steps and
+# schedule. No document mask and no bank gate (both rejected, 2026-11-21).
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128, so flex blocks align
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # shift: true learns (alpha_1, alpha_2) and (beta_1, beta_2) per head and
+  # layer. slopes is unset, so AME uses its ALiBi ladder: horizons from 16 to
+  # 8192 tokens spread over the 16 heads. The sink and bank_gate: none are
+  # defaults.
+  attention:
+    type: ame
+    ame:
+      shift: true
+      bank_init_std: 1.0e-4 # N(0, sigma^2) bank rows; the code default is 1.0
+
+compile_blocks_full: true
+
+trainer:
+  # Micro-batch 16: AME h16 runs out of memory at 32 (see
+  # configs/stage_1b/ame_h16_simplest_lr_grid.yaml). FSDP2 is off, so every
+  # h16 run shares one precision path (autocast bf16).
+  gradient_accumulation_steps: 32 # micro-batch 16
+  mem_parallel_size: 1 # hand-managed bank path (Tier 2), banks unsharded
+  distributed: null
+  autocast_bf16: true # bf16 comes from autocast instead of FSDP2
+
+  # The recipe. Everything not set here is a llama-trainer default:
+  #   - AdamW, weight decay 0.1 (the AME banks are exempt);
+  #   - cosine schedule, warmup 1% = 76 steps, final LR 10% of peak;
+  #   - eval every 100 steps on 10 batches;
+  #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
+  n_steps: 7630 # D = 8B tokens / 1,048,576 tokens per step, rounded up
+  learning_rate: 8 # LR = 2^-8, AME h16's best n
+  bank_lr_ratio: 4.0 # banks at 4 x 2^-8 for the whole schedule (also the default)
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1). It lands in the
+      # job's cemetery clone, under checkpoint/<job id>/. About 23 GB per AME
+      # checkpoint, banks and their optimizer state included.
+      path: checkpoint
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:1 # LEM's gres syntax
+    job-name: std_ame_h16
+    time: "1-00:00:00" # about 16 h per run on LEM, plus margin
+    exclude: r16-11 # bad GPU (2026-11-06)
+  metric_logger:
+    project_name: nano-ame
+    name: std_ame_h16_lr8
+    tags:
+      - ame
+      - h16
+      - standard
+      - bank_lr4
+      - bank_std1e4

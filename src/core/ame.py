@@ -314,6 +314,12 @@ class AMEAttention(nn.Module):
         "k_base",
     )
 
+    # The memory banks, named for the optimizer: src.core.model.parameter_groups
+    # gives them a group of their own at trainer.bank_lr_ratio x the base lr
+    # (src.core.memory_parallel's controller applies the same ratio when it
+    # steps them instead).
+    bank_parameters = ("q_bank.weight", "k_bank.weight")
+
     def __init__(
         self,
         dmodel,
@@ -481,7 +487,9 @@ class AMEAttention(nn.Module):
             # SwiGLU gate uses, drawn from a private generator.
             self.gate = _rng_neutral_linear(self.dmodel, datt, False, device)
             if not self.gate.weight.is_meta:
-                draw = torch.empty(datt, self.dmodel)
+                # On the CPU, where the private generator lives, even when the
+                # model is built under a CUDA default device; then copied over.
+                draw = torch.empty(datt, self.dmodel, device="cpu")
                 llm_random_weight_init(self.dmodel, init_scale)(
                     draw, generator=_private_generator()
                 )
@@ -571,7 +579,16 @@ class AMEAttention(nn.Module):
         # everything above they describe what attention *did* rather than what
         # its parameters are. A gate that reads x gets nothing here (see
         # attention_diagnostics).
-        if token_ids is not None:
+        #
+        # Not under FSDP2 either. This runs outside FSDP2's forward hooks, where
+        # the parameters are sharded DTensors: the diagnostics' embedding of
+        # plain int64 ids into a DTensor bank raises, and the trainer then turns
+        # off this layer's whole readout -- which is why no FSDP2 run ever logged
+        # alpha or tau (stage_2c_report.md, "Readouts"). The readouts above
+        # gather with `_full` and keep working; only entropy and top-k mass are
+        # lost on a sharded run.
+        sharded = any(hasattr(p, "full_tensor") for p in self.parameters())
+        if token_ids is not None and not sharded:
             readout.update(self.attention_diagnostics(token_ids))
         return readout
 

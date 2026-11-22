@@ -1,0 +1,73 @@
+# The standard dense model at h16: GQA with RoPE, QK-norm and the KV shift, on
+# 8B tokens. Decided by Maciej on 2026-11-21
+# (documents/notes/standard_model_improvements.md, "Decisions"). One submit =
+# 1 run. Never trained with QK-norm and the shift at this size.
+#
+# A copy of configs/stage_1b/dense_h16_lr_grid.yaml (S1b-D). Only these differ:
+#   - trainer.learning_rate: 9, one value instead of the grid: S1b-D's best n
+#     (eh2sjsh7, final_ce 2.7441); 2^-8 was unstable at h16 without QK-norm;
+#   - common.attention.qk_norm: true and shift: true;
+#   - /base_schema in the defaults, as every single-run config has (the grid
+#     file leaves it out only because the schema rejects a ^ key);
+#   - the r16-11 exclusion every LEM run gets, and the run name, tags and
+#     comments.
+# Pair with eh2sjsh7: the same seed, data order, steps and schedule. No
+# document mask (rejected, 2026-11-21).
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h16
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128; kept equal to the AME runs
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # Dense attention with RoPE (base 10000), the h_balanced default.
+  attention:
+    type: gqa
+    qk_norm: true # stack-wide switch: l2 per head, learned tau (no weight decay)
+    shift: true # stack-wide switch: KV shift, after QK-norm and before RoPE
+
+compile_blocks_full: true
+
+trainer:
+  # Micro-batch 16, as in the AME runs, so that both share one setting. FSDP2
+  # is off, as in the AME runs, so every h16 run shares one precision path
+  # (autocast bf16).
+  gradient_accumulation_steps: 32 # micro-batch 16
+  mem_parallel_size: null # dense attention has no banks
+  distributed: null
+  autocast_bf16: true # bf16 comes from autocast instead of FSDP2
+
+  # The recipe. Everything not set here is a llama-trainer default:
+  #   - AdamW, weight decay 0.1;
+  #   - cosine schedule, warmup 1% = 76 steps, final LR 10% of peak;
+  #   - eval every 100 steps on 10 batches;
+  #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
+  n_steps: 7630 # D = 8B tokens / 1,048,576 tokens per step, rounded up
+  learning_rate: 9 # LR = 2^-9, dense h16's best n
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1). It lands in the
+      # job's cemetery clone, under checkpoint/<job id>/, at about 4 GB.
+      path: checkpoint
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:1 # LEM's gres syntax
+    job-name: std_dense_h16
+    time: "1-00:00:00" # about 14 h per run on LEM, plus margin
+    exclude: r16-11 # bad GPU (2026-11-06)
+  metric_logger:
+    project_name: nano-ame
+    name: std_dense_h16_lr9
+    tags:
+      - dense
+      - h16
+      - standard
+      - qk_norm
+      - kv_shift

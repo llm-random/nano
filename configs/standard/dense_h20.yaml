@@ -1,0 +1,80 @@
+# The standard dense model at h20: GQA with RoPE, QK-norm and the KV shift, on
+# 16B tokens on one LEM node (4 H100). Decided by Maciej on 2026-11-21
+# (documents/notes/standard_model_improvements.md, "Decisions"). One submit =
+# 1 run. Never trained with QK-norm and the shift at this size.
+#
+# A copy of configs/stage_1c/dense_h20_lr_grid.yaml (S1c-D). Only these differ:
+#   - trainer.learning_rate: 9, one value instead of the grid: S1c-D's best n
+#     (1x82rzby, final_ce 2.5059);
+#   - common.attention.qk_norm: true and shift: true;
+#   - /base_schema in the defaults, as every single-run config has (the grid
+#     file leaves it out only because the schema rejects a ^ key);
+#   - the r16-11 exclusion, here instead of on the command line, and the run
+#     name, tags and comments.
+# Pair with 1x82rzby: the same seed, data order, steps and schedule. Every
+# 4-GPU run shares one data order (world_size_independent: false in
+# _dataset/fineweb.yaml), which is not the order of the 1-GPU runs. No
+# document mask (rejected, 2026-11-21).
+defaults:
+  - /base_schema
+  - ../_misc@_here_: default
+  - ../_cluster@_here_: lem
+  - ../_model/h_balanced@_here_: h20
+  - ../_trainer@_here_: llama
+  - ../_dataset@_here_: fineweb
+  - ../_checkpoints@_here_: none # save.path below switches on the final checkpoint
+  - _self_
+
+common:
+  sequence_length: 2049 # the model sees 2048 = 16 x 128; kept equal to the AME run
+  batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # Dense attention with RoPE (base 10000), the h_balanced default.
+  attention:
+    type: gqa
+    qk_norm: true # stack-wide switch: l2 per head, learned tau (no weight decay)
+    shift: true # stack-wide switch: KV shift, after QK-norm and before RoPE
+
+compile_blocks_full: true
+
+trainer:
+  # 4 GPUs, micro-batch 16 per GPU: 4 x 16 x 8 = 512 sequences per step.
+  # FSDP2 shards the embedding, the blocks and the head (_trainer/llama.yaml),
+  # and its MixedPrecisionPolicy computes in bf16, so autocast is off. The same
+  # settings as the AME h20 run, which needs FSDP2 to fit, so both share one
+  # precision path.
+  gradient_accumulation_steps: 8 # micro-batch 16 = 512 / (4 GPUs x 8)
+  mem_parallel_size: null # dense attention has no banks
+  distributed:
+    fsdp2:
+      reshard_after_forward: false # O33, ame_optimization_report.md §1.10
+  autocast_bf16: false # bf16 comes from FSDP2's mixed precision
+
+  # The recipe. Everything not set here is a llama-trainer default:
+  #   - AdamW, weight decay 0.1;
+  #   - cosine schedule, warmup 1% = 152 steps, final LR 10% of peak;
+  #   - eval every 100 steps on 10 batches;
+  #   - final_ce on the fixed held-out set: 8192 samples x 2048 tokens.
+  n_steps: 15259 # D = 16B tokens / 1,048,576 tokens per step, rounded up
+  learning_rate: 9 # LR = 2^-9, dense h20's best n
+  checkpoint:
+    save:
+      # Only the final checkpoint is written (interval -1), sharded by FSDP2. It
+      # lands in the job's cemetery clone, under checkpoint/<job id>/, at about
+      # 7 GB.
+      path: checkpoint
+
+infrastructure:
+  slurm:
+    gres: gpu:hopper:4 # one whole LEM node; LEM's gres syntax
+    job-name: std_dense_h20
+    time: "1-00:00:00" # about 12 h per run on LEM, plus margin
+    exclude: r16-11 # bad GPU (2026-11-06)
+  metric_logger:
+    project_name: nano-ame
+    name: std_dense_h20_lr9
+    tags:
+      - dense
+      - h20
+      - standard
+      - qk_norm
+      - kv_shift
