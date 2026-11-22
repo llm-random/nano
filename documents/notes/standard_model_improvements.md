@@ -4,6 +4,11 @@
 [implementation plan](#implementation-plan) at the end gathers the approved features on one
 branch and merges it into `ame_main`.
 
+**Implementation (2026-11-22): not merged.** Steps 1–8 pass, and so does the dense
+reproduction. The AME reproduction spiked and missed the tie band (+0.077 against 0.022), so
+the merge waits for Maciej
+([standard_models_report.md](standard_models_report.md#for-maciej)).
+
 ## Decisions
 
 Each effect is the change in loss against the reference run, at h12 with one seed unless the

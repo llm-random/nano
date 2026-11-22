@@ -1,9 +1,11 @@
 # Standard models: build, test and merge
 
-**Status (2026-11-21 23:59):** in progress. Branch `standard_models` holds every
-approved feature and the six standard configs (steps 1–6 done), the tests pass
-(step 7), and all six smokes pass (step 8). Both h12 reproductions are running on LEM
-and match their references at steps 0–7 (step 9); they end at about 03:35. Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
+**Status (2026-11-22 04:00): not merged, because step 9 fails for AME.** Steps 1–8
+pass, and so does the dense reproduction (gap +0.0075). The AME reproduction spiked at
+steps 330–360 and ends 0.077 above `zdmv3qci`, outside the 0.022 band, so under the
+plan's step 10 the merge waits for Maciej. For this config the merged code computes what
+the reference's code did, so a chance spike is the likely cause, but one run cannot prove
+it. Options: [For Maciej](#for-maciej). Plan: [standard_model_improvements.md](standard_model_improvements.md#implementation-plan).
 
 ## The branch
 
@@ -106,8 +108,42 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 
 | Config | Cemetery branch | Job | W&B | Step 0 | Last-500 paired gap | `final_ce` |
 |---|---|---|---|---|---|---|
-| `ame_h12` | `std_ame_h12_lr8_2026-11-21_16-47-08` | 6383547 | `zs1bceoy` | 11.25: **matches**, and so do steps 1–7 | | |
-| `dense_h12` | `std_dense_h12_lr8_2026-11-21_16-47-23` | 6383548 | `q2yrtd9t` | 11.1875: **matches**, and so do steps 1–7 | | |
+| `ame_h12` | `std_ame_h12_lr8_2026-11-21_16-47-08` | 6383547 | `zs1bceoy` | 11.25: **matches**, and so do steps 1–7 | **+0.0771: fails** (band 0.022); a spike from step 335, [below](#why-the-ame-reproduction-fails) | 3.1035 (reference 3.0312) |
+| `dense_h12` | `std_dense_h12_lr8_2026-11-21_16-47-23` | 6383548 | `q2yrtd9t` | 11.1875: **matches**, and so do steps 1–7 | **+0.0075: passes** | 2.9629 (reference 2.9561) |
+
+Both jobs completed with no error in either log, and both saved their final checkpoints:
+AME ran 4 h 15 min on r18-14, dense 3 h 53 min on r18-4. GPU use for the whole plan is
+about 9.8 GPU-h of the 10 budgeted.
+
+### Why the AME reproduction fails
+
+| Check | Finding |
+|---|---|
+| Where the gap opens | Steps 300–329: +0.003, a tie. Then the grad norm climbs from 0.12 at step 300 to 0.38 at step 342 and 3.0 at step 356, where the loss peaks at 7.47 (reference 4.03). After step 100 the reference's grad norm never passes 0.39. 63 steps between 335 and 714 meet `paired_gap.py`'s spike rule (0.1 above the median of the 50 steps before); the reference has none |
+| Recovery | Gap +0.25 at steps 500–599, +0.18 at 1000–1099, +0.10 at 2000–2099, +0.08 at 3000–3099, +0.077 over the last 500. It is still closing at the end, too slowly |
+| Readouts | At step 300, every layer's τ and α₂ equal the reference's to within 0.02. At step 400, after the spike, τ is up by about 0.2 and α₂ by 0.1–0.15 in layers 1–11. They are logged every 100 steps, so they show the spike's aftermath, not its start |
+| Config | Equal in every training key: seed 123, `distributed: null`, clipping 1, `bank_lr_ratio` 4, σ 1e-4 and the compile flags. The diff is the start check's list ([Log](#log), 23:35) |
+| Code | The run commits are `482aaf56` (reference: `settle_runs_improve`, `08b75753`) and `43872cbc` (`41b041db`). The training files differ by four things. First, the bank gates: their default `none` is the old forward, op for op, and draws nothing from the global RNG. Second, the `clip_factor` and `grad_norm/banks` readouts, computed after the clip. Third, the token counts, which are off. Fourth, the FSDP2 readout fix, idle without sharding (the ST init fix is `stem`-only and part of the gate code). `pixi.toml` and `pixi.lock` are unchanged |
+| Determinism | None to expect: the two AME runs' losses first differ at step 20, the dense pair's at step 12 |
+
+**Reading:** the merge most likely did not cause this. Two runs of the same computation take
+different paths, and this one hit a spike the reference missed. The recipe (h12, σ 1e-4,
+`bank_lr_ratio` 4, 2⁻⁸) has now spiked in 1 of its 2 runs. With one run on each side, a
+regression cannot be ruled out, and the plan says not to merge after a failure.
+
+### For Maciej
+
+1. **Rerun `ame_h12` from `standard_models` once** (recommended), about 4.3 GPU-h. If it
+   ties `zdmv3qci`, merge. If it spikes again, run the reference's code (`482aaf56`) on the
+   same cluster to tell the code from the recipe. Where to run it:
+   - On LEM, the budget is spent (about 9.8 of 10 GPU-h), so this takes it to about 14.
+   - On entropy, the 8-GPU cap is full of the rebuttal's E3X jobs (1 running, 10 pending,
+     deadline 11-23). A rerun would wait behind them or slow them, and it would compare
+     across clusters.
+2. **Merge on this evidence:** for this config, the code that differs never runs or never
+   changes what is computed.
+
+Nothing has been launched. The worktree `~/code/nano-standard` stays for the merge.
 
 ## Log
 
@@ -133,3 +169,6 @@ show `failed` in W&B: they failed at the end-of-run checkpoint save, over the fi
 | 23:48 | Maciej: use entropy for tests too, and move anything still pending on LEM there. Only the dense reproduction was pending. Prepared its move: entropy's FineWeb has the same 1,279,107,432 rows, GitHub answers, h100a's 8 GPUs held by 6 preemptible `lukaskoz` jobs and 2 `pzal` jobs. The cluster cannot be switched on the command line (Hydra's grammar rejects the `../_cluster@_global_` key), so the move would have used a copy of `dense_h12.yaml` |
 | 23:51 | Before the move, LEM started the dense reproduction (6383548) on r18-4: nothing pending is left, so nothing moved. It stays on the cluster of its reference |
 | 23:59 | Start check of the dense reproduction (`q2yrtd9t`): log clean; the W&B config differs from `chne4w91`'s only in the run name, tags, job name, `mem_per_gpu`, `sparse_exclude`, `count_token_updates: False` and the run paths; losses at steps 0–7 equal the reference's (11.1875, 9.875, 9.375, 9.25, 8.75, 8.4375, 8.0625, 7.90625); 3.443 s/step (reference 3.444). Both reproductions should end at about 03:35 |
+| 11-22 03:43–03:44 | Both reproductions end (COMPLETED), with final checkpoints and no error in either log: dense (6383548) after 3 h 53 min, AME (6383547) after 4 h 15 min |
+| 11-22 03:50 | Paired gaps: dense +0.0075, **passes**; AME +0.0771, **fails**, with a spike from step 335 |
+| 11-22 03:52–04:00 | Diagnosis ([Why the AME reproduction fails](#why-the-ame-reproduction-fails)). No rerun: LEM's budget is spent, and the rebuttal's jobs fill entropy's cap. **Not merged**; the options go to Maciej |
