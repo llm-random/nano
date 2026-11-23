@@ -70,7 +70,11 @@ def _phases(trainer):
     warmup = scheduler.warmup_steps
     if "WSD" in scheduler._target_:
         decay = scheduler.decay_steps
-        return [("warmup", 0, warmup), ("stable", warmup, n - decay), ("decay", n - decay, n)]
+        return [
+            ("warmup", 0, warmup),
+            ("stable", warmup, n - decay),
+            ("decay", n - decay, n),
+        ]
     return [("warmup", 0, warmup), ("cosine", warmup, n)]
 
 
@@ -122,7 +126,9 @@ def summarize(config, point=0, gpu="h100", mfu=0.35):
         f"model   h{c.h}, dff {c.dff / c.dmodel:g}x, qk_norm {c.attention.qk_norm} | "
         f"{total / 1e6:.1f}M params, {active / 1e6:.1f}M active | {flops / 1e9:.3f} GFLOPs/token"
     )
-    print(f"tokens  {_tok(tokens)} in {n:_} steps, {tokens / active:.1f} per active param")
+    print(
+        f"tokens  {_tok(tokens)} in {n:_} steps, {tokens / active:.1f} per active param"
+    )
 
     # one row per stretch of steps with the same batch and LR phase
     cuts = sorted({n} | {s for _, s, _ in stages} | {s for _, s, _ in phases})
@@ -141,7 +147,11 @@ def summarize(config, point=0, gpu="h100", mfu=0.35):
     print(pd.DataFrame(table).to_string(index=False))
 
     interval = t.checkpoint.save.interval
-    line = f"ckpt    every {interval:_}" if t.checkpoint.save.path and interval > 0 else "ckpt    final only"
+    line = (
+        f"ckpt    every {interval:_}"
+        if t.checkpoint.save.path and interval > 0
+        else "ckpt    final only"
+    )
     if phases[-1][0] == "decay" and interval > 0:
         last_stable = phases[-1][1] - 1
         saved = (last_stable + 1) % interval == 0
