@@ -143,9 +143,12 @@ def setup_from_config(run, gpu, n_gpus):
         return None  # Setup assumes the attention width is dmodel
     ff = run.config["model"]["encoder"]["block_fn"]["ff_layer_fn"]
     kind = ff["_target_"].rsplit(".", 1)[-1]
-    if kind == "MoE":
+    if kind == "MoE" and "dff" in ff:  # main's MoE
         n_experts, topk, dff = ff["num_experts"], ff["topk"], ff["dff"]
         ff_matrices = 3 if ff["activation_function"] == "swiglu" else 2
+    elif kind == "MoE":  # cemetery port: GatedFeedForward experts from dense partials
+        n_experts, topk = ff["num_experts"], ff["topk"]
+        dff, ff_matrices = ff["ff_pre_act_fn"]["out_features"], 3
     elif kind in FF_MATRICES:
         n_experts, topk, dff, ff_matrices = 1, 1, common["dff"], FF_MATRICES[kind]
     else:
