@@ -53,12 +53,18 @@ CLIP = 1.0
 class ToyBlock(nn.Module):
     def __init__(self):
         super().__init__()
+        # sigma = 1, the regime these gates were built in. At the default 1e-4
+        # the QK-norm scales a bank row's gradient by 1/|row|, so the banks'
+        # norm dominates the joint one; a bank-only clip then coincides with the
+        # joint clip, and test_a_separate_clip_would_fail_this_gate could no
+        # longer tell the two apart.
         self.attention = AMEAttention(
             dmodel=DMODEL,
             q_heads=HEADS,
             kv_heads=HEADS,
             seq_len=SEQ,
             vocab_size=VOCAB,
+            bank_init_std=1.0,
             backend="reference",
         )
         self.norm = nn.LayerNorm(DMODEL)

@@ -28,7 +28,7 @@ common:
     type: ame
     ame:
       shift: true
-      bank_init_std: 1.0e-4 # N(0, sigma^2) bank rows; the code default is 1.0
+      bank_init_std: 1.0e-4 # N(0, sigma^2) bank rows; also the code default since 2026-11-25
 
 compile_blocks_full: true
 

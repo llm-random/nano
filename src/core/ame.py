@@ -26,10 +26,14 @@ Five things here are load-bearing and easy to get subtly wrong:
    mixed key. Normalizing the mix would make a key's norm a function of the
    bigram `(t_{j-1}, t_j)`, which destroys the property that a score is a linear
    combination of two entries of one row of `T`, i.e. the entire decode-time win.
-3. **Bank rows initialize at per-element sigma ~ 1**, not the 0.02 one reaches
-   for by habit on something shaped like an embedding table. Bank rows answer to
-   no normalized residual stream, so at 0.02 the scores have std ~4e-4, attention
-   is uniform at init, and symmetry may never break.
+3. **Bank rows initialize inside the sigma plateau: per-element sigma = 1e-4
+   by default.** Under the QK-norm a row's scale never reaches the scores, but it
+   sets how far one Adam step turns the row, so sigma acts as the banks' inverse
+   learning rate. At h12 every sigma from 1e-5 to 0.0178 ties; sigma = 1 (the
+   default until 2026-11-25) is 0.097 worse, and the init fails at 1e-7 and
+   below and at 0.0316 and above (documents/notes/ame_bank_sigma_grid.md).
+   Without the QK-norm, the embedding habit of 0.02 would leave the scores at
+   std ~4e-4: attention uniform at init.
 4. **The shift must not wrap.** `_shift1` pads and slices; `torch.roll` would mix
    the last token of a packed row into position 0 of the next one, which corrupts
    a run silently and surfaces only as "the shift didn't help".
@@ -333,7 +337,7 @@ class AMEAttention(nn.Module):
         vocab_size,
         dhead=None,
         qk_norm=True,
-        bank_init_std=1.0,
+        bank_init_std=1.0e-4,
         bank_gate="none",
         confidence_init=CONFIDENCE_INIT,
         shift=True,
