@@ -39,6 +39,22 @@ def test_rejects_anything_but_a_plain_top_level_folder_name(bad):
         sparse_exclude_names([bad])
 
 
+@pytest.mark.parametrize("names", ["tests", "tests,scripts"])
+def test_a_string_is_refused_not_split_into_letters(names):
+    # On the command line, sparse_exclude=tests arrives as a string; read letter
+    # by letter it would exclude nothing, silently.
+    with pytest.raises(ValueError, match="list of folder names"):
+        sparse_exclude_names(names)
+
+
+@pytest.mark.parametrize(
+    "needed", ["src", "/resolver/", "configs", "generated_configs"]
+)
+def test_refuses_a_folder_a_job_reads(needed):
+    with pytest.raises(ValueError, match="read by jobs"):
+        sparse_exclude_names(["tests", needed])
+
+
 @pytest.mark.parametrize(
     "branch, session",
     [

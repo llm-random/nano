@@ -65,13 +65,23 @@ def run_remote(connection, command, what):
 # only plain top-level folder names are accepted (.github yes; ., .., .git and paths no).
 _FOLDER_NAME = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_.-]*")
 _NOT_A_FOLDER = {".", "..", ".git"}
+# Top-level folders a job reads on the cluster: main.py imports src/ and resolver/
+# and runs on generated_configs/, and the PC evals read configs/pc_project.
+_NEEDED_BY_A_JOB = {"src", "resolver", "configs", "generated_configs"}
 
 
 def sparse_exclude_names(names) -> list[str]:
     """infrastructure.git.sparse_exclude as a checked list of top-level folder names.
 
-    Called before anything is pushed, so a bad entry fails on the laptop.
+    Called before anything is pushed, so a bad entry fails on the laptop. A string
+    is refused rather than read letter by letter: on the command line,
+    `sparse_exclude=tests` arrives as one, and would exclude nothing.
     """
+    if isinstance(names, str):
+        raise ValueError(
+            "infrastructure.git.sparse_exclude takes a list of folder names, got the "
+            f"string {names!r}; write it as a list, e.g. sparse_exclude=[{names}]"
+        )
     checked = []
     for name in names or []:
         name = str(name).strip("/")
@@ -79,6 +89,11 @@ def sparse_exclude_names(names) -> list[str]:
             raise ValueError(
                 "infrastructure.git.sparse_exclude takes top-level folder names "
                 f"(letters, digits, _ . -), got {name!r}"
+            )
+        if name in _NEEDED_BY_A_JOB:
+            raise ValueError(
+                f"infrastructure.git.sparse_exclude: {name!r} is read by jobs on the "
+                "cluster, so the clone cannot leave it out"
             )
         checked.append(name)
     return checked
