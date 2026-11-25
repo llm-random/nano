@@ -18,6 +18,12 @@
 # FSDP2 is on. alpha/beta, tau and the horizons are logged since the readout
 # fix on standard_models; attention entropy and top-k mass are not, because
 # they need the unsharded banks (src/core/ame.py, AMEAttention.instrumentation).
+#
+# Recipe v2 (2026-11-25; documents/notes/review_issues.md, N6-N8): each part of
+# the model now initializes from its own seed (src/core/init_rng.py), so the same
+# seed builds other weights than for the runs named above, and the QK-norm keeps
+# q and k in the compute dtype. These runs pair with those in data order, steps
+# and schedule, not in init: hence the _v2 run name and the standard_v2 tag.
 defaults:
   - /base_schema
   - ../_misc@_here_: default
@@ -80,10 +86,11 @@ infrastructure:
     exclude: r16-11 # bad GPU (2026-11-06)
   metric_logger:
     project_name: nano-ame
-    name: std_ame_h20_lr8
+    name: std_ame_h20_lr8_v2
     tags:
       - ame
       - h20
       - standard
+      - standard_v2
       - bank_lr4
       - bank_std1e4
