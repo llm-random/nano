@@ -4,10 +4,19 @@
 Ported from `parity_audit`'s documents/scripts/parity_numerics.py for
 documents/notes/ame_bank_gates_plan.md. Only the scoring is here -- its `score`
 check, the `dump_data` that produced the held-out set, and the helpers both
-need -- with one change: a model is composed from any run config (`--config`)
+need -- with one change: a model is composed from a run config (`--config`)
 rather than from the parity configs, so it builds whatever the run trained,
 `bank_gate` included. The production references (doi36p8k: 3.125227 under
 `ame_ref32`) were scored by the original, on the same held-out tensor.
+
+Not every run config works. An FSDP2 run (Stage 2c, standard/ame_h20) does not:
+`ame_ref32` leaves `trainer.distributed` as the run set it, so the build reaches
+setup_distributed_training with no process group, and `load_checkpoint` reads
+only the single-file checkpoint and the rank-0 sidecar, not a distributed
+checkpoint with one sidecar per rank. A config with a null learning rate needs
+`--override trainer.learning_rate=<n>`. A config that gives its length as
+`trainer.n_tokens_b` fails, because `build` never calls `resolve_n_steps`
+(documents/notes/review_upgrades.md, U5).
 
 Run from the root of a checkout, so that every model is built by that commit's
 code (`main.get_model_optimizer_scheduler`, the same Hydra configs):

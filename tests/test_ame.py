@@ -1858,9 +1858,12 @@ def _counting_stub(vocab=50, world_start_step=0):
     return stub
 
 
-def test_token_counts_count_occurrences_and_the_steps_a_row_is_updated_in(tmp_path):
+def test_token_counts_count_occurrences_and_the_steps_a_row_has_a_gradient_in(
+    tmp_path,
+):
     """steps_seen is the number of optimizer steps a token occurs in -- the
-    updates its bank rows get -- not the number of micro-batches or tokens."""
+    steps in which its bank rows have a gradient -- not the number of
+    micro-batches or tokens."""
     stub = _counting_stub()
     steps = [
         [torch.tensor([[1, 1, 2]]), torch.tensor([[2, 3, 3]])],  # step 0

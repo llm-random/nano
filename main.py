@@ -204,10 +204,13 @@ def build_memory_parallel_controller(cfg, model):
     The compute dtype has to match what the rest of the stack will run in, and
     nothing downstream casts an embedding: FSDP2's MixedPrecisionPolicy casts
     the parameters it owns and `torch.autocast` casts nn.Linear, but an
-    nn.Embedding gather returns the bank's own dtype either way. So under FSDP2
-    the banks are held in bf16 (what the policy would have produced) and
-    everywhere else in whatever dtype the model was built in -- which keeps the
-    single-GPU and CPU paths bit-comparable against a run without this flag.
+    nn.Embedding gather returns the bank's own dtype either way -- and the
+    controller's banks are not FSDP2's. So when CUDA is available and the stack
+    computes in bf16, under FSDP2 or under autocast_bf16, the banks are held in
+    bf16 (what the policy would have produced); everywhere else, the CPU
+    included, in whatever dtype the model was built in. Under autocast_bf16 a
+    run with the controller is therefore not bit-comparable with one without
+    it, which gathers fp32 rows and casts only after the norm and the mix.
     """
     size = cfg.trainer.get("mem_parallel_size", None)
     if not size:

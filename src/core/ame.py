@@ -46,9 +46,10 @@ KV shifting (`alpha`, `beta`) is prior art -- Xu, Cheng, Wang & Chen, arXiv
 against must have it too, or AME collects someone else's gain.
 
 **Bank gates** (`bank_gate`, documents/notes/ame_bank_gates_plan.md). A bank row
-is updated only in steps where its token occurs, yet under the hard QK-norm a
-rarely updated row acts at full strength. Each gate changes how much a row's
-identity reaches the scores; "none" is the model above, bit for bit:
+gets a gradient only in steps where its token occurs (AdamW's momentum carries
+it further for a few dozen steps after), yet under the hard QK-norm a rarely
+trained row acts at full strength. Each gate changes how much a row's identity
+reaches the scores; "none" is the model above, bit for bit:
 
     confidence  (B1)  q = sigmoid(c_Q[t]) * norm(E_Q[t]), the same for k; c is
                       one trust logit per token and head, stored as H extra
@@ -155,8 +156,13 @@ def _private_generator():
     """A CPU generator seeded from the global RNG's state, without advancing it.
 
     For a gate whose init is random (ST) but must not shift the global stream.
-    The state differs at every point of model construction, so each layer gets
-    its own seed, and the same seed and build order give the same draw.
+    The state differs at every point of a model built on the CPU, as main.py
+    builds it, so each layer gets its own seed, and the same seed and build
+    order give the same draw. Built under a non-CPU default device, as the GPU
+    tests build it, every other draw uses that device's generator, the CPU
+    state never advances, and every layer's ST gate gets the same init. If that
+    ever matters, salt the seed only off the CPU path, which keeps the trained
+    ST runs' seeds (documents/notes/review_upgrades.md, U8).
     """
     state = torch.random.get_rng_state().numpy().tobytes()
     seed = int.from_bytes(hashlib.blake2b(state, digest_size=8).digest(), "little")
@@ -732,18 +738,22 @@ class AMEAttention(nn.Module):
         # nn.Linear output) is the honest signal for what the surrounding
         # autocast context computes in. What q and k carry before this cast
         # depends on where the banks live:
-        # - Without the memory-parallel controller the banks are fp32
-        #   nn.Embedding parameters, and autocast casts nn.Linear but not an
-        #   embedding gather, so the gather, the norm and the mix run in fp32 up
-        #   to here while `v` is bf16. Flex rejects that mismatch outright and
-        #   the reference path would silently run the score half in fp32.
+        # - Without the memory-parallel controller the banks are nn.Embedding
+        #   parameters. On one GPU or under DDP they stay fp32, and autocast
+        #   casts nn.Linear but not an embedding gather, so the gather, the norm
+        #   and the mix run in fp32 up to here while `v` is bf16. Flex rejects
+        #   that mismatch outright and the reference path would silently run
+        #   the score half in fp32. Under FSDP2 the MixedPrecisionPolicy
+        #   (param_dtype bf16) casts the banks like every other parameter, so
+        #   the gathered rows are already bf16.
         # - With the controller (`trainer.mem_parallel_size` set, even to 1 on a
         #   single GPU) the forward reads a copy of the banks held in the
-        #   controller's compute dtype -- bf16 under autocast_bf16 or FSDP2
-        #   (main.py, build_memory_parallel_controller) -- refreshed from an
-        #   fp32 master after every optimizer step. The gathered rows are then
-        #   already bf16; only the master, its gradient and the optimizer state
-        #   are fp32.
+        #   controller's compute dtype -- bf16 when CUDA is available and the
+        #   stack is FSDP2 or autocast_bf16, the model's dtype otherwise (main.py,
+        #   build_memory_parallel_controller) -- refreshed from an fp32 master
+        #   after every optimizer step. On a bf16 stack the gathered rows are
+        #   then already bf16; only the master, its gradient and the optimizer
+        #   state are fp32.
         q, k = q.to(v.dtype), k.to(v.dtype)
 
         return (z.transpose(1, 2) for z in (q, k, v))

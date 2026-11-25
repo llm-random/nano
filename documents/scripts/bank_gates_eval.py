@@ -5,8 +5,9 @@ documents/notes/ame_bank_gates_plan.md, "Evaluation". Loads a final checkpoint
 into the common evaluator's model (`ame_ref32`: fp32, eager, reference attention,
 banks from the fp32 masters; documents/scripts/parity_numerics.py), buckets the
 vocabulary by `steps_seen` u from the run's token_counts.pt -- the number of
-optimizer steps a token occurred in, i.e. the updates its bank rows got -- and
-reports per bucket:
+optimizer steps a token occurred in, i.e. the steps in which its bank rows had a
+gradient (AdamW's momentum moves them in later steps too) -- and reports per
+bucket:
 
   loss          mean next-token CE at held-out positions whose INPUT token is in
                 the bucket (the whole held-out set)

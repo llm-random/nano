@@ -224,11 +224,13 @@ class Trainer:
     # the other fails loudly instead of silently training the baseline.
     mem_parallel_size: Optional[int] = None
     # Count, per token id, how often it occurs in the training batches and in
-    # how many optimizer steps (`steps_seen`) -- the number of updates its AME
-    # bank rows receive. Written as `token_counts.pt` beside every checkpoint
-    # (documents/notes/ame_bank_gates_plan.md, "Token update counts"). One
-    # scatter-add per micro-batch and one fold per step, all on the device and
-    # with no host sync; off by default.
+    # how many optimizer steps (`steps_seen`) -- the steps in which its AME bank
+    # rows get a gradient. Not their updates: AdamW's momentum keeps moving a
+    # row for some steps after its token last occurred
+    # (documents/notes/review_upgrades.md, U1). Written as `token_counts.pt`
+    # beside every checkpoint (documents/notes/ame_bank_gates_plan.md, "Token
+    # update counts"). One scatter-add per micro-batch and one fold per step,
+    # all on the device and with no host sync; off by default.
     count_token_updates: bool = False
     # The training length in billions of tokens, when the config gave it that
     # way. Read by nobody here: src.definitions.resolve_n_steps has already
@@ -1039,8 +1041,9 @@ class Trainer:
 
     def _fold_token_counts(self):
         """count_token_updates, per optimizer step: a token whose step count is
-        positive gets one more update of its bank rows. Summed over ranks
-        first, because a row is updated if its id occurs on any of them."""
+        positive gets one more step in which its bank rows have a gradient.
+        Summed over ranks first, because a row has a gradient if its id occurs
+        on any of them."""
         step = self._step_token_counts
         if step is None:
             return
