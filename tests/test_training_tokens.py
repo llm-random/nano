@@ -110,6 +110,38 @@ def test_run_exp_still_reports_a_missing_key_with_a_token_budget():
         check_missing_keys(cfg)
 
 
+def _token_sweep(key, values):
+    """tiny_local with a token budget and `^key: values` in place of `key`."""
+    plain = _point(TOKENS)
+    section = "trainer" if key == "n_tokens_b" else "common"
+    del plain[section][key]
+    plain[section][f"^{key}"] = values
+    return OmegaConf.create(plain)
+
+
+@pytest.mark.parametrize(
+    "key, values", [("n_tokens_b", [0.0001, 0.0002]), ("batch_size", [2, 4])]
+)
+def test_run_exp_checks_missing_keys_on_a_token_sweep(key, values):
+    """A sweep over the budget, or over what a step holds, has no single budget
+    or batch to resolve before the grid expands; the check runs on every point
+    (documents/notes/review_issues.md, N5). Both raised before."""
+    from run_exp import check_missing_keys
+
+    cfg = _token_sweep(key, values)
+    check_missing_keys(cfg)
+    assert f"^{key}" in (cfg.trainer if key == "n_tokens_b" else cfg.common)
+
+
+def test_run_exp_reports_a_missing_key_inside_a_token_sweep():
+    from run_exp import check_missing_keys
+
+    cfg = _token_sweep("n_tokens_b", [0.0001, 0.0002])
+    cfg.trainer.learning_rate = "???"
+    with pytest.raises(RuntimeError, match="learning_rate"):
+        check_missing_keys(cfg)
+
+
 def test_a_token_grid_resolves_point_by_point():
     plain = _point(["trainer.n_steps=null"])
     del plain["trainer"]["n_tokens_b"]

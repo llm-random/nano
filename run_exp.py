@@ -18,7 +18,7 @@ import paramiko.ssh_exception
 from grid_generator.generate_configs import create_grid_config
 from grid_generator.sbatch_builder import generate_sbatch_script
 from main import dump_grid_configs, run
-from src.definitions import RootSchema, check_point, resolve_n_steps
+from src.definitions import RootSchema, check_point, resolve_n_steps, tokens_per_step
 import resolver
 
 logger = logging.getLogger(__name__)
@@ -310,19 +310,24 @@ def wait_for_job_id(connection, tmux_pane, tries: int = 3):
 
 
 def check_missing_keys(cfg: DictConfig) -> None:
-    """Fail on any ??? left in the composed config, before the grid expands.
+    """Fail on any ??? left in the composed config, before anything is pushed.
 
-    OmegaConf.missing_keys resolves every interpolation it walks past. A length
-    given in tokens leaves trainer.n_steps null until resolve_n_steps fills it
-    in, so the warmup's ${trainer.n_steps} would fail on None. The check runs
-    on a copy with the steps resolved; cfg keeps n_tokens_b as written, for the
-    grid expansion and the dump.
+    Checked on every grid point, each on its own copy with its token budget
+    resolved. OmegaConf.missing_keys resolves every interpolation it walks past,
+    and a length given in tokens leaves trainer.n_steps null until resolve_n_steps
+    fills it in, so the warmup's ${trainer.n_steps} would fail on None. On the
+    unexpanded config a sweep over the budget (`^n_tokens_b`) or over what a step
+    holds (`^batch_size`, `^sequence_length`) could not be resolved at all
+    (documents/notes/review_issues.md, N5). cfg keeps n_tokens_b as written, for
+    the grid expansion and the dump.
     """
-    probe = copy.deepcopy(cfg)
-    resolve_n_steps(probe)
-    missing_keys: set[str] = OmegaConf.missing_keys(probe)
-    if missing_keys:
-        raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
+    for point, overrides in create_grid_config(copy.deepcopy(cfg)):
+        probe = OmegaConf.create(point)
+        resolve_n_steps(probe)
+        missing_keys: set[str] = OmegaConf.missing_keys(probe)
+        if missing_keys:
+            where = f" at grid point {overrides}" if overrides else ""
+            raise RuntimeError(f"Got missing keys in config{where}:\n{missing_keys}")
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="exp")
@@ -352,13 +357,15 @@ def submit_experiment(
         # the result before anything is queued. The dumped point keeps
         # n_tokens_b, and main.run resolves it the same way on the cluster.
         if checked.trainer.n_tokens_b is not None:
-            per_step = checked.common.batch_size * checked.common.sequence_length
+            per_step = tokens_per_step(
+                checked.common.batch_size, checked.common.sequence_length
+            )
             print(
                 f"grid point {point_overrides or '(no overrides)'}: "
                 f"trainer.n_tokens_b={checked.trainer.n_tokens_b} -> "
                 f"trainer.n_steps={checked.trainer.n_steps} "
-                f"({checked.trainer.n_steps * per_step:,} tokens at {per_step:,} "
-                "per step, rounded down)"
+                f"({checked.trainer.n_steps * per_step:,} tokens trained on at "
+                f"{per_step:,} per step, rounded up)"
             )
     dump_grid_configs(configs_grid, cfg.infrastructure.generated_configs_path)
 
