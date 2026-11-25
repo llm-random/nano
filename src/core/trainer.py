@@ -22,6 +22,7 @@ from src.core.checkpointing import (
 )
 from src.core.metric_loggers import AveDiffMetric, AveMetric, MetricLogger
 from src.core.mfu import model_flops_per_token, peak_flops_bf16
+from src.core.moe import MoE
 from src.core.utils import create_batch_fingerprint
 
 if TYPE_CHECKING:
@@ -51,6 +52,8 @@ def preserved_rng_state(device: torch.device):
 class LossMetrics:
     total_loss: torch.Tensor
     reported_loss: torch.Tensor
+    # MoE.stats averaged over layers, micro-steps and ranks; None without MoE or in eval
+    moe_stats: Optional[torch.Tensor]
 
 
 class LoopTimers:
@@ -198,6 +201,7 @@ class Trainer:
         self.processed_tokens = self.training_state["processed_tokens"]
         self.start_step = self.training_state["next_step"]
         self.device = next(self.model.parameters()).device
+        self._moe_layers = [m for m in self.model.modules() if isinstance(m, MoE)]
 
         # A bare `None` in YAML is the *string* "None" -- YAML's null is `null` or `~`.
         # 37 shipped configs switch eval off with `eval_dataloader: None`, so without
@@ -678,6 +682,9 @@ class Trainer:
             with self._forward_ctx():
                 reported_loss = self._forward_loss_fn(input_ids, target_ids)
             loss = reported_loss
+            if self.model.training and self._moe_layers:
+                # train/loss stays pure CE, comparable to eval/loss
+                loss = loss + sum(m.aux_loss for m in self._moe_layers)
             reported_loss = reported_loss / n_chunks
             loss = loss / n_chunks
             return loss, reported_loss
@@ -695,6 +702,7 @@ class Trainer:
 
         total_losses = []
         reported_losses = []
+        moe_step_stats = []
         in_flight = _to_device(chunks[0])
         for i in range(len(chunks)):
             input_ids, target_ids = self._preprocess_input(in_flight)
@@ -714,6 +722,10 @@ class Trainer:
                 in_flight = _to_device(chunks[i + 1])
             total_losses.append(loss.detach())
             reported_losses.append(reported_loss.detach())
+            if self.model.training and self._moe_layers:
+                moe_step_stats.append(
+                    torch.stack([m.stats for m in self._moe_layers]).mean(0)
+                )
 
         # gloo backend supports only sum reduce operation, therfore we first divide by world size and then sum
         avg_total_loss = torch.stack(total_losses).sum()
@@ -723,9 +735,16 @@ class Trainer:
             dist.all_reduce(avg_reported_loss, op=dist.ReduceOp.SUM)
 
         world_size = float(os.environ["WORLD_SIZE"])
+        moe_stats = None
+        if moe_step_stats:
+            moe_stats = torch.stack(moe_step_stats).mean(0)
+            if dist.is_initialized():
+                dist.all_reduce(moe_stats, op=dist.ReduceOp.SUM)
+            moe_stats = moe_stats / world_size
         return LossMetrics(
             total_loss=avg_total_loss / world_size,
             reported_loss=avg_reported_loss / world_size,
+            moe_stats=moe_stats,
         )
 
     def eval(self):
@@ -794,6 +813,9 @@ class Trainer:
         self.metric_logger.log("train/lr", self.scheduler.get_last_lr()[0])
         if grad_norm is not None:
             self.metric_logger.log("train/grad_norm", grad_norm.item())
+        if loss_metrics.moe_stats is not None:
+            for name, value in zip(MoE.STAT_NAMES, loss_metrics.moe_stats.tolist()):
+                self.metric_logger.log(f"train/moe_{name}", value)
 
         self.loss_averaged_100.log(
             self.metric_logger, loss_metrics.reported_loss.item()
