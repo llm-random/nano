@@ -544,6 +544,12 @@ the code 2026-11-07. Values at h16 (`dmodel` 1024, `dff` 4096). Points marked
   confound.
 - The knobs are `init_scale` (the attention `Linear`s), the FF and head `scale`, and
   `bank_init_std`. All are 1, except `bank_init_std`: 1e-4 with the QK-norm since 2026-11-25.
+- **Seeds (since 2026-11-25):** each part of the model -- the embedding, each block's
+  attention and feed-forward, the head -- draws from its own seed, derived from the run's
+  seed and its name, and optional parameters (the KV shift, the ST gate) from private
+  generators ([src/core/init_rng.py](../../src/core/init_rng.py)). So no switch moves another
+  part's init, and a run started before that date does not share its starting weights with
+  one started after ([review_issues.md](review_issues.md), N6).
 
 **What follows** (analysis):
 - **No token matches itself at init.** The banks are independent draws, so `T[a,a] ≈ 0`.

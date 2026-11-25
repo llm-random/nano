@@ -61,7 +61,10 @@ row says otherwise. Negative is better. For AME, a change under 0.022 is a tie
 ## Standard configs
 
 The files are in `configs/standard/` on `ame_main`: AME and dense at h12, h16 and h20.
-`zdmv3qci` (AME) and `chne4w91` (dense) are these configs at h12. Neither config has a
+`zdmv3qci` (AME) and `chne4w91` (dense) are these configs at h12 as recipe v1. Since
+2026-11-25 they are recipe v2: each part of the model initializes from its own seed, and the
+QK-norm keeps q and k in the compute dtype ([review_issues.md](review_issues.md), N6-N8). So
+v2 runs pair with v1 in data order, steps and schedule, not in init. Neither config has a
 `document_mask` key: it exists only on the rejected branch `doc_mask`.
 
 AME:
@@ -165,7 +168,8 @@ Q/K banks' learning rate as a multiple of the base rate. Report:
 On top of the small σ it is a tie. Both levers let Adam turn the bank rows faster, and under
 QK-norm only a row's direction counts. It costs nothing (the same s/step and memory, no
 spikes), so it stays, and 4 is the default (Maciej, 2026-11-21). Runs and checkpoints from
-before the merge need `bank_lr_ratio: 1` to reproduce or resume.
+before the merge need `bank_lr_ratio: 1` to resume; an exact rerun needs the run's own
+code, since the init changed on 2026-11-25 ([review_issues.md](review_issues.md), N6).
 
 ### KV shift and QK-norm (dense)
 

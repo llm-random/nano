@@ -16,8 +16,9 @@ trainer:
   # AME memory banks (q_bank/k_bank) train at this multiple of learning_rate,
   # for the whole schedule. Ignored by a model without banks. AME runs and
   # checkpoints from before 4.0 became the default (standard_models,
-  # 2026-11-21) trained at 1.0: set bank_lr_ratio: 1 to reproduce or resume
-  # one. A full resume of an old checkpoint at 4.0 fails on the ordinary path
+  # 2026-11-21) trained at 1.0: set bank_lr_ratio: 1 to resume one. An exact
+  # rerun also needs the code it ran with: since 2026-11-25 each part of the
+  # model initializes from its own seed (src/core/init_rng.py). A full resume of an old checkpoint at 4.0 fails on the ordinary path
   # (the optimizer has one more param group), but under memory parallelism it
   # resumes at 4x with no error. A weights-only load (checkpoint.load.
   # only_weights) works at any ratio: it reads only the weights.

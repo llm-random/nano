@@ -3,9 +3,11 @@
 **Status (2026-11-25): applied.** Every item was applied on `ame_main` the same day, after
 the commits were restored from `ame_main_backup_2026-11-25`: see
 [Outcome](#outcome-2026-11-25). The review of the standard-models merge (I1) followed: it found
-no bug in what the six standard runs compute, and nine smaller findings, which wait for
-Maciej's decision ([Second pass](#second-pass-new-findings-2026-11-25)). The push waits for
-Maciej's word. Analyses and ablations for later are in [review_upgrades.md](review_upgrades.md).
+no bug in what the six standard runs compute, and nine smaller findings. Maciej had N1-N8
+fixed, N6 for every switch, then a precise audit for the same kind of issue
+([Second pass](#second-pass-new-findings-2026-11-25), [Audit after N6](#audit-after-n6-2026-11-25)).
+Two audit findings wait for his decision (A1, A2). The push waits for Maciej's word.
+Analyses and ablations for later are in [review_upgrades.md](review_upgrades.md).
 
 - **Sources:** [rev1.md](rev1.md) and [rev2.md](rev2.md), each with Maciej's response, plus
   rev2's reply. Every item was re-checked against the staged tree.
@@ -66,7 +68,10 @@ adds this section.
 ## Second pass: new findings (2026-11-25)
 
 I1's review, run after the fixes. **None of these changes what the six standard runs
-compute.** All are proposals, waiting for Maciej's decision; nothing here is applied.
+compute.** Maciej's decision (2026-11-25): fix N1-N8; N4 in code, not only the texts; N5
+locally; N6 in code for every switch, so that no switch moves any other init, and then a
+precise search for anything similar ([Audit after N6](#audit-after-n6-2026-11-25)); N7 by
+keeping q and k in the compute dtype. N9 stays a watch item. Outcomes under the table.
 
 | # | Severity | Issue | Where | Proposed fix | Found by |
 |---|---|---|---|---|---|
@@ -100,6 +105,46 @@ compute.** All are proposals, waiting for Maciej's decision; nothing here is app
   collective (reviewer A).
 - **Tests on `ba2892b3`:** CPU 523 passed; `pytest -m gpu` 13 passed and
   `tests/test_distributed.py` 4 passed on LEM (H100, node r18-15).
+
+**Outcome of the second pass (2026-11-25):**
+
+| # | Outcome | Commit |
+|---|---|---|
+| N1 | Done: `bank_init_std` defaults to None, resolved to 1e-4 with the QK-norm and 1.0 without; a test | `bb07f01a` |
+| N2 | Done: the saved `eta_min` is `final_lr_fraction` × group 0's base lr. A test resumes this code's scheduler into the pre-merge one; it fails on the old code | `9b2742a9` |
+| N3 | Done: `only_weights` loads only the model (the sharded path through `ModelState`, the model half of `TrainingState`) and the banks' masters, not their optimizer state. Two tests, both failing on the old code; the `llama.yaml` comment | `4a434aaf` |
+| N4 | Done in code: `n_tokens_b` counts `batch_size × (sequence_length − 1)` tokens a step (the ones trained on, the W&B token axis) and rounds up, so 4, 8 and 16B give 3815, 7630 and 15259. `main.py`'s log, `run_exp.py`'s printout and the token smoke test used the old count too. A correction note in `ame_improve_runs_report.md` | `20647031`, `77f49cb4`, `9ad6048f` |
+| N5 | Done, locally: `check_missing_keys` expands the grid and checks every point with its budget resolved. Tests for `^n_tokens_b` and `^batch_size` sweeps and a missing key inside one | `77f49cb4` |
+| N6 | Done for every switch: [src/core/init_rng.py](../../src/core/init_rng.py). The embedding, each block's attention and feed-forward, and the head are built from their own seeds (the run's seed and their name), with the global stream restored after; optional parameters (the dense shift, AME's `_init_mix`, the ST gate) draw from private generators. AME had the issue too (its shift and pins), and so did a layer's attention type and a mixed stack. [tests/test_init_rng.py](../../tests/test_init_rng.py): 17 switches change only what they switch and leave the global stream identical; 8 failed on the old code. **Every model's init under a given seed changed** | `cfc4f313`, `acc7f104` |
+| N7 | Done for the dense layer and for AME: the QK-normed q and k are cast straight back to the compute dtype. A CPU emulation test (fails on the old code) and a GPU test under real CUDA autocast | `f19c975d` |
+| N8 | Done: the six standard configs are recipe v2, with `_v2` run names, a `standard_v2` tag, and headers saying the runs pair with v1 in data order, steps and schedule, not in init | `d8840ece` |
+| N9 | Watch item, unchanged | — |
+
+## Audit after N6 (2026-11-25)
+
+A precise search for anything else that lets a config change move an init or the training
+data. Every random draw in `src/`, `main.py`, `resolver/` and `grid_generator/` was listed and
+followed.
+
+| # | Finding | Status |
+|---|---|---|
+| A1 | **The training-data order depends on the loader's `num_workers`.** Checked locally on the dummy dataset: 0 and 1 workers give identical batches, 2 and 4 reorder them. The HF dataset hands each worker its own subset of the 64 shards and the loader takes batches from the workers in turn. Every FineWeb run so far used 2, and the logged config records it, so no comparison so far is affected | Documented in [configs/_dataset/fineweb.yaml](../../configs/_dataset/fineweb.yaml) (`acc7f104`). **Needs Maciej's decision:** each worker reads the whole stream and keeps its own batches (the same order at any count, for `num_workers` × the tokenization CPU), or a pre-packed, map-style dataset with one seeded global permutation, which also removes A2 ([review_upgrades.md](review_upgrades.md), U12) |
+| A2 | **The training-data order depends on the GPU count** unless `world_size_independent: true`: `split_dataset_by_node` gives each rank its own shard. Already documented in `main.py` and logged as `world_size` | Known. `world_size_independent: true` gives a world-size-independent global batch at world size × the reading cost; the A1 redesign would remove it. **Needs Maciej's decision** |
+| A3 | The unused `random_seed` resolver drew from Python's global, unseeded `random`: a config using it would get a seed no run record holds | Removed (`acc7f104`) |
+| A4 | The data seed is also the init seed: `main.py` seeds torch with `trainer.train_dataloader.dataset.seed` | By design. A separate init seed would let an ablation vary the data order at a fixed init, or the reverse ([review_upgrades.md](review_upgrades.md), U13) |
+
+**Checked and clean:**
+- **Model construction:** every config builds its model from the core embedding, encoder,
+  block and head classes, all seeded per component; norms, RoPE, ALiBi slopes, sinks, τ and
+  the gates' constant parts draw nothing; AME's banks and `v_proj`/`o_proj` draw inside
+  their component; the memory-parallel controller slices the drawn banks and draws nothing.
+- **Training:** nothing in the training loop, eval, the heavy metrics, FSDP2, DDP or compile
+  draws randomness, so no switch there can move anything.
+- **Data:** the data uses only its own seeded generators (`random.Random(seed)`, the HF
+  shuffle's seed), never torch's global stream, so no model switch reaches it; and since
+  N6 the global stream after the build is the seeded one whatever the model. The
+  micro-batch split and gradient accumulation do not change a step's rows. Resume skips
+  exactly the batches already seen.
 
 ## All items
 

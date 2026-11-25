@@ -23,10 +23,12 @@ loss curves, readouts and costs:
 - **Bank defaults.** Every AME run here trained its banks at the base learning rate and
   initialized them at σ = 1.0, the defaults then. Since the standard-models merge,
   `trainer.bank_lr_ratio` defaults to 4.0, and since 2026-11-25 `bank_init_std` to 1e-4.
-  To rerun one of these configs as it ran, add `trainer.bank_lr_ratio=1` and
-  `++common.attention.ame.bank_init_std=1.0`. Ratio 1 rebuilds the pre-merge optimizer
-  exactly (no bank group, [model.py:753](../../src/core/model.py#L753)), so the run's
-  checkpoint resumes too.
+  An exact rerun needs the code the run used (its cemetery branch): since 2026-11-25 each
+  part of the model initializes from its own seed (`src/core/init_rng.py`), so today's code
+  builds other starting weights. On today's code, `trainer.bank_lr_ratio=1` and
+  `++common.attention.ame.bank_init_std=1.0` restore the optimizer and the init scale, and
+  ratio 1 lets the run's checkpoint resume (no bank group,
+  [model.py:753](../../src/core/model.py#L753)).
 - **Batch.** 512 × 2,048 = 1,048,576 tokens per step.
 - **Run lengths.**
   - h12: 3,815 steps, 4.00B tokens;

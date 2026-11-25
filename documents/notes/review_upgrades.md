@@ -23,6 +23,10 @@ OK before it costs GPU time.** The fixes to apply before the reviewed commits se
 | [U7](#u7-reproducing-a-pre-merge-run) | Reproducing pre-merge runs | Rules to follow, not experiments | rev2's reply; the response | Nothing |
 | [U8](#u8-the-st-gate-if-it-is-ever-revived) | The ST gate, if revived | Distinct per-layer init under a GPU default device | rev1 #2, rev2 #10 and reply | Code, only if needed |
 | [U9](#u9-runs-already-planned) | Runs already planned | Four runs from the standard-models plan | standard_model_improvements.md | Maciej's OK |
+| [U10](#u10-the-shift-effect-without-the-init-difference) | The shift effect, clean | Re-measure the KV shift's gain now that the switch no longer moves the init | Reviewer A (N6) | Runs |
+| [U11](#u11-the-v2-init-against-the-v1-references) | The v2 init | Does a v2 standard run tie its v1 reference? | Reviewer A (N6) | One run per model, or accept |
+| [U12](#u12-a-data-order-independent-of-workers-and-gpus) | Data order | A pipeline whose order depends only on the seed | This session (audit A1, A2) | Code |
+| [U13](#u13-a-separate-init-seed) | Init seed | Vary the data order and the init separately | This session (audit A4) | Code |
 
 ## U1. Bank rows under dense AdamW
 
@@ -142,8 +146,11 @@ of `bank_gates_eval.py` is I23 there.
 - **Decided (Maciej, 2026-11-25):** the old AME configs stay at the default `bank_lr_ratio`,
   4.0, and take the default `bank_init_std`, 1e-4 under the QK-norm since 2026-11-25. Rerunning one gives
   today's recipe, not the recorded run.
-- **To reproduce or resume a pre-merge run, set `trainer.bank_lr_ratio=1`** (rev2's reply),
-  and `++common.attention.ame.bank_init_std=1.0` for its init.
+- **To rerun a pre-merge run exactly, use the code it ran with** (its cemetery branch).
+  Since N6 (2026-11-25) today's code builds other starting weights from the same seed; on
+  it, `trainer.bank_lr_ratio=1` and `++common.attention.ame.bank_init_std=1.0` restore the
+  optimizer and the init scale only.
+- **To resume a pre-merge checkpoint, set `trainer.bank_lr_ratio=1`** (rev2's reply).
   - That rebuilds the pre-merge optimizer exactly:
     - there is no bank group in `parameter_groups`
       ([model.py:753](../../src/core/model.py#L753));
@@ -184,3 +191,43 @@ Maciej's OK":
 - **AME h16 at 2⁻⁷:** its best learning rate is at the edge of the grid.
 - **The standard configs at h20,** about 14 h on 4 GPUs each.
 - **σ = 1e-4 at other learning rates,** to see whether the cliff moves (U3).
+
+## U10. The shift effect without the init difference
+
+- Until N6 (2026-11-25), turning the KV shift on moved the init of everything built after
+  it: in a small model, 25 of 39 shared parameters.
+- So the settle runs' dense shift effect (−0.022 alone, −0.040 on top of QK-norm;
+  standard_model_improvements.md, "KV shift and QK-norm (dense)") carries an init difference
+  inside it. The −0.040 is well above the noise; the −0.022 sits at its edge.
+- **To check:** rerun the dense h12 on/off pair at the v2 init, where the two runs differ
+  only in the shift. Maciej plans to rerun all the older experiments anyway.
+
+## U11. The v2 init against the v1 references
+
+- N6 changed every model's init under a given seed, and N7 the numerics between the
+  QK-norm and the kernel. The standard configs became recipe v2 (N8).
+- **To check:** one dense h12 v2 run against `chne4w91` and one AME h12 v2 run against
+  `zdmv3qci` (about 4 GPU-h each) to confirm v2 ties v1, or accept v2 as the new standard
+  without that check.
+
+## U12. A data order independent of workers and GPUs
+
+- The training-data order depends on the loader's `num_workers` and on the GPU count
+  (review_issues.md, A1 and A2). Every FineWeb run so far used 2 workers, and runs are
+  compared at one world size, so no result so far is affected.
+- **Options:**
+  - Each worker reads the whole stream and keeps only its own batches in the loader's
+    round-robin. The same order at any worker count, for `num_workers` × the tokenization
+    CPU. `world_size_independent: true` does the same across ranks today, at world size ×
+    the reading cost.
+  - A pre-tokenized, pre-packed, map-style dataset with one seeded global permutation,
+    sliced by rank and worker. The order then depends only on the seed, at no extra CPU,
+    but it changes the data pipeline and the packing.
+
+## U13. A separate init seed
+
+- `main.py` seeds the init with the data seed (`trainer.train_dataloader.dataset.seed`), so
+  a seed change moves both.
+- **To check:** a separate init seed (by default the data seed) would let an ablation vary
+  the data order at a fixed init, or the reverse, and measure the two sources of run-to-run
+  noise apart (U6).
