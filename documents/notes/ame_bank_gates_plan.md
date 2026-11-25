@@ -122,6 +122,10 @@ What to expect (analysis from pkmf_init_comparison.md, not results):
   steps where t occurs, by about one learning rate per update. Reaching s = 0.5 therefore
   takes at least 754 of the token's own updates at the peak LR (2.944 / 2⁻⁸). A token
   present in every step can get there by about step 800; a rare one cannot.
+  *Correction (review, 2026-11-25): under the dense AdamW the banks use, one occurrence
+  moves an element about 2.5 lr at once and 25 lr in all at step 1,000, so this estimate
+  holds only for a token present in every step ([review_upgrades.md](review_upgrades.md),
+  U1).*
 - **B2 and ST never see the row,** so they cannot tell a rare row from a frequent one. They
   learn where identity matching misleads. ST against B2 isolates the gate's shape: a
   per-channel unbounded vector against one bounded scalar per head, in the same place
@@ -242,6 +246,9 @@ What to expect (analysis from pkmf_init_comparison.md, not results):
    - Every optimizer step, take a `torch.bincount` of the input ids and accumulate
      `occurrences` and `steps_seen`. `steps_seen` is the number of steps in which a token
      occurs, which is the number of updates its bank rows get.
+     *Correction (review, 2026-11-25): it is the number of steps in which its bank rows
+     have a gradient; AdamW's momentum keeps moving a row after that
+     ([review_upgrades.md](review_upgrades.md), U1).*
    - Save `token_counts.pt` next to the final checkpoint.
    - Cost: one bincount over 65,536 ids per micro-batch.
    - Every run writes the file. Identical files across the four runs confirm that they

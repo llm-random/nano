@@ -14,7 +14,7 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | `concepts/` | Definitions: what a term means, how a thing is constructed, what it implies. Should stay true for months. | long-lived |
 | `notes/` | Task notebooks: a concrete investigation, its plan, its results, its open items. Dated, append-only. | per-task |
 | `notes/archive/` | Task notebooks that are **closed**: the work finished, or a later doc supersedes them. Kept for the evidence and the reasoning, not consulted for current state. | retired |
-| `scripts/` | Small runnable companions to the docs: parameter/FLOP calculators, figure notebooks. Importable, no side effects on import. | long-lived |
+| `scripts/` | Small runnable companions to the docs: parameter/FLOP calculators, figure notebooks, the common evaluator and its wrappers. Importable; no side effects on import, except that `parity_numerics.py` edits `sys.path` and sets four rank variables (`WORLD_SIZE`, `LOCAL_WORLD_SIZE`, `RANK`, `LOCAL_RANK`), and `bank_gates_eval.py`, which imports it, edits `sys.path`. | long-lived |
 
 ### concepts/
 
@@ -34,11 +34,16 @@ it belongs here first. If it is a concept the team keeps re-explaining, write it
 | [h_balanced_flops_quotes.py](scripts/h_balanced_flops_quotes.py) | Re-derives every number the notebook's prose quotes from the notebook's own functions and names any that are stale; run it after changing a knob or the cost model |
 | [stage_results.py](scripts/stage_results.py) | AME Stage 1–2 results from W&B: the run tables, eval curves, readouts and loss-curve figures in `stage_1_report.md` and `stage_2_report.md` |
 | [ame_comparison_h12.py](scripts/ame_comparison_h12.py) | The best AME and dense h12 runs side by side from W&B: every table and figure in `ame_comparison_h12.md` |
+| [parity_numerics.py](scripts/parity_numerics.py) | The common evaluator: a checkpoint's precise final CE on the full held-out set (`score`, under `ame_ref32` and `ame_prod`), and the `dump_data` that wrote the set. Ported from `parity_audit` for the bank gates; it cannot score FSDP2 runs (its docstring lists the limits) |
+| [bank_gates_eval.py](scripts/bank_gates_eval.py) | The bank gates' secondary evaluation: loss and attention statistics per `steps_seen` bucket, from a run's `token_counts.pt` |
+| [bank_gates_lem_eval.sh](scripts/bank_gates_lem_eval.sh) | Runs evaluation scripts on one LEM H100 from a committed state of the repo; the job exits 1 if any of them failed |
+| [ame_ckpt_readouts.py](scripts/ame_ckpt_readouts.py) | AME readouts (τ, horizons, α₂, β₂) per layer from a final checkpoint, for the runs that logged none under FSDP2 (Stage 2c) |
 
 ### notes/
 
-**AME** — the id-indexed Q/K attention method. Three live docs: what it is, what we
-will test, how fast it runs. Everything else is in `notes/archive/`.
+**AME** — the id-indexed Q/K attention method. Three live docs say what it is, what we
+test and how fast it runs; the rest are the stage reports and experiment notebooks, in
+order. Closed notebooks are in `notes/archive/`.
 
 | Doc | Topic |
 |---|---|
@@ -53,8 +58,32 @@ will test, how fast it runs. Everything else is in `notes/archive/`.
 | [stage_1c_report.md](notes/stage_1c_report.md) | **Stage 1c, on Helios (from 2026-11-08)**: dense h20 at 16B tokens on 4 GH200 per run — the learning-rate grid, plus the Helios compile fix (aarch64 torch 2.7.1), its 1-GPU proof and the submission method both h20 stages share |
 | [stage_2c_report.md](notes/stage_2c_report.md) | **Stage 2c, on Helios (from 2026-11-08)**: the best AME variant (ALiBi with the KV shift) at h20 and 16B tokens, at dense's best n and n ± 1, and its gap to dense against h12 and h16 |
 | [ame_comparison_h12.md](notes/ame_comparison_h12.md) | **The best AME against the best dense at h12 (from 2026-11-06)**: S2-PS against S1-D, both n = 8, 4B tokens — the training logs compared (loss gap over time, gradient norm, residual stream and sublayer writes by depth), with hypotheses and the next angles |
-| [standard_model_improvements.md](notes/standard_model_improvements.md) | **What to fold into the standard AME and dense models (2026-11-18)**: every improvement tested from 2026-11-04 to 11-17 (stage recipes, bank init σ, bank learning-rate ratio, document mask, bank gates, init ablations), its result and verdict, the branch and commit that hold it, the merge caveats and the runs still open |
-| [ame_efficiency_parity_plan.md](notes/ame_efficiency_parity_plan.md) | **Plan, not started (2026-11-06)**: does AME's MFU work cost it quality? An audit of every AME-only efficiency change active in the best h12 run against dense's standard stack: the inventory, offline numerics on entropy, 300-step training gates, full-length runs prepared for Maciej's approval, and the `/goal` text that runs it |
+| [standard_model_improvements.md](notes/standard_model_improvements.md) | **What to fold into the standard AME and dense models (2026-11-18; decided 2026-11-21, merged into `ame_main` 2026-11-22)**: every improvement tested from 2026-11-04 to 11-17 (stage recipes, bank init σ, bank learning-rate ratio, document mask, bank gates, init ablations), its result and verdict, the branch and commit that hold it, the merge caveats and the runs still open |
+| [ame_efficiency_parity_plan.md](notes/ame_efficiency_parity_plan.md) | **Plan, done 2026-11-07; the record is [ame_efficiency_parity_report.md](notes/ame_efficiency_parity_report.md)**: does AME's MFU work cost it quality? An audit of every AME-only efficiency change active in the best h12 run against dense's standard stack: the inventory, offline numerics on entropy, 300-step training gates, full-length runs prepared for Maciej's approval, and the `/goal` text that runs it |
+| [ame_efficiency_parity_report.md](notes/ame_efficiency_parity_report.md) | **The efficiency-parity audit's record (2026-11-07)**: no AME efficiency change is harmful. The numerics, the training gates, the full-length runs, and the origin of the common evaluator |
+| [ame_bf16_scalars_plan.md](notes/ame_bf16_scalars_plan.md) | **Plan: full-length A/Bs on entropy** for bf16 per-head scalars and the parity runs, extending the efficiency-parity audit |
+| [stage_runs.md](notes/stage_runs.md) | **AME Stages 1 to 2c, every run (complete 2026-11-10)**: the 48 training runs with their configs, W&B ids, jobs and results, and the settings they share |
+| [ame_bank_gates_plan.md](notes/ame_bank_gates_plan.md) | **Bank gates, plan (2026-11-07)**: four ways to trust a bank row (B1 confidence, B2 context, B3 backoff, ST stem), one h12 run each, and the h16 extension. The spec behind `bank_gate` |
+| [ame_bank_gates_report.md](notes/ame_bank_gates_report.md) | **Bank gates, report (2026-11-08)**: both waves trained and scored; at h12, ST, B2 and B3 tie for best |
+| [ame_bank_gates_stage2_plan.md](notes/ame_bank_gates_stage2_plan.md) | **Bank gates, stage 2 plan (2026-11-08)**: separates the σ = 0.01 init from the gates. The spec behind `confidence_init` and the four `stage2_*` configs |
+| [ame_bank_gates_stage2_report.md](notes/ame_bank_gates_stage2_report.md) | **Bank gates, stage 2 report (2026-11-08)**: the bank init is all of stage 1's gain. Every gate was rejected (ST on 2026-11-21: it breaks the score table); the code stays, off by default |
+| [ame_improve_runs_report.md](notes/ame_improve_runs_report.md) | **Banks at 4× the learning rate (2026-11-08)**: ratio 4 beats 1 at h12 and h16; the default since the standard-models merge |
+| [ame_init_exp.md](notes/ame_init_exp.md) | **Init experiment (2026-11-09)**: Xavier embedding, head and banks with pkmf's `Linear` init. No gain |
+| [ame_init_embed_ablation.md](notes/ame_init_embed_ablation.md) | **Init follow-up (2026-11-10)**: the new init with the old embedding, then n ± 1. The Xavier embedding was AME's whole problem |
+| [ame_init_pkmf_linears.md](notes/ame_init_pkmf_linears.md) | **Init follow-up (2026-11-10)**: pkmf-scale `Linear`s and head under the old embedding cost about +0.10 in both models |
+| [pkmf_init_comparison.md](notes/pkmf_init_comparison.md) | **Weight init, ours against pkmf (2026-11-07)**: how each framework initializes every weight, read from both codebases |
+| [ame_bank_sigma_grid.md](notes/ame_bank_sigma_grid.md) | **Bank-init σ grid at h12 (2026-11-18)**: a plateau from 1e-5 to 0.0178 with a failure edge on each side; why σ = 1e-4 is the standard and, since 2026-11-25, the default |
+| [settle_runs_report.md](notes/settle_runs_report.md) | **Settle runs (2026-11-20)**: the six open items of the standard-model digest, measured on LEM |
+| [doc_mask_report.md](notes/doc_mask_report.md) | **Document masking for packed rows (2026-11-21)**: implementation and h12 runs. Rejected by Maciej: about −0.02 for 12% more time per step |
+| [standard_models_report.md](notes/standard_models_report.md) | **Standard models: build, test and merge (2026-11-22)**: the branch, the tests, the h12 reproductions and the merge into `ame_main` |
+
+**Review of the unpushed `ame_main` commits (2026-11-25)**
+
+| Doc | Topic |
+|---|---|
+| [review_issues.md](notes/review_issues.md) | Every issue the review found, the solution chosen and what was applied |
+| [review_upgrades.md](notes/review_upgrades.md) | The analyses and ablations the review proposed for later |
+| [rev1.md](notes/rev1.md), [rev2.md](notes/rev2.md) | The two reviews of the nine older commits, with Maciej's responses and rev2's reply |
 
 **AME configs** (layout since 2026-11-05): `configs/ame/` holds six configs, the
 best measured MFU per model size × GPU count. Every other AME config — benchmarks,
@@ -86,6 +115,7 @@ name. See [configs/ame/README.md](../configs/ame/README.md).
 | Doc | Topic |
 |---|---|
 | [cluster_fixes_lem_helios.md](notes/cluster_fixes_lem_helios.md) | lem and helios blockers: `$HOME` quota, HF cache permissions, `PIXI_HOME` — diagnosis and fix plan |
+| [lem_file_quota_request.md](notes/lem_file_quota_request.md) | Draft email to LEM's admins (2026-11-20) asking to raise project 649's file quota to 2M files or more |
 | [claude-code-machine-setup.md](notes/claude-code-machine-setup.md) | Replicating the Claude Code setup (settings, skills, agent memory) on a new machine via the `claude-sync` repo |
 
 ### notes/archive/

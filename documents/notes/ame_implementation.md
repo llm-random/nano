@@ -711,6 +711,8 @@ raises a `ValueError` naming the cause.
 common:
   attention:
     type: ame
+    qk_norm: null         # every layer of every type; null keeps each type's default
+    shift: null           #   (ame on, mha/mqa/gqa off). Since 2026-11-22
     ame:                  # options, applied wherever ame is built (base or mix)
       shift: true         # KV shifting on
       pin_alpha: false    # pin the key-side mix to (1,0)   -- ablation arms
@@ -718,13 +720,21 @@ common:
       sink: true          # learned position-independent sink key
       qk_norm: true
       bank_init_std: 1.0e-4 # since 2026-11-25; 1.0 before
+      bank_gate: none     # none | confidence | context | backoff | stem: the bank gates,
+                          #   all rejected (ame_bank_gates_stage2_report.md); off
+      confidence_init: 0.05 # B1 (confidence) only: where the trust scalars start
       horizon_factor: 4.0 # flattest head reaches 4x the training context
       backend: auto       # auto | flex | reference
+trainer:
+  count_token_updates: false # token_counts.pt beside every checkpoint: per token, its
+                             #   occurrences and the steps with a gradient (steps_seen)
 ```
 
-Only a type listed in `_TYPE_OPTIONS` takes a block — today that is `ame` alone. A block
-named after any other registered type is a build error, not a silent no-op. Unknown keys
-inside the block fail at build time with the valid set printed.
+Only a type listed in `_TYPE_OPTIONS` takes a block: today `ame` and `gqa`
+([src/core/attention.py:293](../../src/core/attention.py#L293)). Since the standard-models
+merge (2026-11-22), `gqa` takes `rope`, `qk_norm` and `shift`. A block named after any
+other registered type is a build error, not a silent no-op. Unknown keys inside the block
+fail at build time with the valid set printed.
 
 ## Choices the spec left open, and how they were settled
 
