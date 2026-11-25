@@ -1242,3 +1242,99 @@ def test_bank_norm_readout_is_global_without_ddp(mem_parallel_size, tmp_path):
     for value in payload["logged"]:
         assert value == pytest.approx(payload["expected"], rel=1e-6)
     assert payload["joint"] == pytest.approx(payload["joint_expected"], rel=1e-6)
+
+
+def _plain_checkpoint(folder, model, optimizer, scheduler, banks=None):
+    """A checkpoint in the layout load_checkpoint_from_file reads on the
+    non-sharded path, plus the banks' sidecar when a controller is in play."""
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "optim": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+        },
+        os.path.join(folder, "ckpt.pt"),
+    )
+    if banks is not None:
+        banks.save(folder)
+
+
+def _load_config(folder, only_weights):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        path=str(folder), model_checkpoint_filename="ckpt.pt", only_weights=only_weights
+    )
+
+
+def test_a_weights_only_load_ignores_the_optimizer_and_scheduler(tmp_path):
+    """checkpoint.load.only_weights reads the weights and nothing else, so a
+    checkpoint written at bank_lr_ratio 1 (no bank group) loads into a run at 4
+    (one more group). A full load of it still refuses the mismatch
+    (documents/notes/review_issues.md, N3)."""
+    from src.core.checkpointing import load_checkpoint_from_file
+    from src.core.schedulers import get_cosine_scheduler_with_warmup
+
+    def built(seed, ratio):
+        model = build_model(seed=seed)
+        optimizer = torch.optim.AdamW(
+            parameter_groups(model, 0.1, lr=LR, bank_lr_ratio=ratio), lr=LR
+        )
+        return model, optimizer, get_cosine_scheduler_with_warmup(optimizer, 2, 20, 0.1)
+
+    source, optimizer, scheduler = built(seed=1, ratio=1.0)
+    _plain_checkpoint(tmp_path, source, optimizer, scheduler)
+
+    model, target_optimizer, target_scheduler = built(seed=2, ratio=4.0)
+    assert len(target_optimizer.param_groups) == len(optimizer.param_groups) + 1
+    load_checkpoint_from_file(
+        _load_config(tmp_path, True), model, target_optimizer, target_scheduler
+    )
+    for name, want in source.state_dict().items():
+        assert torch.equal(model.state_dict()[name], want), name
+
+    model, target_optimizer, target_scheduler = built(seed=2, ratio=4.0)
+    with pytest.raises(ValueError, match="parameter groups"):
+        load_checkpoint_from_file(
+            _load_config(tmp_path, False), model, target_optimizer, target_scheduler
+        )
+
+
+def test_a_weights_only_load_leaves_the_banks_adam_state_fresh(tmp_path):
+    """Under a controller, a weights-only load restores the banks' masters and
+    leaves their optimizer state as built; a full load restores it too
+    (documents/notes/review_issues.md, N3)."""
+    from src.core.checkpointing import load_checkpoint_from_file
+    from src.core.schedulers import get_cosine_scheduler_with_warmup
+
+    source = build_model(seed=1)
+    source_banks = MemoryParallelController(source, 1, compute_dtype=torch.float64)
+    train(source, micro_batches(), banks=source_banks)
+    assert source_banks.optimizer.state  # Adam moments a load could hand back
+    optimizer = torch.optim.AdamW(
+        parameter_groups(source, 0.1, exclude=source_banks.ignored_parameters(), lr=LR),
+        lr=LR,
+    )
+    scheduler = get_cosine_scheduler_with_warmup(optimizer, 2, 20, 0.1)
+    _plain_checkpoint(tmp_path, source, optimizer, scheduler, banks=source_banks)
+
+    for only_weights in (True, False):
+        model = build_model(seed=2)
+        banks = MemoryParallelController(model, 1, compute_dtype=torch.float64)
+        target_optimizer = torch.optim.AdamW(
+            parameter_groups(model, 0.1, exclude=banks.ignored_parameters(), lr=LR),
+            lr=LR,
+        )
+        banks.build_optimizer(lr=LR, weight_decay=0.0)
+        target_scheduler = get_cosine_scheduler_with_warmup(
+            target_optimizer, 2, 20, 0.1
+        )
+        load_checkpoint_from_file(
+            _load_config(tmp_path, only_weights),
+            model,
+            target_optimizer,
+            target_scheduler,
+        )
+        for want, got in zip(source_banks.banks, banks.banks):
+            assert torch.equal(got.master, want.master)
+        assert bool(banks.optimizer.state) is not only_weights

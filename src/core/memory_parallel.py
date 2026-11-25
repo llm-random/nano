@@ -604,7 +604,9 @@ class MemoryParallelController:
         torch.save(self.state_dict(), path)
         logger.info(f"[memory-parallel] wrote bank state to {path}")
 
-    def load(self, folder):
+    def load(self, folder, with_optimizer=True):
+        """The banks' masters and compute copy, and -- unless `with_optimizer`
+        is False, as for a weights-only load -- their optimizer state."""
         path = os.path.join(folder, self.SIDECAR.format(rank=self.rank))
         if not os.path.exists(path):
             raise FileNotFoundError(
@@ -613,11 +615,14 @@ class MemoryParallelController:
                 "a checkpoint written without mem_parallel_size cannot be "
                 "resumed into one."
             )
-        self.load_state_dict(torch.load(path, map_location="cpu", weights_only=False))
+        self.load_state_dict(
+            torch.load(path, map_location="cpu", weights_only=False),
+            with_optimizer=with_optimizer,
+        )
         logger.info(f"[memory-parallel] loaded bank state from {path}")
 
     @torch.no_grad()
-    def load_state_dict(self, state):
+    def load_state_dict(self, state, with_optimizer=True):
         if state.get("world_size", self.world_size) != self.world_size:
             raise ValueError(
                 "bank checkpoint was written at world_size "
@@ -634,7 +639,11 @@ class MemoryParallelController:
             bank.materialize(bank.weight.device)
             bank.master.copy_(master.to(bank.master.device))
             bank.weight.copy_(bank.master.to(bank.weight.dtype))
-        if state["optimizer"] is not None and self.optimizer is not None:
+        if (
+            with_optimizer
+            and state["optimizer"] is not None
+            and self.optimizer is not None
+        ):
             self.optimizer.load_state_dict(state["optimizer"])
 
 
