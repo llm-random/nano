@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from run_exp import clone_command, sparse_exclude_names
+from run_exp import clone_command, sparse_exclude_names, tmux_session_name
 
 
 def test_no_exclusion_is_the_plain_full_clone():
@@ -37,6 +37,23 @@ def test_names_are_stripped_of_slashes():
 def test_rejects_anything_but_a_plain_top_level_folder_name(bad):
     with pytest.raises(ValueError, match="sparse_exclude"):
         sparse_exclude_names([bad])
+
+
+@pytest.mark.parametrize(
+    "branch, session",
+    [
+        # A float learning rate in the run name: what /base_schema configs produce.
+        (
+            "s2c_ps_h20_lr9.0_2026-11-08_10-00-00",
+            "s2c_ps_h20_lr9_0_2026-11-08_10-00-00",
+        ),
+        ("a:b.c", "a_b_c"),
+        # A name tmux can already address is left alone.
+        ("std_ame_h12_lr8_2026-11-21_16-47-08", "std_ame_h12_lr8_2026-11-21_16-47-08"),
+    ],
+)
+def test_tmux_session_name_has_no_dot_or_colon(branch, session):
+    assert tmux_session_name(branch) == session
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")

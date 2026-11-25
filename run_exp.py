@@ -250,6 +250,19 @@ def ConnectWithPassphrase(*args, **kwargs) -> Generator[Connection, None, None]:
         connection.close()
 
 
+def tmux_session_name(experiment_branch_name: str) -> str:
+    """The tmux session of an experiment: its branch name with "." and ":" as "_".
+
+    tmux reads "." in a target (`-t name.0`) as the window-pane separator and ":"
+    as the session-window one, and it turns a "." into "_" when it creates the
+    session. So a run named after a float learning rate (`..._lr9.0_...`, which
+    every config loading /base_schema produces) could not be addressed: the
+    submit failed after the clone, with nothing queued
+    (documents/notes/stage_2_report.md, decision 2).
+    """
+    return experiment_branch_name.replace(".", "_").replace(":", "_")
+
+
 def wait_for_job_id(connection, tmux_pane, tries: int = 3):
     """
     Wait for a SLURM job ID to appear in the output of a tmux pane.
@@ -386,7 +399,8 @@ def submit_experiment(
                 print(f"Experiment {experiment_branch_name} already exists. Skipping.")
 
             try:
-                connection.run(f"tmux new -d -s {experiment_branch_name}")
+                tmux_name = tmux_session_name(experiment_branch_name)
+                connection.run(f"tmux new -d -s {tmux_name}")
                 logger.info(
                     "Will try to replace the placeholders of the following env variables with values pulled from the local machine: %s",
                     resolver.ENV_VARS_TO_FORWARD,
@@ -403,21 +417,17 @@ def submit_experiment(
                             f"sed -i 's/{resolver.env_var_name_to_placeholder(var)}/{os.environ[var]}/g' {experiment_dir}/exp.job"
                         )
                 connection.run(
-                    f'tmux send -t {experiment_branch_name}.0 "cd {experiment_dir}" ENTER'
+                    f'tmux send -t {tmux_name}.0 "cd {experiment_dir}" ENTER'
                 )
-                connection.run(
-                    f'tmux send -t {experiment_branch_name}.0 "sbatch exp.job" ENTER'
-                )
-                job_id = wait_for_job_id(connection, experiment_branch_name)
+                connection.run(f'tmux send -t {tmux_name}.0 "sbatch exp.job" ENTER')
+                job_id = wait_for_job_id(connection, tmux_name)
                 print(f"Job ID: {job_id}")
                 connection.run(
-                    f'tmux send -t {experiment_branch_name}.0 "tail -f --retry slurm-{job_id}_0.out" ENTER'
+                    f'tmux send -t {tmux_name}.0 "tail -f --retry slurm-{job_id}_0.out" ENTER'
                 )
                 LOGLEVEL = os.environ.get("LOGLEVEL", "WARNING").upper()
                 if LOGLEVEL == "DEBUG":
-                    connection.run(
-                        f"tmux attach-session -t {experiment_branch_name}", pty=True
-                    )
+                    connection.run(f"tmux attach-session -t {tmux_name}", pty=True)
             except Exception as e:
                 print("Exception while running an experiment: ", e)
 
