@@ -136,7 +136,7 @@ LAYERS = [
 
 def _forward(layer, attention, x):
     if attention["type"] == "ame":
-        ids = torch.randint(0, DIMS["vocab_size"], x.shape[:2])
+        ids = torch.randint(0, DIMS["vocab_size"], x.shape[:2], device=x.device)
         return layer(x, ids)
     return layer(x)
 
