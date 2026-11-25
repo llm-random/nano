@@ -1,0 +1,21 @@
+# h12_chinchilla with the MoE feed-forward (configs/_ff_layer/moe.yaml): 8 experts, top-2, each dff/2 wide.
+defaults:
+  - ../h12_chinchilla@_global_
+  - ../../_ff_layer@model.encoder.block_fn.ff_layer_fn: moe
+  - _self_
+
+trainer:
+  # FLOPs-matched: 50_000 * 854_544_384 / 854_986_752 FLOPs/token (router +0.05%) = 49_974 -> 49_970
+  n_steps: 49_970
+
+infrastructure:
+  metric_logger:
+    name: h12_moe
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - moe

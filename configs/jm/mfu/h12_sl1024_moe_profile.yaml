@@ -1,0 +1,42 @@
+# MoE step profile, h12 at seq 1024: 300 steps at batch 64, kernel profile at steps 12-13; pairs with h12_sl1024_dense_profile.
+defaults:
+  - /base_schema
+  - ../../_cluster@_here_: lem
+  - ../../_model/h_balanced@_here_: h12
+  - ../../_trainer@_here_: nano
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
+  - ../../_ff_layer@model.encoder.block_fn.ff_layer_fn: moe
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 64
+
+trainer:
+  # micro 32 x 1024 per GPU, as h12_moe: 32.5 GiB peak (NVML) of 93.6
+  gradient_accumulation_steps: 1
+  n_steps: 300
+  learning_rate: 10
+  kernel_profile: true
+  profile_timers: true
+  eval_interval: 0
+  eval_dataloader: null
+
+infrastructure:
+  metric_logger:
+    name: h12_sl1024_moe_profile
+    heavy_metrics_calculation_interval: 0
+    tags:
+      - nano
+      - h12
+      - qk_norm
+      - jm_mfu_benchmarking
+      - moe_profile
+      - moe
+
+  slurm:
+    time: "00:30:00"
+    gres: gpu:hopper:2
+    job-name: ${infrastructure.metric_logger.name}

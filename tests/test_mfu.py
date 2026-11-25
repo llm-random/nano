@@ -70,6 +70,25 @@ def test_an_mqa_layer_reports_its_smaller_kv_cost():
     )
 
 
+def _meta_model(config_dir, config_name):
+    with initialize_config_dir(
+        version_base=None, config_dir=os.path.join(REPO_ROOT, config_dir)
+    ):
+        cfg = compose(config_name=config_name)
+    with torch.device("meta"):
+        return cfg, instantiate(cfg.model, _convert_="all")
+
+
+def test_moe_counts_its_router_and_only_the_active_experts():
+    """Experts are dff/topk wide, so the active ones match the dense FF; the router adds E*d."""
+    s = 16
+    _, dense = _meta_model("configs", "tiny_local")
+    cfg, moe = _meta_model("configs/jm/feature", "tiny_local_moe")
+    num_experts = cfg.model.encoder.block_fn.ff_layer_fn.num_experts
+    router = cfg.common.n_blocks * num_experts * cfg.common.dmodel
+    assert model_flops_per_token(moe, s) == model_flops_per_token(dense, s) + 6 * router
+
+
 @pytest.mark.parametrize(
     "name, peak",
     [
