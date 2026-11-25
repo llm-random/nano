@@ -1,9 +1,12 @@
 """AME readouts from a final checkpoint, per layer and averaged over the layers.
 
-src/core/ame.py's `instrumentation` logs these to W&B, but under FSDP2 it fails
-and is disabled (ame_experiments.md, Stage 0), so Stage 2c reads them from each
-final checkpoint instead. tau, alpha and beta are parameters, and the ALiBi
-slopes a persistent buffer, so the checkpoint holds them exactly.
+src/core/ame.py's `instrumentation` logs these to W&B. Under FSDP2 it failed and
+was disabled until 8b78b805 (ame_experiments.md, Stage 0), so the runs from
+before that fix -- all of Stage 2c -- logged none of them, and this script reads
+them from each final checkpoint instead. Runs since log them under FSDP2 too,
+except attention entropy and top-k mass on a sharded layer. tau, alpha and beta
+are parameters, and the ALiBi slopes a persistent buffer, so the checkpoint
+holds them exactly.
 
 Per layer, computed as `instrumentation` computes them:
 - tau/mean, tau/min: the learned per-head temperature;
@@ -96,6 +99,11 @@ def readouts(sd):
 def main(paths):
     for path in paths:
         rows = readouts(load(path))
+        if not rows:
+            sys.exit(
+                f"{path}: no AME layers found (no key matches {PAT.pattern}); "
+                "a dense model, or a renamed module path?"
+            )
         print(f"== {path}: {len(rows)} layers")
         if rows and max(r["tau/mean"] for r in rows) < 1:
             print("   tau < 1 everywhere: no QK-norm? horizon/* assume it is on")

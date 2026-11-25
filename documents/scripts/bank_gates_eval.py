@@ -21,7 +21,8 @@ bucket:
                 B3's cos(row, base)
   per position  B2's gate g, and ST's gate RMS, from real activations
 
-Attention statistics come from the first --attn-seqs held-out sequences, every
+Attention statistics come from the first --attn-seqs held-out sequences, rounded
+up to whole micro-batches (the report's attn_seqs is the number measured), every
 query row, averaged over heads and then over layers (per-layer values are in the
 JSON). Buckets: u = 0, 1-10, 11-100, 101-1000, 1001-(S-1), S, where S is the
 number of steps the counts cover (3815 for a full run).
@@ -229,11 +230,14 @@ def main():
     micro = built.micro
     loss_sum = torch.zeros(BUCKETS, dtype=torch.float64)
     loss_count = torch.zeros(BUCKETS, dtype=torch.float64)
+    attn_measured = 0  # whole micro-batches: up to micro - 1 past --attn-seqs
     with torch.no_grad():
         for start in range(0, held.shape[0], micro):
             chunk = held[start : start + micro]
             inp, tgt = chunk[:, :-1], chunk[:, 1:]
             attention.collect = start < args.attn_seqs
+            if attention.collect:
+                attn_measured += chunk.shape[0]
             logits = model(inp)
             losses = F.cross_entropy(
                 logits.float().flatten(0, -2), tgt.reshape(-1).long(), reduction="none"
@@ -268,7 +272,8 @@ def main():
         "ckpt": args.ckpt,
         "bank_gate": gate,
         "steps": steps,
-        "attn_seqs": min(args.attn_seqs, held.shape[0]),
+        "attn_seqs": attn_measured,
+        "attn_seqs_requested": args.attn_seqs,
         "heldout_sequences": held.shape[0],
         "ce_ref32": total_ce,
         "buckets": summary,

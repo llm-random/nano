@@ -11,6 +11,8 @@
 # appended. $BG is the bank-gates area on LEM's Lustre, which also holds the
 # held-out set (data/parity_batches.pt, copied from entropy's parity dump).
 # Arguments may use $BG and $CEM (the cemetery); they are expanded on the node.
+# An argument with a space stays one argument. A failed command is reported in the
+# log and counted; if any failed, the job exits 1, so Slurm reports it as FAILED.
 # Prints the job id. Log: $BG/logs/NAME_<job>.out.
 set -euo pipefail
 COMMIT=$1; NAME=$2; TIME=$3; shift 3
@@ -23,6 +25,21 @@ if ! ssh -o BatchMode=yes lem "test -f $BG_REMOTE/code/$SHORT/EVAL_COMMIT"; then
   git -C "$REPO" archive "$FULL" | ssh -o BatchMode=yes lem \
     "mkdir -p $BG_REMOTE/code/$SHORT $BG_REMOTE/logs $BG_REMOTE/out && tar -x -C $BG_REMOTE/code/$SHORT && echo $FULL > $BG_REMOTE/code/$SHORT/EVAL_COMMIT"
 fi
+# The commands, one `check` line each. Every argument is double-quoted with only
+# \, " and ` escaped: an argument with a space stays one, and $BG and $CEM still
+# expand on the node.
+quote() { local a=${1//\\/\\\\}; a=${a//\"/\\\"}; a=${a//\`/\\\`}; printf '"%s"' "$a"; }
+COMMANDS=""
+CMD=""
+for ARG in "$@"; do
+  if [ "$ARG" = "::" ]; then
+    if [ -n "$CMD" ]; then COMMANDS+="check$CMD"$'\n'; fi
+    CMD=""
+  else
+    CMD+=" $(quote "$ARG")"
+  fi
+done
+if [ -n "$CMD" ]; then COMMANDS+="check$CMD"$'\n'; fi
 ssh -o BatchMode=yes lem "cat > $BG_REMOTE/logs/$NAME.sbatch && sbatch --parsable $BG_REMOTE/logs/$NAME.sbatch" <<SBATCH
 #!/bin/bash
 #SBATCH --partition=plgrid-lem-gpu-h100
@@ -59,5 +76,8 @@ mkdir -p \$OUT
 cd \$BG/code/$SHORT
 echo "commit \$(cat EVAL_COMMIT), job \$SLURM_JOB_ID on \$(hostname)"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
-$(printf '%s\n' "$*" | sed 's/ :: /\n/g' | while read -r cmd; do echo "python $cmd --out \$OUT || echo \"CHECK FAILED: $cmd\""; done)
+FAILED=0
+check() { python "\$@" --out "\$OUT" || { echo "CHECK FAILED: \$*"; FAILED=\$((FAILED + 1)); }; }
+$COMMANDS
+if [ "\$FAILED" -gt 0 ]; then echo "\$FAILED check(s) failed"; exit 1; fi
 SBATCH
