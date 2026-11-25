@@ -20,15 +20,17 @@ CONFIGS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs"
 MODEL_FILE = "model.pt"
 
 
-def _cfg(optimizer):
+def _cfg(optimizer, overrides=()):
     warnings.filterwarnings("ignore")
     with initialize_config_dir(version_base=None, config_dir=CONFIGS_DIR):
-        return compose("tiny_local", [f"_trainer/_optimizer@optimizer={optimizer}"])
+        return compose(
+            "tiny_local", [f"_trainer/_optimizer@optimizer={optimizer}", *overrides]
+        )
 
 
-def _build(optimizer, seed=0, sharded=False):
+def _build(optimizer, seed=0, sharded=False, overrides=()):
     """The h4 tiny_local model, optimizer and scheduler, as main.py builds them."""
-    cfg = _cfg(optimizer)
+    cfg = _cfg(optimizer, overrides)
     torch.manual_seed(seed)
     model = instantiate(cfg.model, _convert_="all")
     if sharded:
@@ -136,11 +138,11 @@ def test_cosine_takes_several_groups_only_with_one_lr():
         )
 
 
-def _check_resume(folder, sharded):
-    model, optimizer, scheduler = _build("adamw_groups", sharded=sharded)
+def _check_resume(folder, sharded, option="adamw_groups", overrides=()):
+    model, optimizer, scheduler = _build(option, sharded=sharded, overrides=overrides)
     _step(model, optimizer, scheduler)
     _save(folder, model, optimizer, scheduler, sharded)
-    resumed = _build("adamw_groups", seed=99, sharded=sharded)
+    resumed = _build(option, seed=99, sharded=sharded, overrides=overrides)
     _load(folder, *resumed, only_weights=False)
     # Same next step from both: model, AdamW moments, group decays and LR all came back.
     _step(model, optimizer, scheduler)
@@ -179,3 +181,83 @@ def test_only_weights_loads_a_sharded_adamw_checkpoint_into_adamw_groups(
     cpu_process_group, tmp_path
 ):
     _check_only_weights(str(tmp_path), sharded=True)
+
+
+def _width(h):
+    """Width h at depth 1, on WSD: cosine rejects groups with different LRs."""
+    return [
+        "_trainer/_scheduler@trainer.scheduler=wsd",
+        f"common.h={h}",
+        "common.n_blocks=1",
+    ]
+
+
+def _lr_and_decay(option, h):
+    _, optimizer, _ = _build(option, overrides=_width(h))
+    return [
+        (g["role"], g["initial_lr"], g["weight_decay"]) for g in optimizer.param_groups
+    ]
+
+
+def _head_init_scale(option, h):
+    return _cfg(option, _width(h)).model.head.linear_fn.partial_init_fn.scale
+
+
+@pytest.mark.parametrize("h, m", [(4, 1), (8, 2)])
+def test_adamw_mup_scales_hidden_and_head_with_the_width(h, m):
+    assert _lr_and_decay("adamw_mup", h) == [
+        ("vector", 1e-3, 0.0),
+        ("embedding", 1e-3, 0.0),
+        ("head", pytest.approx(1e-3 / m), pytest.approx(0.1 * m)),
+        ("hidden", pytest.approx(1e-3 / m), pytest.approx(0.1 * m)),
+    ]
+    assert _head_init_scale("adamw_mup", h) == pytest.approx(m**-0.5)
+
+
+@pytest.mark.parametrize("h, m", [(4, 1), (8, 2)])
+def test_adamw_simplep_scales_only_the_hidden_and_head_lr(h, m):
+    assert _lr_and_decay("adamw_simplep", h) == [
+        ("vector", 1e-3, 0.0),
+        ("embedding", 1e-3, 0.0),
+        ("head", pytest.approx(1e-3 / m), 0.1),
+        ("hidden", pytest.approx(1e-3 / m), 0.1),
+    ]
+    assert _head_init_scale("adamw_simplep", h) == 1
+
+
+def test_adamw_mup_head_init_is_the_sp_init_times_m_to_the_minus_half():
+    sp, mup = (_build(o, overrides=_width(8))[0] for o in ("adamw_groups", "adamw_mup"))
+    torch.testing.assert_close(mup.head.linear.weight, sp.head.linear.weight * 2**-0.5)
+    torch.testing.assert_close(
+        mup.embedding.weight, sp.embedding.weight, rtol=0, atol=0
+    )
+
+
+@pytest.mark.parametrize(
+    "directory, name, scale",
+    [
+        ("", "tiny_local", 1),
+        ("", "tiny_local_param_groups", 1),
+        ("jm/feature", "tiny_local_mup", 2**-0.5),
+        ("jm/feature", "tiny_local_simplep", 1),
+        ("jm", "h12_chinchilla", 1),
+        ("jm", "h12_param_groups", 1),
+        ("jm/feature", "h12_mup", 3**-0.5),
+        ("jm/feature", "h12_simplep", 1),
+    ],
+)
+def test_head_init_scale_comes_from_the_optimizer_option(directory, name, scale):
+    warnings.filterwarnings("ignore")
+    config_dir = os.path.join(CONFIGS_DIR, directory)
+    with initialize_config_dir(version_base=None, config_dir=config_dir):
+        cfg = compose(name)
+    assert cfg.model.head.linear_fn.partial_init_fn.scale == pytest.approx(scale)
+
+
+def test_adamw_mup_checkpoint_resumes(tmp_path):
+    # Base h2 makes the h4 group LRs differ, so WSD's replay must restore each one.
+    overrides = [
+        "_trainer/_scheduler@trainer.scheduler=wsd",
+        "optimizer.base_dmodel=128",
+    ]
+    _check_resume(str(tmp_path), sharded=False, option="adamw_mup", overrides=overrides)

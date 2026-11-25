@@ -43,7 +43,12 @@ def build_optimizer_and_scheduler(cfg, model, learning_rate):
         params = model.parameters()
     else:
         params = [
-            {"params": ps, "role": role, "weight_decay": roles[role].weight_decay}
+            {
+                "params": ps,
+                "role": role,
+                "lr": learning_rate * roles[role].lr_multiplier,
+                "weight_decay": roles[role].weight_decay,
+            }
             for role, ps in param_roles(model).items()
             if ps
         ]

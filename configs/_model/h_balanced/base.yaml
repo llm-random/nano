@@ -99,7 +99,8 @@ model:
       partial_init_fn:
         _target_: src.core.model.llm_random_weight_init
         _partial_: true
-        scale: 1
+        # Set by the _optimizer option (muP shrinks it); 1 in model-only composes.
+        scale: ${oc.select:optimizer.head_init_scale,1}
     norm_fn:
       _target_: src.core.model.RMSNorm
       _partial_: true

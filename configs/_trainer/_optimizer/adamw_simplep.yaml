@@ -1,0 +1,17 @@
+# simpleP for AdamW: adamw_mup's LR rules only; head init and weight decay as adamw_groups.
+# m = common.dmodel / base_dmodel: hidden and head LR / m.
+base_dmodel: 256
+head_init_scale: 1
+roles:
+  vector:
+    lr_multiplier: 1
+    weight_decay: 0.0
+  embedding:
+    lr_multiplier: 1
+    weight_decay: 0.0
+  head:
+    lr_multiplier: ${eval:'${optimizer.base_dmodel} / ${common.dmodel}'}
+    weight_decay: ${trainer.weight_decay}
+  hidden:
+    lr_multiplier: ${eval:'${optimizer.base_dmodel} / ${common.dmodel}'}
+    weight_decay: ${trainer.weight_decay}

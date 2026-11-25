@@ -1,0 +1,44 @@
+# muP width sweep, simpleP arm (adamw_simplep, base width h4), LRs above mup_width_simplep's [6..11]: every optimum sat at 2^-6.
+defaults:
+  # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
+  - ../../_cluster@_here_: lem
+  - ../../_model/h_balanced@_here_: h12
+  - ../../_trainer@_here_: nano
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
+  - override ../../_trainer/_optimizer@optimizer: adamw_simplep
+  - _self_
+
+common:
+  ^h: [2, 4, 8, 12]
+  n_blocks: 4
+  sequence_length: 1024
+  batch_size: 64
+
+trainer:
+  # micro 64 x 1024 on 1 GPU
+  gradient_accumulation_steps: 1
+  # 131M tokens; costs per width in plan/lines/line2_optimizer.md (task 2)
+  n_steps: 2_000
+  ^learning_rate: [3, 4, 5]
+  scheduler:
+    warmup_steps: 100
+    decay_steps: 400
+
+infrastructure:
+  metric_logger:
+    name: mup_width_simplep_high_lr
+    tags:
+      - nano
+      - mup_width_sweep
+      - simplep
+      - high_lr
+      - wsd
+      - qk_norm
+      - bs64
+
+  slurm:
+    time: "01:00:00"
+    gres: gpu:hopper:1
+    job-name: ${infrastructure.metric_logger.name}

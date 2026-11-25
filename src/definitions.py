@@ -164,6 +164,7 @@ class TrainerSchema:
 
 @dataclass
 class OptimizerRoleSchema:
+    lr_multiplier: float = MISSING
     weight_decay: float = MISSING
 
 
@@ -180,6 +181,10 @@ class OptimizerSchema:
     """Root `optimizer`, from configs/_trainer/_optimizer/; null roles is one group."""
 
     roles: Optional[OptimizerRolesSchema] = MISSING
+    # muP's base width; null without width rules.
+    base_dmodel: Optional[int] = MISSING
+    # The head's partial_init_fn.scale (configs/_model/h_balanced/base.yaml).
+    head_init_scale: float = MISSING
 
 
 @dataclass

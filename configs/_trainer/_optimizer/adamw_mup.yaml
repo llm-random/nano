@@ -1,0 +1,17 @@
+# muP for AdamW (Tensor Programs V, Table 3, Adam column): adamw_groups at base width.
+# m = common.dmodel / base_dmodel: hidden and head LR / m, decay x m (lr*wd kept), head init x m^-0.5.
+base_dmodel: 256
+head_init_scale: ${eval:'(${optimizer.base_dmodel} / ${common.dmodel}) ** 0.5'}
+roles:
+  vector:
+    lr_multiplier: 1
+    weight_decay: 0.0
+  embedding:
+    lr_multiplier: 1
+    weight_decay: 0.0
+  head:
+    lr_multiplier: ${eval:'${optimizer.base_dmodel} / ${common.dmodel}'}
+    weight_decay: ${eval:'${trainer.weight_decay} * ${common.dmodel} / ${optimizer.base_dmodel}'}
+  hidden:
+    lr_multiplier: ${eval:'${optimizer.base_dmodel} / ${common.dmodel}'}
+    weight_decay: ${eval:'${trainer.weight_decay} * ${common.dmodel} / ${optimizer.base_dmodel}'}
