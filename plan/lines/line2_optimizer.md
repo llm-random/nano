@@ -5,17 +5,16 @@
 New optimizer options, each off by default. Now: task 3/4, Muon, not started.
 
 - [x] Param groups: no weight decay on gains and embeddings
-- [x] muP for AdamW: best LR stays put across widths
+- [x] muP for AdamW, kept as simpleP (muP's LR rule only): best LR stays put across widths
 - [ ] Muon: Muon for matrices, AdamW for the rest
 - [ ] muP for Muon: best LR stays put with Muon
 
 **Needs Janek:**
 - The h12 param-groups run is written and ready to launch.
-- The width sweep is done and muP works: with muP or simpleP the best LR stays at 2^-6 from the smallest width to the largest (h2 to h16), while without muP it falls from 2^-5 to 2^-9.
-- The h12 muP and simpleP runs are written and ready to launch: about 4 GPU-hours each, at the tuned LR shifted so the big layers train at exactly the baseline's LR.
+- The h12 simpleP run is written and ready to launch: about 4 GPU-hours, at the tuned LR shifted so the big layers train at exactly the baseline's LR.
 - Not line 2: 11 model-size tests still expect the old FFN width (4× instead of 3×), so they fail without this change too. Left alone.
 
-**Last change:** muP for AdamW landed, in two options: muP scales each layer's LR and decay, and the output layer's init, with width; simpleP scales just the LR. With them off, losses are unchanged.
+**Last change:** full muP dropped, simpleP kept. In the width sweep both kept the best LR at the same value from the smallest width to the largest (without them it fell 16×), and simpleP is simpler: it only scales each layer's LR with width. With it off, losses are unchanged.
 
 ## AI
 
@@ -61,11 +60,11 @@ it short and in plain words: no file paths, no sub-steps.
 | # | Task | Status | What landed |
 | --- | --- | --- | --- |
 | 1 | Param groups | done | `src/core/optimizers.py`: `param_roles` and `build_optimizer_and_scheduler`, called once from `main.get_model_optimizer_scheduler`. Groups in `ROLES` order (vector, embedding, head, hidden), each with `role`. Options `configs/_trainer/_optimizer/{adamw,adamw_groups}.yaml` fill root `optimizer.roles`: null is one group; otherwise `optimizer.roles.<role>.weight_decay` for all four roles. Typed as `OptimizerSchema`. Cosine takes several groups if they share one LR. `only_weights` now loads the model only, as Task 1 allowed (see "As landed" there). Configs `tiny_local_param_groups`, `jm/h12_param_groups`. Cluster: not run yet. |
-| 2 | muP for AdamW | done | Option `configs/_trainer/_optimizer/adamw_mup.yaml`: `adamw_groups` plus width rules from m = `common.dmodel / optimizer.base_dmodel` (base 256, h4). New keys: `optimizer.base_dmodel`, `optimizer.head_init_scale`, and `optimizer.roles.<role>.lr_multiplier` (required). `adamw`/`adamw_groups` set them to null, 1 and 1. The builder sets each group's `lr` to LR × `lr_multiplier`. The head's `scale` in `_model/h_balanced/base.yaml` reads `head_init_scale`. Cosine still rejects distinct group LRs; `train/lr` logs the base LR, and `trainer.py` is untouched. Second option `adamw_simplep` (simpleP): the LR rules only (head init and decay as `adamw_groups`). Configs in `configs/jm/feature/`: `tiny_local_{mup,simplep}`, `h12_{mup,simplep}` (one LR, 2^-8.415), `mup_width_{sp,mup,simplep}{,_high_lr,_h16}`. Script: `scripts/mup_coord_check.py`; plots: `jupyter_notebooks/mup_lr_plots.ipynb`. Cluster: width sweep done, 122 runs (best LRs in "As landed"); the h12 runs not yet. |
+| 2 | muP for AdamW | done | simpleP only (`documents/notes/simplep_over_mup.md`): option `configs/_trainer/_optimizer/adamw_simplep.yaml`, hidden and head LR ÷ m, m = `common.dmodel / optimizer.base_dmodel` (base 256, h4). New keys: `optimizer.base_dmodel` and `optimizer.roles.<role>.lr_multiplier` (required); `adamw`/`adamw_groups` set them to null and 1. The builder sets each group's `lr` to LR × `lr_multiplier`. Cosine still rejects distinct group LRs; `train/lr` logs the base LR; `trainer.py` and the model config are untouched. Full muP (`adamw_mup`) was built, swept and dropped (`455421d2`). Configs in `configs/jm/feature/`: `tiny_local_simplep`, `h12_simplep` (one LR, 2^-8.415), `mup_width_{sp,simplep}{,_high_lr,_h16}`. Script: `scripts/mup_coord_check.py`; plots: `jupyter_notebooks/mup_lr_plots.ipynb`. Cluster: width sweep done, 122 runs with the dropped muP arm; `h12_simplep` not yet. |
 | 3 | Muon | todo | |
 | 4 | muP for Muon | todo | |
 
-### Today's code (at `46a5eb89`, with task 2)
+### Today's code (at `a3f4efdb`, with task 2)
 
 - `main.py:209` calls `build_optimizer_and_scheduler` (`src/core/optimizers.py`) once.
   `optimizer.roles: null` (`adamw`, the default) is one AdamW group over
@@ -78,7 +77,7 @@ it short and in plain words: no file paths, no sub-steps.
 - `WSDScheduler` chains `LinearLR`/`ConstantLR`, which scale each group's own LR, so it
   handles several groups, including the decay to `final_lr_fraction` (line 7). Its
   `load_state_dict` replays steps.
-- `train/lr` logs `scheduler.get_last_lr()[0]`, i.e. group 0 (`src/core/trainer.py:794`).
+- `train/lr` logs `scheduler.get_last_lr()[0]`, i.e. group 0 (`src/core/trainer.py:813`).
 - Gradient clipping is global over `model.parameters()` and doesn't see groups.
 - The H family has dff = 3·dmodel and QK-norm on (`common.attention.qk_norm: true`).
 - The optimizer is built after `compile` (in place, names unchanged) and `fully_shard`
@@ -146,10 +145,8 @@ edit the optimizer.
   `Trainer`/`TrainerSchema` are untouched. A later option adds its keys as fields there;
   if options stop sharing keys, add a class key and type by it in `check_point`, as
   `SCHEDULER_SCHEMAS` does. Task 1 has no class key, because AdamW is the only class.
-- Task 2 added `optimizer.base_dmodel`, `optimizer.head_init_scale` and a per-role
-  `lr_multiplier`; every option sets all three. The head's init in
-  `_model/h_balanced/base.yaml` reads `${oc.select:optimizer.head_init_scale,1}`, so an
-  option sets the head init without touching model keys. Model-only composes get 1.
+- Task 2 added `optimizer.base_dmodel` and a per-role `lr_multiplier`; every option sets
+  both. Options don't touch model keys: full muP's head-init key went with it.
 
 #### Acceptance check (every task)
 
@@ -276,151 +273,87 @@ Checks:
   muP, with short WSD runs. The muP optimum should stay put across widths. Write the
   configs under `configs/jm/feature/`; Janek launches them.
 
-As landed:
-- `adamw_mup` is `adamw_groups` plus the width rules, all written in its yaml. The builder
-  only multiplies each group's LR by `lr_multiplier`. m = `common.dmodel /
-  optimizer.base_dmodel`, base 256 (h4), so at h4 the option equals `adamw_groups`.
-  Rules (TP5 Table 3, Adam column; LR is relative to `trainer.learning_rate`):
+As landed (simpleP; why full muP was dropped: `documents/notes/simplep_over_mup.md`):
+- Decision (Janek, 2026-11-25): one option, `adamw_simplep`, muP's LR rule only. Full muP
+  (`adamw_mup`: also decay × m and head init × m^-1/2) did no better in the width sweep
+  and needed the optimizer to set the model's head init. Its code is in `455421d2`.
+- `adamw_simplep` is `adamw_groups` plus the LR rule, written in its yaml; the builder only
+  multiplies each group's LR by `lr_multiplier`. m = `common.dmodel /
+  optimizer.base_dmodel`, base 256 (h4), so at h4 the option equals `adamw_groups`. LR is
+  relative to `trainer.learning_rate`:
 
   | Role | Init | LR | Weight decay |
   | --- | --- | --- | --- |
-  | `vector` | 1 (gains), unchanged | × 1 | 0 |
-  | `embedding` | `trunc_normal_` std 1, unchanged | × 1 | 0 |
-  | `head` | std = m^-1/2 / √dmodel (`head_init_scale`) | × 1/m | `trainer.weight_decay` × m |
-  | `hidden` | std = 1/√fan_in, unchanged | × 1/m | `trainer.weight_decay` × m |
+  | `vector` | unchanged | × 1 | 0 |
+  | `embedding` | unchanged | × 1 | 0 |
+  | `head` | unchanged | × 1/m | `trainer.weight_decay` |
+  | `hidden` | unchanged | × 1/m | `trainer.weight_decay` |
 
-- `adamw_simplep` (simpleP, added at Janek's request) keeps only the LR column:
-  hidden and head LR × 1/m. Head init and weight decay are `adamw_groups`'
-  (`head_init_scale: 1`, `trainer.weight_decay` unscaled), so lr·wd on matrices falls as
-  1/m. It matches ctx_scl's simpleP but for zero decay on gains and embedding.
-- Weight decay (muP): lr·wd stays fixed, so hidden and head decay is multiplied by m. torch
-  AdamW decays by lr·wd per step. With LR / m and wd fixed, decay would fade with width
-  (3× weaker at h12) and the timescale 1/(lr·wd) would drift (Wang & Aitchison,
-  arXiv 2405.13698).
+  So lr·wd on hidden and head falls as 1/m. MoE's experts and router are `hidden`, so
+  each expert gets LR ÷ m like the dense FFN (tested).
 - Scheduler: cosine is rejected off base width by task 1's one-LR assert; the cosine code
   is untouched, since line 7 owns it. WSD scales each group's own LR, including line 7's
-  `final_lr_fraction`. `jm/feature/tiny_local_mup` is `tiny_local` with a WSD override
+  `final_lr_fraction`. `jm/feature/tiny_local_simplep` is `tiny_local` with a WSD override
   (`tiny_local_wsd`'s 10/50 steps).
 - `train/lr` logs group 0, `vector`, which keeps the base LR.
-- `tiny_local_mup` sets `optimizer.base_dmodel: 128` so m = 2 at h4. It is the only muP
-  key in a switch config: at the default base every h4 multiplier would be 1.
-- `jm/feature/h12_mup` (m = 3) is one run: 50_000 steps, since muP changes no FLOPs, and
-  `learning_rate: 8.415` = 10 − log2 3. The LR is the base model's and h12's matrices
-  get it / 3, so h12's hidden and head get 2^-10, h12_chinchilla's tuned LR. The other
-  differences from the baseline: gains and embedding get 3× its LR and no decay, and
-  hidden/head decay per step (lr·wd) is 3× its own, from the lr·wd rule above. Compare it
-  with h12_chinchilla and `h12_param_groups`, which has the same zero decay on gains and
-  embedding. `jm/feature/h12_simplep` takes the same LR; its matrices then train at the
-  baseline's LR and lr·wd, so it differs from `h12_param_groups` only in 3× LR on gains
-  and embedding. Each h12 run is about 3.7 GPU-h: h12_chinchilla's tuned run (W&B
-  `kiu7rawb`) took 1.85 h on 2 H100, evals and checkpoints included.
-- Stage 1, re-run at `46a5eb89`: with the switch off, `tiny_local` and
+- `tiny_local_simplep` sets `optimizer.base_dmodel: 128` so m = 2 at h4: at the default
+  base every h4 multiplier would be 1.
+- `jm/feature/h12_simplep` (m = 3) is one run: 50_000 steps, since simpleP changes no
+  FLOPs, and `learning_rate: 8.415` = 10 − log2 3. The LR is the base model's and h12's
+  matrices get it / 3, so they train at 2^-10 with the baseline's lr·wd; it differs from
+  `h12_param_groups` only in 3× LR on gains and embedding. About 3.7 GPU-h:
+  h12_chinchilla's tuned run (W&B `kiu7rawb`) took 1.85 h on 2 H100, evals and
+  checkpoints included.
+- Stage 1, run at `46a5eb89`: with the switch off, `tiny_local` and
   `tiny_local_param_groups` give 202 `train/loss` lines, byte-identical to the pre-change
-  baselines. `tiny_local_mup` trains, loss 10.78 → 8.16 in 200 steps, and
-  `tiny_local_simplep` 10.88 → 8.19. New tests cover group LRs, decay and head scale at
-  h4/h8 for both options, head init = SP's × m^-1/2, the head scale per config (1 under
-  `adamw`/`adamw_groups`/`adamw_simplep`, in `configs/`, `jm/` and `jm/feature/`), and
-  muP save/resume. The suite's only failures are 11 tests in `test_h_balanced.py` and
-  `test_mfu.py` that still expect dff = 4·dmodel; they fail the same way at `46a5eb89`.
-  The hygiene tests also pass with the new untracked configs fed in.
-- Stage 2: `h12_mup` and `h12_simplep` compose with `expand_config.py --list` (1 point
-  each), and `mup_width_{sp,mup,simplep}` with 24 points each. Expanded width points
-  resolve their own multipliers (muP at h2: LR × 2, decay 0.05, head init × √2).
+  baselines. `tiny_local_simplep` trains, loss 10.88 → 8.19 in 200 steps. Tests: group
+  LRs and decay at h4/h8, MoE experts and router in `hidden`, save/resume with distinct
+  group LRs. The suite's only failures are 11 tests in `test_h_balanced.py` and
+  `test_mfu.py` that still expect dff = 4·dmodel (as on `pretraining-jm`). Merged with
+  `pretraining-jm` after the MoE merge (`a3f4efdb`) and re-tested.
 - Coordinate check, `scripts/mup_coord_check.py` defaults: 2 blocks, constant LR 2^-7,
   one random batch of 4×32, 4 steps. Cell: RMS of the change since step 0 in the role's
-  module outputs, mean over modules; `vector` includes the QK-norm gains. Re-run at
-  `46a5eb89` (QK-norm on, dff = 3·dmodel). Under SP hidden and head grow 4.8× and 2.7×
-  from h2 to h16; under muP they stay flat. The muP head's slow fall is the W0·Δx term,
-  which shrinks as m^-1/2 with the smaller head init; ΔW·x is constant. simpleP keeps
-  hidden flat; its head falls from h2 to h8 (1.84 → 1.07), then stays flat to h16.
+  module outputs, mean over modules; `vector` includes the QK-norm gains. Under SP hidden
+  and head grow 4.8× and 2.7× from h2 to h16. simpleP keeps hidden flat; its head falls
+  from h2 to h8 (1.84 → 1.07), then stays flat. Full muP (dropped) was flat too:
 
   | role | arm | h2 | h4 | h8 | h16 |
   | --- | --- | --- | --- | --- | --- |
   | hidden | SP | 0.62 | 0.87 | 1.25 | 2.99 |
-  | hidden | muP | 0.96 | 0.87 | 0.84 | 0.82 |
   | hidden | simpleP | 0.93 | 0.87 | 0.83 | 0.78 |
+  | hidden | muP (dropped) | 0.96 | 0.87 | 0.84 | 0.82 |
   | head | SP | 1.12 | 1.33 | 1.25 | 3.06 |
-  | head | muP | 1.60 | 1.33 | 1.30 | 1.25 |
   | head | simpleP | 1.84 | 1.33 | 1.07 | 1.07 |
+  | head | muP (dropped) | 1.60 | 1.33 | 1.30 | 1.25 |
   | vector | SP | 0.62 | 0.77 | 0.92 | 1.05 |
-  | vector | muP | 0.79 | 0.77 | 0.76 | 0.76 |
   | vector | simpleP | 0.76 | 0.77 | 0.77 | 0.74 |
-  | embedding | SP | 0.021 | 0.020 | 0.020 | 0.020 |
-  | embedding | muP | 0.020 | 0.020 | 0.020 | 0.020 |
-  | embedding | simpleP | 0.020 | 0.020 | 0.020 | 0.020 |
+  | vector | muP (dropped) | 0.79 | 0.77 | 0.76 | 0.76 |
+  | embedding | all | 0.020 | 0.020 | 0.020 | 0.020 |
 
-- Width sweep, three LR grids in `configs/jm/feature/` (Janek, 2026-11-23: run these
-  first; `h12_mup` and `h12_simplep` wait for their results):
-  `mup_width_sp.yaml` (`adamw_groups`), `mup_width_mup.yaml` (`adamw_mup`, base h4) and
-  `mup_width_simplep.yaml` (`adamw_simplep`, base h4). All are standalone, with
-  h12_chinchilla's groups in their own defaults list, not a parent include. Each is
-  `^common.h: [2, 4, 8, 12]` (dmodel 128–768) at `n_blocks: 4` ×
-  `^learning_rate: [6..11]`: 24 runs. Runs are 2000 steps at h12_chinchilla's batch
-  (64 × 1024, 131M tokens), WSD 100/400, on 1 H100 with micro 64. No checkpoints
-  (`_checkpoints: none`) or downstream eval (no `_downstream_eval` group); periodic eval
-  and `final_ce` stay. The grid is the batch-256 design's [5..10] one point lower, since
-  Adam's best LR goes roughly as √batch: SP optima are expected near 2^-7 (h2) to 2^-10
-  (h12 width), muP's near h4's SP optimum. At h4 (m = 1) the three arms are the same
-  run, a free sanity check; dropping h4 from the two muP arms would save 1.3 GPU-h.
-  Cost from `model_flops_per_token`, at H100 peak with MFU 15% at h2/h4 (the MFU audit's
-  h4 row), 25% above (h12_chinchilla's median step MFU is 28%), and 5 min startup per
-  run:
+- Width sweep, standalone configs in `configs/jm/feature/` (h12_chinchilla's groups in
+  their own defaults list): `mup_width_sp` (`adamw_groups`) and `mup_width_simplep`
+  (`adamw_simplep`, base h4), each `^common.h: [2, 4, 8, 12]` at `n_blocks: 4` ×
+  `^learning_rate: [6..11]`, plus `_high_lr` (2^-3..2^-5) and `_h16` (simpleP 2^-4..2^-8,
+  SP 2^-7..2^-10). Runs are 2000 steps at h12_chinchilla's batch (64 × 1024, 131M
+  tokens), WSD 100/400, on 1 H100 with micro 64, about 0.1–0.2 GPU-h each (startup
+  dominates). No checkpoints or downstream eval; periodic eval and `final_ce` stay. The
+  full-muP arm's configs were dropped; its 41 runs stay in W&B under the tag `mup`. Plot
+  with `jupyter_notebooks/mup_lr_plots.ipynb` (grids side by side, a star at each width's
+  best LR, and a best-LR table).
+- Results (2026-11-25, 122 runs). `final_ce` at the best LR, with a neighbour where the
+  gap is under the ~0.016 bf16 resolution:
 
-  | width | FLOPs/token | train min/run | GPU-h per arm |
+  | width | SP best | simpleP best | muP (dropped) best |
   | --- | --- | --- | --- |
-  | h2 | 50M | 0.7 | 0.6 |
-  | h4 | 109M | 1.6 | 0.7 |
-  | h8 | 255M | 2.3 | 0.7 |
-  | h12 | 439M | 3.9 | 0.9 |
-  | one arm | | | 2.9 (0.9 training) |
-  | three arms | | | 8.6 (2.6 training) |
+  | h2 | 2^-5 4.477 (2^-6 4.493) | 2^-6 4.504 | 2^-6 4.474 |
+  | h4 | 2^-6 4.205 | 2^-6 4.211 | 2^-6 4.201 |
+  | h8 | 2^-7 4.011 | 2^-6 3.998 | 2^-6 3.985 |
+  | h12 | 2^-8 3.921 | 2^-6 3.892 | 2^-6 3.909 |
+  | h16 | 2^-9 3.868 (2^-8 3.873) | 2^-6 3.838 (2^-7 3.839) | 2^-7 3.857 (2^-6 3.871) |
 
-  Startup dominates, so the MFU guesses barely matter. 8000 steps (524M tokens, the
-  batch-256 design's) would cost 5.4 GPU-h per arm, 16.2 for three. Plot with
-  `jupyter_notebooks/mup_lr_plots.ipynb`: the three grids side by side (one line per
-  width, a star at each width's best LR) and a best-LR table; it picks the arm from the
-  tag `sp`, `mup` or `simplep`.
-- First results (2026-11-24, all 72 runs finished). Best LR per width, as 2^-x:
-
-  | width | SP | muP | simpleP |
-  | --- | --- | --- | --- |
-  | h2 | 6 | 6 | 6 |
-  | h4 | 6 | 6 | 6 |
-  | h8 | 7 | 6 | 6 |
-  | h12 | 8 | 6 | 6 |
-
-  SP's optimum moves down with width; muP's and simpleP's stay at 2^-6, but that is the
-  grid's highest LR, and their losses still fall there at every width, as SP's do at
-  h2/h4. The h4 `final_ce` agrees across the three arms to 0.01 (same config).
-- Extension (Janek, 2026-11-24), six more standalone configs in `configs/jm/feature/`,
-  same tags plus `high_lr` or `h16`, so the notebook picks them up:
-
-  | config | widths | LRs (2^-x) | runs | GPU-h |
-  | --- | --- | --- | --- | --- |
-  | `mup_width_{sp,mup,simplep}_high_lr` | h2, h4, h8, h12 | 3, 4, 5 | 12 each | 1.4 each |
-  | `mup_width_{mup,simplep}_h16` | h16 | 4..8 | 5 each | 0.9 each |
-  | `mup_width_sp_h16` | h16 | 7..10 | 4 | 0.7 |
-  | all six | | | 50 | 6.8 |
-
-  h16 is 661M FLOPs/token at depth 4: 5.8 min of training per run at 25% MFU, plus the
-  5 min startup. SP's h8/h12 points at 2^-3..2^-5 (6 runs, 0.8 GPU-h) are likely past
-  its optimum and can be dropped by setting `^h: [2, 4]` in `mup_width_sp_high_lr`.
-- Results with the extension (2026-11-25, all 122 runs finished). `final_ce` at the best
-  LR and its neighbours; gaps under ~0.016 are bf16 ties:
-
-  | width | SP best | muP best | simpleP best |
-  | --- | --- | --- | --- |
-  | h2 | 2^-5 4.477 (2^-6 4.493) | 2^-6 4.474 | 2^-6 4.504 |
-  | h4 | 2^-6 4.205 | 2^-6 4.201 | 2^-6 4.211 |
-  | h8 | 2^-7 4.011 | 2^-6 3.985 | 2^-6 3.998 |
-  | h12 | 2^-8 3.921 | 2^-6 3.909 | 2^-6 3.892 |
-  | h16 | 2^-9 3.868 (2^-8 3.873) | 2^-7 3.857 (2^-6 3.871) | 2^-6 3.838 (2^-7 3.839) |
-
-  SP's best LR falls about one power of 2 per width step (2^-5 → 2^-9); muP's and
-  simpleP's stay at 2^-6 (muP's h16 2^-7 is a tie with 2^-6), with a real interior
-  optimum now that 2^-5 is worse. At their best LRs simpleP ≤ muP ≤ SP from h8 up
-  (h16: 3.838, 3.857, 3.868), gaps near the bf16 resolution. Above 2^-5 runs get
-  unstable (muP h16 at 2^-4: 5.86).
+  SP's best LR falls about one power of 2 per width step (2^-5 → 2^-9); simpleP's and
+  muP's stay at 2^-6, with a real interior optimum (2^-5 is worse). From h8 up simpleP's
+  loss at its best LR is equal to or below muP's. Above 2^-5 runs get unstable.
 
 ### Task 3: Muon
 

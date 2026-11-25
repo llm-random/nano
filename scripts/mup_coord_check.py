@@ -3,7 +3,7 @@
 Trains the tiny_local model at several widths (common.h) and one fixed depth for a few
 AdamW steps on one fixed batch, and prints, per parameter role, the RMS of the role's
 module outputs and of their change since step 0. Under SP (adamw_groups) the change
-grows with width; under muP (adamw_mup) and simpleP (adamw_simplep, muP's LR rules only) it does not.
+grows with width; under simpleP (adamw_simplep, muP's LR rule) it does not.
 
 Usage, from the repo root:
 
@@ -110,9 +110,7 @@ def main():
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument("--seq", type=int, default=32)
     parser.add_argument(
-        "--options",
-        nargs="+",
-        default=["adamw_groups", "adamw_mup", "adamw_simplep"],
+        "--options", nargs="+", default=["adamw_groups", "adamw_simplep"]
     )
     args = parser.parse_args()
     lr, _ = solve_config_lr(args.lr)

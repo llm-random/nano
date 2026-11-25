@@ -12,6 +12,7 @@ from omegaconf import OmegaConf
 
 import resolver  # noqa: F401  (registers the repo's custom OmegaConf resolvers)
 from src.core.checkpointing import TrainingState, load_checkpoint_from_file
+from src.core.moe import MoE
 from src.core.optimizers import ROLES, build_optimizer_and_scheduler, param_roles
 from src.core.schedulers import get_cosine_scheduler_with_warmup
 from test_distributed import _shard, cpu_process_group  # noqa: F401  (fixture)
@@ -192,72 +193,38 @@ def _width(h):
     ]
 
 
-def _lr_and_decay(option, h):
-    _, optimizer, _ = _build(option, overrides=_width(h))
-    return [
-        (g["role"], g["initial_lr"], g["weight_decay"]) for g in optimizer.param_groups
-    ]
-
-
-def _head_init_scale(option, h):
-    return _cfg(option, _width(h)).model.head.linear_fn.partial_init_fn.scale
-
-
-@pytest.mark.parametrize("h, m", [(4, 1), (8, 2)])
-def test_adamw_mup_scales_hidden_and_head_with_the_width(h, m):
-    assert _lr_and_decay("adamw_mup", h) == [
-        ("vector", 1e-3, 0.0),
-        ("embedding", 1e-3, 0.0),
-        ("head", pytest.approx(1e-3 / m), pytest.approx(0.1 * m)),
-        ("hidden", pytest.approx(1e-3 / m), pytest.approx(0.1 * m)),
-    ]
-    assert _head_init_scale("adamw_mup", h) == pytest.approx(m**-0.5)
-
-
 @pytest.mark.parametrize("h, m", [(4, 1), (8, 2)])
 def test_adamw_simplep_scales_only_the_hidden_and_head_lr(h, m):
-    assert _lr_and_decay("adamw_simplep", h) == [
+    _, optimizer, _ = _build("adamw_simplep", overrides=_width(h))
+    groups = [
+        (g["role"], g["initial_lr"], g["weight_decay"]) for g in optimizer.param_groups
+    ]
+    assert groups == [
         ("vector", 1e-3, 0.0),
         ("embedding", 1e-3, 0.0),
         ("head", pytest.approx(1e-3 / m), 0.1),
         ("hidden", pytest.approx(1e-3 / m), 0.1),
     ]
-    assert _head_init_scale("adamw_simplep", h) == 1
 
 
-def test_adamw_mup_head_init_is_the_sp_init_times_m_to_the_minus_half():
-    sp, mup = (_build(o, overrides=_width(8))[0] for o in ("adamw_groups", "adamw_mup"))
-    torch.testing.assert_close(mup.head.linear.weight, sp.head.linear.weight * 2**-0.5)
-    torch.testing.assert_close(
-        mup.embedding.weight, sp.embedding.weight, rtol=0, atol=0
-    )
+def test_adamw_simplep_trains_every_moe_expert_and_the_router_as_hidden():
+    moe = ["+_ff_layer@model.encoder.block_fn.ff_layer_fn=moe"]
+    model, optimizer, _ = _build("adamw_simplep", overrides=_width(8) + moe)
+    hidden = next(g for g in optimizer.param_groups if g["role"] == "hidden")
+    in_hidden = {id(p) for p in hidden["params"]}
+    moe_params = [
+        p for m in model.modules() if isinstance(m, MoE) for p in m.parameters()
+    ]
+    assert moe_params and all(id(p) in in_hidden for p in moe_params)
+    assert hidden["initial_lr"] == pytest.approx(1e-3 / 2)
 
 
-@pytest.mark.parametrize(
-    "directory, name, scale",
-    [
-        ("", "tiny_local", 1),
-        ("", "tiny_local_param_groups", 1),
-        ("jm/feature", "tiny_local_mup", 2**-0.5),
-        ("jm/feature", "tiny_local_simplep", 1),
-        ("jm", "h12_chinchilla", 1),
-        ("jm", "h12_param_groups", 1),
-        ("jm/feature", "h12_mup", 3**-0.5),
-        ("jm/feature", "h12_simplep", 1),
-    ],
-)
-def test_head_init_scale_comes_from_the_optimizer_option(directory, name, scale):
-    warnings.filterwarnings("ignore")
-    config_dir = os.path.join(CONFIGS_DIR, directory)
-    with initialize_config_dir(version_base=None, config_dir=config_dir):
-        cfg = compose(name)
-    assert cfg.model.head.linear_fn.partial_init_fn.scale == pytest.approx(scale)
-
-
-def test_adamw_mup_checkpoint_resumes(tmp_path):
+def test_adamw_simplep_checkpoint_resumes(tmp_path):
     # Base h2 makes the h4 group LRs differ, so WSD's replay must restore each one.
     overrides = [
         "_trainer/_scheduler@trainer.scheduler=wsd",
         "optimizer.base_dmodel=128",
     ]
-    _check_resume(str(tmp_path), sharded=False, option="adamw_mup", overrides=overrides)
+    _check_resume(
+        str(tmp_path), sharded=False, option="adamw_simplep", overrides=overrides
+    )

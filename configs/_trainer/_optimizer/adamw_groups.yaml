@@ -1,6 +1,5 @@
 # One AdamW group per role (src/core/optimizers.py); gains and embedding not decayed.
 base_dmodel: null
-head_init_scale: 1
 roles:
   vector:
     lr_multiplier: 1
