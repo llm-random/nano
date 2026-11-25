@@ -1,0 +1,9 @@
+# tiny_local with the MoE feed-forward. Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_moe
+defaults:
+  - ../../tiny_local@_global_
+  - ../../_ff_layer@model.encoder.block_fn.ff_layer_fn: moe
+  - _self_
+
+infrastructure:
+  metric_logger:
+    type: stdout
