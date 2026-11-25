@@ -8,7 +8,9 @@ trainer:
   gradient_clipping: 1.0
   n_steps: null
   # Or the length in BILLIONS of tokens (leave n_steps null): becomes
-  # floor(n_tokens_b * 1e9 / (common.batch_size * common.sequence_length)) steps.
+  # ceil(n_tokens_b * 1e9 / (common.batch_size * (common.sequence_length - 1)))
+  # steps -- the tokens the model trains on, rounded up, like the hand-written
+  # counts (8B at 512 rows of 2049: 7630 steps).
   n_tokens_b: null
   learning_rate: null
   # AME memory banks (q_bank/k_bank) train at this multiple of learning_rate,

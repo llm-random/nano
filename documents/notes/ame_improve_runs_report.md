@@ -225,6 +225,11 @@ Readouts at the end of training, averaged over the 16 layers:
    3,815 and 7,630). It rounds down, and the hand-written baseline configs rounded up. That
    is 0.08% fewer tokens, with the same warmup and a cosine that ends at the same floor. It
    can only handicap ratio 4, and by far less than the differences here.
+   *Correction (review, 2026-11-25): rounding explains one step of each gap; the rest is
+   that `n_tokens_b` counted 2,049 tokens a row (`common.sequence_length`) while the
+   hand-written counts use the 2,048 the model trains on. Since then `n_tokens_b` counts
+   those and rounds up, so 4 and 8 give 3,815 and 7,630
+   ([review_issues.md](review_issues.md), N4).*
 3. **Optional: exact `final_ce`.** The verdicts don't need it, but the parity study's
    common evaluator could score both new checkpoints at full precision, as it scored
    `doi36p8k` (3.125227). That is one short job per checkpoint; I didn't run them, because

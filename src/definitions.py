@@ -257,23 +257,32 @@ def check_point(point: "dict | DictConfig | RootSchema") -> DictConfig:
     return merged
 
 
-def steps_for_tokens(n_tokens_b: float, batch_size: int, sequence_length: int) -> int:
-    """Whole optimizer steps in `n_tokens_b` billion tokens, rounded down.
+def tokens_per_step(batch_size: int, sequence_length: int) -> int:
+    """The tokens one optimizer step trains on: a row holds sequence_length
+    tokens and the model predicts sequence_length - 1 of them (inputs [:-1],
+    targets [1:]), over the GLOBAL batch (get_dataloader hands each rank
+    batch_size // world_size), so the count does not depend on the GPU count or
+    gradient accumulation."""
+    return batch_size * (sequence_length - 1)
 
-    One step is `batch_size * sequence_length` tokens: common.batch_size is the
-    GLOBAL batch (get_dataloader hands each rank batch_size // world_size), so
-    the count does not depend on the GPU count or gradient accumulation. These
-    are corpus tokens, the convention of the hand-written `n_steps: 7630 # 8B
-    tokens / 1,048,576 tokens per step` configs. The trainer's processed_tokens
-    (the W&B token axis) counts predicted tokens instead, sequence_length - 1
-    per sequence, so it ends 1/sequence_length below the budget (0.05% at 2048).
+
+def steps_for_tokens(n_tokens_b: float, batch_size: int, sequence_length: int) -> int:
+    """The fewest whole optimizer steps that train on `n_tokens_b` billion tokens.
+
+    A step trains on tokens_per_step() tokens, the predicted ones: the
+    convention of the hand-written `n_steps: 7630 # 8B tokens / 1,048,576 tokens
+    per step` configs (512 rows of sequence_length 2049) and of the trainer's
+    processed_tokens, the W&B token axis. The count rounds up, as those configs
+    did (8e9 / 1,048,576 = 7629.4 -> 7630), so 4, 8 and 16 give their 3815, 7630
+    and 15259, and a run ends at its budget or less than one step past it.
+    Until 2026-11-25 it counted sequence_length tokens a row and rounded down,
+    3812 for 4B (documents/notes/review_issues.md, N4).
 
     The token count is rounded to a whole number first, so a budget that is an
-    exact multiple of the step survives float noise: 1.001 * 10**9 is
-    1000999999.9999999 in floating point, and flooring that would lose a step.
+    exact multiple of the step survives float noise: 0.067 * 10**9 is
+    67000000.00000001 in floating point, and rounding that up would add a step.
     """
-    tokens_per_step = batch_size * sequence_length
-    return round(n_tokens_b * 10**9) // tokens_per_step
+    return -(-round(n_tokens_b * 10**9) // tokens_per_step(batch_size, sequence_length))
 
 
 def resolve_n_steps(cfg) -> None:
@@ -306,18 +315,20 @@ def resolve_n_steps(cfg) -> None:
             f"trainer.n_tokens_b must be > 0 (billions of tokens), got {n_tokens_b!r}"
         )
     batch_size, sequence_length = cfg.common.batch_size, cfg.common.sequence_length
-    if not (batch_size and sequence_length and batch_size > 0 and sequence_length > 0):
+    if not (batch_size and sequence_length and batch_size > 0 and sequence_length > 1):
         raise ValueError(
-            "trainer.n_tokens_b needs common.batch_size and common.sequence_length "
-            f"> 0 to count steps, got {batch_size!r} and {sequence_length!r}"
+            "trainer.n_tokens_b needs common.batch_size > 0 and common.sequence_length "
+            f"> 1 to count steps, got {batch_size!r} and {sequence_length!r}"
         )
-    n_steps = steps_for_tokens(n_tokens_b, batch_size, sequence_length)
-    if n_steps < 1:
+    step = tokens_per_step(batch_size, sequence_length)
+    # Rounding up can never give 0 steps, so a budget smaller than one step --
+    # most likely a unit slip -- is caught here, not by the count.
+    if round(n_tokens_b * 10**9) < step:
         raise ValueError(
             f"trainer.n_tokens_b={n_tokens_b} is less than one optimizer step of "
-            f"common.batch_size * common.sequence_length = "
-            f"{batch_size * sequence_length:,} tokens"
+            f"common.batch_size * (common.sequence_length - 1) = {step:,} tokens"
         )
+    n_steps = steps_for_tokens(n_tokens_b, batch_size, sequence_length)
     with open_dict(t):
         t.n_steps = n_steps
 

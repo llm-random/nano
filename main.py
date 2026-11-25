@@ -30,6 +30,7 @@ from src.definitions import (
     RootSchema,
     check_point,
     resolve_n_steps,
+    tokens_per_step,
 )
 import platform
 
@@ -452,11 +453,11 @@ def run(cfg: RootSchema, metric_logger=None):
     # as written, and run_exp.py has already checked that it resolves.
     resolve_n_steps(cfg)
     if cfg.trainer.get("n_tokens_b") is not None:
-        tokens_per_step = cfg.common.batch_size * cfg.common.sequence_length
+        step = tokens_per_step(cfg.common.batch_size, cfg.common.sequence_length)
         logger.info(
             f"trainer.n_tokens_b={cfg.trainer.n_tokens_b} -> trainer.n_steps="
-            f"{cfg.trainer.n_steps} ({cfg.trainer.n_steps * tokens_per_step:,} "
-            f"tokens at {tokens_per_step:,} per step, rounded down)"
+            f"{cfg.trainer.n_steps} ({cfg.trainer.n_steps * step:,} tokens trained "
+            f"on at {step:,} per step, rounded up)"
         )
     setup_enviroment()
 

@@ -1,13 +1,15 @@
 """trainer.n_tokens_b: the training length in billions of tokens.
 
 A config gives n_steps or n_tokens_b, never both. src.definitions.resolve_n_steps
-turns tokens into whole optimizer steps of common.batch_size * common.sequence_length
-tokens (the global batch), rounded down. It runs at submit time on every grid point
-(check_point, which run_exp.py calls before anything is queued) and again at startup
-in main.run, so the rest of the code only ever sees n_steps.
+turns tokens into whole optimizer steps of common.batch_size *
+(common.sequence_length - 1) tokens (the tokens a global batch trains on), rounded
+up. It runs at submit time on every grid point (check_point, which run_exp.py calls
+before anything is queued) and again at startup in main.run, so the rest of the code
+only ever sees n_steps.
 
-tiny_local: batch_size 2 x sequence_length 16 = 32 tokens per step, so 0.0001 B =
-100,000 tokens = 3125 steps exactly, and its warmup interpolation gives 31.
+tiny_local: batch_size 2 x (sequence_length 16 - 1) = 30 tokens per step, so
+0.0001 B = 100,000 tokens = 3334 steps (3333.3 rounded up), and its warmup
+interpolation gives 33.
 """
 
 import os
@@ -38,25 +40,29 @@ def _point(overrides=()):
     return OmegaConf.to_container(_compose(overrides), resolve=False)
 
 
-def test_steps_round_down_to_whole_global_batches():
-    # h16 Stage 1b/2b: 512 x 2048 = 1,048,576 tokens per step. The hand-written
-    # configs say 7630 for 8B ("rounded up"); the knob rounds down.
-    assert steps_for_tokens(8, 512, 2048) == 7629
-    assert steps_for_tokens(4, 512, 2048) == 3814
-    assert steps_for_tokens(1.048576, 512, 2048) == 1000  # an exact multiple
+def test_steps_are_the_hand_written_counts():
+    # 512 rows of sequence_length 2049 train on 512 x 2048 = 1,048,576 tokens a
+    # step. The stage configs' n_steps rounded up (8e9 / 1,048,576 = 7629.4), and
+    # so does the knob (documents/notes/review_issues.md, N4).
+    assert steps_for_tokens(4, 512, 2049) == 3815
+    assert steps_for_tokens(8, 512, 2049) == 7630
+    assert steps_for_tokens(16, 512, 2049) == 15259
+    assert steps_for_tokens(1.048576, 512, 2049) == 1000  # an exact multiple
 
 
-def test_float_noise_does_not_cost_a_step():
-    # 1.001 * 10**9 is 1000999999.9999999 in floating point; flooring that
-    # directly would give 1000999 steps of 1000 tokens instead of 1001000.
-    assert steps_for_tokens(1.001, 1000, 1) == 1_001_000
+def test_float_noise_does_not_cost_or_add_a_step():
+    # Steps of 1000 x (2 - 1) = 1000 tokens. 1.001 * 10**9 is
+    # 1000999999.9999999 in floating point and 0.067 * 10**9 is
+    # 67000000.00000001; rounding the latter up directly would add a step.
+    assert steps_for_tokens(1.001, 1000, 2) == 1_001_000
+    assert steps_for_tokens(0.067, 1000, 2) == 67_000
 
 
 def test_tokens_become_steps_and_the_warmup_interpolation_follows():
     cfg = _compose(TOKENS)  # Hydra's struct-mode config, as main() receives it
     resolve_n_steps(cfg)
-    assert cfg.trainer.n_steps == 3125
-    assert cfg.trainer.scheduler.warmup_steps == 31  # int(3125 * 0.01)
+    assert cfg.trainer.n_steps == 3334
+    assert cfg.trainer.scheduler.warmup_steps == 33  # int(3334 * 0.01)
 
 
 def test_steps_and_tokens_together_fail_before_submission():
@@ -78,7 +84,7 @@ def test_check_point_resolves_a_copy_and_leaves_the_point_as_written():
     the budget again, so the dumped config must still say tokens, not steps."""
     point = _point(TOKENS)
     checked = check_point(point)
-    assert checked.trainer.n_steps == 3125
+    assert checked.trainer.n_steps == 3334
     assert point["trainer"]["n_steps"] is None
     assert point["trainer"]["n_tokens_b"] == 0.0001
 
@@ -109,16 +115,16 @@ def test_a_token_grid_resolves_point_by_point():
     del plain["trainer"]["n_tokens_b"]
     plain["trainer"]["^n_tokens_b"] = [0.0001, 0.0002]
     grid = create_grid_config(OmegaConf.create(plain))
-    assert sorted(check_point(p).trainer.n_steps for p, _ in grid) == [3125, 6250]
+    assert sorted(check_point(p).trainer.n_steps for p, _ in grid) == [3334, 6667]
 
 
 def test_the_global_batch_sets_the_step_count():
-    """Same budget, twice the batch: half the steps, rounded down (1562.5)."""
+    """Same budget, twice the batch: half the steps, rounded up (1666.7)."""
     plain = _point(TOKENS)
     del plain["common"]["batch_size"]
     plain["common"]["^batch_size"] = [2, 4]
     grid = create_grid_config(OmegaConf.create(plain))
-    assert sorted(check_point(p).trainer.n_steps for p, _ in grid) == [1562, 3125]
+    assert sorted(check_point(p).trainer.n_steps for p, _ in grid) == [1667, 3334]
 
 
 def test_a_budget_under_one_step_is_rejected():
@@ -161,4 +167,4 @@ def test_main_run_resolves_tokens_before_anything_reads_n_steps(monkeypatch, tmp
         monkeypatch.setenv(name, value)
 
     main.run(_compose([*TOKENS, "trainer.distributed=null"]))
-    assert seen == {"n_steps": 3125, "warmup_steps": 31}
+    assert seen == {"n_steps": 3334, "warmup_steps": 33}
