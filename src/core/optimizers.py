@@ -39,14 +39,18 @@ def param_roles(model: nn.Module) -> dict[str, list[nn.Parameter]]:
 
 def build_optimizer_and_scheduler(cfg, model, learning_rate):
     roles = cfg.optimizer.roles
+    base_dmodel = cfg.optimizer.base_dmodel
     if roles is None:
+        assert base_dmodel is None, "simpleP (optimizer.base_dmodel) needs param groups"
         params = model.parameters()
     else:
+        # simpleP (muP's LR rule): hidden and head LR / m, m = dmodel / base_dmodel.
+        scale = 1 if base_dmodel is None else base_dmodel / cfg.common.dmodel
         params = [
             {
                 "params": ps,
                 "role": role,
-                "lr": learning_rate * roles[role].lr_multiplier,
+                "lr": learning_rate * (scale if role in ("hidden", "head") else 1),
                 "weight_decay": roles[role].weight_decay,
             }
             for role, ps in param_roles(model).items()

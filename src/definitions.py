@@ -164,7 +164,6 @@ class TrainerSchema:
 
 @dataclass
 class OptimizerRoleSchema:
-    lr_multiplier: float = MISSING
     weight_decay: float = MISSING
 
 
@@ -181,7 +180,7 @@ class OptimizerSchema:
     """Root `optimizer`, from configs/_trainer/_optimizer/; null roles is one group."""
 
     roles: Optional[OptimizerRolesSchema] = MISSING
-    # simpleP's base width; null without width rules.
+    # simpleP's base width: hidden and head LR x base_dmodel / dmodel; null is off.
     base_dmodel: Optional[int] = MISSING
 
 

@@ -1,17 +1,23 @@
-# muP width sweep, SP arm (adamw_groups), LRs above mup_width_sp's [6..11]: its h2/h4 optima sat at 2^-6.
+# MoE width sweep, simpleP arm (adamw_simplep, base width h4): mup_width_simplep with the MoE feed-forward (8 experts, top-2); 25 runs.
 defaults:
   # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
   - ../../_cluster@_here_: lem
   - ../../_model/h_balanced@_here_: h12
+  - ../../_ff_layer@model.encoder.block_fn.ff_layer_fn: moe
   - ../../_trainer@_here_: nano
   - ../../_dataset@_here_: fineweb
   - ../../_checkpoints@_here_: none
   - ../../_misc@_here_: default
-  - override ../../_trainer/_optimizer@optimizer: adamw_groups
+  - override ../../_trainer/_optimizer@optimizer: adamw_simplep
   - _self_
 
+# One grid point per (h, lr): 5 LR exponents around the dense simpleP optimum, 6 at every width.
+^sweep:
+  - ^h: [2, 4, 8, 12, 16]
+    ^lr: [4, 5, 6, 7, 8]
+
 common:
-  ^h: [2, 4, 8, 12]
+  h: ${sweep.h}
   n_blocks: 4
   sequence_length: 1024
   batch_size: 64
@@ -19,21 +25,21 @@ common:
 trainer:
   # micro 64 x 1024 on 1 GPU
   gradient_accumulation_steps: 1
-  # 131M tokens; costs per width in plan/lines/line2_optimizer.md (task 2)
+  # 131M tokens, as the dense sweep; costs and results in plan/lines/line2_optimizer.md (task 2)
   n_steps: 2_000
-  ^learning_rate: [3, 4, 5]
+  learning_rate: ${sweep.lr}
   scheduler:
     warmup_steps: 100
     decay_steps: 400
 
 infrastructure:
   metric_logger:
-    name: mup_width_sp_high_lr
+    name: mup_width_moe_simplep
     tags:
       - nano
       - mup_width_sweep
-      - sp
-      - high_lr
+      - moe
+      - simplep
       - wsd
       - qk_norm
       - bs64

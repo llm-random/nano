@@ -2,14 +2,10 @@
 base_dmodel: null
 roles:
   vector:
-    lr_multiplier: 1
     weight_decay: 0.0
   embedding:
-    lr_multiplier: 1
     weight_decay: 0.0
   head:
-    lr_multiplier: 1
     weight_decay: ${trainer.weight_decay}
   hidden:
-    lr_multiplier: 1
     weight_decay: ${trainer.weight_decay}

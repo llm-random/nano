@@ -1,8 +1,9 @@
-# muP width sweep, SP arm (adamw_groups) at h16: LR grid at depth 4, short WSD runs on 1 GPU.
+# MoE width sweep, SP arm (adamw_groups): mup_width_sp with the MoE feed-forward (8 experts, top-2); 25 runs.
 defaults:
   # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
   - ../../_cluster@_here_: lem
-  - ../../_model/h_balanced@_here_: h16
+  - ../../_model/h_balanced@_here_: h12
+  - ../../_ff_layer@model.encoder.block_fn.ff_layer_fn: moe
   - ../../_trainer@_here_: nano
   - ../../_dataset@_here_: fineweb
   - ../../_checkpoints@_here_: none
@@ -10,7 +11,21 @@ defaults:
   - override ../../_trainer/_optimizer@optimizer: adamw_groups
   - _self_
 
+# One grid point per (h, lr): 5 LR exponents around the dense SP optimum at each width (5, 6, 7, 8, 9).
+^sweep:
+  - h: 2
+    ^lr: [3, 4, 5, 6, 7]
+  - h: 4
+    ^lr: [4, 5, 6, 7, 8]
+  - h: 8
+    ^lr: [5, 6, 7, 8, 9]
+  - h: 12
+    ^lr: [6, 7, 8, 9, 10]
+  - h: 16
+    ^lr: [7, 8, 9, 10, 11]
+
 common:
+  h: ${sweep.h}
   n_blocks: 4
   sequence_length: 1024
   batch_size: 64
@@ -18,22 +33,21 @@ common:
 trainer:
   # micro 64 x 1024 on 1 GPU
   gradient_accumulation_steps: 1
-  # 131M tokens; costs per width in plan/lines/line2_optimizer.md (task 2)
+  # 131M tokens, as the dense sweep; costs and results in plan/lines/line2_optimizer.md (task 2)
   n_steps: 2_000
-  # below muP's grid: SP's optimum fell to 2^-8 at h12
-  ^learning_rate: [7, 8, 9, 10]
+  learning_rate: ${sweep.lr}
   scheduler:
     warmup_steps: 100
     decay_steps: 400
 
 infrastructure:
   metric_logger:
-    name: mup_width_sp_h16
+    name: mup_width_moe_sp
     tags:
       - nano
       - mup_width_sweep
+      - moe
       - sp
-      - h16
       - wsd
       - qk_norm
       - bs64

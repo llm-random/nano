@@ -1,16 +1,6 @@
-# simpleP for AdamW: muP's LR rule only (documents/notes/simplep_over_mup.md); init and decay as adamw_groups.
-# m = common.dmodel / base_dmodel: hidden and head LR / m.
+# simpleP for AdamW (documents/notes/simplep_over_mup.md): adamw_groups with hidden and head LR x base_dmodel / dmodel.
+defaults:
+  - adamw_groups
+  - _self_
+
 base_dmodel: 256
-roles:
-  vector:
-    lr_multiplier: 1
-    weight_decay: 0.0
-  embedding:
-    lr_multiplier: 1
-    weight_decay: 0.0
-  head:
-    lr_multiplier: ${eval:'${optimizer.base_dmodel} / ${common.dmodel}'}
-    weight_decay: ${trainer.weight_decay}
-  hidden:
-    lr_multiplier: ${eval:'${optimizer.base_dmodel} / ${common.dmodel}'}
-    weight_decay: ${trainer.weight_decay}
