@@ -189,9 +189,9 @@ def test_a_token_budget_trains_for_the_steps_it_resolves_to(tmp_path):
     """trainer.n_tokens_b through the real entry point. The dumped/composed
     config says tokens and leaves n_steps null; main.run must turn that into
     steps before the scheduler, the loop and the checkpoint name read it. One
-    step of tiny_local is 2 x 16 = 32 tokens, so N_STEPS * 32 tokens is exactly
-    N_STEPS steps."""
-    budget = N_STEPS * 32 / 1e9
+    step of tiny_local trains on 2 x (16 - 1) = 30 tokens, so N_STEPS * 30
+    tokens is exactly N_STEPS steps."""
+    budget = N_STEPS * 30 / 1e9
     save_path, output = _run(
         tmp_path,
         "nano",
