@@ -68,7 +68,6 @@ function of ids and distance alone; the instrumentation that assumes they are
 (`score_matrix`, `attention_diagnostics`) refuses them rather than feed x = 0.
 """
 
-import hashlib
 import math
 from functools import partial
 
@@ -76,6 +75,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from src.core.init_rng import private_generator, private_rand
 from src.core.model import Linear, llm_random_weight_init
 
 # The values `bank_gate` takes. One enum rather than a boolean per mechanism, so
@@ -159,23 +159,6 @@ def _rng_neutral_linear(in_features, out_features, bias, device):
     """
     layer = nn.Linear(in_features, out_features, bias=bias, device="meta")
     return layer.to_empty(device=device)
-
-
-def _private_generator():
-    """A CPU generator seeded from the global RNG's state, without advancing it.
-
-    For a gate whose init is random (ST) but must not shift the global stream.
-    The state differs at every point of a model built on the CPU, as main.py
-    builds it, so each layer gets its own seed, and the same seed and build
-    order give the same draw. Built under a non-CPU default device, as the GPU
-    tests build it, every other draw uses that device's generator, the CPU
-    state never advances, and every layer's ST gate gets the same init. If that
-    ever matters, salt the seed only off the CPU path, which keeps the trained
-    ST runs' seeds (documents/notes/review_upgrades.md, U8).
-    """
-    state = torch.random.get_rng_state().numpy().tobytes()
-    seed = int.from_bytes(hashlib.blake2b(state, digest_size=8).digest(), "little")
-    return torch.Generator().manual_seed(seed & ((1 << 63) - 1))
 
 
 def _full(tensor):
@@ -513,7 +496,7 @@ class AMEAttention(nn.Module):
                 # model is built under a CUDA default device; then copied over.
                 draw = torch.empty(datt, self.dmodel, device="cpu")
                 llm_random_weight_init(self.dmodel, init_scale)(
-                    draw, generator=_private_generator()
+                    draw, generator=private_generator("stem")
                 )
                 with torch.no_grad():
                     self.gate.weight.copy_(draw)
@@ -531,13 +514,16 @@ class AMEAttention(nn.Module):
         settings reachable -- `(1, 0)` is the unshifted head and `(0, 1)` the
         fully shifted one -- so "which heads are shifted" is not a hyperparameter.
         Pinned: a frozen `(1, 0)` buffer, i.e. no shift at all.
+
+        `c1` comes from a private generator (src.core.init_rng), so the shift
+        switch and the pins move no other weight's init.
         """
         if pinned:
             pin = torch.zeros(self.q_heads, 2, dtype=torch.float32)
             pin[:, 0] = 1.0
             self.register_buffer(name, pin, persistent=True)
             return
-        c1 = torch.rand(self.q_heads, 1, dtype=torch.float32)
+        c1 = private_rand(self.q_heads, 1, tag=f"mix.{name}")
         setattr(self, name, nn.Parameter(torch.cat([c1, 1.0 - c1], dim=-1)))
 
     @property

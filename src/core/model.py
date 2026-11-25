@@ -15,6 +15,8 @@ from torch.nn import (
 
 from torch.nn.modules.normalization import RMSNorm as RMSNorm
 
+from src.core.init_rng import component_init_rng, private_rand
+
 
 def llm_random_weight_init(fan_in, scale):
     std = scale * (1 / fan_in) ** 0.5
@@ -28,7 +30,10 @@ class TransformerEmbedding(nn.Embedding):
         self, vocab_size: int, dmodel: int, init_fn: Optional[Callable], **kwargs
     ):
         self.init_fn = init_fn
-        super().__init__(vocab_size, dmodel, **kwargs)
+        # Its own seed: no switch elsewhere in the model moves this init
+        # (src.core.init_rng).
+        with component_init_rng("embedding"):
+            super().__init__(vocab_size, dmodel, **kwargs)
 
     def reset_parameters(self):
         if hasattr(self, "init_fn") and self.init_fn is not None:
@@ -311,13 +316,14 @@ class RoPEAttention(nn.Module):
         # BEFORE the rotary embedding as in the paper, so a mixed key is rotated
         # as position j. Queries are not shifted. One (c1, c2) pair per kv head,
         # c1 ~ U(0, 1) and c2 = 1 - c1 -- AME's _init_mix -- so the plain head
-        # (1, 0) and the fully shifted one (0, 1) are both reachable. Drawn after
-        # the projections, so a seed builds the same projections either way.
-        # Off adds no parameter and draws nothing.
+        # (1, 0) and the fully shifted one (0, 1) are both reachable. Drawn from
+        # private generators (src.core.init_rng), so the switch moves no other
+        # weight's init: on or off, the rest of the model starts the same. Off
+        # adds no parameter.
         self.shift = shift
         if shift:
             for name in ("alpha", "beta"):
-                c1 = torch.rand(kv_heads, 1, dtype=torch.float32)
+                c1 = private_rand(kv_heads, 1, tag=f"shift.{name}")
                 setattr(self, name, nn.Parameter(torch.cat([c1, 1.0 - c1], dim=-1)))
 
     def forward(self, x):
@@ -432,14 +438,21 @@ class TransformerBlock(nn.Module):
 
         # attention_fn takes the block id so the attention type can vary per
         # layer (see src.core.attention.build_attention and the mix patterns).
+        # The attention and the feed-forward each get their own seed, so no
+        # switch in one moves the init of any other component
+        # (src.core.init_rng).
+        with component_init_rng(f"block{block_id}.attention"):
+            attention = attention_fn(block_id)
         self.attention_layer = Residual(
             norm=norm_fn(),
-            layer=attention_fn(block_id),
+            layer=attention,
             log_name=f"{self.log_name}/residual_attention",
         )
+        with component_init_rng(f"block{block_id}.feedforward"):
+            feedforward = ff_layer_fn()
         self.ff_layer = Residual(
             norm=norm_fn(),
-            layer=ff_layer_fn(),
+            layer=feedforward,
             log_name=f"{self.log_name}/residual_feedforward",
         )
 
@@ -587,7 +600,9 @@ class TransformerHead(nn.Module):
     def __init__(self, linear_fn: Callable, norm_fn: Callable):
         super().__init__()
         self.norm = norm_fn()
-        self.linear = linear_fn()
+        # Its own seed (src.core.init_rng).
+        with component_init_rng("head"):
+            self.linear = linear_fn()
 
     def forward(self, x, targets=None, chunk_size=None, ignore_index=-100):
         """Logits, or -- given `targets` -- the loss, without ever building the
