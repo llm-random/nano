@@ -708,9 +708,12 @@ class AMEAttention(nn.Module):
             k = (k + self.k_base.to(k.dtype)) / math.sqrt(2.0)
 
         if self.qk_norm:
-            # On the bank ROWS, before the mix. Not on the mixed key.
-            q = F.normalize(q, dim=-1)
-            k = F.normalize(k, dim=-1)
+            # On the bank ROWS, before the mix. Not on the mixed key. Cast to the
+            # compute dtype (v's): CUDA autocast runs the norm in fp32, and fp32
+            # banks gather fp32 rows, so the gates, the mix and tau would run in
+            # fp32 until the cast below (documents/notes/review_issues.md, N7).
+            q = F.normalize(q, dim=-1).to(v.dtype)
+            k = F.normalize(k, dim=-1).to(v.dtype)
 
         if self.bank_gate == "confidence":
             # After the norm, before the mix: the KV shift mixes trust-scaled

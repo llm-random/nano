@@ -339,9 +339,13 @@ class RoPEAttention(nn.Module):
         if self.qk_norm:
             # Per head and before the shift, as src.core.ame normalizes its rows
             # before the mix; before RoPE, a rotation, so that order changes
-            # nothing; on the kv heads, before repeat_kv copies them.
-            q = F.normalize(q, dim=-1)
-            k = F.normalize(k, dim=-1)
+            # nothing; on the kv heads, before repeat_kv copies them. Cast back
+            # to the projections' dtype: CUDA autocast runs the norm in fp32,
+            # which promoted q and k, so the shift, RoPE, tau and repeat_kv ran
+            # in fp32 until SDPA cast them back -- time and memory for nothing
+            # (documents/notes/review_issues.md, N7).
+            q = F.normalize(q, dim=-1).to(v.dtype)
+            k = F.normalize(k, dim=-1).to(v.dtype)
         if self.shift:
             # AME's two lines (src/core/ame.py _mixed_qkv), on kv heads.
             # Imported lazily: src.core.ame imports this module.

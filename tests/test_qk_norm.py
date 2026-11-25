@@ -117,6 +117,59 @@ def test_scores_see_only_the_direction_of_q_and_k():
             assert not torch.allclose(before, after, rtol=1e-3, atol=1e-4)
 
 
+def _spy_on_the_mix(monkeypatch):
+    """The dtypes of what reaches the KV shift: the dense layer imports
+    src.core.ame._shift1 when it runs, AME calls it directly."""
+    import src.core.ame as ame
+
+    seen = []
+    real = ame._shift1
+    monkeypatch.setattr(ame, "_shift1", lambda t: (seen.append(t.dtype), real(t))[1])
+    return seen
+
+
+LAYERS = [
+    pytest.param({"type": "gqa", "qk_norm": True, "shift": True}, id="dense"),
+    pytest.param({"type": "ame"}, id="ame"),
+]
+
+
+def _forward(layer, attention, x):
+    if attention["type"] == "ame":
+        ids = torch.randint(0, DIMS["vocab_size"], x.shape[:2])
+        return layer(x, ids)
+    return layer(x)
+
+
+@pytest.mark.parametrize("attention", LAYERS)
+def test_qk_norm_keeps_q_and_k_in_the_compute_dtype(attention, monkeypatch):
+    """CUDA autocast runs F.normalize in fp32, which promoted q and k: the
+    shift, RoPE, tau and repeat_kv then ran in fp32 until the kernel cast them
+    back. Both layers cast straight back to the compute dtype
+    (documents/notes/review_issues.md, N7). Emulated on the CPU, whose autocast
+    keeps the norm in bf16, with a normalize that returns fp32 as CUDA's does."""
+    real_normalize = F.normalize
+    monkeypatch.setattr(
+        F, "normalize", lambda t, *a, **kw: real_normalize(t.float(), *a, **kw)
+    )
+    seen = _spy_on_the_mix(monkeypatch)
+    layer = _build(attention).to(torch.bfloat16)
+    out = _forward(layer, attention, _x().to(torch.bfloat16))
+    assert seen and all(dtype == torch.bfloat16 for dtype in seen), seen
+    assert out.dtype == torch.bfloat16
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("attention", LAYERS)
+def test_qk_norm_stays_in_bf16_under_cuda_autocast(attention, monkeypatch):
+    """The same on the GPU, under the real autocast the runs use (N7)."""
+    seen = _spy_on_the_mix(monkeypatch)
+    layer = _build(attention).cuda()
+    with torch.autocast("cuda", dtype=torch.bfloat16):
+        _forward(layer, attention, _x().cuda())
+    assert seen and all(dtype == torch.bfloat16 for dtype in seen), seen
+
+
 def test_tau_learns_and_stays_out_of_weight_decay():
     layer = _build({"type": "gqa", "qk_norm": True})
     layer(_x()).square().mean().backward()
