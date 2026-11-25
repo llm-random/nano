@@ -1,4 +1,3 @@
-import random
 from omegaconf import OmegaConf
 import platform
 import os
@@ -53,8 +52,6 @@ def get_env_vars_placeholders_export():
 
 
 OmegaConf.register_new_resolver("__llmrandom_cluster_config", get_cluster_name)
-
-OmegaConf.register_new_resolver("random_seed", lambda: random.randint(0, 100000))
 
 OmegaConf.register_new_resolver("eval", eval)
 

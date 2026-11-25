@@ -27,6 +27,11 @@ trainer:
       # Both dataloaders must carry the same number or the slices stop being disjoint.
       holdout: train
       holdout_rows: 262144
+    # Part of the data order, not only of the speed: the HF dataset hands each
+    # loader worker its own subset of the 64 shards, and the loader takes batches
+    # from the workers in turn, so another count trains on the same rows in another
+    # order (0 and 1 agree; 2 and 4 do not). Every FineWeb run so far used 2
+    # (documents/notes/review_issues.md, second audit).
     num_workers: 2
 
   eval_dataloader:

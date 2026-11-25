@@ -90,7 +90,14 @@ SWITCHES = [
         )
         for gate in ("confidence", "context", "backoff", "stem")
     ],
+    ("dense NoPE", DENSE, DENSE + ["++common.attention.gqa={rope: false}"], ()),
     ("attention type", DENSE, AME, ("attention_layer.layer",)),
+    (
+        "mha against gqa",
+        DENSE,
+        ["common.attention.type=mha"],
+        ("attention_layer.layer",),
+    ),
     (
         "an AME layer in a dense stack",
         DENSE,
