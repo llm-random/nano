@@ -2,9 +2,10 @@
 
 **Status (2026-11-25): applied.** Every item was applied on `ame_main` the same day, after
 the commits were restored from `ame_main_backup_2026-11-25`: see
-[Outcome](#outcome-2026-11-25). Still open: the review of the standard-models merge (I1),
-which comes next, and the push, on Maciej's word. Analyses and ablations for later are in
-[review_upgrades.md](review_upgrades.md).
+[Outcome](#outcome-2026-11-25). The review of the standard-models merge (I1) followed: it found
+no bug in what the six standard runs compute, and nine smaller findings, which wait for
+Maciej's decision ([Second pass](#second-pass-new-findings-2026-11-25)). The push waits for
+Maciej's word. Analyses and ablations for later are in [review_upgrades.md](review_upgrades.md).
 
 - **Sources:** [rev1.md](rev1.md) and [rev2.md](rev2.md), each with Maciej's response, plus
   rev2's reply. Every item was re-checked against the staged tree.
@@ -36,7 +37,7 @@ adds this section.
 
 | # | Outcome | Commit |
 |---|---|---|
-| I1 | Next: the full review of the merge, by the session that applied these fixes | — |
+| I1 | Done: three independent reviewers (the model and attention; the optimizer, schedule and token budget; the six standard configs), every claim then checked against the code. No bug in what the six standard runs compute; nine findings in [Second pass](#second-pass-new-findings-2026-11-25) | — |
 | I2 | Done: `ame_main` restored from `ame_main_backup_2026-11-25` (`27d96faf`), the fixes committed on top. Nothing pushed | — |
 | I3 | Done. The headers also name σ, whose default changed with I17, and the overrides that restore both (composed and checked) | `e76763b3` |
 | I4 | Done. The bullet also names σ | this commit |
@@ -61,6 +62,44 @@ adds this section.
 | I23 | Done: the report gives the number of sequences measured, and the one requested | `2f6cd9f7` |
 | I24 | Done | `2f6cd9f7` |
 | I25-I27 | No action, as decided | — |
+
+## Second pass: new findings (2026-11-25)
+
+I1's review, run after the fixes. **None of these changes what the six standard runs
+compute.** All are proposals, waiting for Maciej's decision; nothing here is applied.
+
+| # | Severity | Issue | Where | Proposed fix | Found by |
+|---|---|---|---|---|---|
+| N1 | Risk, introduced by I17 | An AME layer with QK-norm off now starts with attention uniform up to ALiBi and the sink. At the default σ = 1e-4 its raw scores have std ~8e-9 (0.82 at σ = 1), and with QK-norm off its τ is frozen at 1/√d. Reached by `common.attention.qk_norm: false` or `ame: {qk_norm: false}` without `bank_init_std`; no committed config does that | [ame.py:346](../../src/core/ame.py#L346) (the default), [ame.py:429-433](../../src/core/ame.py#L429-L433) (τ) | Default `bank_init_std=None`, meaning 1e-4 with QK-norm on and 1.0 with it off (the σ grid measured only QK-norm on), plus a test that a QK-norm-off layer starts at score std ≈ 1 | Reviewer A |
+| N2 | Risk, low | A checkpoint written since the merge, resumed by code from before it, anneals to LR 0 instead of 0.1 × LR: `CosineAnnealingToFraction` passes `eta_min=0.0` to its parent, which saves it in the scheduler state, and the old `CosineAnnealingLR` reads it | [schedulers.py:84](../../src/core/schedulers.py#L84) | Pass `eta_min` = `final_lr_fraction` × group 0's base lr. The new `get_lr` never reads it, so the LR trace and its bit-exact test do not change | Reviewer B |
+| N3 | Risk, low | A weights-only load still loads the optimizer and scheduler states before discarding them, so it fails when the checkpoint's parameter groups differ, e.g. a pre-merge (ratio 1) AME checkpoint into a ratio-4 run (`ValueError`). Under memory parallelism the sidecar also restores the banks' Adam moments, and the `only_weights` rebuild keeps them: it skips the controller's optimizer | [checkpointing.py:116-149](../../src/core/checkpointing.py#L116-L149), [main.py:409-440](../../main.py#L409-L440), [memory_parallel.py:638](../../src/core/memory_parallel.py#L638) | Under `only_weights`, load only the model and the banks' masters. Reword the `bank_lr_ratio` comment in `configs/_trainer/llama.yaml`, which implies only a resume is affected | Reviewer B |
+| N4 | Nit, docs | `steps_for_tokens` says it follows the hand-written step counts (512 × 2,048 tokens per step), but it multiplies by `common.sequence_length`, 2049 in every standard config: `n_tokens_b` 4, 8 and 16 give 3812, 7625 and 15251 steps against 3815, 7630 and 15259. Rounding explains one step of each gap. No planned run is affected: all six set `n_steps` | [definitions.py:260](../../src/definitions.py#L260) docstring, [ame_improve_runs_report.md:224-225](ame_improve_runs_report.md#L224-L225), [test_training_tokens.py:42](../../tests/test_training_tokens.py#L42) | Correct the three texts. Keep the semantics: the two `ame_improve` runs resolved with them | Reviewer B |
+| N5 | Nit, tooling | `run_exp.py` cannot submit a token-budget sweep (`^n_tokens_b`, or `^batch_size` / `^sequence_length` with a token budget): `check_missing_keys` runs on the unexpanded config. It fails loudly on the laptop, before anything is pushed; the tests cover only `check_point` | [run_exp.py:312](../../run_exp.py#L312) | Run the missing-key check on each expanded grid point | Reviewer B |
+| N6 | Nit, comment | "Drawn after the projections, so a seed builds the same projections either way" holds for this layer's projections, but the shift's two draws advance the global RNG, so everything built after them (this block's FF, later blocks, the head) starts differently with the shift on. So the settle-run shift corners (`aak55dd1`, `chne4w91`) are paired with their baselines in data order, not in init; the QK-norm corners in both | [model.py:314-315](../../src/core/model.py#L314-L315) | Correct the comment. Keep the draw where it is: moving it would change the standard dense init away from `chne4w91` | Reviewer A |
+| N7 | Note, performance | Under autocast, dense QK-norm's `F.normalize` runs in fp32 and promotes q and k, so the shift, RoPE, τ and `repeat_kv` run in fp32 until SDPA casts back; likely part of QK-norm's +4 GiB. Under FSDP2 (h20) they run in bf16 | [model.py:337-338](../../src/core/model.py#L337-L338) | None: keep it comparable with `chne4w91` | Reviewer A |
+| N8 | Nit, naming | The h12 run names and tags are taken in W&B: `std_ame_h12_lr8` is `zs1bceoy` (the spiked reproduction), `std_dense_h12_lr8` is `q2yrtd9t`. h16 and h20 are unused | [ame_h12.yaml:60](../../configs/standard/ame_h12.yaml#L60), [dense_h12.yaml:56](../../configs/standard/dense_h12.yaml#L56) | Only if h12 is rerun: a suffix at submit, e.g. `infrastructure.metric_logger.name=std_ame_h12_lr8_r2` | Reviewer C |
+| N9 | Watch | `ame_h20` will be the first GPU run of `ddfcd2fa`, the banks' grad norm under FSDP2 | `clip_gradient` in [trainer.py](../../src/core/trainer.py) | At its 2-minute check: `train/grad_norm/banks` logged, about 2.96 s/step | Reviewer C |
+
+**Checked and fine in this pass:**
+- **The six standard configs** match the spec. Each differs from its source only in what
+  step 6 lists; AME and dense at each size differ only in the attention, `mem_parallel_size`
+  and, at h16 and h20, the learning rate. Seed, data order, batch, tokens, schedule, eval,
+  clipping and weight decay are identical. There are no leftovers (document mask, gates,
+  smoke or profiling flags), and the time limits leave wide margins (reviewer C).
+- **The banks' learning rate** is exactly 4 × the backbone's at every step on both paths
+  (bank group and controller), including resumes at 11 points; `bank_lr_ratio: 1` rebuilds
+  the pre-merge optimizer; group 0 is always a backbone group. The joint clip is right with
+  no process group, under DDP and under FSDP2 (`mem_parallel_size` 1, 2, 4), and the new
+  readout's collective neither changes it nor can deadlock. `n_tokens_b` is resolved before
+  anything reads `n_steps` (reviewer B).
+- **Dense QK-norm and KV shift** match the spec: l2 per head, τ per q head from 8 applied
+  after RoPE with SDPA's scale at 1 (no double scaling), within 3e-7 of a hand-written
+  reference; the order QK-norm, shift, RoPE, τ; no wrap; per-KV-head coefficients; τ, α, β
+  without weight decay; the stack-wide switches keep each type's default and refuse a
+  contradiction. FSDP2 forward, backward and step work. Every rank runs the AME readout's
+  collective (reviewer A).
+- **Tests on `ba2892b3`:** CPU 523 passed; `pytest -m gpu` 13 passed and
+  `tests/test_distributed.py` 4 passed on LEM (H100, node r18-15).
 
 ## All items
 
