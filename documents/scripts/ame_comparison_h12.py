@@ -86,7 +86,8 @@ def per_block(df, sub, metric):
 
 def ame_readout(df, key):
     cols = {
-        b: df[f"encoder.blocks.{b}.attention_layer.layer/{key}"] for b in range(N_BLOCKS)
+        b: df[f"encoder.blocks.{b}.attention_layer.layer/{key}"]
+        for b in range(N_BLOCKS)
     }
     return pd.DataFrame(cols).dropna(how="all")
 
@@ -121,8 +122,17 @@ def _md(rows, header):
 
 
 PHASES = [
-    (0, 38), (38, 100), (100, 300), (300, 600), (600, 1000), (1000, 1500),
-    (1500, 2000), (2000, 2500), (2500, 3000), (3000, 3500), (3500, 3815),
+    (0, 38),
+    (38, 100),
+    (100, 300),
+    (300, 600),
+    (600, 1000),
+    (1000, 1500),
+    (1500, 2000),
+    (2000, 2500),
+    (2500, 3000),
+    (3000, 3500),
+    (3500, 3815),
 ]
 
 
@@ -133,13 +143,23 @@ def cmd_tables():
     rows = []
     for label, df in (("AME", a), ("dense", d)):
         st = series(df, "train/step_time").loc[100:]
-        rows.append([
-            label, RUNS[label], f"{series(df, 'final_ce').iloc[-1]:.4f}",
-            f"{series(df, 'eval/loss').iloc[-1]:.4f}", f"{st.median():.3f}",
-            f"{series(df, 'train/max_memory_gib').iloc[-1]:.1f}",
-            f"{df['_runtime'].max() / 3600:.2f}",
-        ])
-    print(_md(rows, ["run", "W&B", "final_ce", "last eval", "s/step", "peak GiB", "runtime h"]))
+        rows.append(
+            [
+                label,
+                RUNS[label],
+                f"{series(df, 'final_ce').iloc[-1]:.4f}",
+                f"{series(df, 'eval/loss').iloc[-1]:.4f}",
+                f"{st.median():.3f}",
+                f"{series(df, 'train/max_memory_gib').iloc[-1]:.1f}",
+                f"{df['_runtime'].max() / 3600:.2f}",
+            ]
+        )
+    print(
+        _md(
+            rows,
+            ["run", "W&B", "final_ce", "last eval", "s/step", "peak GiB", "runtime h"],
+        )
+    )
 
     gap = paired_gap(a, d)
     print(f"\ncrossover (50-step mean gap stays > 0 from): step {crossover(gap)}")
@@ -154,30 +174,59 @@ def cmd_tables():
         s0 = ed.index[ed.index.get_loc(s1) - 1]
         frac = (ed.loc[s0] - target) / (ed.loc[s0] - ed.loc[s1])
         step = s0 + frac * (s1 - s0)
-        print(f"dense eval first reaches AME's last eval {target:.4f} at step ~{step:.0f} "
-              f"({step / 3815:.0%} of the run, {step * 1048576 / 1e9:.2f}B tokens)")
+        print(
+            f"dense eval first reaches AME's last eval {target:.4f} at step ~{step:.0f} "
+            f"({step / 3815:.0%} of the run, {step * 1048576 / 1e9:.2f}B tokens)"
+        )
 
     print("\n## Paired train-loss gap and grad norm by phase\n")
     ga, gd = series(a, "train/grad_norm"), series(d, "train/grad_norm")
     rows = []
     for lo, hi in PHASES:
-        g = gap.loc[lo:hi - 1]
-        rows.append([
-            f"{lo}-{hi - 1}", f"{g.mean():+.4f}", f"{(g < 0).mean():.0%}",
-            f"{ga.loc[lo:hi - 1].median():.3f}", f"{gd.loc[lo:hi - 1].median():.3f}",
-            f"{ga.loc[lo:hi - 1].median() / gd.loc[lo:hi - 1].median():.2f}",
-            f"{ga.loc[lo:hi - 1].max():.2f}", f"{gd.loc[lo:hi - 1].max():.2f}",
-            f"{int((ga.loc[lo:hi - 1] > CLIP).sum())} / {int((gd.loc[lo:hi - 1] > CLIP).sum())}",
-        ])
-    print(_md(rows, ["steps", "gap AME-dense", "AME lower", "gnorm median AME",
-                     "dense", "ratio", "max AME", "max dense", "clipped AME / dense"]))
+        g = gap.loc[lo : hi - 1]
+        rows.append(
+            [
+                f"{lo}-{hi - 1}",
+                f"{g.mean():+.4f}",
+                f"{(g < 0).mean():.0%}",
+                f"{ga.loc[lo:hi - 1].median():.3f}",
+                f"{gd.loc[lo:hi - 1].median():.3f}",
+                f"{ga.loc[lo:hi - 1].median() / gd.loc[lo:hi - 1].median():.2f}",
+                f"{ga.loc[lo:hi - 1].max():.2f}",
+                f"{gd.loc[lo:hi - 1].max():.2f}",
+                f"{int((ga.loc[lo:hi - 1] > CLIP).sum())} / {int((gd.loc[lo:hi - 1] > CLIP).sum())}",
+            ]
+        )
+    print(
+        _md(
+            rows,
+            [
+                "steps",
+                "gap AME-dense",
+                "AME lower",
+                "gnorm median AME",
+                "dense",
+                "ratio",
+                "max AME",
+                "max dense",
+                "clipped AME / dense",
+            ],
+        )
+    )
 
     print("\n## Loss spikes (stage_1_report.md rule, full history)\n")
     for label, df in (("AME", a), ("dense", d)):
         s = spikes(df)
         loss = series(df, "train/loss")
-        print(f"{label}: " + (", ".join(f"step {k} loss {loss.loc[k]:.2f} (+{v:.2f})"
-                                       for k, v in s.items()) or "none"))
+        print(
+            f"{label}: "
+            + (
+                ", ".join(
+                    f"step {k} loss {loss.loc[k]:.2f} (+{v:.2f})" for k, v in s.items()
+                )
+                or "none"
+            )
+        )
 
     end = 3800
     print(f"\n## Per block at step {end}\n")
@@ -193,21 +242,61 @@ def cmd_tables():
         }
     for b in range(N_BLOCKS):
         A, D = (blocks[k] for k in ("AME", "dense"))
-        rows.append([b] + [
-            f"{A[m][b]:.{p}f} / {D[m][b]:.{p}f} ({A[m][b] / D[m][b]:.2f})"
-            for m, p in (("stream", 0), ("attn_u", 1), ("attn", 3), ("ff_u", 1), ("ff", 3))
-        ])
-    print(_md(rows, ["block", "stream norm into attention", "attention update norm",
-                     "attention update/stream", "FF update norm", "FF update/stream"]))
+        rows.append(
+            [b]
+            + [
+                f"{A[m][b]:.{p}f} / {D[m][b]:.{p}f} ({A[m][b] / D[m][b]:.2f})"
+                for m, p in (
+                    ("stream", 0),
+                    ("attn_u", 1),
+                    ("attn", 3),
+                    ("ff_u", 1),
+                    ("ff", 3),
+                )
+            ]
+        )
+    print(
+        _md(
+            rows,
+            [
+                "block",
+                "stream norm into attention",
+                "attention update norm",
+                "attention update/stream",
+                "FF update norm",
+                "FF update/stream",
+            ],
+        )
+    )
 
     print(f"\n## AME readouts per layer, step 0 -> step {end}\n")
-    keys = ["tau/mean", "alpha_2/mean", "alpha_2/absmean", "beta_2/mean",
-            "attention_entropy/normalized", "top8_mass/mean"]
+    keys = [
+        "tau/mean",
+        "alpha_2/mean",
+        "alpha_2/absmean",
+        "beta_2/mean",
+        "attention_entropy/normalized",
+        "top8_mass/mean",
+    ]
     tabs = {k: ame_readout(a, k) for k in keys}
-    rows = [[b] + [f"{tabs[k].loc[0][b]:.2f} -> {tabs[k].loc[end][b]:.2f}" for k in keys]
-            for b in range(N_BLOCKS)]
-    print(_md(rows, ["layer", "tau", "alpha_2 mean", "alpha_2 |mean|", "beta_2 mean",
-                     "entropy (normalized)", "top-8 mass"]))
+    rows = [
+        [b] + [f"{tabs[k].loc[0][b]:.2f} -> {tabs[k].loc[end][b]:.2f}" for k in keys]
+        for b in range(N_BLOCKS)
+    ]
+    print(
+        _md(
+            rows,
+            [
+                "layer",
+                "tau",
+                "alpha_2 mean",
+                "alpha_2 |mean|",
+                "beta_2 mean",
+                "entropy (normalized)",
+                "top-8 mass",
+            ],
+        )
+    )
 
 
 # ------------------------------------------------------------------------ figures
@@ -236,18 +325,35 @@ def _end_labels(ax, ends, min_px=12):
     fig = ax.figure
     fig.canvas.draw()
     placed = []
-    for x, y, text in sorted(ends, key=lambda e: ax.transData.transform((e[0], e[1]))[1]):
+    for x, y, text in sorted(
+        ends, key=lambda e: ax.transData.transform((e[0], e[1]))[1]
+    ):
         px = ax.transData.transform((x, y))[1]
         target = px if not placed else max(px, placed[-1] + min_px)
         placed.append(target)
-        ax.annotate(text, (x, y), xytext=(6, (target - px) * 72 / fig.dpi),
-                    textcoords="offset points", va="center", fontsize=8, color=INK2)
+        ax.annotate(
+            text,
+            (x, y),
+            xytext=(6, (target - px) * 72 / fig.dpi),
+            textcoords="offset points",
+            va="center",
+            fontsize=8,
+            color=INK2,
+        )
 
 
 def _hline(ax, y, text):
     ax.axhline(y, color=MUTED, linewidth=0.8, zorder=1)
-    ax.annotate(text, (1.0, y), xycoords=("axes fraction", "data"), xytext=(-2, 3),
-                textcoords="offset points", ha="right", fontsize=7.5, color=MUTED)
+    ax.annotate(
+        text,
+        (1.0, y),
+        xycoords=("axes fraction", "data"),
+        xytext=(-2, 3),
+        textcoords="offset points",
+        ha="right",
+        fontsize=7.5,
+        color=MUTED,
+    )
 
 
 def _save(fig, out_dir, name, title):
@@ -259,19 +365,32 @@ def _save(fig, out_dir, name, title):
 
 
 def fig_loss(a, d, out_dir, plt):
-    fig, (top, bot) = plt.subplots(2, 1, figsize=(9, 6.4), sharex=True,
-                                   gridspec_kw={"height_ratios": [1.15, 1]})
+    fig, (top, bot) = plt.subplots(
+        2, 1, figsize=(9, 6.4), sharex=True, gridspec_kw={"height_ratios": [1.15, 1]}
+    )
     fig.patch.set_facecolor(SURFACE)
     ends = []
     for label, df in (("dense", d), ("AME", a)):
-        loss = series(df, "train/loss").rolling(SMOOTH, center=True, min_periods=1).mean()
+        loss = (
+            series(df, "train/loss").rolling(SMOOTH, center=True, min_periods=1).mean()
+        )
         loss = loss.loc[30:]
-        top.plot(loss.index, loss.values, color=COLOUR[label], linewidth=1.8, label=label)
-        ends.append((loss.index[-1], loss.iloc[-1],
-                     f"{label}  final_ce {series(df, 'final_ce').iloc[-1]:.4f}"))
+        top.plot(
+            loss.index, loss.values, color=COLOUR[label], linewidth=1.8, label=label
+        )
+        ends.append(
+            (
+                loss.index[-1],
+                loss.iloc[-1],
+                f"{label}  final_ce {series(df, 'final_ce').iloc[-1]:.4f}",
+            )
+        )
     top.set_ylim(2.9, 7.0)
-    _style(top, ylabel=f"train loss ({SMOOTH}-step mean)",
-           title="Train loss: the same batches, in the same order")
+    _style(
+        top,
+        ylabel=f"train loss ({SMOOTH}-step mean)",
+        title="Train loss: the same batches, in the same order",
+    )
     top.legend(fontsize=8, frameon=False, loc="upper right")
     top.margins(x=0.02)
     top.set_xlim(0, 4500)
@@ -279,34 +398,65 @@ def fig_loss(a, d, out_dir, plt):
 
     gap = paired_gap(a, d)
     smooth = gap.rolling(SMOOTH, center=True, min_periods=1).mean()
-    bot.plot(smooth.index, smooth.values, color=INK, linewidth=1.6,
-             label=f"train loss, {SMOOTH}-step mean of the per-step gap")
+    bot.plot(
+        smooth.index,
+        smooth.values,
+        color=INK,
+        linewidth=1.6,
+        label=f"train loss, {SMOOTH}-step mean of the per-step gap",
+    )
     eg = (series(a, "eval/loss") - series(d, "eval/loss")).dropna()
-    bot.scatter(eg.index, eg.values, s=14, color=MUTED, zorder=3,
-                label="eval loss (10 batches, bf16 steps of 1/64)")
+    bot.scatter(
+        eg.index,
+        eg.values,
+        s=14,
+        color=MUTED,
+        zorder=3,
+        label="eval loss (10 batches, bf16 steps of 1/64)",
+    )
     _hline(bot, 0, "")
     x0 = crossover(gap)
     bot.axvline(x0, color=AXIS, linewidth=0.8)
-    bot.annotate(f"AME behind from step {x0}", (x0, -0.1), xytext=(6, 0),
-                 textcoords="offset points", fontsize=8, color=INK2)
+    bot.annotate(
+        f"AME behind from step {x0}",
+        (x0, -0.1),
+        xytext=(6, 0),
+        textcoords="offset points",
+        fontsize=8,
+        color=INK2,
+    )
     floor = -0.35
     low = smooth.loc[180:230].min()
-    bot.annotate(f"dense loss spike, steps 194-212\n(the gap reaches {low:.2f}, off scale)",
-                 (198, floor), xytext=(150, 22), textcoords="offset points", fontsize=8,
-                 color=INK2, arrowprops=dict(arrowstyle="-", color=MUTED, linewidth=0.7))
+    bot.annotate(
+        f"dense loss spike, steps 194-212\n(the gap reaches {low:.2f}, off scale)",
+        (198, floor),
+        xytext=(150, 22),
+        textcoords="offset points",
+        fontsize=8,
+        color=INK2,
+        arrowprops=dict(arrowstyle="-", color=MUTED, linewidth=0.7),
+    )
     bot.set_ylim(floor, 0.2)
-    _style(bot, xlabel="step  (1 step = 1,048,576 tokens)",
-           ylabel="AME minus dense (nats)",
-           title="The gap: below zero, AME is ahead")
+    _style(
+        bot,
+        xlabel="step  (1 step = 1,048,576 tokens)",
+        ylabel="AME minus dense (nats)",
+        title="The gap: below zero, AME is ahead",
+    )
     bot.legend(fontsize=8, frameon=False, loc="lower right")
-    _save(fig, out_dir, "h12_loss.png",
-          "AME (S2-PS) against dense (S1-D), h12, n = 8: loss")
+    _save(
+        fig,
+        out_dir,
+        "h12_loss.png",
+        "AME (S2-PS) against dense (S1-D), h12, n = 8: loss",
+    )
     plt.close(fig)
 
 
 def fig_grad_norm(a, d, out_dir, plt):
-    fig, (top, bot) = plt.subplots(2, 1, figsize=(9, 6.4), sharex=True,
-                                   gridspec_kw={"height_ratios": [1.4, 1]})
+    fig, (top, bot) = plt.subplots(
+        2, 1, figsize=(9, 6.4), sharex=True, gridspec_kw={"height_ratios": [1.4, 1]}
+    )
     fig.patch.set_facecolor(SURFACE)
     meds = {}
     ends = []
@@ -319,15 +469,30 @@ def fig_grad_norm(a, d, out_dir, plt):
         ends.append((med.index[-1], med.iloc[-1], f"{label}  {med.iloc[-1]:.3f}"))
     top.set_yscale("log")
     _hline(top, CLIP, "clipping threshold 1.0")
-    top.annotate("step 10: one batch, both spike\n(AME 46.5, dense 15.9)", (10, 40),
-                 xytext=(40, -4), textcoords="offset points", fontsize=8, color=INK2,
-                 arrowprops=dict(arrowstyle="-", color=MUTED, linewidth=0.7))
-    top.annotate("dense, steps 194-200\n(peak 2.58 at step 198)", (198, 2.58),
-                 xytext=(40, 6), textcoords="offset points", fontsize=8, color=INK2,
-                 arrowprops=dict(arrowstyle="-", color=MUTED, linewidth=0.7))
+    top.annotate(
+        "step 10: one batch, both spike\n(AME 46.5, dense 15.9)",
+        (10, 40),
+        xytext=(40, -4),
+        textcoords="offset points",
+        fontsize=8,
+        color=INK2,
+        arrowprops=dict(arrowstyle="-", color=MUTED, linewidth=0.7),
+    )
+    top.annotate(
+        "dense, steps 194-200\n(peak 2.58 at step 198)",
+        (198, 2.58),
+        xytext=(40, 6),
+        textcoords="offset points",
+        fontsize=8,
+        color=INK2,
+        arrowprops=dict(arrowstyle="-", color=MUTED, linewidth=0.7),
+    )
     top.set_xlim(0, 4500)
-    _style(top, ylabel="grad norm, before clipping",
-           title=f"Total gradient norm: every step (faint) and its {SMOOTH}-step median")
+    _style(
+        top,
+        ylabel="grad norm, before clipping",
+        title=f"Total gradient norm: every step (faint) and its {SMOOTH}-step median",
+    )
     top.legend(fontsize=8, frameon=False, loc="upper right")
     _end_labels(top, ends)
 
@@ -335,32 +500,54 @@ def fig_grad_norm(a, d, out_dir, plt):
     bot.plot(ratio.index, ratio.values, color=INK, linewidth=1.6)
     _hline(bot, 1.0, "equal")
     bot.set_ylim(0.4, 1.6)
-    _style(bot, xlabel="step", ylabel="AME / dense",
-           title=f"Ratio of the {SMOOTH}-step medians, after warmup")
-    _save(fig, out_dir, "h12_grad_norm.png",
-          "AME (S2-PS) against dense (S1-D), h12, n = 8: gradient norm")
+    _style(
+        bot,
+        xlabel="step",
+        ylabel="AME / dense",
+        title=f"Ratio of the {SMOOTH}-step medians, after warmup",
+    )
+    _save(
+        fig,
+        out_dir,
+        "h12_grad_norm.png",
+        "AME (S2-PS) against dense (S1-D), h12, n = 8: gradient norm",
+    )
     plt.close(fig)
 
 
 def fig_depth(a, d, out_dir, plt, step=3800):
     from matplotlib.ticker import FixedLocator, FormatStrFormatter, NullFormatter
 
-    ticks = {"attention": [0.08, 0.1, 0.15, 0.2, 0.3, 0.4],
-             "feedforward": [0.25, 0.3, 0.4, 0.5, 0.7, 1, 1.5, 2, 3]}
+    ticks = {
+        "attention": [0.08, 0.1, 0.15, 0.2, 0.3, 0.4],
+        "feedforward": [0.25, 0.3, 0.4, 0.5, 0.7, 1, 1.5, 2, 3],
+    }
     fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
     fig.patch.set_facecolor(SURFACE)
     panels = [
         ("attention", "residual_norms", "stream norm entering the block", False),
         ("attention", "update_to_residual_ratio", "attention update / stream", True),
-        ("feedforward", "update_to_residual_ratio", "feed-forward update / stream", True),
+        (
+            "feedforward",
+            "update_to_residual_ratio",
+            "feed-forward update / stream",
+            True,
+        ),
     ]
     blocks = np.arange(N_BLOCKS)
     for ax, (sub, metric, title, log) in zip(axes, panels):
         ends = []
         for label, df in (("dense", d), ("AME", a)):
             v = per_block(df, sub, metric).loc[step].values
-            ax.plot(blocks, v, color=COLOUR[label], linewidth=1.8, marker="o",
-                    markersize=4.5, label=label)
+            ax.plot(
+                blocks,
+                v,
+                color=COLOUR[label],
+                linewidth=1.8,
+                marker="o",
+                markersize=4.5,
+                label=label,
+            )
             ends.append((blocks[-1], v[-1], label))
         if log:
             ax.set_yscale("log")
@@ -372,8 +559,12 @@ def fig_depth(a, d, out_dir, plt, step=3800):
         _style(ax, xlabel="block", title=title)
         _end_labels(ax, ends)
     axes[0].legend(fontsize=8, frameon=False, loc="upper left")
-    _save(fig, out_dir, "h12_depth_profile.png",
-          f"Per block, step {step} (end of training), mean over the step's 16 micro-batches")
+    _save(
+        fig,
+        out_dir,
+        "h12_depth_profile.png",
+        f"Per block, step {step} (end of training), mean over the step's 16 micro-batches",
+    )
     plt.close(fig)
 
 
@@ -383,24 +574,40 @@ def fig_ratio_heatmap(a, d, out_dir, plt):
     cmap = LinearSegmentedColormap.from_list("ame_dense", DIVERGING)
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.4))
     fig.patch.set_facecolor(SURFACE)
-    for ax, sub, title in ((axes[0], "attention", "attention update / stream"),
-                           (axes[1], "feedforward", "feed-forward update / stream")):
+    for ax, sub, title in (
+        (axes[0], "attention", "attention update / stream"),
+        (axes[1], "feedforward", "feed-forward update / stream"),
+    ):
         ra = per_block(a, sub, "update_to_residual_ratio")
         rd = per_block(d, sub, "update_to_residual_ratio")
         z = np.log2((ra / rd).T.values)  # [block x step]
         steps = ra.index.values
-        im = ax.imshow(z, aspect="auto", cmap=cmap, vmin=-2, vmax=2, interpolation="nearest",
-                       extent=(steps[0] - 50, steps[-1] + 50, N_BLOCKS - 0.5, -0.5))
+        im = ax.imshow(
+            z,
+            aspect="auto",
+            cmap=cmap,
+            vmin=-2,
+            vmax=2,
+            interpolation="nearest",
+            extent=(steps[0] - 50, steps[-1] + 50, N_BLOCKS - 0.5, -0.5),
+        )
         ax.set_yticks(range(N_BLOCKS))
         _style(ax, xlabel="step", ylabel="block", title=title)
         ax.grid(False)
     cbar = fig.colorbar(im, ax=axes, fraction=0.025, pad=0.02, ticks=[-2, -1, 0, 1, 2])
     cbar.ax.set_yticklabels(["1/4x", "1/2x", "1x", "2x", "4x"], fontsize=8, color=INK2)
-    cbar.set_label("AME / dense   (red: AME writes more; blue: dense does)", fontsize=8,
-                   color=INK2)
+    cbar.set_label(
+        "AME / dense   (red: AME writes more; blue: dense does)", fontsize=8, color=INK2
+    )
     cbar.outline.set_visible(False)
-    fig.suptitle("How much each sublayer writes into the residual stream, AME relative to "
-                 "dense", fontsize=11, x=0.01, ha="left", color=INK)
+    fig.suptitle(
+        "How much each sublayer writes into the residual stream, AME relative to "
+        "dense",
+        fontsize=11,
+        x=0.01,
+        ha="left",
+        color=INK,
+    )
     path = os.path.join(out_dir, "h12_ratio_heatmap.png")
     fig.savefig(path, dpi=150, facecolor=SURFACE, bbox_inches="tight")
     print(f"wrote {path}")
@@ -422,8 +629,12 @@ def fig_stream(a, d, out_dir, plt, blocks=(2, 6, 11)):
         _end_labels(ax, ends)
     axes[0].set_ylabel("residual stream norm, per token", fontsize=9, color=INK2)
     axes[0].legend(fontsize=8, frameon=False, loc="upper right")
-    _save(fig, out_dir, "h12_stream_norm.png",
-          "Residual stream norm over training (logged every 100 steps)")
+    _save(
+        fig,
+        out_dir,
+        "h12_stream_norm.png",
+        "Residual stream norm over training (logged every 100 steps)",
+    )
     plt.close(fig)
 
 
@@ -445,26 +656,62 @@ def fig_ame_readouts(a, out_dir, plt, step=3800):
         else:
             mean = ame_readout(a, f"{key}/mean")
             lo, hi = ame_readout(a, f"{key}/min"), ame_readout(a, f"{key}/max")
-        ax.plot(layers, mean.loc[0].values, color=MUTED, linewidth=1.4, marker="o",
-                markersize=4, label="step 0 (init), mean over heads")
-        ax.plot(layers, mean.loc[step].values, color=COLOUR["AME"], linewidth=1.8,
-                marker="o", markersize=4.5, label=f"step {step}, mean over heads")
+        ax.plot(
+            layers,
+            mean.loc[0].values,
+            color=MUTED,
+            linewidth=1.4,
+            marker="o",
+            markersize=4,
+            label="step 0 (init), mean over heads",
+        )
+        ax.plot(
+            layers,
+            mean.loc[step].values,
+            color=COLOUR["AME"],
+            linewidth=1.8,
+            marker="o",
+            markersize=4.5,
+            label=f"step {step}, mean over heads",
+        )
         if lo is not None and hi is not None:
-            ax.fill_between(layers, lo.loc[step].values, hi.loc[step].values,
-                            color=COLOUR["AME"], alpha=0.15, linewidth=0,
-                            label=f"step {step}, min to max over heads")
+            ax.fill_between(
+                layers,
+                lo.loc[step].values,
+                hi.loc[step].values,
+                color=COLOUR["AME"],
+                alpha=0.15,
+                linewidth=0,
+                label=f"step {step}, min to max over heads",
+            )
         elif lo is not None:
-            ax.plot(layers, lo.loc[step].values, color=COLOUR["AME"], linewidth=1.0,
-                    alpha=0.6, label=f"step {step}, min over heads")
-            ax.annotate("min over heads", (layers[-1], lo.loc[step].values[-1]),
-                        xytext=(6, 0), textcoords="offset points", va="center",
-                        fontsize=8, color=INK2)
+            ax.plot(
+                layers,
+                lo.loc[step].values,
+                color=COLOUR["AME"],
+                linewidth=1.0,
+                alpha=0.6,
+                label=f"step {step}, min over heads",
+            )
+            ax.annotate(
+                "min over heads",
+                (layers[-1], lo.loc[step].values[-1]),
+                xytext=(6, 0),
+                textcoords="offset points",
+                va="center",
+                fontsize=8,
+                color=INK2,
+            )
             ax.set_xlim(-0.5, N_BLOCKS + 1.2)
         ax.set_xticks(layers)
         _style(ax, xlabel="layer", title=title)
     axes[0, 0].legend(fontsize=7.5, frameon=False, loc="upper left")
-    _save(fig, out_dir, "h12_ame_readouts.png",
-          "AME (S2-PS) only: its per-layer readouts, start and end of training")
+    _save(
+        fig,
+        out_dir,
+        "h12_ame_readouts.png",
+        "AME (S2-PS) only: its per-layer readouts, start and end of training",
+    )
     plt.close(fig)
 
 

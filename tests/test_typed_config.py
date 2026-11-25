@@ -159,7 +159,9 @@ def test_range_violation_fails_validate():
 
 
 def test_warmup_exceeding_n_steps_fails_validate():
-    cfg = _compose("tiny_local", ["trainer.n_steps=5", "trainer.scheduler.warmup_steps=10"])
+    cfg = _compose(
+        "tiny_local", ["trainer.n_steps=5", "trainer.scheduler.warmup_steps=10"]
+    )
     with pytest.raises(ValueError, match="warmup"):
         validate(cfg)
 

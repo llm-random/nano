@@ -3,12 +3,22 @@
 Multi-GPU only: the spread between ranks is the straggler/imbalance signal.
 Usage: python timers_by_rank.py <logfile> [lo hi]
 """
+
 import re
 import statistics
 import sys
 
 LINE = re.compile(r"timers_ms: (?:rank=(?P<rank>\d+) )?step=(?P<step>\d+) (?P<rest>.*)")
-SECTIONS = ("data_fetch", "data_h2d", "forward", "backward", "clip", "optim", "log", "step_total")
+SECTIONS = (
+    "data_fetch",
+    "data_h2d",
+    "forward",
+    "backward",
+    "clip",
+    "optim",
+    "log",
+    "step_total",
+)
 
 log = sys.argv[1]
 lo, hi = (int(sys.argv[2]), int(sys.argv[3])) if len(sys.argv) > 3 else (16, 29)
@@ -41,7 +51,13 @@ for rank in sorted(per_rank):
     print(row)
 
 if len(per_rank) > 1:
-    totals = {r: statistics.mean(v["step_total"]) for r, v in per_rank.items() if v["step_total"]}
+    totals = {
+        r: statistics.mean(v["step_total"])
+        for r, v in per_rank.items()
+        if v["step_total"]
+    }
     spread = max(totals.values()) - min(totals.values())
-    print(f"\nstep_total spread across ranks: {spread:.1f} ms "
-          f"({spread / min(totals.values()):.2%} of the fastest rank)")
+    print(
+        f"\nstep_total spread across ranks: {spread:.1f} ms "
+        f"({spread / min(totals.values()):.2%} of the fastest rank)"
+    )

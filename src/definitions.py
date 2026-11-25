@@ -334,10 +334,22 @@ def validate(cfg) -> None:
             problems.append(message)
 
     c = cfg.common
-    for name in ("h", "n_blocks", "dmodel", "dff", "dhead", "q_heads", "kv_heads",
-                 "vocab_size", "sequence_length", "batch_size"):
+    for name in (
+        "h",
+        "n_blocks",
+        "dmodel",
+        "dff",
+        "dhead",
+        "q_heads",
+        "kv_heads",
+        "vocab_size",
+        "sequence_length",
+        "batch_size",
+    ):
         value = getattr(c, name)
-        check(value is not None and value > 0, f"common.{name} must be > 0, got {value!r}")
+        check(
+            value is not None and value > 0, f"common.{name} must be > 0, got {value!r}"
+        )
     if c.q_heads and c.kv_heads:
         check(
             c.q_heads % c.kv_heads == 0,
@@ -352,7 +364,10 @@ def validate(cfg) -> None:
         f"trainer.learning_rate must be set and > 0, got {t.learning_rate!r} "
         "(the n = 2**-n convention still means a positive number)",
     )
-    check(t.weight_decay >= 0, f"trainer.weight_decay must be >= 0, got {t.weight_decay!r}")
+    check(
+        t.weight_decay >= 0,
+        f"trainer.weight_decay must be >= 0, got {t.weight_decay!r}",
+    )
     bank_lr_ratio = getattr(t, "bank_lr_ratio", DEFAULT_BANK_LR_RATIO)
     check(
         bank_lr_ratio is not None and bank_lr_ratio > 0,
@@ -381,15 +396,25 @@ def validate(cfg) -> None:
         "compiles a cross-entropy over logits that fused_linear_ce never "
         "builds, so the two cannot both apply.",
     )
-    check(t.eval_interval >= 0, f"trainer.eval_interval must be >= 0, got {t.eval_interval!r}")
-    check(t.n_eval_steps >= 0, f"trainer.n_eval_steps must be >= 0, got {t.n_eval_steps!r}")
+    check(
+        t.eval_interval >= 0,
+        f"trainer.eval_interval must be >= 0, got {t.eval_interval!r}",
+    )
+    check(
+        t.n_eval_steps >= 0,
+        f"trainer.n_eval_steps must be >= 0, got {t.n_eval_steps!r}",
+    )
 
     if t.n_steps is not None:
         # 0 is legitimate: finalize/conversion passes build a scheduler they
         # never step (see the assert in src/core/schedulers.py).
-        check(t.n_steps >= 0, f"trainer.n_steps must be null or >= 0, got {t.n_steps!r}")
+        check(
+            t.n_steps >= 0, f"trainer.n_steps must be null or >= 0, got {t.n_steps!r}"
+        )
         warmup = t.scheduler.warmup_steps
-        check(warmup >= 0, f"trainer.scheduler.warmup_steps must be >= 0, got {warmup!r}")
+        check(
+            warmup >= 0, f"trainer.scheduler.warmup_steps must be >= 0, got {warmup!r}"
+        )
         # Mirrors the assert in get_cosine_scheduler_with_warmup: the cosine
         # phase needs T_max >= 1, i.e. n_steps > warmup_steps + 1.
         check(

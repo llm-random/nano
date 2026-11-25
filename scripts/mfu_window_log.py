@@ -64,7 +64,9 @@ def main():
     losses = window("train/loss")
 
     print(f"window steps {lo}-{hi}  ({len(step_times)} steps)")
-    print(f"  step time    {mean_step * 1000:9.0f} ms  (cv {stdev_step / mean_step:.2%})")
+    print(
+        f"  step time    {mean_step * 1000:9.0f} ms  (cv {stdev_step / mean_step:.2%})"
+    )
     if tokens_per_s:
         print(f"  tokens/s     {statistics.mean(tokens_per_s):9,.0f}")
     if mfu:

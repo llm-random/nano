@@ -17,7 +17,9 @@ from run_exp import clone_command, sparse_exclude_names
 def test_no_exclusion_is_the_plain_full_clone():
     expected = "git clone --depth 1 -b exp git@host:cemetery.git /c/$USER/exp"
     assert clone_command("git@host:cemetery.git", "exp", "/c/$USER/exp", []) == expected
-    assert clone_command("git@host:cemetery.git", "exp", "/c/$USER/exp", None) == expected
+    assert (
+        clone_command("git@host:cemetery.git", "exp", "/c/$USER/exp", None) == expected
+    )
 
 
 def test_names_are_stripped_of_slashes():
@@ -29,7 +31,8 @@ def test_names_are_stripped_of_slashes():
 
 
 @pytest.mark.parametrize(
-    "bad", ["", "a b", "x;rm -rf ~", "../up", "src/core", "$HOME", ".", "..", ".git", "*"]
+    "bad",
+    ["", "a b", "x;rm -rf ~", "../up", "src/core", "$HOME", ".", "..", ".git", "*"],
 )
 def test_rejects_anything_but_a_plain_top_level_folder_name(bad):
     with pytest.raises(ValueError, match="sparse_exclude"):
@@ -57,7 +60,16 @@ def test_sparse_clone_leaves_out_only_the_named_top_level_folders(tmp_path):
 
     def git(*args, cwd):
         return subprocess.run(
-            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+            [
+                "git",
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+                *args,
+            ],
             cwd=cwd,
             check=True,
             capture_output=True,
