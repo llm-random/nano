@@ -10,9 +10,8 @@ infrastructure:
     tags:
       - nano
       - h12
-      - lr_tune
       - chinchilla
       - wsd
-      - param_groups
       - qk_norm
-      - batch_warmup
+      - bs64
+      - param_groups

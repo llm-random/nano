@@ -50,7 +50,7 @@ def build(option, h, n_blocks, lr, seq):
     torch.manual_seed(0)
     model = instantiate(cfg.model, _convert_="all")
     optimizer, _ = build_optimizer_and_scheduler(cfg, model, lr)
-    return model, optimizer
+    return model, optimizer, cfg.common.vocab_size
 
 
 def role_modules(model):
@@ -70,7 +70,7 @@ def rms(x):
 
 def coord_check(option, h, n_blocks, lr, steps, batch, seq):
     """Per role, after `steps` updates: mean over its modules of RMS(output), RMS(output - output at step 0)."""
-    model, optimizer = build(option, h, n_blocks, lr, seq)
+    model, optimizer, vocab_size = build(option, h, n_blocks, lr, seq)
     outputs = {}
     for role, modules in role_modules(model).items():
         for i, module in enumerate(modules):
@@ -80,7 +80,7 @@ def coord_check(option, h, n_blocks, lr, steps, batch, seq):
                 )
             )
     generator = torch.Generator().manual_seed(1)
-    tokens = torch.randint(0, 50304, (batch, seq + 1), generator=generator)
+    tokens = torch.randint(0, vocab_size, (batch, seq + 1), generator=generator)
     model(tokens[:, :-1])
     first = dict(outputs)
     for _ in range(steps):
