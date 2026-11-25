@@ -81,7 +81,17 @@ class CosineAnnealingToFraction(torch.optim.lr_scheduler.CosineAnnealingLR):
     def __init__(self, optimizer, T_max, final_lr_fraction, last_epoch=-1):
         # Before super().__init__: its initial step already calls get_lr.
         self.final_lr_fraction = final_lr_fraction
-        super().__init__(optimizer, T_max=T_max, eta_min=0.0, last_epoch=last_epoch)
+        # eta_min is never read here -- every group has its own floor (_floors) --
+        # but it is saved in each checkpoint's scheduler state, and code from
+        # before the per-group floors (torch's CosineAnnealingLR, one scalar
+        # eta_min) reads it on resume. So it carries the floor that code computed,
+        # the backbone's (group 0's): with 0 such a resume would anneal to 0
+        # instead (documents/notes/review_issues.md, N2).
+        group = optimizer.param_groups[0]
+        backbone_floor = final_lr_fraction * group.get("initial_lr", group["lr"])
+        super().__init__(
+            optimizer, T_max=T_max, eta_min=backbone_floor, last_epoch=last_epoch
+        )
 
     def _floors(self):
         return [self.final_lr_fraction * base_lr for base_lr in self.base_lrs]

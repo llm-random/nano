@@ -78,6 +78,41 @@ def test_one_lr_is_the_old_schedule_bit_for_bit(n_steps, warmup_steps):
     assert new == old
 
 
+def test_older_code_resumes_this_codes_checkpoint_on_the_same_schedule():
+    """A checkpoint carries the scheduler's eta_min, and the schedule from before
+    the per-group floors (torch's CosineAnnealingLR, one scalar eta_min) reads it
+    on resume. It must hold the backbone's floor: with the 0 this class used to
+    save, such a resume annealed to 0 instead of 0.1 x lr
+    (documents/notes/review_issues.md, N2)."""
+    n_steps, warmup_steps, cut = 101, 2, 50
+    whole = _lr_trace(get_cosine_scheduler_with_warmup, [1, 1], n_steps, warmup_steps)
+
+    def optimizer_with_two_groups():
+        params = [torch.nn.Parameter(torch.zeros(1)) for _ in range(2)]
+        return torch.optim.AdamW([{"params": [p]} for p in params], lr=LR)
+
+    warnings.filterwarnings("ignore")  # SequentialLR's epoch-argument warning
+    optimizer = optimizer_with_two_groups()
+    scheduler = get_cosine_scheduler_with_warmup(optimizer, warmup_steps, n_steps, 0.1)
+    resumed = []
+    for _ in range(cut):
+        resumed.append([group["lr"] for group in optimizer.param_groups])
+        optimizer.step()
+        scheduler.step()
+    # What a checkpoint holds, loaded the way pre-merge code loads it.
+    old_optimizer = optimizer_with_two_groups()
+    old_scheduler = _torch_cosine_with_warmup(old_optimizer, warmup_steps, n_steps, 0.1)
+    old_optimizer.load_state_dict(optimizer.state_dict())
+    old_scheduler.load_state_dict(scheduler.state_dict())
+    for _ in range(cut, n_steps):
+        resumed.append([group["lr"] for group in old_optimizer.param_groups])
+        old_optimizer.step()
+        old_scheduler.step()
+    assert resumed == whole
+    # The last recorded lr sits 0.2% above the floor at 101 steps; 0 with the bug.
+    assert resumed[-1][0] == pytest.approx(0.1 * LR, rel=1e-2)
+
+
 @pytest.mark.parametrize("n_steps, warmup_steps", [(201, 2), (7629, 76)])
 def test_a_bank_group_holds_its_ratio_for_the_whole_run(n_steps, warmup_steps):
     alone = _lr_trace(get_cosine_scheduler_with_warmup, [1], n_steps, warmup_steps)
