@@ -118,13 +118,18 @@ def test_training_loop_reports_a_loss_for_every_step(tmp_path):
     assert len(losses) >= N_STEPS, f"expected >= {N_STEPS} losses, got {len(losses)}"
     assert all(value == value for value in losses), "loss went NaN"
     assert all(value > 0 for value in losses), "loss is not positive"
-    # A fresh model's first loss must be ~ln(vocab_size): wrong init, a vocab
-    # mismatch or a head-wiring bug all land here before any GPU time is spent.
+    # A fresh model's first loss is ~ln(vocab_size) + sigma^2 / 2, sigma being
+    # the logits' std at init: about 0.88 here (a 1/sqrt(dmodel) head on a
+    # unit-RMS stream), so ln V + 0.39. One batch of 2 x 15 targets moves it by
+    # about 0.16 (8 inits x 25 batches, 2026-11-25). A wrong init scale, a vocab
+    # mismatch or a head-wiring bug land outside this band before any GPU time
+    # is spent. The old band, 0.15 around ln V, held for 14 of those 200 draws:
+    # it passed by the luck of one init and failed when the init changed (N6).
     import math
 
-    expected = math.log(50304)
-    assert abs(losses[0] - expected) < 0.15, (
-        f"first loss {losses[0]:.3f} is far from ln(50304)={expected:.3f}; "
+    expected = math.log(50304) + 0.39
+    assert abs(losses[0] - expected) < 0.8, (
+        f"first loss {losses[0]:.3f} is far from ln(50304) + 0.39 = {expected:.3f}; "
         "suspect init, vocab or head wiring"
     )
 
