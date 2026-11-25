@@ -10,6 +10,7 @@ means the same thing):
 - P is *measured*, not assumed: every 2-D weight in the live model except the
   embedding lookup (norms are 1-D and drop out naturally; the untied head counts).
   This way mha/mqa/gqa and future attention types report their true cost.
+  An MoE layer counts its router and the topk / num_experts share of its experts.
 - Peaks are dense BF16 tensor-core numbers, because the production single-GPU path
   computes in bf16 (FSDP2's MixedPrecisionPolicy). An unknown GPU gives None: the
   caller logs tokens/s and no MFU rather than a wrong one.
@@ -18,6 +19,7 @@ means the same thing):
 import logging
 
 from src.core.model import RoPEAttention
+from src.core.moe import MoE
 
 logger = logging.getLogger(__name__)
 
@@ -60,5 +62,10 @@ def model_flops_per_token(model, seq_len):
     for module in model.modules():
         if isinstance(module, RoPEAttention):
             score_flops += 12 * seq_len * module.q_heads * module.dhead
+        if isinstance(module, MoE):
+            # a token runs topk of the experts: drop the inactive share
+            experts = sum(p.numel() for p in module.experts.parameters())
+            inactive = module.num_experts - module.topk
+            matmul_params -= experts // module.num_experts * inactive
 
     return 6 * matmul_params + score_flops
