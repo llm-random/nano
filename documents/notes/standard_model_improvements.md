@@ -20,7 +20,7 @@ row says otherwise. Negative is better. For AME, a change under 0.022 is a tie
 | Change | Decision | Effect on loss | Cost |
 |---|---|---|---|
 | ALiBi + KV shift + sink (S2-PS), LR 2⁻⁸ | **Keep** (already the default) | Without the shift +0.12, without both +1.14 | — |
-| Bank init σ = 1e-4 | **Apply,** and the code default since 2026-11-25 (it was 1.0; [review_issues.md](review_issues.md), I17) | −0.09 vs σ = 1; at h16, σ = 0.01 gave −0.08 | None |
+| Bank init σ = 1e-4 | **Apply,** and the code default under the QK-norm since 2026-11-25 (it was 1.0, and stays 1.0 without the QK-norm; [review_issues.md](review_issues.md), I17 and N1) | −0.09 vs σ = 1; at h16, σ = 0.01 gave −0.08 | None |
 | Banks at 4× the learning rate | **Apply** (Maciej, 2026-11-18), as the default (2026-11-21) | −0.008 on top of σ = 1e-4, a tie (−0.034 at σ = 1) | None |
 | Document mask | **Rejected** (Maciej, 2026-11-21): a small gain, 12% slower, and unmasked packed rows are a valid way to train | −0.016 to −0.018 | +12% s/step |
 | ST (STEM) bank gate | **Rejected** (Maciej, 2026-11-21): it breaks AME's precomputed score table | A tie at h12; −0.048 beyond the small bank init at h16 | +3.1–3.8% s/step |
@@ -72,7 +72,7 @@ common:
     type: ame
     ame:
       shift: true            # default; the ALiBi ladder and the sink are defaults too
-      bank_init_std: 1.0e-4  # also the default since 2026-11-25 (1.0 before)
+      bank_init_std: 1.0e-4  # also the default under the QK-norm since 2026-11-25
       bank_gate: none        # default
 trainer:
   learning_rate: 8           # LR 2^-8 at h12, h16 and h20
@@ -126,8 +126,9 @@ Best run per model and size, `final_ce` ([stage_runs.md](stage_runs.md)):
 
 ### Bank init σ (AME)
 
-Key `common.attention.ame.bank_init_std`, on `ame_main`; the default is 1e-4 since 2026-11-25,
-1.0 before ([review_issues.md](review_issues.md), I17). Reports:
+Key `common.attention.ame.bank_init_std`, on `ame_main`; the default is 1e-4 under the QK-norm since
+2026-11-25, 1.0 before and without the QK-norm ([review_issues.md](review_issues.md), I17 and
+N1). Reports:
 [ame_bank_gates_stage2_report.md](ame_bank_gates_stage2_report.md),
 [ame_bank_sigma_grid.md](ame_bank_sigma_grid.md).
 

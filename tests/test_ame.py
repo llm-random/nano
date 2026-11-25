@@ -343,6 +343,25 @@ def test_scores_start_at_std_one_with_the_prescribed_init():
     assert uniform[torch.isfinite(uniform)].std().item() < 1e-2
 
 
+def test_the_bank_init_default_follows_the_qk_norm():
+    """sigma defaults to 1e-4 under the QK-norm, where only a row's direction
+    reaches the scores, and to 1.0 without it, where tau is frozen at 1/sqrt(d)
+    and 1e-4 would start attention uniform (documents/notes/review_issues.md,
+    N1). Either way the scores start at std ~1."""
+    dims = dict(dmodel=256, q_heads=4, kv_heads=4, seq_len=64, vocab_size=512)
+    options = dict(sink=False, slopes=[0.0] * 4, backend="reference")
+    ids = torch.randint(0, 512, (4, 64))
+    for qk_norm, sigma in ((True, 1e-4), (False, 1.0)):
+        torch.manual_seed(0)
+        layer = AMEAttention(**dims, qk_norm=qk_norm, **options)
+        assert layer.bank_init_std == sigma
+        assert layer.q_bank.weight.std().item() == pytest.approx(sigma, rel=0.05)
+        scores = layer.score_matrix(ids)
+        assert 0.5 < scores[torch.isfinite(scores)].std().item() < 2.0
+    # An explicit sigma still wins over the default.
+    assert AMEAttention(**dims, qk_norm=False, bank_init_std=0.02).bank_init_std == 0.02
+
+
 def test_the_slope_ladder_spans_from_a_local_head_to_beyond_the_context():
     """A head competes out to ~tau/m tokens. The standard ALiBi ladder caps the
     flattest head near 3k whatever the context is; this one is derived from the

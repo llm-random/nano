@@ -527,7 +527,7 @@ the code 2026-11-07. Values at h16 (`dmodel` 1024, `dff` 4096). Points marked
 | token embedding | both | `trunc_normal_` with PyTorch's defaults: std 1, cut at ±2 | 1 | |
 | attention Q, K, V, O | dense | truncated normal, std `1/√fan_in`, cut at ±2σ ([src/core/model.py:19-23](../../src/core/model.py#L19-L23)) | 0.031 | |
 | attention V, O (`v_proj`, `o_proj`) | AME | the same rule | 0.031 | |
-| **memory banks** `q_bank`, `k_bank` | AME | N(0, σ²) with σ = `bank_init_std`, not truncated; two independent draws ([src/core/ame.py:403](../../src/core/ame.py#L403)) | 1e-4 since 2026-11-25; 1 before | Was σ ≈ 1 (`ame.md` §1 and §7: the per-element scale `W_Q·x` has in a standard transformer). The σ grid then found a plateau from 1e-5 to 0.0178, with σ = 1 at +0.097 ([ame_bank_sigma_grid.md](ame_bank_sigma_grid.md)). Without QK-norm, σ = 0.02 would make attention uniform at init. |
+| **memory banks** `q_bank`, `k_bank` | AME | N(0, σ²) with σ = `bank_init_std`, not truncated; two independent draws ([src/core/ame.py:421](../../src/core/ame.py#L421)) | 1e-4 with the QK-norm since 2026-11-25 (1 without it); 1 before | Was σ ≈ 1 (`ame.md` §1 and §7: the per-element scale `W_Q·x` has in a standard transformer). The σ grid then found a plateau from 1e-5 to 0.0178, with σ = 1 at +0.097 ([ame_bank_sigma_grid.md](ame_bank_sigma_grid.md)). Without QK-norm, σ = 0.02 would make attention uniform at init. |
 | FF in and gate (SwiGLU) | both | the `1/√fan_in` rule | 0.031 | |
 | FF out | both | the `1/√fan_in` rule; its fan_in is `dff` | 0.0156 | |
 | output head | both | the `1/√fan_in` rule; its own `Linear`, not tied to the embedding | 0.031 | |
@@ -543,7 +543,7 @@ the code 2026-11-07. Values at h16 (`dmodel` 1024, `dff` 4096). Points marked
   zero-initialized, unlike GPT-2 or Megatron. Both models share this, so it is not a
   confound.
 - The knobs are `init_scale` (the attention `Linear`s), the FF and head `scale`, and
-  `bank_init_std`. All are 1, except `bank_init_std`: 1e-4 since 2026-11-25.
+  `bank_init_std`. All are 1, except `bank_init_std`: 1e-4 with the QK-norm since 2026-11-25.
 
 **What follows** (analysis):
 - **No token matches itself at init.** The banks are independent draws, so `T[a,a] ≈ 0`.
@@ -632,7 +632,7 @@ the static router), which builds its model with `from_config` and initializes it
 
 | weights | ours | pkmf | |
 |---|---|---|---|
-| **memory banks** (our AME Q/K banks, pkmf's STEM memory tables) | plain normal with a fixed std: N(0, σ²), σ = `bank_init_std` (1e-4 since 2026-11-25, 1 before), whatever the table's shape; untruncated | **Xavier (Glorot) normal**: std `√(2/(fan_in + fan_out))` of the whole table, so it follows the table's vocabulary and width; untruncated. Forced for static routing: `memory_init_std` must stay null | **different**: Xavier is used nowhere in our framework |
+| **memory banks** (our AME Q/K banks, pkmf's STEM memory tables) | plain normal with a fixed std: N(0, σ²), σ = `bank_init_std` (1e-4 with the QK-norm since 2026-11-25, else 1), whatever the table's shape; untruncated | **Xavier (Glorot) normal**: std `√(2/(fan_in + fan_out))` of the whole table, so it follows the table's vocabulary and width; untruncated. Forced for static routing: `memory_init_std` must stay null | **different**: Xavier is used nowhere in our framework |
 | `Linear` layers (attention, FF, output head) | fan-in (LeCun) truncated normal with the scale on the std: std `scale/√fan_in`, scale 1 (`llm_random_weight_init`) | fan-in (LeCun) truncated normal with the scale on the variance: std `√(scale/fan_in)`, scale 0.1 (`truncated_normal`), i.e. √0.1 ≈ 0.32× our std at every width | **different** scale convention and value; same family |
 | truncation of those normals | relative: ±2σ | fixed: ±2·scale = ±0.2 whatever σ is, which never binds on a `Linear` layer but cuts the embedding hard. pkmf's non-default `truncated_normal_fixed` is exactly our rule | **different** |
 | token embedding | its own rule: a standard normal truncated at ±2 (PyTorch's `trunc_normal_` defaults), whatever the shape | the `Linear` rule with `fan_in = 1` (std √0.1) under the fixed ±0.2 cut, so close to uniform on [−0.2, 0.2] | **different** |
@@ -719,7 +719,7 @@ common:
       pin_beta: false     # pin the value-side mix to (1,0)
       sink: true          # learned position-independent sink key
       qk_norm: true
-      bank_init_std: 1.0e-4 # since 2026-11-25; 1.0 before
+      bank_init_std: null # default: 1e-4 with qk_norm (since 2026-11-25), 1.0 without
       bank_gate: none     # none | confidence | context | backoff | stem: the bank gates,
                           #   all rejected (ame_bank_gates_stage2_report.md); off
       confidence_init: 0.05 # B1 (confidence) only: where the trust scalars start

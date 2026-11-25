@@ -27,13 +27,14 @@ Five things here are load-bearing and easy to get subtly wrong:
    bigram `(t_{j-1}, t_j)`, which destroys the property that a score is a linear
    combination of two entries of one row of `T`, i.e. the entire decode-time win.
 3. **Bank rows initialize inside the sigma plateau: per-element sigma = 1e-4
-   by default.** Under the QK-norm a row's scale never reaches the scores, but it
-   sets how far one Adam step turns the row, so sigma acts as the banks' inverse
-   learning rate. At h12 every sigma from 1e-5 to 0.0178 ties; sigma = 1 (the
-   default until 2026-11-25) is 0.097 worse, and the init fails at 1e-7 and
-   below and at 0.0316 and above (documents/notes/ame_bank_sigma_grid.md).
-   Without the QK-norm, the embedding habit of 0.02 would leave the scores at
-   std ~4e-4: attention uniform at init.
+   by default, with the QK-norm.** Under it a row's scale never reaches the
+   scores, but it sets how far one Adam step turns the row, so sigma acts as the
+   banks' inverse learning rate. At h12 every sigma from 1e-5 to 0.0178 ties;
+   sigma = 1 (the default until 2026-11-25) is 0.097 worse, and the init fails
+   at 1e-7 and below and at 0.0316 and above
+   (documents/notes/ame_bank_sigma_grid.md). Without the QK-norm the scores
+   scale with sigma^2, so the default there stays 1.0: 1e-4, like the embedding
+   habit of 0.02 (scores of std ~4e-4), would start attention uniform.
 4. **The shift must not wrap.** `_shift1` pads and slices; `torch.roll` would mix
    the last token of a packed row into position 0 of the next one, which corrupts
    a run silently and surfaces only as "the shift didn't help".
@@ -90,6 +91,14 @@ CONFIDENCE_INIT = 0.05
 # Highway networks' carry settings (a transform-gate bias of -1 to -3,
 # Srivastava, Greff & Schmidhuber 2015). Not tuned.
 CONTEXT_GATE_INIT_BIAS = 3.0
+# The banks' default init sigma depends on the QK-norm
+# (documents/notes/review_issues.md, N1). Under it a row's scale never reaches the
+# scores and only sets how far one Adam step turns the row: 1e-4 sits inside the
+# plateau the sigma grid found (1e-5 to 0.0178, documents/notes/ame_bank_sigma_grid.md).
+# Without it the scores scale with sigma^2 and tau is frozen at 1/sqrt(dhead), so
+# 1e-4 would start attention uniform; sigma ~ 1 puts the scores at std ~1 there.
+BANK_INIT_STD = 1.0e-4
+BANK_INIT_STD_WITHOUT_QK_NORM = 1.0
 
 # Horizon of the steepest head, in tokens: a token at distance d competes only
 # while m*d <~ tau, so the ladder is specified in horizons (tau/m) and converted
@@ -343,7 +352,7 @@ class AMEAttention(nn.Module):
         vocab_size,
         dhead=None,
         qk_norm=True,
-        bank_init_std=1.0e-4,
+        bank_init_std=None,
         bank_gate="none",
         confidence_init=CONFIDENCE_INIT,
         shift=True,
@@ -403,6 +412,9 @@ class AMEAttention(nn.Module):
         # measurement in ame_implementation.md, so the default path is the one
         # those numbers were taken on.
         self.qk_bank = None
+        if bank_init_std is None:
+            bank_init_std = BANK_INIT_STD if qk_norm else BANK_INIT_STD_WITHOUT_QK_NORM
+        self.bank_init_std = bank_init_std
         with torch.no_grad():
             for bank in (self.q_bank, self.k_bank):
                 if not bank.weight.is_meta:

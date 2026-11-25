@@ -16,7 +16,7 @@ OK before it costs GPU time.** The fixes to apply before the reviewed commits se
 |---|---|---|---|---|
 | [U1](#u1-bank-rows-under-dense-adamw) | Bank rows under dense AdamW | How far does a rare token's bank row really move, and would a lazy or lower-β₂ bank optimizer serve rare tokens better? | Finding: rev1 #3; numbers: rev2's reply; ablations: this session | A readout (U4c), then h12 runs |
 | [U2](#u2-b1s-analysis-under-u1) | B1's analysis | Does U1 change how B1's results read? | rev2's reply | Analysis only, if the gates are revisited |
-| [U3](#u3-bank-init-σ) | Bank init σ | Does the σ plateau move with the learning rate? | standard_model_improvements.md, "Later" | Runs (the default became 1e-4 on 2026-11-25) |
+| [U3](#u3-bank-init-σ) | Bank init σ | Does the σ plateau move with the learning rate? | standard_model_improvements.md, "Later" | Runs (the default became 1e-4 under the QK-norm on 2026-11-25) |
 | [U4](#u4-readouts-for-future-analysis) | Readouts | Five readouts that future analysis needs | rev1 #4, rev2 #9 and #15, the standard-models report, this session | Code |
 | [U5](#u5-the-common-evaluator) | The common evaluator | Score FSDP2 runs (h20), configs with a null learning rate, and `n_tokens_b` configs | rev2 #8 | Code |
 | [U6](#u6-stability-of-the-ame-h12-recipe) | Recipe stability | How often does the AME h12 recipe spike, and what drives it? | This session (standard-models task) | Seeds |
@@ -91,7 +91,7 @@ OK before it costs GPU time.** The fixes to apply before the reviewed commits se
     between 1e-7 and 1e-5, where nothing was run;
   - σ = 1 is +0.097.
 - **The code follows it since 2026-11-25** (review_issues.md, I17 and I8): the default is
-  1e-4, and the module docstring states the grid's evidence instead of calling σ ≈ 1
+  1e-4 under the QK-norm (1.0 without it, N1), and the module docstring states the grid's evidence instead of calling σ ≈ 1
   load-bearing. The standard configs set 1e-4 too.
 - **To check later** (standard_model_improvements.md, "Later"): σ = 1e-4 at other learning
   rates. Does the cliff move?
@@ -140,7 +140,7 @@ of `bank_gates_eval.py` is I23 there.
 ## U7. Reproducing a pre-merge run
 
 - **Decided (Maciej, 2026-11-25):** the old AME configs stay at the default `bank_lr_ratio`,
-  4.0, and take the default `bank_init_std`, 1e-4 since 2026-11-25. Rerunning one gives
+  4.0, and take the default `bank_init_std`, 1e-4 under the QK-norm since 2026-11-25. Rerunning one gives
   today's recipe, not the recorded run.
 - **To reproduce or resume a pre-merge run, set `trainer.bank_lr_ratio=1`** (rev2's reply),
   and `++common.attention.ame.bank_init_std=1.0` for its init.
