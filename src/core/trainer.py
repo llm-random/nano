@@ -974,6 +974,15 @@ class Trainer:
                     local_norm_sq = local_norm_sq + bank_norm_sq
                 if dist.is_initialized() and not replicated:
                     dist.all_reduce(local_norm_sq, op=dist.ReduceOp.SUM)
+                    if bank_norm_sq is not None:
+                        # The banks' own norm, for the readout, reduced on its
+                        # own: a copy, because bank_norm_sq is this rank's term
+                        # of the joint norm just reduced. Here, inside
+                        # clip_gradient, every rank runs this collective every
+                        # step. Ranks at or past mem_parallel_size contribute 0
+                        # (local_grad_norm_sq), so the SUM is the global norm.
+                        bank_norm_sq = bank_norm_sq.clone()
+                        dist.all_reduce(bank_norm_sq, op=dist.ReduceOp.SUM)
                 total_norm = local_norm_sq.sqrt()
                 torch.nn.utils.clip_grads_with_norm_(
                     params, self.gradient_clipping, total_norm
@@ -985,13 +994,10 @@ class Trainer:
                 self._last_clip_factor = torch.clamp(
                     self.gradient_clipping / (total_norm + 1e-6), max=1.0
                 )
-                # The banks' own norm is a global quantity only where it was
-                # reduced on its own: one process, or DDP. Under FSDP2 it was
-                # summed into the joint norm before the all-reduce, so the rank's
-                # value here is partial; rather than log it wrong, it is skipped.
-                if bank_norm_sq is not None and (
-                    replicated or not dist.is_initialized()
-                ):
+                # The banks' own norm, global on every path: one process, DDP
+                # (reduced before the joint sum) and FSDP2 (reduced on its own
+                # above).
+                if bank_norm_sq is not None:
                     self._last_bank_grad_norm = bank_norm_sq.sqrt()
                 return total_norm
 

@@ -1147,3 +1147,98 @@ def test_cross_entropy_runs_outside_autocast():
     assert (
         outside.dtype == torch.bfloat16
     ), "the loss context did not disable autocast; the fp32 upcast is still paid"
+
+
+def _bank_readout_worker(rank, world_size, port, mem_parallel_size, out_path):
+    """Trainer.clip_gradient on a process group without DDP -- FSDP2's path.
+    Results go to a file, as in _tier3_worker."""
+    from types import SimpleNamespace
+
+    from src.core.trainer import Trainer
+
+    try:
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+        os.environ["MASTER_PORT"] = str(port)
+        os.environ["RANK"] = str(rank)
+        os.environ["WORLD_SIZE"] = str(world_size)
+        os.environ["LOCAL_RANK"] = str(rank)
+        dist.init_process_group("gloo", rank=rank, world_size=world_size)
+
+        model = build_model()
+        banks = MemoryParallelController(
+            model, mem_parallel_size, compute_dtype=torch.float64
+        )
+        banks.materialize()
+        ids = micro_batches(rank)[0]
+        logits = model(ids)
+        F.cross_entropy(
+            logits[:, :-1].reshape(-1, VOCAB), ids[:, 1:].reshape(-1)
+        ).backward()
+        banks.reduce()
+
+        # What the readout must equal, and what the joint norm must stay.
+        bank_sq = banks.local_grad_norm_sq().clone()
+        dist.all_reduce(bank_sq, op=dist.ReduceOp.SUM)
+        backbone = [p.grad for p in model.parameters() if p.grad is not None]
+        joint_sq = (
+            torch.nn.utils.get_total_norm(backbone, 2.0).float() ** 2
+            + banks.local_grad_norm_sq()
+        )
+        dist.all_reduce(joint_sq, op=dist.ReduceOp.SUM)
+
+        stub = SimpleNamespace(
+            model=model,
+            gradient_clipping=1e9,  # no clipping: the readout is under test
+            _banks=banks,
+            _last_bank_grad_norm=None,
+            _last_clip_factor=None,
+        )
+        total = Trainer.clip_gradient(stub)
+        logged = stub._last_bank_grad_norm
+        mine = torch.tensor(
+            [float("nan") if logged is None else logged.item()], dtype=torch.float64
+        )
+        values = [torch.zeros(1, dtype=torch.float64) for _ in range(world_size)]
+        dist.all_gather(values, mine)
+        if rank == 0:
+            torch.save(
+                {
+                    "status": "ok",
+                    "expected": float(bank_sq.sqrt()),
+                    "logged": [float(v) for v in values],
+                    "joint_expected": float(joint_sq.sqrt()),
+                    "joint": float(total),
+                },
+                out_path,
+            )
+    except Exception as exc:  # noqa: BLE001
+        if rank == 0:
+            torch.save(
+                {"status": "error", "message": f"{type(exc).__name__}: {exc}"},
+                out_path,
+            )
+        raise
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
+
+@pytest.mark.parametrize("mem_parallel_size", [1, 2])
+def test_bank_norm_readout_is_global_without_ddp(mem_parallel_size, tmp_path):
+    """train/grad_norm/banks on FSDP2's path (a process group, no DDP): the
+    banks' global norm, the same on every rank, and the joint norm unchanged.
+    It used to be skipped there, so FSDP2 runs such as the h20 standard ones
+    never logged it (documents/notes/review_issues.md, I19)."""
+    from conftest import spawn_on_free_port
+
+    out = str(tmp_path / f"bank_readout_mp{mem_parallel_size}.pt")
+    spawn_on_free_port(
+        _bank_readout_worker, lambda port: (2, port, mem_parallel_size, out), 2
+    )
+    payload = torch.load(out, weights_only=False)
+    if payload["status"] == "error":
+        pytest.fail(payload["message"])
+    assert payload["expected"] > 0
+    for value in payload["logged"]:
+        assert value == pytest.approx(payload["expected"], rel=1e-6)
+    assert payload["joint"] == pytest.approx(payload["joint_expected"], rel=1e-6)
