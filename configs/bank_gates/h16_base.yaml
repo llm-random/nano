@@ -1,8 +1,13 @@
 # AME bank gates, the h16 extension (documents/notes/ame_bank_gates_plan.md,
 # "h16 extension"): the shared h16 recipe. One arm file per gate (h16_b1,
 # h16_b2, h16_b3, h16_stem) sets the two attention options and `bank_gates_arm`;
-# this file on its own is S2b-PS h16 exactly as W&B hjw7znbz ran it on LEM, and is
-# what the common evaluator composes to score that run.
+# this file on its own is S2b-PS h16 as W&B hjw7znbz ran it on LEM, and is what
+# the common evaluator composes to score that run. Exactly, except for two
+# defaults changed since: the banks now train at bank_lr_ratio 4.0
+# (standard_models, 2026-11-21) and initialize at bank_init_std 1e-4
+# (2026-11-25); hjw7znbz ran at 1.0 for both. To reproduce it, add
+# trainer.bank_lr_ratio=1 and ++common.attention.ame.bank_init_std=1.0. Scoring
+# is unaffected: the evaluator only builds the model and loads the checkpoint.
 #
 # A copy of configs/stage_2b/ame_h16_pe_shift.yaml (S2b-PS h16), not an
 # inheritance, so that edits to the Stage 2b file cannot change these runs. Its

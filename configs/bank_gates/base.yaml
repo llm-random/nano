@@ -1,7 +1,12 @@
 # AME bank gates (documents/notes/ame_bank_gates_plan.md): the shared recipe.
 # One arm file per gate sets the two attention options and `bank_gates_arm`;
-# this file on its own is S2-PS exactly as W&B doi36p8k ran it on LEM, and is
-# what the common evaluator composes to score that run.
+# this file on its own is S2-PS as W&B doi36p8k ran it on LEM, and is what the
+# common evaluator composes to score that run. Exactly, except for two defaults
+# changed since: the banks now train at bank_lr_ratio 4.0 (standard_models,
+# 2026-11-21) and initialize at bank_init_std 1e-4 (2026-11-25); doi36p8k ran
+# at 1.0 for both. To reproduce it, add trainer.bank_lr_ratio=1 and
+# ++common.attention.ame.bank_init_std=1.0. Scoring is unaffected: the
+# evaluator only builds the model and loads the checkpoint into it.
 #
 # A copy of configs/stage_2/ame_h12_pe_shift.yaml (S2-PS), not an inheritance,
 # so that edits to the Stage 2 file cannot change these runs. What differs:

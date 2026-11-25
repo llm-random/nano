@@ -20,13 +20,25 @@
 # trainer.learning_rate=<n>: n = 9 alongside Stage 1c, then n_d* - 1, n_d* and
 # n_d* + 1 around Stage 1c's best n. run_exp.py's schema check refuses a null
 # learning rate (validate, src/definitions.py), so a submit without it fails
-# before anything is queued. The run name then reads s2c_ps_h20_lr<n>.0.
+# before anything is queued. The run name then reads s2c_ps_h20_lr<n>.0: this
+# file loads /base_schema, which types learning_rate as a float, so even
+# trainer.learning_rate=9 gives a dot. run_exp.py's tmux step could not address
+# such a session (stage_2_report.md, decision 2), so the Stage 2c runs were
+# submitted in two halves (stage_1c_report.md, "Submission"); since 913f4111,
+# run_exp.py names the tmux session without the dot and submits it normally.
 #
-# FSDP2 is on, so AME's readouts (alpha/beta, tau, horizons, attention entropy)
-# are not logged: instrumentation() hits sharded parameters, and the trainer
-# logs one warning per layer and drops it (src/core/trainer.py,
-# _log_layer_instrumentation). Read alpha_2, beta_2 and tau from the final
-# checkpoint instead (the plan, Stage 2c).
+# FSDP2 is on. When the Stage 2c runs trained, AME's readouts (alpha/beta, tau,
+# horizons, attention entropy) were not logged under FSDP2: instrumentation()
+# hit sharded parameters, and the trainer logged one warning per layer and
+# dropped it (src/core/trainer.py, _log_layer_instrumentation). So read alpha_2,
+# beta_2 and tau of those runs from the final checkpoint
+# (documents/scripts/ame_ckpt_readouts.py; the plan, Stage 2c). Since 8b78b805,
+# alpha/beta, tau and the horizons are logged under FSDP2; attention entropy
+# and top-k mass are still skipped on a sharded layer.
+#
+# The banks train at the default bank_lr_ratio, 4.0 since standard_models, and
+# initialize at the default bank_init_std, 1e-4 since 2026-11-25; the Stage 2c
+# runs trained at 1.0 for both (documents/notes/stage_runs.md).
 defaults:
   - /base_schema
   - ../_misc@_here_: default
@@ -43,7 +55,8 @@ common:
   # The arm. shift: true learns (alpha_1, alpha_2) and (beta_1, beta_2) per head
   # and layer (pin_alpha and pin_beta default to false). slopes is unset, so AME
   # uses its implemented ALiBi ladder: one fixed slope per head, with horizons
-  # from 16 to 8192 tokens spread over the 20 heads (src/core/ame.py:148-163).
+  # from 16 to 8192 tokens spread over the 20 heads (horizon_ladder in
+  # src/core/ame.py).
   # bank_gate is left at its default, none: the method of Stages 2 and 2b.
   attention:
     type: ame
