@@ -9,6 +9,8 @@ infrastructure:
   # run_exp.py only ever interpolates this into remote shell commands (mkdir -p, test -d,
   # git clone), so the remote shell expands it.
   cluster_cemetery_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/pretraining/$USER/llmrandom_cemetery"
+  # Packed pixi envs, one tar per pixi.lock hash, built by update_pixi.py (documents/notes/lem_packed_pixi_env.md).
+  pixi_pack_dir: "/lustre/pd03/plgrid/plgllmefficont3/nano/pretraining/$USER/pixi_packs"
   slurm:
     cpus_per_gpu: 16
     gres: "gpu:hopper:4"
@@ -18,6 +20,8 @@ infrastructure:
     partition: plgrid-lem-gpu-h100
     time: "1-00:00:00"
     account: "plgllmefficont3"
+    # Otherwise WCSS moves the job's TMPDIR, unpacked env included, to /lustre/tmp for 14 days.
+    extra: FORCE_RM_TMPDIR
 
   script:
     - '${export_env_variables_placeholders:}'
@@ -27,7 +31,6 @@ infrastructure:
     # hydra errors
     - 'export HYDRA_FULL_ERROR=1'
 
-    # export pixi variables.
     # USER_HOME_PATH is the per-user area under the shared project root; PROJECT_HOME_PATH
     # stays the shared dir, so HF_HOME keeps pointing at the shared model cache. These used
     # to be the same name, with the second export shadowing the first -- same resolved
@@ -41,24 +44,15 @@ infrastructure:
     # directory permissions" before step 1. Keep the hub cache per-user and writable.
     - 'export HF_HUB_CACHE="$USER_HOME_PATH/hf_cache"'
     - 'export HF_DATASETS_TRUST_REMOTE_CODE=1'
-    - 'export PIXI_HOME=$USER_HOME_PATH/pixi'
-    - 'export PATH="$HOME/.pixi/bin:$PATH"'
     - 'export XDG_DATA_HOME="$USER_HOME_PATH/data"'
     - 'export XDG_CACHE_HOME="$USER_HOME_PATH/cache"'
     - 'export XDG_STATE_HOME="$USER_HOME_PATH/state"'
-    # Named explicitly, like helios does, rather than left to XDG_CACHE_HOME. $HOME here
-    # is a 20G-quota NFS export, and the package cache is the kind of thing that grows
-    # without anyone watching -- there was already 97M of ~/.cache/rattler on lem when
-    # this was added. Whether rattler would have honoured XDG_CACHE_HOME inside the job
-    # is not the point: anything run on the login node does not see these exports at all,
-    # and the default is $HOME.
-    - 'export RATTLER_CACHE_DIR="$XDG_CACHE_HOME/rattler"'
-    - 'export PIXI_CACHE_DIR="$XDG_CACHE_HOME/pixi"'
 
-    # activate pixi
-    - 'cd "$PIXI_HOME"'
-    - 'eval "$(pixi shell-hook)"'
-    - 'cd -'
+    # pixi env: no env on Lustre (its ~60k files broke the project's file quota). The tar packed
+    # for this pixi.lock (hash baked in at submit time) is unpacked to node-local NVMe and activated.
+    - 'export PIXI_PACK_DIR=${infrastructure.pixi_pack_dir}'
+    - 'export PIXI_LOCK_HASH=${pixi_lock_hash:}'
+    - 'source scripts/pixi_unpack_env.sh'
 
 cluster_switch:
   train_path_c4: "/lustre/pd01/plgrid/plgllmefficont2/datasets/c4/train"
