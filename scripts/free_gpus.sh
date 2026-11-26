@@ -5,9 +5,10 @@
 #   scripts/free_gpus.sh lem helios         # only these
 #   scripts/free_gpus.sh -1                 # ALL CLUSTERS IN ONE TABLE, free first
 #   scripts/free_gpus.sh -1 -r              # ... plus the biggest 1-GPU request that fits
+#   scripts/free_gpus.sh -1 -j              # ... plus GPU jobs of all users, by size
 #   scripts/free_gpus.sh -a                 # every partition, no filtering
 #   scripts/free_gpus.sh -n entropy         # per-node detail
-#   ENTROPY_HOST=entropy scripts/free_gpus.sh entropy    # override the ssh alias
+#   ENTROPY_HOST=<alias> scripts/free_gpus.sh entropy    # override the ssh alias
 #
 # By default only the partitions worth submitting a nano job to are shown:
 #   entropy  all but `common` -- Titan V/X and 2080 Ti, where the pixi torch build has no
@@ -35,6 +36,25 @@
 # A trailing + on CPU means another node with a free GPU has more CPU but less RAM
 # (-n -r lists every node). QoS caps on *concurrent* GPUs are a separate limit again.
 #
+# -j/--jobs adds a second table: running and pending GPU jobs of ALL users per cluster,
+# bucketed by GPUs per job as 1 / 2 / 3-4 / 5-8 / >8, so every GPU job lands in exactly
+# one column. Running = RUNNING or CONFIGURING; pending = PENDING, held and dependency-
+# blocked jobs included; completing, suspended and requeued jobs are in neither. CPU-only
+# jobs are not counted, a pending array counts once per task, and the partition filter
+# applies (a pending job counts if any of its candidate partitions passes it).
+# The GPU count is slurm's own -- AllocTRES for running jobs, ReqTRES for pending ones --
+# so --gres, --gpus, --gpus-per-task and multi-node requests all come out right. Each
+# cluster needs its own handling:
+#   entropy  everything visible; GPUs summed over running jobs equal GPUs allocated on
+#            the nodes exactly. One row per partition (entropy a100, entropy h100): each
+#            is its own machine with its own queue, so one row would add two unrelated
+#            queues together. A job pending on several partitions counts in each row.
+#   lem      squeue hides partitions you cannot submit to unless --all. lem-gpu-short and
+#            lem-gpu-normal run entirely on plgrid-lem-gpu-h100 nodes and held 161 of its
+#            210 allocated GPUs; with --all, job GPUs equal node GPUs exactly.
+#   helios   PrivateData=jobs: squeue, scontrol, sprio and sacct all show only your own
+#            grant's jobs, so the row says hidden instead of passing those off as totals.
+#
 # Free is computed per node as CfgTRES minus AllocTRES, not from sinfo node states: a
 # MIXED node has some GPUs free and sinfo will not tell you how many, while a node that
 # is IDLE but DRAINing has none you can take. GPUs on nodes that are DOWN/DRAIN/MAINT/
@@ -53,11 +73,11 @@
 # alias (the one a grant actually submits to) with +N for the other names.
 #
 # FREE is an upper bound on what you can actually get:
-#   * entropy's QoS caps GPUs per account and that account is shared with everyone else
-#     on it, so a job can pend with QOSMaxGRESPerUser while a node sits half idle;
+#   * entropy's QoS caps each login at 8 GPUs per partition (<login>_<partition>), so a
+#     job can pend with QOSMaxGRESPerUser while a node sits half idle;
 #   * a job can pend on RAM while GPUs are free (entropy defaults to 90G per GPU).
-# The "<login> holds:" line reports what is already held against that cap -- named by
-# remote login, because entropy's j321m is shared and some of it may be other people's.
+# The "<login> holds:" line reports what your own login already holds against that cap,
+# named so the output shows which account each cluster was queried as.
 # Before submitting, probe the real start time with:  sbatch --test-only ... --wrap=true
 set -uo pipefail
 
@@ -66,18 +86,19 @@ TIMEOUT="${TIMEOUT:-60}"
 MODE=summary
 ALL=0
 RES=0
+JOBS=0
 
 usage() {   # the header comment is the help text, however long it grows
     awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
     exit "${1:-0}"
 }
 
-# Default ssh aliases. entropy defaults to entropy_j because the `entropy` alias
-# (user mstefaniak) has been failing publickey; override with ENTROPY_HOST if that
-# changes. An unknown cluster name is passed through as an ssh alias as-is.
+# Default ssh aliases, each your own login on that cluster: the holds line and the
+# squeue behind it are per-login, so querying through someone else's account would
+# report their jobs as yours. An unknown cluster name is passed through as an alias.
 host_for() {
     case "$1" in
-        entropy) echo "${ENTROPY_HOST:-entropy_j}" ;;
+        entropy) echo "${ENTROPY_HOST:-entropy}" ;;
         lem)     echo "${LEM_HOST:-lem}" ;;
         helios)  echo "${HELIOS_HOST:-helios}" ;;
         *)       echo "$1" ;;
@@ -105,6 +126,16 @@ gpu_cap_for() {   # $1 = cluster -> "cpu:memG", empty when uncapped
         helios)  echo "${HELIOS_GPU_CAP-72:119}" ;;
         entropy) echo "${ENTROPY_GPU_CAP-}" ;;
         *)       echo "" ;;
+    esac
+}
+
+# Jobs-table rows: one per partition, or one for the whole cluster. entropy's partitions
+# are separate machines (h100a, a100a) with separate queues; lem's share one pool of
+# nodes, and helios hides other users' jobs anyway.
+jobs_by_partition() {   # $1 = cluster -> 1 or 0
+    case "$1" in
+        entropy) echo 1 ;;
+        *)       echo 0 ;;
     esac
 }
 
@@ -139,6 +170,7 @@ while [ $# -gt 0 ]; do
         -1|--one-table) MODE=one ;;
         -a|--all)     ALL=1 ;;
         -r|--resources) RES=1 ;;
+        -j|--jobs)    JOBS=1 ;;
         -t|--timeout) shift; TIMEOUT="${1:?-t needs seconds}" ;;
         -h|--help)    usage 0 ;;
         -*)           echo "unknown option: $1" >&2; usage 2 ;;
@@ -227,15 +259,62 @@ function gtype(tres, gres,   n, a, i, k, m, b) {
                (held ? total - alloc : 0)
 }'
 
-# What you are already holding against the shared cap. %b is TRES-per-node and its
-# spelling varies between slurm versions (gres:gpu:2, gres/gpu:h100=2, gpu:2), so take
-# the last number in it and multiply by the node count.
-squeue -h -u "$USER" -t RUNNING -o '%D|%b' 2>/dev/null | awk -F'|' '
-    { g = 0; if (match($2, /[0-9]+$/)) g = substr($2, RSTART) + 0; n += $1 * g }
-    END { printf "SELF|%d\n", n + 0 }'
-squeue -h -u "$USER" -t PENDING -o '%i' 2>/dev/null | awk 'END { printf "PEND|%d\n", NR + 0 }'
+# GPUs of a job from its tres-alloc string: AllocTRES once running, ReqTRES while
+# pending. Prefer the untyped gres/gpu=N total; add up typed gres/gpu:x=N entries only
+# if a site leaves the untyped one out. Shared by the holds line and the jobs table.
+GPUS_AWK='
+function jobgpus(t,   n, a, i, k, g, typed) {
+    n = split(t, a, ","); g = 0; typed = 0
+    for (i = 1; i <= n; i++) {
+        split(a[i], k, "=")
+        if (k[1] == "gres/gpu") g = k[2] + 0
+        else if (k[1] ~ /^gres\/gpu:/) typed += k[2] + 0
+    }
+    return g ? g : typed
+}'
+
+# What you already hold against the QoS cap. -r so that a pending array counts once
+# per task rather than once per array, and tres-alloc rather than the per-node gres so
+# that --gpus=N and --gpus-per-task jobs are counted too.
+squeue -h -r -u "$USER" -t RUNNING,CONFIGURING -O "tres-alloc:|" 2>/dev/null |
+    awk -F'|' "$GPUS_AWK"' { n += jobgpus($1) } END { printf "SELF|%d\n", n + 0 }'
+squeue -h -r -u "$USER" -t PENDING -O "JobID:|" 2>/dev/null |
+    awk 'END { printf "PEND|%d\n", NR + 0 }'
 echo "USER|$USER"
+
+# All-users GPU jobs, only for -j.
+if [ "${1:-}" = jobs ]; then
+    pd=$(scontrol show config 2>/dev/null | awk -F'= *' '/^PrivateData/ { print $2 }')
+    case ",$pd," in
+        *,jobs,*)
+            # Every job interface honours it, so any count would be the grant only.
+            echo "JOBS_HIDDEN|PrivateData=jobs" ;;
+        *)
+            # -r  one row per array task; a pending array is a single row without it
+            # -a  include partitions you cannot submit to (hidden on lem otherwise)
+            # field:|  no size given, so values come out exact: no padding, no truncation
+            squeue -h -r -a -O "StateCompact:|,Partition:|,tres-alloc:|" 2>/dev/null |
+                awk -F'|' "$GPUS_AWK"'
+                {
+                    st = $1
+                    if (st == "CF") st = "R"
+                    if (st != "R" && st != "PD") next   # completing, suspended, requeued
+                    g = jobgpus($3)
+                    if (g == 0) next                    # CPU-only job
+                    c[st "|" $2 "|" g]++
+                }
+                END { for (x in c) printf "JOB|%s|%d\n", x, c[x] }'
+            rc=${PIPESTATUS[0]}
+            # Distinguish "no GPU jobs" from "could not ask": zeros must mean zero.
+            if [ "$rc" -eq 0 ]; then echo "JOBS_OK"; else echo "JOBS_ERR|squeue exit $rc"; fi
+            ;;
+    esac
+fi
 REMOTE_EOF
+
+# Unquoted at the call site on purpose: empty means no argument at all.
+REMOTE_ARGS=""
+[ "$JOBS" = 1 ] && REMOTE_ARGS=jobs
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -245,7 +324,8 @@ trap 'rm -rf "$TMP"' EXIT
 for c in "${CLUSTERS[@]}"; do
     (
         timeout "$TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout=10 \
-            "$(host_for "$c")" bash -s <<< "$REMOTE" > "$TMP/$c.out" 2> "$TMP/$c.err"
+            "$(host_for "$c")" bash -s -- $REMOTE_ARGS <<< "$REMOTE" \
+            > "$TMP/$c.out" 2> "$TMP/$c.err"
         echo $? > "$TMP/$c.rc"
     ) &
 done
@@ -366,8 +446,7 @@ render() {   # $1 = cluster name
     [ -s "$TMP/$c.rows" ] || printf '  no partition matched %s -- run with -a\n' \
                                     "$(filter_for "$c")"
 
-    # Named by remote login, not called "yours": entropy's j321m is shared, so these
-    # jobs may well be someone else's -- but they still consume the same QoS cap.
+    # Named by remote login, so it is visible which account each cluster answered as.
     holds_line "$c" "  "
 }
 
@@ -470,8 +549,77 @@ for c in "${CLUSTERS[@]}"; do
     ok_cluster "$c" && apply_filter "$c"
 done
 
+render_jobs_table() {
+    local c rule mode re want w label text rows="$TMP/jobs.rows"
+    : > "$rows"
+    # Rows are collected first as "label<TAB>text", so the label column can be as wide as
+    # the longest label ("entropy common" under -a) and the columns still line up.
+    for c in "${CLUSTERS[@]}"; do
+        if ! ok_cluster "$c"; then
+            printf '%s\t unreachable -- %s\n' "$c" "$(fail_reason "$c")" >> "$rows"
+            continue
+        fi
+        if grep -q '^JOBS_HIDDEN|' "$TMP/$c.out"; then
+            printf '%s\t hidden: the site sets PrivateData=jobs, other users jobs are invisible\n' \
+                   "$c" >> "$rows"
+            continue
+        fi
+        if grep -q '^JOBS_ERR|' "$TMP/$c.out"; then
+            printf '%s\t query failed -- %s\n' "$c" "$(sed -n 's/^JOBS_ERR|//p' "$TMP/$c.out")" \
+                   >> "$rows"
+            continue
+        fi
+        if ! grep -q '^JOBS_OK$' "$TMP/$c.out"; then
+            printf '%s\t no job data came back\n' "$c" >> "$rows"
+            continue
+        fi
+        rule=$(filter_for "$c"); mode=${rule%%|*}; re=${rule#*|}
+        [ "$mode" = keep ] && want=1 || want=0
+        awk -F'|' -v c="$c" -v all="$ALL" -v want="$want" -v re="$re" \
+            -v bypart="$(jobs_by_partition "$c")" '
+            function shown(part) { return all || (part ~ re) == want }
+            # Per-partition rows start from the GPU partitions on screen, so an idle one
+            # still gets its row of zeros.
+            bypart && $1 == "NODE" && shown($2) { row[$2] = 1 }
+            # JOB|state|partition[,partition...]|gpus|count
+            $1 == "JOB" {
+                g = $4 + 0
+                b = (g == 1) ? 1 : (g == 2) ? 2 : (g <= 4) ? 3 : (g <= 8) ? 4 : 5
+                n = split($3, p, ",")
+                for (i = 1; i <= n; i++) {
+                    if (!shown(p[i])) continue
+                    if (!bypart) { cnt["", $2, b] += $5; next }   # once per job
+                    row[p[i]] = 1; cnt[p[i], $2, b] += $5        # once per queue it is in
+                }
+            }
+            END {
+                if (!bypart) row[""] = 1
+                for (r in row) {
+                    nr++
+                    line = (r == "" ? c : c " " r) "\t"
+                    for (b = 1; b <= 5; b++) line = line sprintf(" %5d", cnt[r, "R", b])
+                    line = line " "
+                    for (b = 1; b <= 5; b++) line = line sprintf(" %5d", cnt[r, "PD", b])
+                    print line
+                }
+                if (!nr) printf "%s\t no partition matched the filter -- run with -a\n", c
+            }' "$TMP/$c.out" | LC_ALL=C sort >> "$rows"
+    done
+    w=$(awk -F'\t' 'length($1) > w { w = length($1) } END { print (w > 8 ? w : 8) }' "$rows")
+    printf '\n%s%-*s  %-29s  %-29s%s\n' "$BOLD" "$w" "GPU JOBS" "RUNNING, by GPUs per job" \
+           "PENDING, by GPUs per job" "$RESET"
+    printf '%-*s  %5s %5s %5s %5s %5s  %5s %5s %5s %5s %5s\n' \
+           "$w" CLUSTER 1 2 3-4 5-8 '>8' 1 2 3-4 5-8 '>8'
+    while IFS=$'\t' read -r label text; do
+        printf '%-*s %s\n' "$w" "$label" "$text"
+    done < "$rows"
+}
+
 if [ "$MODE" = one ]; then
     render_one_table
 else
     for c in "${CLUSTERS[@]}"; do render "$c"; done
 fi
+
+[ "$JOBS" = 1 ] && render_jobs_table
+exit 0
