@@ -293,7 +293,9 @@ class C4Dataset(AbstractDataset):
     shuffle - if True, we shuffle the dataset independently on each rank part (unless world_size_independent is True)
 
 
-    world_size_independent should be 'True' for tests and eval
+    world_size_independent should be 'True' for tests, for eval, and for any training
+    whose data must not depend on the GPU count -- fineweb's train loader sets it since
+    2026-11-26. Every rank then reads and tokenizes the whole stream.
     """
 
     BUFFER_SIZE = 10000
@@ -370,9 +372,23 @@ def get_dataloader(
     num_workers: int,
     collate_fn: Callable = collate_wrapper,
 ):
+    """`total_batch_size` is the global batch: one optimizer step trains on that many
+    sequences, split evenly over the GPUs. With a world_size_independent dataset each
+    GPU's share is a stride over one stream, so the step's sequences are the same at
+    any GPU count; the trainer then cuts a GPU's share into gradient_accumulation_steps
+    equal micro-batches, which does not change them either."""
     # Same default as AbstractDataset: a dataloader built outside a launcher
     # (probe, notebook) is a single process.
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if total_batch_size % world_size:
+        # Floor division used to drop the remainder silently: 512 on 3 GPUs loaded
+        # 170 each, and every step trained on 510 sequences.
+        raise ValueError(
+            f"common.batch_size={total_batch_size} does not split evenly over "
+            f"{world_size} GPUs: each would load {total_batch_size // world_size} and "
+            f"a step would train on {total_batch_size // world_size * world_size} "
+            f"sequences, not {total_batch_size}. Use a multiple of the GPU count."
+        )
     batch_size_per_device = total_batch_size // world_size
     logger.debug(f"Batch size per device: {batch_size_per_device}")
     logger.debug(f"Total: {total_batch_size}")

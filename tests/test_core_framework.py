@@ -230,20 +230,19 @@ def test_restarting_a_loader_replays_from_the_beginning():
 # ---------------------------------------------------------------------------
 # Rank sharding.
 #
-# A 1-GPU and a 2-GPU run of the same config do not see the same data, and that
-# surprised me enough to chase it: a 2-GPU parity smoketest diverged from the
-# 1-GPU run by up to 0.75 in loss. The mechanism is in _load_dataset. With
-# world_size_independent=False -- what every shipped config sets -- the HF
-# dataset is split by split_dataset_by_node at load time, so each rank reads a
-# different third of the 64 shards and AbstractDataset.__iter__ hands back the
-# packer unsliced. With True, every rank loads the whole dataset and __iter__
-# strides it by rank instead. Both shard; they just shard at different layers.
+# With world_size_independent=False the HF dataset is split by
+# split_dataset_by_node at load time, so each rank reads its own share of the 64
+# shards, and a 1-GPU and a 2-GPU run of one config train on different data (a
+# 2-GPU parity smoketest once diverged from the 1-GPU run by up to 0.75 in loss).
+# With True every rank loads the whole dataset and AbstractDataset.__iter__
+# strides it by rank, so the ranks of a step hold the 1-GPU step. fineweb's train
+# loader sets True since 2026-11-26 (tests/test_data_order.py asserts the per-step
+# equality); c4 and local_dummy still split at load time.
 #
-# So cross-world-size loss equality is not a property this framework has, and a
-# test asserting it would be wrong. What must hold is that ranks never train on
-# the same samples -- silent duplication would quietly scale the effective batch
-# down and is exactly the kind of bug that hides behind a plausible loss curve.
-# That is what these two assert, one per branch.
+# Either way, ranks must never train on the same samples -- silent duplication
+# would quietly scale the effective batch down and is exactly the kind of bug that
+# hides behind a plausible loss curve. That is what these two assert, one per
+# branch.
 
 
 def _rank_stream(n, world_size, rank, world_size_independent, monkeypatch):

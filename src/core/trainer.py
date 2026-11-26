@@ -117,6 +117,28 @@ class LoopTimers:
         return out
 
 
+def _check_micro_batches(train_dataloader, gradient_accumulation_steps):
+    """A step must train on its whole per-GPU batch, as equal micro-batches.
+
+    calculate_loss splits the batch with torch.chunk and weights every chunk
+    1 / gradient_accumulation_steps. When the steps do not divide the batch, chunk
+    makes unequal pieces, or fewer than asked -- 10 rows in 4 gives 3, 3, 3 and 1,
+    and 10 in 6 gives five chunks of 2 -- so the step is no longer the mean over its
+    own batch. Refused before step 0. A module function, not a method, so the test
+    stubs that borrow __attrs_post_init__ need nothing more.
+    """
+    per_gpu = getattr(train_dataloader, "batch_size", None)
+    if not isinstance(per_gpu, int) or not gradient_accumulation_steps:
+        return
+    if per_gpu % gradient_accumulation_steps:
+        raise ValueError(
+            f"trainer.gradient_accumulation_steps={gradient_accumulation_steps} does "
+            f"not divide the per-GPU batch of {per_gpu} sequences into equal "
+            "micro-batches (common.batch_size / GPUs). Use a batch size that is a "
+            "multiple of GPUs x gradient_accumulation_steps."
+        )
+
+
 @define(slots=False)
 class Trainer:
     model: torch.nn.Module
@@ -254,6 +276,10 @@ class Trainer:
 
     def __attrs_post_init__(self):
         self._validate_save_type()
+        _check_micro_batches(
+            getattr(self, "train_dataloader", None),
+            getattr(self, "gradient_accumulation_steps", None),
+        )
         self.processed_tokens = self.training_state["processed_tokens"]
         self.start_step = self.training_state["next_step"]
         self.device = next(self.model.parameters()).device

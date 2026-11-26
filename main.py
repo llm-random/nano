@@ -381,11 +381,12 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
                     "learning_rate": learning_rate,
                     "exp_lr": exp_lr,
                     "full_save_checkpoints_path": _build_save_path(cfg),
-                    # The training data is sharded per rank, so a run is reproducible
-                    # at a fixed (seed, world_size) and not across world sizes -- two
-                    # runs of the same config on different GPU counts train on
-                    # different data. The seed is already in the config; this puts the
-                    # other half of the pair in the run record beside it.
+                    # The GPU count. Since 2026-11-26 fineweb's train loader is
+                    # world_size_independent, so a step trains on the same sequences
+                    # at any count; runs before that sharded the data per GPU and are
+                    # reproducible only at their own (seed, world_size). Kept in the
+                    # record either way: the numerics (FSDP2, the per-GPU
+                    # micro-batches) still depend on it.
                     "world_size": int(os.environ.get("WORLD_SIZE", 1)),
                 },
                 # a resumed run may already carry these keys

@@ -257,6 +257,20 @@ def check_point(point: "dict | DictConfig | RootSchema") -> DictConfig:
     return merged
 
 
+def job_gpu_count(cfg) -> Optional[int]:
+    """How many GPUs, and so training processes, the job runs: torchrun starts one per
+    GPU of the gres on every node (grid_generator/sbatch_builder.py). None when the
+    config does not say -- a local run, or a gres still `???` for a cluster to fill."""
+    if not isinstance(cfg, DictConfig):
+        return None
+    gres = OmegaConf.select(cfg, "infrastructure.slurm.gres", default=None)
+    count = str(gres).split(":")[-1] if gres is not None else ""
+    if not count.isdigit():
+        return None
+    nodes = OmegaConf.select(cfg, "infrastructure.slurm.nodes", default=None)
+    return int(count) * int(nodes or 1)
+
+
 def tokens_per_step(batch_size: int, sequence_length: int) -> int:
     """The tokens one optimizer step trains on: a row holds sequence_length
     tokens and the model predicts sequence_length - 1 of them (inputs [:-1],
@@ -389,6 +403,23 @@ def validate(cfg) -> None:
         t.gradient_accumulation_steps >= 1,
         f"trainer.gradient_accumulation_steps must be >= 1, got {t.gradient_accumulation_steps!r}",
     )
+    # A step trains on common.batch_size sequences whatever the GPU count and the
+    # accumulation: each GPU loads batch_size / GPUs of them and splits those into
+    # gradient_accumulation_steps equal micro-batches. Both must divide, or a step
+    # silently trains on fewer sequences or on unequal micro-batches. The loader and
+    # the trainer refuse that at startup too; this catches it on the laptop.
+    gpus = job_gpu_count(cfg)
+    accumulation = t.gradient_accumulation_steps
+    if c.batch_size and c.batch_size > 0 and accumulation and accumulation >= 1:
+        split = (gpus or 1) * accumulation
+        check(
+            c.batch_size % split == 0,
+            f"common.batch_size={c.batch_size} must be a multiple of "
+            + (f"the job's {gpus} GPU{'s' if gpus != 1 else ''} x " if gpus else "")
+            + f"trainer.gradient_accumulation_steps={accumulation} = {split}, so "
+            "that every GPU loads the same number of sequences and splits them "
+            "into equal micro-batches",
+        )
     check(
         t.gradient_clipping is None or t.gradient_clipping > 0,
         f"trainer.gradient_clipping must be null or > 0, got {t.gradient_clipping!r}",

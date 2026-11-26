@@ -226,6 +226,30 @@ def test_a_dense_stack_matching_ame_trains_end_to_end(tmp_path):
     assert all(v == v and v > 0 for v in values), f"bad losses {values}"
 
 
+def test_gradient_accumulation_does_not_change_what_a_step_trains_on(tmp_path):
+    """The trainer splits each step's batch into gradient_accumulation_steps
+    micro-batches after loading, so a step trains on the same sequences at any
+    accumulation (Maciej, 2026-11-26; tests/test_data_order.py covers the GPU
+    count). Same seed, same init, same data: the losses agree step for step up to
+    float rounding. Had a step's data moved, its loss would be off by about one
+    batch's spread, 0.16 on this config."""
+    _, whole = _run(tmp_path, "nano", name="accumulate_1")
+    _, split = _run(
+        tmp_path,
+        "nano",
+        name="accumulate_2",
+        extra=["trainer.gradient_accumulation_steps=2"],
+    )
+    a, b = _losses_by_step(whole), _losses_by_step(split)
+    assert len(a) >= N_STEPS, f"expected >= {N_STEPS} steps, got {sorted(a)}"
+    assert sorted(a) == sorted(b), f"steps {sorted(a)} against {sorted(b)}"
+    worst = max(abs(float(a[s]) - float(b[s])) for s in a)
+    assert worst < 1e-3, (
+        f"the losses part by {worst:.2e} between accumulation 1 and 2: the steps "
+        "did not train on the same data"
+    )
+
+
 RESUME_STEPS = 20
 RESUME_AT = 10
 
