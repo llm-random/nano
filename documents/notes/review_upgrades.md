@@ -1,7 +1,7 @@
 # Review upgrades: AME analyses and ablations for later
 
-**Status (2026-11-26): proposals, except U11 (running) and U12 (done). Every run here needs
-Maciej's OK before it costs GPU time.** The fixes to apply before the reviewed commits settle on
+**Status (2026-11-26): proposals, except U11 (done: v2 ties v1) and U12 (done). Every run
+here needs Maciej's OK before it costs GPU time.** The fixes to apply before the reviewed commits settle on
 `ame_main` are in [review_issues.md](review_issues.md).
 
 - **Sources:**
@@ -24,7 +24,7 @@ Maciej's OK before it costs GPU time.** The fixes to apply before the reviewed c
 | [U8](#u8-the-st-gate-if-it-is-ever-revived) | The ST gate, if revived | Distinct per-layer init under a GPU default device | rev1 #2, rev2 #10 and reply | Code, only if needed |
 | [U9](#u9-runs-already-planned) | Runs already planned | Four runs from the standard-models plan | standard_model_improvements.md | Maciej's OK |
 | [U10](#u10-the-shift-effect-without-the-init-difference) | The shift effect, clean | Re-measure the KV shift's gain now that the switch no longer moves the init | Reviewer A (N6) | Runs |
-| [U11](#u11-the-v2-init-against-the-v1-references) | The v2 init | Does a v2 standard run tie its v1 reference? | Reviewer A (N6) | **Running since 2026-11-26** on entropy: dense `p15ixjnf`, AME `4fknyjba` |
+| [U11](#u11-the-v2-init-against-the-v1-references) | The v2 init | Does a v2 standard run tie its v1 reference? | Reviewer A (N6) | **Done 2026-11-26: both tie** (last-500 gap: dense +0.0071 `p15ixjnf`, AME +0.0039 `4fknyjba`) |
 | [U12](#u12-a-data-order-independent-of-workers-and-gpus) | Data order | A pipeline whose order depends only on the seed | This session (audit A1, A2) | **Decided and done 2026-11-26:** the same data at any GPU count and accumulation; workers stay 2 |
 | [U13](#u13-a-separate-init-seed) | Init seed | Vary the data order and the init separately | This session (audit A4) | Code |
 | [U14](#u14-corpus-coverage) | Corpus coverage | Every FineWeb run so far trained on the start of the same two of 64 shards | This session (U12 work) | A look at the corpus's row order, then Maciej's call |
@@ -210,8 +210,8 @@ Maciej's OK":
 - **To check:** one dense h12 v2 run against `chne4w91` and one AME h12 v2 run against
   `zdmv3qci` (about 4 GPU-h each) to confirm v2 ties v1, or accept v2 as the new standard
   without that check.
-- **Running since 2026-11-26 19:10** (Maciej: "submit them to entropy cluster"), from
-  `f85810e4`, one H100 each:
+- **Done 2026-11-26: v2 ties v1 in both models** (results below). Submitted at 19:10
+  (Maciej: "submit them to entropy cluster"), from `f85810e4`, one H100 each:
 
   | Run | Job | W&B | Cemetery branch | Reference |
   |---|---|---|---|---|
@@ -233,6 +233,25 @@ Maciej's OK":
   - **Also read:** s/step and peak memory against the references (LEM: 3.444 and 3.762
     s/step; 53.3 and 70.4 GiB). Entropy's H100 ran AME 11% faster (`6yx46ng1`: 3.35
     against 3.77).
+- **Result** (`paired_gap.py`, 23:05): both tie, so recipe v2 stands, the v1 results carry
+  over to it, and these two runs are the v2 h12 baselines.
+
+  | | Dense: `p15ixjnf` − `chne4w91` | AME: `4fknyjba` − `zdmv3qci` |
+  |---|---|---|
+  | **Last-500 paired gap** (band 0.022) | **+0.0071** | **+0.0039** |
+  | Gap by quarter | +0.025, +0.010, +0.009, +0.0075 | +0.061, +0.010, +0.005, +0.004 |
+  | `final_ce`, new against reference | 2.9639 against 2.9561 (+0.0078) | 3.0352 against 3.0312 (+0.0039) |
+  | Spikes after step 100 | none (reference: none) | none (reference: none) |
+  | Grad-norm max after step 100 | 0.64 at step 119 (reference 0.59 at 106) | 0.43 at 117 (0.39 at 116) |
+  | Peak memory | 51.6 GiB against 53.3 | 69.3 against 70.4 |
+  | s/step (entropy against LEM) | 3.09 against 3.44 | 3.34 against 3.76 |
+  | Wall time | 3 h 31 min | 3 h 49 min |
+
+  - The first-quarter gaps are the new init's early transient. From the second quarter on,
+    both runs sit within 0.01 of their references and keep closing.
+  - The memory saving (1.7 and 1.1 GiB) is probably N7: q and k now stay in bf16 after the
+    QK-norm. The speed difference is the cluster's, not the code's.
+  - Final checkpoints: `checkpoint/<job>/0/step_3814` in each cemetery clone on entropy.
 
 ## U12. A data order independent of workers and GPUs
 
