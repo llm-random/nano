@@ -128,10 +128,12 @@ def _throughput_stub():
     stub.metric_logger = _RecordingLogger()
     stub._prev_log_time = None
     stub._prev_log_tokens = None
+    stub._prev_log_flops = None
     stub._flops_per_token = None
     stub._peak_flops = None
     stub._seq_len_for_flops = 16
     stub.processed_tokens = 0
+    stub.processed_flops = 0
     stub.model = torch.nn.Linear(2, 2)
     stub.device = torch.device("cpu")
     return stub
@@ -162,20 +164,64 @@ def test_tokens_per_second_is_the_token_delta_over_the_time_delta(monkeypatch):
     assert "train/mfu" not in logged
 
 
-def test_mfu_is_tokens_per_second_times_flops_over_peak(monkeypatch):
+def test_mfu_is_flops_per_second_over_peak(monkeypatch):
     import src.core.trainer as trainer_module
 
     clock = iter([100.0, 101.0])
     monkeypatch.setattr(trainer_module.time, "time", lambda: next(clock))
     stub = _throughput_stub()
-    stub._flops_per_token = 2.0e9
     stub._peak_flops = 989e12
     stub._log_throughput()
     stub.processed_tokens = 1_048_576
+    stub.processed_flops = 1_048_576 * 2.0e9
     stub._log_throughput()
     logged = stub.metric_logger.logged
     expected = (1_048_576 / 1.0) * 2.0e9 / 989e12
     assert logged["train/mfu"] == pytest.approx(expected)
+
+
+def test_a_token_superposition_step_logs_data_tokens_and_position_flops(monkeypatch):
+    """Bags of 6: tokens/s counts every data token, MFU the FLOPs of one per bag."""
+    import src.core.trainer as trainer_module
+
+    clock = iter([100.0, 101.0])
+    monkeypatch.setattr(trainer_module.time, "time", lambda: next(clock))
+    stub = _throughput_stub()
+    stub._peak_flops = 989e12
+    stub._log_throughput()
+    stub.processed_tokens = 6 * 1_048_576
+    stub.processed_flops = 1_048_576 * 2.0e9
+    stub._log_throughput()
+    logged = stub.metric_logger.logged
+    assert logged["train/tokens_per_s"] == pytest.approx(6 * 1_048_576)
+    assert logged["train/mfu"] == pytest.approx(1_048_576 * 2.0e9 / 989e12)
+
+
+def _counting_stub(processed_flops):
+    class Stub:
+        _update_processed_tokens = Trainer._update_processed_tokens
+
+    stub = Stub()
+    stub._flops_per_token = 10
+    stub.processed_tokens = 100
+    stub.processed_flops = processed_flops
+    return stub
+
+
+def test_flops_count_one_position_per_bag_and_tokens_count_every_token(monkeypatch):
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    stub = _counting_stub(processed_flops=1_000)
+    stub._update_processed_tokens(torch.zeros(3, 5, 4), bag_size=4)
+    assert stub.processed_tokens == 100 + 3 * 5 * 4 * 2
+    assert stub.processed_flops == 1_000 + 3 * 5 * 2 * 10
+
+
+def test_a_checkpoint_without_flops_starts_the_axis_at_its_tokens(monkeypatch):
+    """Saved before the FLOPs axis: its tokens are taken as plain positions."""
+    monkeypatch.setenv("WORLD_SIZE", "1")
+    stub = _counting_stub(processed_flops=None)
+    stub._update_processed_tokens(torch.zeros(2, 7), bag_size=1)
+    assert stub.processed_flops == (100 + 14) * 10
 
 
 @pytest.mark.parametrize("world_size", [1, 2, 4])
@@ -195,16 +241,41 @@ def test_the_mfu_denominator_is_the_peak_of_every_gpu(monkeypatch, world_size):
         "get_device_name",
         lambda _device: "NVIDIA H100 80GB HBM3",
     )
-    monkeypatch.setattr(trainer_module, "model_flops_per_token", lambda _m, _s: 2.0e9)
     clock = iter([100.0, 101.0])
     monkeypatch.setattr(trainer_module.time, "time", lambda: next(clock))
 
     stub = _throughput_stub()
+    stub._flops_per_token = 2.0e9
     stub._log_throughput()
     # one step of a job whose ranks together consumed 1,048,576 tokens
     stub.processed_tokens = 1_048_576
+    stub.processed_flops = 1_048_576 * 2.0e9
     stub._log_throughput()
 
     assert stub._peak_flops == pytest.approx(989e12 * world_size)
     expected = (1_048_576 / 1.0) * 2.0e9 / (989e12 * world_size)
     assert stub.metric_logger.logged["train/mfu"] == pytest.approx(expected)
+
+
+def test_wandb_rows_carry_a_flops_axis_next_to_steps_and_tokens(monkeypatch):
+    import src.core.metric_loggers as loggers_module
+
+    monkeypatch.setattr(loggers_module.wandb, "define_metric", lambda *a, **k: None)
+
+    class FakeRun:
+        rows = []
+
+        def log(self, row):
+            self.rows.append(row)
+
+    run = FakeRun()
+    metric_logger = loggers_module.WandbLogger(run=run, should_log=True)
+    metric_logger.set_step(3)
+    metric_logger.set_tokens(120)
+    metric_logger.set_flops(2**70)
+    metric_logger.log("train/loss", 4.5)
+    metric_logger.flush()
+    (row,) = run.rows
+    assert row["flops/train/loss"] == row["tokens/train/loss"] == 4.5
+    assert row["flops"] == float(2**70) and isinstance(row["flops"], float)
+    assert (row["step"], row["token_count"]) == (3, 120)

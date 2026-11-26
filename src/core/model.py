@@ -36,6 +36,14 @@ class TransformerEmbedding(nn.Embedding):
         else:
             super().reset_parameters()
 
+    def forward(self, input_ids):
+        if input_ids.dim() == 3:
+            # Token superposition (arXiv 2605.06546 §3.1): fp32 mean of each bag.
+            bags = input_ids.flatten(0, 1)
+            means = F.embedding_bag(bags, self.weight.float(), mode="mean")
+            return means.to(self.weight.dtype).unflatten(0, input_ids.shape[:2])
+        return super().forward(input_ids)
+
 
 class Linear(nn.Linear):
     def __init__(self, *args, partial_init_fn, **kwargs):

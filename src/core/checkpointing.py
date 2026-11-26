@@ -75,6 +75,7 @@ def save_training_state(
     save_config,
     step,
     processed_tokens,
+    processed_flops,
     metric_logger=None,
 ):
     run_id = None
@@ -83,7 +84,12 @@ def save_training_state(
 
     path = step_checkpoint_path(save_config.path, step)
     torch.save(
-        {"next_step": step + 1, "run_id": run_id, "processed_tokens": processed_tokens},
+        {
+            "next_step": step + 1,
+            "run_id": run_id,
+            "processed_tokens": processed_tokens,
+            "processed_flops": processed_flops,
+        },
         f"{path}/{save_config.training_state_filename}",
     )
 
@@ -103,7 +109,12 @@ def get_full_checkpoint_path(path):
 
 
 def load_training_state(load_config):
-    training_start_config = {"next_step": 0, "run_id": None, "processed_tokens": 0}
+    training_start_config = {
+        "next_step": 0,
+        "run_id": None,
+        "processed_tokens": 0,
+        "processed_flops": 0,
+    }
 
     if load_config.training_state_filename == None:
         logger.info("No training_state_filename. Starting training from step 0.")

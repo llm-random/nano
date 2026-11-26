@@ -79,10 +79,10 @@ def _run(tmp_path, save_type, n_steps=N_STEPS, name="ckpt", extra=()):
 
 
 def _losses_by_step(output):
-    """step -> train loss, parsed from the stdout metric logger."""
+    """step -> train loss (bag loss on superposition steps), from the stdout logger."""
     found = {}
     for line in output.splitlines():
-        match = re.search(r"step:(\d+) .*train/loss: ([0-9.]+)", line)
+        match = re.search(r"step:(\d+) .*train/(?:bag_)?loss: ([0-9.]+)", line)
         if match:
             found[int(match.group(1))] = match.group(2)
     return found
@@ -147,12 +147,30 @@ def test_resuming_reproduces_the_uninterrupted_run(tmp_path):
     T_max are derived from n_steps, so a shorter first run would train under a
     different learning-rate schedule and the comparison would be meaningless.
     """
+    _assert_resume_reproduces_the_uninterrupted_run(tmp_path)
+
+
+def test_resuming_inside_token_superposition_reproduces_the_uninterrupted_run(tmp_path):
+    """A superposition step reads bag_size loader batches; the resume skip counts them.
+
+    RESUME_AT falls inside the 15 superposition steps; 15-19 cover the switch back.
+    """
+    _assert_resume_reproduces_the_uninterrupted_run(
+        tmp_path,
+        extra=[
+            "trainer.token_superposition.bag_size=4",
+            "trainer.token_superposition.steps=15",
+        ],
+    )
+
+
+def _assert_resume_reproduces_the_uninterrupted_run(tmp_path, extra=()):
     uninterrupted, output_a = _run(
         tmp_path,
         "nano",
         n_steps=RESUME_STEPS,
         name="straight",
-        extra=[f"trainer.checkpoint.save.interval={RESUME_AT}"],
+        extra=[*extra, f"trainer.checkpoint.save.interval={RESUME_AT}"],
     )
     # saved after RESUME_AT completed steps, which is 0-indexed step RESUME_AT - 1
     checkpoint = os.path.join(uninterrupted, f"step_{RESUME_AT - 1}")
@@ -164,6 +182,7 @@ def test_resuming_reproduces_the_uninterrupted_run(tmp_path):
         n_steps=RESUME_STEPS,
         name="resumed",
         extra=[
+            *extra,
             "trainer.checkpoint.load.type=nano",
             f"trainer.checkpoint.load.path={checkpoint}",
             "trainer.checkpoint.load.training_state_filename="

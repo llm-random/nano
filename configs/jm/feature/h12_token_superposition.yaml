@@ -1,0 +1,30 @@
+# h12_chinchilla with token superposition (arXiv 2605.06546, Table 1 setting): bags of 6 tokens
+# for the first 30% of steps. Run: run_exp.py --config-path configs/jm/feature --config-name h12_token_superposition
+defaults:
+  - ../h12_chinchilla@_global_
+  - _self_
+
+# n_steps and LR 10 inherited. FLOPs-matched: a bag step = 6 rows of 1024 -> 64 x 1023 positions, as a plain step.
+trainer:
+  token_superposition:
+    bag_size: 6
+    # 30% = 15_000 of 50_000 steps, in WSD's stable phase (warmup ends at step 2_000, decay starts at 45_000)
+    steps: ${eval:'${trainer.n_steps} * 3 // 10'}
+    # grad norm jumps 13x at the switch while Adam's v (beta2 0.999) remembers ~1_000 bag steps (W&B xutnbfji)
+    rewarmup_steps: 1_000
+  train_dataloader:
+    # bag steps read 6x the tokens: 14 workers per rank (of lem's 16 CPUs) cut them from 2.9x to 1.24x a plain step
+    num_workers: 14
+
+infrastructure:
+  metric_logger:
+    name: h12_token_superposition
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - token_superposition
+      - tst_rewarmup

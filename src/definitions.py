@@ -132,6 +132,14 @@ class BatchSizeWarmupSchema:
 
 
 @dataclass
+class TokenSuperpositionSchema:
+    bag_size: int = MISSING
+    steps: int = MISSING
+    # LR re-warmup after the switch, linear over this many steps; 0 is none.
+    rewarmup_steps: int = MISSING
+
+
+@dataclass
 class TrainerSchema:
     """Mirror of the yaml-supplied attributes of src.core.trainer.Trainer.
     tests/test_typed_config.py keeps the two from drifting. The runtime-injected
@@ -155,6 +163,10 @@ class TrainerSchema:
     # eval_dataloader is null in the audit configs that switch eval off.
     train_dataloader: Any = MISSING
     eval_dataloader: Any = MISSING
+    # Off is steps: 0, not null: the CLI cannot fill a null structured node.
+    token_superposition: TokenSuperpositionSchema = field(
+        default_factory=TokenSuperpositionSchema
+    )
     # Opt-in instrumentation knobs, declared so `trainer.X=true` composes.
     autocast_bf16: bool = False
     profile_timers: bool = False
@@ -398,6 +410,30 @@ def validate(cfg) -> None:
                 f"into {split} steps; that or gradient_accumulation_steps={gas} must "
                 "divide the other",
             )
+
+    superposition = t.token_superposition
+    check(
+        superposition.steps >= 0
+        and (t.n_steps is None or superposition.steps <= t.n_steps),
+        f"trainer.token_superposition.steps must be in [0, trainer.n_steps] (0 = off), "
+        f"got {superposition.steps!r}",
+    )
+    check(
+        superposition.steps == 0 or superposition.bag_size >= 2,
+        f"trainer.token_superposition.bag_size must be >= 2 when steps > 0, "
+        f"got {superposition.bag_size!r}",
+    )
+    check(
+        superposition.rewarmup_steps >= 0,
+        f"trainer.token_superposition.rewarmup_steps must be >= 0, "
+        f"got {superposition.rewarmup_steps!r}",
+    )
+    # Superposition steps splice several loader batches, warmup steps slice one.
+    check(
+        superposition.steps == 0 or warmup is None,
+        "trainer.token_superposition and trainer.batch_size_warmup can't both be on: "
+        "set token_superposition.steps to 0 or batch_size_warmup to null",
+    )
 
     save_interval = t.checkpoint.save.interval
     check(

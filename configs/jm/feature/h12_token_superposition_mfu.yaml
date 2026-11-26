@@ -1,0 +1,49 @@
+# Token superposition timing on h12_chinchilla's setup: bags of 6 for steps 0-299, plain next-token
+# for 300-599, in one job; no checkpoints, evals or heavy metrics. Bag steps read 6x the tokens, so
+# the sweep over loader workers per rank shows whether on-the-fly tokenization keeps up.
+defaults:
+  # no /base_schema: `^` sweep keys under trainer are rejected by it (see src/definitions.py)
+  - ../../_cluster@_here_: lem
+  - ../../_model/h_balanced@_here_: h12
+  # WSD from _trainer/nano: warmup 6 steps, linear decay over the last 60; irrelevant to timing
+  - ../../_trainer@_here_: nano
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 64
+
+trainer:
+  # micro 32 x 1024 per GPU (batch 64 over 2 GPUs), as h12_chinchilla
+  gradient_accumulation_steps: 1
+  n_steps: 600
+  learning_rate: 10
+  token_superposition:
+    bag_size: 6
+    steps: 300
+  profile_timers: true
+  eval_interval: 0
+  eval_dataloader: null
+  train_dataloader:
+    # lem grants 16 CPUs per GPU (cpus_per_gpu in _cluster/lem.yaml, 14 on entropy), so 16 per rank;
+    # 14 workers leave one CPU each for the rank's main process and its pin-memory thread
+    ^num_workers: [2, 6, 14]
+
+infrastructure:
+  metric_logger:
+    name: h12_token_superposition_mfu
+    heavy_metrics_calculation_interval: 0
+    tags:
+      - nano
+      - h12
+      - qk_norm
+      - jm_mfu_benchmarking
+      - token_superposition
+
+  slurm:
+    time: "01:00:00"
+    gres: gpu:hopper:2
+    job-name: ${infrastructure.metric_logger.name}

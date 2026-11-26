@@ -316,7 +316,9 @@ def test_the_logged_training_state_path_is_where_the_file_lands(tmp_path, caplog
     os.makedirs(step_checkpoint_path(str(tmp_path), step), exist_ok=True)
 
     with caplog.at_level("INFO", logger="src.core.checkpointing"):
-        save_training_state(save_config, step=step, processed_tokens=123)
+        save_training_state(
+            save_config, step=step, processed_tokens=123, processed_flops=456
+        )
 
     logged = [m for m in caplog.messages if "Saved training state in" in m]
     assert len(logged) == 1, f"expected one save line, got {logged}"

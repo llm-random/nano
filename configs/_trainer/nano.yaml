@@ -16,6 +16,11 @@ trainer:
   learning_rate: null
   weight_decay: 0.1
   batch_size_warmup: null
+  # Token superposition (arXiv 2605.06546) for the first `steps` steps; 0 = off.
+  token_superposition:
+    bag_size: 1
+    steps: 0
+    rewarmup_steps: 0
 
   distributed:
     fsdp2:

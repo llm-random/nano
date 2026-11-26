@@ -310,6 +310,8 @@ def evaluate_checkpoint(cfg, trainer, training_state, metric_logger):
     # Log at the step the source run logged its final_ce.
     metric_logger.set_step(max(training_state["next_step"] - 1, 0))
     metric_logger.set_tokens(training_state["processed_tokens"])
+    # 0 for a checkpoint saved before the FLOPs axis existed.
+    metric_logger.set_flops(training_state.get("processed_flops", 0))
     if isinstance(metric_logger, WandbLogger) and metric_logger.run is not None:
         metric_logger.run.config.update(
             {

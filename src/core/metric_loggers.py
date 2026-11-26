@@ -17,6 +17,7 @@ class MetricLogger(ABC):
         self.accumulators = {}
         self.step = 0
         self.tokens = 0
+        self.flops = 0
 
     @property
     def _should_log_heavy_metrics(self) -> bool:
@@ -60,6 +61,9 @@ class MetricLogger(ABC):
     def set_tokens(self, tokens):
         self.tokens = tokens
 
+    def set_flops(self, flops):
+        self.flops = flops
+
 
 class MetricAccumulator:
     def __init__(self, calculate_fn, metrics):
@@ -97,16 +101,20 @@ class WandbLogger(MetricLogger):
         if self.should_log and self.run is not None:
             wandb.define_metric("steps/*", step_metric="step")
             wandb.define_metric("tokens/*", step_metric="token_count")
+            wandb.define_metric("flops/*", step_metric="flops")
 
     def log(self, name, value):
         if self.should_log:
             self._pending[f"steps/{name}"] = value
             self._pending[f"tokens/{name}"] = value
+            self._pending[f"flops/{name}"] = value
 
     def flush(self):
         if self.should_log and self._pending:
             self._pending["step"] = self.step
             self._pending["token_count"] = self.tokens
+            # Model FLOPs so far (src/core/mfu.py), as float: int64 overflows at scale.
+            self._pending["flops"] = float(self.flops)
             self.run.log(self._pending)
             self._pending = {}
 

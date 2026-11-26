@@ -1,0 +1,21 @@
+# tiny_local with token superposition: bags of 4 tokens for the first 100 of 200 steps, then a 20-step LR re-warmup.
+# Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_token_superposition
+defaults:
+  - ../../tiny_local@_global_
+  - _self_
+
+trainer:
+  token_superposition:
+    bag_size: 4
+    steps: 100
+    rewarmup_steps: 20
+
+infrastructure:
+  metric_logger:
+    type: stdout
+    name: tiny_local_token_superposition
+    tags:
+      - nano
+      - local
+      - tiny
+      - token_superposition
