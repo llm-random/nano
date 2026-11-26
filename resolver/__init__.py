@@ -1,4 +1,6 @@
+import hashlib
 import random
+from pathlib import Path
 from omegaconf import OmegaConf
 import platform
 import os
@@ -52,6 +54,15 @@ def get_env_vars_placeholders_export():
     return "\n".join(placeholders)
 
 
+def pixi_lock_hash() -> str:
+    """Names the packed env a lem job unpacks: the first 16 hex of sha256(pixi.lock), as scripts/pixi_pack_env.sh."""
+    lock = Path(__file__).resolve().parent.parent / "pixi.lock"
+    if lock.exists():
+        return hashlib.sha256(lock.read_bytes()).hexdigest()[:16]
+    # Cemetery clones have no pixi.lock (run_exp.version_code); there exp.job has exported the hash.
+    return os.environ.get("PIXI_LOCK_HASH", "unknown")
+
+
 OmegaConf.register_new_resolver("__llmrandom_cluster_config", get_cluster_name)
 
 OmegaConf.register_new_resolver("random_seed", lambda: random.randint(0, 100000))
@@ -61,3 +72,5 @@ OmegaConf.register_new_resolver("eval", eval)
 OmegaConf.register_new_resolver(
     "export_env_variables_placeholders", get_env_vars_placeholders_export
 )
+
+OmegaConf.register_new_resolver("pixi_lock_hash", pixi_lock_hash)
