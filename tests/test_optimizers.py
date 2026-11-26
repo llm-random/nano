@@ -12,6 +12,7 @@ from omegaconf import OmegaConf
 
 import resolver  # noqa: F401  (registers the repo's custom OmegaConf resolvers)
 from src.core.checkpointing import TrainingState, load_checkpoint_from_file
+from src.core.moe import MoE
 from src.core.optimizers import ROLES, build_optimizer_and_scheduler, param_roles
 from src.core.schedulers import get_cosine_scheduler_with_warmup
 from test_distributed import _shard, cpu_process_group  # noqa: F401  (fixture)
@@ -20,15 +21,17 @@ CONFIGS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs"
 MODEL_FILE = "model.pt"
 
 
-def _cfg(optimizer):
+def _cfg(optimizer, overrides=()):
     warnings.filterwarnings("ignore")
     with initialize_config_dir(version_base=None, config_dir=CONFIGS_DIR):
-        return compose("tiny_local", [f"_trainer/_optimizer@optimizer={optimizer}"])
+        return compose(
+            "tiny_local", [f"_trainer/_optimizer@optimizer={optimizer}", *overrides]
+        )
 
 
-def _build(optimizer, seed=0, sharded=False):
+def _build(optimizer, seed=0, sharded=False, overrides=()):
     """The h4 tiny_local model, optimizer and scheduler, as main.py builds them."""
-    cfg = _cfg(optimizer)
+    cfg = _cfg(optimizer, overrides)
     torch.manual_seed(seed)
     model = instantiate(cfg.model, _convert_="all")
     if sharded:
@@ -119,28 +122,66 @@ def test_adamw_groups_has_one_group_per_nonempty_role():
     assert [g["role"] for g in optimizer.param_groups] == ["embedding", "hidden"]
 
 
-def test_cosine_takes_several_groups_only_with_one_lr():
+def _two_groups(second_lr):
     a, b = torch.nn.Linear(2, 2), torch.nn.Linear(2, 2)
-    same = torch.optim.AdamW(
-        [{"params": a.parameters()}, {"params": b.parameters()}], lr=1e-3
+    return torch.optim.AdamW(
+        [{"params": a.parameters()}, {"params": b.parameters(), "lr": second_lr}],
+        lr=1e-3,
     )
-    get_cosine_scheduler_with_warmup(
-        same, warmup_steps=1, n_steps=10, final_lr_fraction=0.1
-    )
-    differ = torch.optim.AdamW(
-        [{"params": a.parameters()}, {"params": b.parameters(), "lr": 1e-2}], lr=1e-3
-    )
-    with pytest.raises(AssertionError, match="one LR"):
-        get_cosine_scheduler_with_warmup(
-            differ, warmup_steps=1, n_steps=10, final_lr_fraction=0.1
-        )
 
 
-def _check_resume(folder, sharded):
-    model, optimizer, scheduler = _build("adamw_groups", sharded=sharded)
+def _lrs(optimizer, scheduler, n_steps):
+    """Each group's LR at every step, then after the last one."""
+    lrs = []
+    for _ in range(n_steps):
+        lrs.append([g["lr"] for g in optimizer.param_groups])
+        optimizer.step()
+        scheduler.step()
+    return lrs + [[g["lr"] for g in optimizer.param_groups]]
+
+
+def _stock_cosine(optimizer, warmup_steps, n_steps, final_lr_fraction):
+    """The cosine schedule before per-group eta_min: torch's CosineAnnealingLR."""
+    s = torch.optim.lr_scheduler
+    eta_min = final_lr_fraction * optimizer.param_groups[0]["lr"]
+    return s.SequentialLR(
+        optimizer,
+        schedulers=[
+            s.LinearLR(optimizer, start_factor=0.1, total_iters=warmup_steps),
+            s.ConstantLR(optimizer, factor=1.0),
+            s.CosineAnnealingLR(
+                optimizer, T_max=n_steps - warmup_steps - 1, eta_min=eta_min
+            ),
+        ],
+        milestones=[warmup_steps, warmup_steps + 1],
+    )
+
+
+def test_cosine_with_one_lr_is_bit_identical_to_torchs():
+    ours, stock = _two_groups(1e-3), _two_groups(1e-3)
+    scheduler = get_cosine_scheduler_with_warmup(
+        ours, warmup_steps=3, n_steps=20, final_lr_fraction=0.1
+    )
+    reference = _stock_cosine(stock, warmup_steps=3, n_steps=20, final_lr_fraction=0.1)
+    assert _lrs(ours, scheduler, 20) == _lrs(stock, reference, 20)
+
+
+def test_cosine_decays_each_group_to_its_own_final_fraction():
+    optimizer = _two_groups(1e-2)
+    scheduler = get_cosine_scheduler_with_warmup(
+        optimizer, warmup_steps=3, n_steps=20, final_lr_fraction=0.1
+    )
+    lrs = _lrs(optimizer, scheduler, 20)
+    for first, second in lrs:
+        assert second == pytest.approx(10 * first)
+    assert lrs[-1] == pytest.approx([1e-4, 1e-3])
+
+
+def _check_resume(folder, sharded, option="adamw_groups", overrides=()):
+    model, optimizer, scheduler = _build(option, sharded=sharded, overrides=overrides)
     _step(model, optimizer, scheduler)
     _save(folder, model, optimizer, scheduler, sharded)
-    resumed = _build("adamw_groups", seed=99, sharded=sharded)
+    resumed = _build(option, seed=99, sharded=sharded, overrides=overrides)
     _load(folder, *resumed, only_weights=False)
     # Same next step from both: model, AdamW moments, group decays and LR all came back.
     _step(model, optimizer, scheduler)
@@ -179,3 +220,45 @@ def test_only_weights_loads_a_sharded_adamw_checkpoint_into_adamw_groups(
     cpu_process_group, tmp_path
 ):
     _check_only_weights(str(tmp_path), sharded=True)
+
+
+def _width(h):
+    """Width h at depth 1."""
+    return [f"common.h={h}", "common.n_blocks=1"]
+
+
+@pytest.mark.parametrize("h, m", [(4, 1), (8, 2)])
+def test_adamw_simplep_scales_only_the_hidden_and_head_lr(h, m):
+    _, optimizer, _ = _build("adamw_simplep", overrides=_width(h))
+    groups = [
+        (g["role"], g["initial_lr"], g["weight_decay"]) for g in optimizer.param_groups
+    ]
+    assert groups == [
+        ("vector", 1e-3, 0.0),
+        ("embedding", 1e-3, 0.0),
+        ("head", pytest.approx(1e-3 / m), 0.1),
+        ("hidden", pytest.approx(1e-3 / m), 0.1),
+    ]
+
+
+def test_adamw_simplep_trains_every_moe_expert_and_the_router_as_hidden():
+    moe = ["+_ff_layer@model.encoder.block_fn.ff_layer_fn=moe"]
+    model, optimizer, _ = _build("adamw_simplep", overrides=_width(8) + moe)
+    hidden = next(g for g in optimizer.param_groups if g["role"] == "hidden")
+    in_hidden = {id(p) for p in hidden["params"]}
+    moe_params = [
+        p for m in model.modules() if isinstance(m, MoE) for p in m.parameters()
+    ]
+    assert moe_params and all(id(p) in in_hidden for p in moe_params)
+    assert hidden["initial_lr"] == pytest.approx(1e-3 / 2)
+
+
+def test_adamw_simplep_checkpoint_resumes(tmp_path):
+    # Base h2 makes the h4 group LRs differ, so WSD's replay must restore each one.
+    overrides = [
+        "_trainer/_scheduler@trainer.scheduler=wsd",
+        "optimizer.base_dmodel=128",
+    ]
+    _check_resume(
+        str(tmp_path), sharded=False, option="adamw_simplep", overrides=overrides
+    )

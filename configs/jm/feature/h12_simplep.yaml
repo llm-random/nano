@@ -1,0 +1,21 @@
+# h12_chinchilla with simpleP for AdamW, base width h4 (m = 3 at h12); muP changes no FLOPs, so 50_000 steps.
+defaults:
+  - ../h12_chinchilla@_global_
+  - override ../../_trainer/_optimizer@optimizer: adamw_simplep
+  - _self_
+
+trainer:
+  # 10 - log2(3): hidden and head get 2^-8.415 / 3 = 2^-10, h12_chinchilla's tuned LR
+  learning_rate: 8.415
+
+infrastructure:
+  metric_logger:
+    name: h12_simplep
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - simplep

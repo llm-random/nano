@@ -1,0 +1,13 @@
+# tiny_local with simpleP for AdamW. Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_simplep
+defaults:
+  - ../../tiny_local@_global_
+  - override ../../_trainer/_optimizer@optimizer: adamw_simplep
+  - _self_
+
+optimizer:
+  # base h2, so m = 2 at h4; at the default base h4 every multiplier would be 1
+  base_dmodel: 128
+
+infrastructure:
+  metric_logger:
+    type: stdout

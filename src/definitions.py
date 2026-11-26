@@ -193,6 +193,8 @@ class OptimizerSchema:
     """Root `optimizer`, from configs/_trainer/_optimizer/; null roles is one group."""
 
     roles: Optional[OptimizerRolesSchema] = MISSING
+    # simpleP's base width: hidden and head LR x base_dmodel / dmodel; null is off.
+    base_dmodel: Optional[int] = MISSING
 
 
 @dataclass
@@ -376,6 +378,12 @@ def validate(cfg) -> None:
                 0.0 <= fraction <= 1.0,
                 f"trainer.scheduler.final_lr_fraction must be in [0, 1], got {fraction!r}",
             )
+
+    base_dmodel = OmegaConf.select(cfg, "optimizer.base_dmodel")
+    check(
+        base_dmodel is None or base_dmodel > 0,
+        f"optimizer.base_dmodel must be null or > 0, got {base_dmodel!r}",
+    )
 
     warmup = t.batch_size_warmup
     if warmup is not None:

@@ -1,0 +1,6 @@
+# simpleP for AdamW (documents/notes/simplep_over_mup.md): adamw_groups with hidden and head LR x base_dmodel / dmodel.
+defaults:
+  - adamw_groups
+  - _self_
+
+base_dmodel: 256
