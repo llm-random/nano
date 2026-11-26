@@ -50,9 +50,10 @@ def test_every_dimension_follows_the_knob(h):
     assert attention.dhead == 64, "head_dim must be 64 at every size"
 
     ff = block.ff_layer.layer
-    assert ff.ff_pre_act.weight.shape == (256 * h, dmodel)
-    assert ff.gate.weight.shape == (256 * h, dmodel)
-    assert ff.ff_post_act.weight.shape == (dmodel, 256 * h)
+    dff = 3 * dmodel
+    assert ff.ff_pre_act.weight.shape == (dff, dmodel)
+    assert ff.gate.weight.shape == (dff, dmodel)
+    assert ff.ff_post_act.weight.shape == (dmodel, dff)
 
     head = model.head
     assert head.linear.weight.shape == (VOCAB, dmodel), "embedding and head are untied"
@@ -60,12 +61,16 @@ def test_every_dimension_follows_the_knob(h):
 
 @pytest.mark.parametrize("h", [4, 12, 16, 20, 24])
 def test_the_closed_form_parameter_count_is_exact(h):
-    """non-embedding = 15*d^2 per layer = 61440*H^3; emb+head = 2*V*64H; plus the
+    """Per layer: attention 3*d^2 (q, o are d x d; k, v are d x d/2) plus gated FF
+    3*d*dff with dff = 3d, so 12*d^2 = 49152*H^2; emb+head = 2*V*64H; plus the
     RMSNorm weights (two per block and one in the head, each dmodel wide) and the
-    QK-norm gains (two per block, each dhead = 64 wide), which the concept doc's
-    closed form leaves out as negligible but an exact test must not."""
+    QK-norm gains (two per block, each dhead = 64 wide), which the closed form
+    leaves out as negligible but an exact test must not."""
     model = _h_model(h)
     total = sum(p.numel() for p in model.parameters())
+    d = 64 * h
+    dff = 3 * d
+    per_layer = 3 * d**2 + 3 * d * dff
     norms = (2 * h + 1) * 64 * h + 2 * 64 * h
-    expected = 61440 * h**3 + 2 * VOCAB * 64 * h + norms
+    expected = h * per_layer + 2 * VOCAB * 64 * h + norms
     assert total == expected, f"H={h}: {total} != {expected} ({total - expected:+d})"
