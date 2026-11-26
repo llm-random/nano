@@ -1,7 +1,7 @@
 # LEM file quota request
 
 Reply to the LEM admins (WCSS), who announced lowering the file quota to 200,000: it asks for a permanent
-raise of project 649's quota to 2M files or more instead. Drafted 2026-11-20, revised 2026-11-26, not sent yet.
+raise of project 649's quota to 2M files instead. Drafted 2026-11-20, revised 2026-11-26, not sent yet.
 
 ```text
 Subject: File quota increase for grant plgllmefficont3 (/lustre/pd03, project 649)
@@ -16,7 +16,7 @@ Several of us submit hundreds of experiments each, and every run leaves its own 
 
 We noticed that the MDT of /lustre/pd03 is nearly full (97% in lfs df -i). We understand that file counts are a shared constraint, so we are asking for a moderate increase.
 
-Instead of the reduction, we would like to ask for a permanent increase of our file quota to 2 million files, or more if possible. On our side, we will also reduce our file count, for example by packing old results that we keep only as a historical record into archives.
+Instead of the reduction, we would like to ask for a permanent increase of our file quota to 2 million files. On our side, we will also reduce our file count, for example by packing old results that we keep only as a historical record into archives.
 
 Thank you very much for your help.
 
