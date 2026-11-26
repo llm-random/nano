@@ -158,6 +158,27 @@ def test_legit_grid_expands_and_passes_check_point():
         check_point(point)
 
 
+def test_run_exp_checks_a_paired_sweep_per_grid_point():
+    from run_exp import expand_and_check
+
+    # common.h reads ${sweep.h}, which only the ^sweep grid key supplies.
+    warnings.filterwarnings("ignore")
+    feature = os.path.join(CONFIGS_DIR, "jm", "feature")
+    with initialize_config_dir(version_base=None, config_dir=feature):
+        cfg = compose(config_name="mup_width_moe_simplep")
+    assert len(expand_and_check(cfg)) == 25
+
+
+def test_run_exp_rejects_a_grid_point_with_a_missing_value():
+    from run_exp import expand_and_check
+
+    plain = OmegaConf.to_container(_compose("tiny_local"), resolve=False)
+    plain["trainer"]["^learning_rate"] = [1e-3, "???"]
+    del plain["trainer"]["learning_rate"]
+    with pytest.raises(RuntimeError, match="learning_rate=.*missing keys"):
+        expand_and_check(OmegaConf.create(plain))
+
+
 def test_range_violation_fails_validate():
     cfg = _compose("tiny_local", ["trainer.learning_rate=-1"])
     with pytest.raises(ValueError, match="learning_rate"):

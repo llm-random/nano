@@ -224,27 +224,36 @@ def wait_for_job_id(connection, tmux_pane, tries: int = 3):
     return job_id
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="exp")
-def submit_experiment(
-    cfg: RootSchema,
-):
-    missing_keys: set[str] = OmegaConf.missing_keys(cfg)
-    if missing_keys:
-        raise RuntimeError(f"Got missing keys in config:\n{missing_keys}")
+def expand_and_check(cfg: DictConfig) -> list:
+    """Expand `^key` grids; check each point for missing values and the schema.
 
-    # cast: the runtime object is a DictConfig; RootSchema is Pylance sugar.
-    configs_grid = create_grid_config(cast(DictConfig, cfg))
-    # Schema-check every expanded grid point before anything is dumped or
-    # submitted. `^key` grids are expanded by now, so a mistyped sweep key or
+    Per point, not on cfg: plain keys may interpolate keys only a `^` grid supplies.
+    """
+    configs_grid = create_grid_config(cfg)
+    # Before anything is dumped or submitted, so a mistyped sweep key or
     # out-of-range value fails here, on the laptop, naming the point.
     for point_dict, point_overrides in configs_grid:
+        name = point_overrides or "(no overrides)"
+        missing_keys = OmegaConf.missing_keys(OmegaConf.create(point_dict))
+        if missing_keys:
+            raise RuntimeError(
+                f"grid point {name}: missing keys in config:\n{missing_keys}"
+            )
         try:
             check_point(point_dict)
         except Exception as exc:
             raise RuntimeError(
-                f"grid point {point_overrides or '(no overrides)'} failed the "
-                f"schema check: {exc}"
+                f"grid point {name} failed the schema check: {exc}"
             ) from exc
+    return configs_grid
+
+
+@hydra.main(version_base=None, config_path="configs", config_name="exp")
+def submit_experiment(
+    cfg: RootSchema,
+):
+    # cast: the runtime object is a DictConfig; RootSchema is Pylance sugar.
+    configs_grid = expand_and_check(cast(DictConfig, cfg))
     dump_grid_configs(configs_grid, cfg.infrastructure.generated_configs_path)
 
     script = cfg.infrastructure.get("script", None)
