@@ -1,7 +1,7 @@
 # Review upgrades: AME analyses and ablations for later
 
-**Status (2026-11-25): proposals only. Nothing is scheduled, and every run here needs Maciej's
-OK before it costs GPU time.** The fixes to apply before the reviewed commits settle on
+**Status (2026-11-26): proposals, except U11 (running) and U12 (done). Every run here needs
+Maciej's OK before it costs GPU time.** The fixes to apply before the reviewed commits settle on
 `ame_main` are in [review_issues.md](review_issues.md).
 
 - **Sources:**
@@ -24,7 +24,7 @@ OK before it costs GPU time.** The fixes to apply before the reviewed commits se
 | [U8](#u8-the-st-gate-if-it-is-ever-revived) | The ST gate, if revived | Distinct per-layer init under a GPU default device | rev1 #2, rev2 #10 and reply | Code, only if needed |
 | [U9](#u9-runs-already-planned) | Runs already planned | Four runs from the standard-models plan | standard_model_improvements.md | Maciej's OK |
 | [U10](#u10-the-shift-effect-without-the-init-difference) | The shift effect, clean | Re-measure the KV shift's gain now that the switch no longer moves the init | Reviewer A (N6) | Runs |
-| [U11](#u11-the-v2-init-against-the-v1-references) | The v2 init | Does a v2 standard run tie its v1 reference? | Reviewer A (N6) | One run per model, or accept |
+| [U11](#u11-the-v2-init-against-the-v1-references) | The v2 init | Does a v2 standard run tie its v1 reference? | Reviewer A (N6) | **Running since 2026-11-26** on entropy: dense `p15ixjnf`, AME `4fknyjba` |
 | [U12](#u12-a-data-order-independent-of-workers-and-gpus) | Data order | A pipeline whose order depends only on the seed | This session (audit A1, A2) | **Decided and done 2026-11-26:** the same data at any GPU count and accumulation; workers stay 2 |
 | [U13](#u13-a-separate-init-seed) | Init seed | Vary the data order and the init separately | This session (audit A4) | Code |
 | [U14](#u14-corpus-coverage) | Corpus coverage | Every FineWeb run so far trained on the start of the same two of 64 shards | This session (U12 work) | A look at the corpus's row order, then Maciej's call |
@@ -210,6 +210,29 @@ Maciej's OK":
 - **To check:** one dense h12 v2 run against `chne4w91` and one AME h12 v2 run against
   `zdmv3qci` (about 4 GPU-h each) to confirm v2 ties v1, or accept v2 as the new standard
   without that check.
+- **Running since 2026-11-26 19:10** (Maciej: "submit them to entropy cluster"), from
+  `f85810e4`, one H100 each:
+
+  | Run | Job | W&B | Cemetery branch | Reference |
+  |---|---|---|---|---|
+  | Dense h12 v2 | 46958 | `p15ixjnf` | `std_dense_h12_lr8_v2_2026-11-26_19-09-02` | `chne4w91`, `final_ce` 2.9561 |
+  | AME h12 v2 | 46959 | `4fknyjba` | `std_ame_h12_lr8_v2_2026-11-26_19-09-18` | `zdmv3qci`, `final_ce` 3.0312 |
+
+  - The configs are entropy copies of the standard ones
+    (`configs/standard/*_h12_entropy.yaml`, in the cemetery snapshots only): the cluster,
+    the gres, and no LEM exclude.
+  - Start check: each W&B config differs from its reference's in 26 keys, none of them a
+    model or training setting: the cluster's keys, the run's name, tags and IDs,
+    `sparse_exclude`, `count_token_updates: False` (added since), and the train loader's
+    `world_size_independent: true` (a no-op at one GPU, U12). Dense step 0: 11.25 against
+    11.1875, as the new init predicts.
+  - **Pass rule:** a last-500-step paired gap under 0.022, level across the quarters, no
+    spike (`paired_gap.py`, on `bank_sigma_grid`). A spike calls for a rerun, not a verdict
+    (U6). The references ran on LEM; `6yx46ng1` (entropy) tied `zdmv3qci` (LEM) at
+    +0.0017, so the cluster is no confound beyond the noise.
+  - **Also read:** s/step and peak memory against the references (LEM: 3.444 and 3.762
+    s/step; 53.3 and 70.4 GiB). Entropy's H100 ran AME 11% faster (`6yx46ng1`: 3.35
+    against 3.77).
 
 ## U12. A data order independent of workers and GPUs
 
