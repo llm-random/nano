@@ -16,7 +16,7 @@ Jesteśmy dużym zespołem badawczym, który zajmuje się pretrenowaniem dużych
 
 Nasz katalog projektu, /lustre/pd03/plgrid/plgllmefficont3 (projekt Lustre 649), ma duży limit przestrzeni dyskowej (29,3 TB), z czego wykorzystujemy ok. 17 TB. Limit liczby plików wynosi jednak 1 048 576 i dochodzimy do niego na długo przed wyczerpaniem miejsca.
 
-Uruchamiamy setki eksperymentów, a każdy z nich zostawia własną kopię kodu, logi i checkpointy. 19 listopada osiągnęliśmy limit i zadania, które trenowały modele przez wiele godzin, zakończyły się błędem „Disk quota exceeded” przy zapisie końcowych checkpointów. Usunęliśmy wtedy część plików, ale w ciągu tygodnia znów przekroczyliśmy 900 000.
+Uruchamiamy setki eksperymentów, a każdy z nich zostawia własne logi i checkpointy. 19 listopada osiągnęliśmy limit i zadania, które trenowały modele przez wiele godzin, zakończyły się błędem „Disk quota exceeded” przy zapisie końcowych checkpointów. Usunęliśmy wtedy część plików, ale w ciągu tygodnia znów przekroczyliśmy 900 000.
 
 Zauważyliśmy, że MDT systemu plików /lustre/pd03 jest prawie pełny (97% według lfs df -i). Rozumiemy, że liczba plików to zasób współdzielony, dlatego prosimy o umiarkowane zwiększenie limitu.
 
