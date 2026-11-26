@@ -12,9 +12,9 @@ Dzień dobry,
 
 otrzymaliśmy Państwa wiadomość o planowanym obniżeniu limitu liczby plików do 200 000. Piszę w imieniu naszego zespołu z grantu plgllmefficont3, ponieważ taki limit byłby dla nas zdecydowanie za niski. Prośba jest uzgodniona z kierownikiem grantu.
 
-Jesteśmy dużym zespołem badawczym, który zajmuje się pretrenowaniem dużych modeli językowych (LLM) i prowadzi równolegle wiele projektów. Jest nas wielu – do grantu należy 14 osób. Mamy też duży przydział mocy obliczeniowej: 100 000 godzin GPU.
+Jesteśmy dużym zespołem badawczym, który zajmuje się pretrenowaniem dużych modeli językowych (LLM) i prowadzi równolegle wiele projektów. Jest nas wielu – do grantu należy 14 osób.
 
-Nasz katalog projektu, /lustre/pd03/plgrid/plgllmefficont3 (projekt Lustre 649), ma duży limit przestrzeni dyskowej (29,3 TB), z czego wykorzystujemy ok. 17 TB. Limit liczby plików wynosi jednak 1 048 576 i dochodzimy do niego na długo przed wyczerpaniem miejsca.
+Mamy do dyspozycji 100 000 godzin GPU, a nasz katalog projektu, /lustre/pd03/plgrid/plgllmefficont3 (projekt Lustre 649), ma duży limit przestrzeni dyskowej (29,3 TB), z czego wykorzystujemy ok. 17 TB. Limit liczby plików wynosi jednak 1 048 576 i dochodzimy do niego na długo przed wyczerpaniem miejsca.
 
 Uruchamiamy setki eksperymentów, a każdy z nich zostawia własne logi i checkpointy. 19 listopada osiągnęliśmy limit. Usunęliśmy wtedy część plików, ale w ciągu tygodnia znów przekroczyliśmy 900 000.
 
