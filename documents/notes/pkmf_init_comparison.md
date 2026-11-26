@@ -533,9 +533,8 @@ and their influence grows as they train.
 - Stage 1's "rare-type rows stay at init" diagnostic changes meaning: rows now start near
   zero rather than at a random unit direction.
 
-**How to check.** One run with the soft norm at σ = 0.01 and ε = 1, against the hard norm
-at σ = 1 and at σ = 0.01, on the same seed and data, read with the shared evaluation. ε is
-not swept: the only question is whether ε = 1 hurts the overall loss.
+**How to check.** The soft norm at σ = 0.01 with ε of 0.5, 1 and 2, against the hard norm
+at σ = 1 and at σ = 0.01, on the same seed and data, read with the shared evaluation.
 
 ### Plan B: an explicit "how much to trust this row" mechanism
 
