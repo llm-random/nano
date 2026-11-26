@@ -33,12 +33,18 @@ def _h4(seq_len):
         return instantiate(cfg.model, _convert_="all")
 
 
+def _layer_params(d):
+    """attention 3*d^2 (q, o d x d; k, v d x d/2) + gated FF 3*d*dff, dff = 3d"""
+    dff = 3 * d
+    return 3 * d**2 + 3 * d * dff
+
+
 def test_h4_flops_match_the_closed_form():
-    """P = 15*L*d^2 + V*d for the gqa H family; scores add 12*s*d per layer."""
+    """P = L*_layer_params(d) + V*d for the gqa H family; scores add 12*s*d/layer."""
     h, s = 4, 2048
     d, L = 64 * h, h
     model = _h4(s)
-    expected = 6 * (15 * L * d**2 + VOCAB * d) + 12 * L * s * d
+    expected = 6 * (L * _layer_params(d) + VOCAB * d) + 12 * L * s * d
     assert model_flops_per_token(model, s) == expected
 
 
@@ -47,7 +53,7 @@ def test_the_embedding_lookup_is_not_counted_but_the_head_is():
     h, s = 4, 128
     d, L = 64 * h, h
     model = _h4(s)
-    without_head = 6 * (15 * L * d**2) + 12 * L * s * d
+    without_head = 6 * (L * _layer_params(d)) + 12 * L * s * d
     assert model_flops_per_token(model, s) != without_head
 
 
