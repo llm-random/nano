@@ -811,10 +811,6 @@ class Trainer:
         self.metric_logger.set_tokens(self.processed_tokens)
         self.metric_logger.log("train/loss", loss_metrics.reported_loss.item())
         self.metric_logger.log("train/lr", self.scheduler.get_last_lr()[0])
-        # One per param group (src/core/optimizers.py); group 0 alone hides simpleP's ratios.
-        for group, lr in zip(self.optimizer.param_groups, self.scheduler.get_last_lr()):
-            if "role" in group:
-                self.metric_logger.log(f"train/lr_{group['role']}", lr)
         if grad_norm is not None:
             self.metric_logger.log("train/grad_norm", grad_norm.item())
         if loss_metrics.moe_stats is not None:

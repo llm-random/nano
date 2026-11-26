@@ -8,10 +8,11 @@ New optimizer options, each off by default. Now: task 3/4, Muon, not started.
 - [x] muP for AdamW, kept as simpleP (muP's LR rule only): best LR stays put across widths
 - [ ] Muon: Muon for matrices, AdamW for the rest
 - [ ] muP for Muon: best LR stays put with Muon
+- [ ] Later, own branch: weight decay that scales with width (papers in the simpleP note)
 
 **Needs Janek:**
 - The MoE width sweep is written and ready to launch: the same widths, no muP vs simpleP, 5 LRs per width around the dense best LRs. 50 short runs, about 6–8 GPU-hours.
-- Launch the h12 simpleP run together with the h12 param-groups run, its fair baseline: about 4 GPU-hours each. simpleP uses the tuned LR shifted so the big layers train at exactly the baseline's LR.
+- After the merge: launch the h12 simpleP run together with the h12 param-groups run, its fair baseline (both configs are ready): about 4 GPU-hours each. simpleP uses the tuned LR shifted so the big layers train at exactly the baseline's LR.
 - Not line 2: 11 model-size tests still expect the old FFN width (4× instead of 3×), so they fail without this change too. Left alone.
 
 **Last change:** full muP dropped, simpleP kept. In the width sweep both kept the best LR at the same value from the smallest width to the largest (without them it fell 16×), and simpleP is simpler: it only scales each layer's LR with width. With it off, losses are unchanged.
@@ -60,7 +61,7 @@ it short and in plain words: no file paths, no sub-steps.
 | # | Task | Status | What landed |
 | --- | --- | --- | --- |
 | 1 | Param groups | done | `src/core/optimizers.py`: `param_roles` and `build_optimizer_and_scheduler`, called once from `main.get_model_optimizer_scheduler`. Groups in `ROLES` order (vector, embedding, head, hidden), each with `role`. Options `configs/_trainer/_optimizer/{adamw,adamw_groups}.yaml` fill root `optimizer.roles`: null is one group; otherwise `optimizer.roles.<role>.weight_decay` for all four roles. Typed as `OptimizerSchema`. Cosine takes several groups if they share one LR. `only_weights` now loads the model only, as Task 1 allowed (see "As landed" there). Configs `tiny_local_param_groups`, `jm/h12_param_groups`. Cluster: not run yet. |
-| 2 | muP for AdamW | done | simpleP only (`documents/notes/simplep_over_mup.md`): option `configs/_trainer/_optimizer/adamw_simplep.yaml`, hidden and head LR ÷ m, m = `common.dmodel / optimizer.base_dmodel` (base 256, h4). One new key, `optimizer.base_dmodel`: null in `adamw`/`adamw_groups`, 256 in `adamw_simplep` (which is `adamw_groups` plus that key). When it is set, the builder multiplies the hidden and head groups' `lr` by `base_dmodel / dmodel`. Cosine still rejects distinct group LRs, and `validate()` rejects simpleP with cosine or a `base_dmodel` ≤ 0. `train/lr` logs the base LR, plus `train/lr_<role>` per group; the model config is untouched. Full muP (`adamw_mup`) was built, swept and dropped (`455421d2`). Configs in `configs/jm/feature/`: `tiny_local_simplep`, `h12_simplep` (one LR, 2^-8.415), `mup_width_{sp,simplep}` (dense), `mup_width_moe_{sp,simplep}`. Script: `scripts/mup_coord_check.py`; plots: `jupyter_notebooks/mup_lr_plots.ipynb`. Cluster: dense width sweep done, 122 runs with the dropped muP arm; MoE sweep and `h12_simplep` not yet. |
+| 2 | muP for AdamW | done | simpleP only (`documents/notes/simplep_over_mup.md`): option `configs/_trainer/_optimizer/adamw_simplep.yaml`, hidden and head LR ÷ m, m = `common.dmodel / optimizer.base_dmodel` (base 256, h4). One new key, `optimizer.base_dmodel`: null in `adamw`/`adamw_groups`, 256 in `adamw_simplep` (which is `adamw_groups` plus that key). When it is set, the builder multiplies the hidden and head groups' `lr` by `base_dmodel / dmodel`. Cosine and WSD both decay each group to its own final fraction (cosine made per-group at Janek's request, bit-identical with one LR). `validate()` rejects a `base_dmodel` ≤ 0. Rank 0 logs each param group once at build; `train/lr` logs the base LR; the model config and `trainer.py` are untouched. Full muP (`adamw_mup`) was built, swept and dropped (`455421d2`). Configs in `configs/jm/feature/`: `tiny_local_simplep`, `h12_simplep` (one LR, 2^-8.415), `mup_width_{sp,simplep}` (dense), `mup_width_moe_{sp,simplep}`. Script: `scripts/mup_coord_check.py`; plots: `jupyter_notebooks/mup_lr_plots.ipynb`. Cluster: dense width sweep done, 122 runs with the dropped muP arm; MoE sweep and `h12_simplep` not yet. |
 | 3 | Muon | todo | |
 | 4 | muP for Muon | todo | |
 
@@ -71,15 +72,16 @@ it short and in plain words: no file paths, no sub-steps.
   `model.parameters()`; otherwise one group per non-empty role, each with its own `lr`
   (LR, or for hidden and head LR × `base_dmodel / dmodel` under simpleP) and
   `weight_decay`. `only_weights` loads the model only.
-- `get_cosine_scheduler_with_warmup` asserts that all groups share one LR
-  (`src/core/schedulers.py:83`), because its `eta_min` is absolute, taken from group 0.
-  `tiny_local` uses cosine (`_trainer/llama.yaml`); `_trainer/nano.yaml` and
-  `h12_chinchilla` use WSD.
+- `get_cosine_scheduler_with_warmup` decays each group to `final_lr_fraction` of its own
+  LR through `PerGroupCosineAnnealingLR` (`src/core/schedulers.py`): torch's cosine with
+  one `eta_min` per group, bit-identical to it when groups share one LR. `tiny_local`
+  uses cosine (`_trainer/llama.yaml`); `_trainer/nano.yaml` and `h12_chinchilla` use WSD.
 - `WSDScheduler` chains `LinearLR`/`ConstantLR`, which scale each group's own LR, so it
   handles several groups, including the decay to `final_lr_fraction` (line 7). Its
   `load_state_dict` replays steps.
-- `train/lr` logs `scheduler.get_last_lr()[0]`, i.e. group 0 (`src/core/trainer.py:813`);
-  with param groups, `train/lr_<role>` logs each group's LR.
+- `train/lr` logs `scheduler.get_last_lr()[0]`, i.e. group 0 (`src/core/trainer.py:813`).
+  With param groups, the builder logs each group once (rank 0): role, LR, decay and its
+  parameter names.
 - Gradient clipping is global over `model.parameters()` and doesn't see groups.
 - The H family has dff = 3·dmodel and QK-norm on (`common.attention.qk_norm: true`).
 - The optimizer is built after `compile` (in place, names unchanged) and `fully_shard`
@@ -295,18 +297,19 @@ As landed (simpleP; why full muP was dropped: `documents/notes/simplep_over_mup.
 
   So lr·wd on hidden and head falls as 1/m. MoE's experts and router are `hidden`, so
   each expert gets LR ÷ m like the dense FFN (tested).
-- Scheduler: cosine is rejected off base width by task 1's one-LR assert; the cosine code
-  is untouched, since line 7 owns it. WSD scales each group's own LR, including line 7's
-  `final_lr_fraction`. `validate()` (`src/definitions.py`) rejects simpleP with cosine,
-  so `run_exp.py` stops on the laptop, and a `base_dmodel` ≤ 0.
-  `jm/feature/tiny_local_simplep` is `tiny_local` with a WSD override (`tiny_local_wsd`'s
-  10/50 steps).
-- `train/lr` logs group 0, `vector`, which keeps the base LR. With param groups,
-  `train/lr_<role>` also logs each group's LR (PR review: under simpleP `train/lr`
-  alone shows 3× the matrices' LR at h12).
+- Scheduler (Janek, 2026-11-25: make cosine take simpleP): cosine's `eta_min` is now per
+  group, `final_lr_fraction` × each group's own LR (`PerGroupCosineAnnealingLR`, which
+  copies torch 2.7.1's `get_lr` and closed form with `eta_min` indexed by group). With
+  one LR it is bit-identical to the stock scheduler (tested), so `tiny_local` is
+  unchanged. WSD already scaled each group's own LR, including line 7's
+  `final_lr_fraction`. `jm/feature/tiny_local_simplep` is plain `tiny_local` (cosine)
+  plus the option. `validate()` rejects a `base_dmodel` ≤ 0.
+- `train/lr` logs group 0, `vector`, which keeps the base LR; the other groups' LRs
+  follow from the config. The builder logs each param group once at startup (rank 0):
+  role, LR, decay, tensor and parameter counts, and every parameter name with its shape.
 - Caveats (note): the sweep doesn't settle the decay rule (full muP decayed 2–4× harder
-  from h8 up, which may explain simpleP's small loss edge), and LR transfer is shown
-  only across width at fixed depth 4 and 2000 steps; H-family sizes also grow depth.
+  from h8 up, which may explain simpleP's small loss edge); a width rule for decay is a
+  later item, on its own branch. simpleP is width-only by design.
 - `tiny_local_simplep` sets `optimizer.base_dmodel: 128` so m = 2 at h4: at the default
   base every h4 multiplier would be 1.
 - `jm/feature/h12_simplep` (m = 3) is one run: 50_000 steps, since simpleP changes no

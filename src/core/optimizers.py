@@ -1,10 +1,15 @@
 """Parameter roles and the one optimizer builder main.py calls (line 2 of the plan)."""
 
+import logging
+import os
+
 import torch
 import torch.nn as nn
 from hydra.utils import instantiate
 
 from src.core.model import TransformerHead
+
+logger = logging.getLogger(__name__)
 
 # Order of the param groups; the role table in the plan.
 ROLES = ("vector", "embedding", "head", "hidden")
@@ -37,6 +42,21 @@ def param_roles(model: nn.Module) -> dict[str, list[nn.Parameter]]:
     return roles
 
 
+def log_param_groups(model, groups):
+    """Each group's LR, decay and parameters, once, on rank 0."""
+    if os.environ.get("RANK", "0") != "0":
+        return
+    names = {id(p): name for name, p in model.named_parameters()}
+    for group in groups:
+        n_params = sum(p.numel() for p in group["params"])
+        logger.info(
+            f"param group {group['role']}: lr {group['lr']:.4g}, weight_decay "
+            f"{group['weight_decay']:g}, {len(group['params'])} tensors, {n_params:,} params"
+        )
+        for p in group["params"]:
+            logger.info(f"  {names[id(p)]} {tuple(p.shape)}")
+
+
 def build_optimizer_and_scheduler(cfg, model, learning_rate):
     roles = cfg.optimizer.roles
     base_dmodel = cfg.optimizer.base_dmodel
@@ -56,6 +76,7 @@ def build_optimizer_and_scheduler(cfg, model, learning_rate):
             for role, ps in param_roles(model).items()
             if ps
         ]
+        log_param_groups(model, params)
     optimizer = torch.optim.AdamW(
         params,
         lr=learning_rate,

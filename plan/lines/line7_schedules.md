@@ -26,7 +26,8 @@ Two schedule switches, each off by default; `jm/h12_chinchilla` turns the batch 
 ### Task 1: WSD final LR
 
 - The fraction is relative to each param group's own peak LR (`LinearLR` scales each group), so it
-  keeps working when line 2 gives groups different LRs. Cosine's `eta_min` is absolute.
+  keeps working when line 2 gives groups different LRs. Cosine's `eta_min` is now per group
+  too (line 2, `PerGroupCosineAnnealingLR`; bit-identical with one LR).
 - Off by default: `wsd.yaml` keeps 0.0. Making 0.1 the default is a one-line change in `wsd.yaml`,
   and it changes every WSD run (nano, h12, h16).
 - `LinearLR` reaches the fraction one step after the last training step, as the old decay reached 0:

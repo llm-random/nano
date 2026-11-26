@@ -172,21 +172,10 @@ def test_warmup_exceeding_n_steps_fails_validate():
         validate(cfg)
 
 
-def test_simplep_with_cosine_fails_validate():
-    # tiny_local runs cosine
-    cfg = _compose("tiny_local", ["_trainer/_optimizer@optimizer=adamw_simplep"])
-    with pytest.raises(ValueError, match="use the WSD scheduler"):
-        validate(cfg)
-
-
 def test_nonpositive_base_dmodel_fails_validate():
     cfg = _compose(
         "tiny_local",
-        [
-            "_trainer/_optimizer@optimizer=adamw_simplep",
-            "_trainer/_scheduler@trainer.scheduler=wsd",
-            "optimizer.base_dmodel=0",
-        ],
+        ["_trainer/_optimizer@optimizer=adamw_simplep", "optimizer.base_dmodel=0"],
     )
     with pytest.raises(ValueError, match="base_dmodel must be null or > 0"):
         validate(cfg)

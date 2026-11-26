@@ -59,15 +59,12 @@ weight decay × m rule. simpleP needs neither. A config picks the option and, op
   about 2.7. The two options decayed differently: full muP keeps lr·wd fixed across
   width, while under simpleP it falls as 1/m, so full muP decayed 2× (h8) to 4× (h16)
   harder. Short runs tend to favour weaker decay, so the sweep shows that the best LR
-  holds across width under both options, but it does not settle the decay rule. Wang &
-  Aitchison (arXiv 2405.13698) argue for muP's decay × m when going much wider (m = 6 at
-  h24). At h12 with the shifted LR (`h12_simplep`) the matrices get exactly the
+  holds across width under both options, but it does not settle the decay rule (see
+  Later). At h12 with the shifted LR (`h12_simplep`) the matrices get exactly the
   baseline's LR and decay, so this matters only further from the base width.
-- **Depth and run length.** LR transfer is shown across width only, at fixed depth
-  (4 blocks) and fixed run length (2000 steps). In the H family n_blocks = h, so h4 → h12
-  also triples depth, which simpleP does nothing about, and real runs are 25× longer.
-  Transferring the sweep's 2^-6 would put h12's matrices at 2^-7.6; the tuned h12 LR is
-  2^-10.
+- **Width only.** simpleP scales with width by design, not depth. The sweep held depth at
+  4 blocks and ran 2000 steps; in the H family depth grows with h, so its 2^-6 is not
+  h12's LR (`h12_simplep` starts from the tuned 2^-10 instead).
 - **One h12 run.** At a single width simpleP only fixes the LR ratio between roles (at
   h12, gains and embedding get 3× the matrices' LR), so `h12_simplep` tests that ratio,
   not width transfer. Its fair baseline is `h12_param_groups` (same groups and decay, one
@@ -84,6 +81,20 @@ weight decay × m rule. simpleP needs neither. A config picks the option and, op
   get it ÷ m. It transfers across width at the same depth and run length. For an
   H-family size, start from an LR tuned at that size and shift it as `h12_simplep` does
   (8.415 = 10 − log2 3 puts h12's matrices at the tuned 2^-10).
-- Use WSD: cosine rejects param groups with different LRs, and `validate()` rejects
-  simpleP with cosine (and a `base_dmodel` ≤ 0) before a job starts.
-- W&B logs `train/lr_<role>` per param group next to `train/lr` (group 0, the gains).
+- Cosine and WSD both work: each param group decays to its own final fraction.
+  `validate()` rejects a `base_dmodel` ≤ 0.
+- At startup, rank 0 logs each param group once: role, LR, decay and its parameters.
+  `train/lr` logs group 0 (gains, the base LR); the matrices' LR is that ÷ m.
+
+## Later
+
+A width rule for weight decay, on its own branch (Janek, 2026-11-25). The literature
+leans towards scaling decay with width, which this sweep could not test:
+- Wang & Aitchison, "How to set AdamW's weight decay as you scale model and dataset
+  size" (arXiv 2405.13698): keep the timescale 1/(lr·wd) fixed, i.e. decay × m under
+  muP's LR, which is full muP's rule; with fixed decay, muP's LR transfer breaks down.
+- Kosson et al., "Weight Decay may matter more than µP for Learning Rate Transfer in
+  Practice" (arXiv 2510.19093): independent weight decay, not muP's update scaling, is
+  what drives LR transfer; muP acts mostly as an implicit warmup.
+- "Robust Layerwise Scaling Rules by Proper Weight Decay Tuning" (arXiv 2510.15262):
+  decay ∝ √d alongside muP's LR rule, transferring both LR and decay across width.

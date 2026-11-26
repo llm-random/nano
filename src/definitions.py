@@ -367,17 +367,10 @@ def validate(cfg) -> None:
             )
 
     base_dmodel = OmegaConf.select(cfg, "optimizer.base_dmodel")
-    if base_dmodel is not None:
-        check(
-            base_dmodel > 0,
-            f"optimizer.base_dmodel must be null or > 0, got {base_dmodel!r}",
-        )
-        # Mirrors the one-LR assert in get_cosine_scheduler_with_warmup.
-        check(
-            scheduler_schema is not CosineSchedulerSchema,
-            "optimizer.base_dmodel (simpleP) gives param groups different LRs; use "
-            "the WSD scheduler, cosine rejects them",
-        )
+    check(
+        base_dmodel is None or base_dmodel > 0,
+        f"optimizer.base_dmodel must be null or > 0, got {base_dmodel!r}",
+    )
 
     warmup = t.batch_size_warmup
     if warmup is not None:
