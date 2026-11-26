@@ -1,0 +1,24 @@
+# h12_chinchilla with the attention output gate (arXiv 2505.06708), FLOPs-matched to it.
+defaults:
+  - ../h12_chinchilla@_global_
+  - _self_
+
+common:
+  attention:
+    output_gate: true
+
+trainer:
+  # FLOPs-matched: 50_000 * 854_544_384 / 897_011_712 FLOPs/token (mfu.py at s=1023; gate +4.97%) = 47_633 -> 47_630
+  n_steps: 47_630
+
+infrastructure:
+  metric_logger:
+    name: h12_output_gate
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - output_gate

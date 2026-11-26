@@ -6,6 +6,7 @@ defaults:
 common:
   attention:
     qk_norm: true
+    output_gate: true
 
 infrastructure:
   metric_logger:

@@ -1,0 +1,12 @@
+# tiny_local with the attention output gate. Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_output_gate
+defaults:
+  - ../../tiny_local@_global_
+  - _self_
+
+common:
+  attention:
+    output_gate: true
+
+infrastructure:
+  metric_logger:
+    type: stdout

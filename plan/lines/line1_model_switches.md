@@ -2,11 +2,11 @@
 
 ## Human
 
-Line 1 adds seven model-code switches, one task at a time. Now: Task 1/7, QK-norm, done.
+Line 1 adds seven model-code switches, one task at a time. Now: Task 2/7, output gate, done.
 Every switch is off by default, and off means identical training to before.
 
 - [x] QK-norm: per-head RMSNorm on q, k before RoPE
-- [ ] Output gate: sigmoid gate on attention output
+- [x] Output gate: sigmoid gate on attention output; extra projection, FLOPs-matched h12 run
 - [ ] NoPE: skip RoPE on chosen layers
 - [ ] Document masking: attend only within each document
 - [ ] Indexer sparse attention (tentative): attend to top-k keys
@@ -16,10 +16,8 @@ Every switch is off by default, and off means identical training to before.
 **Needs Janek:**
 - Run tasks 5 and 6 in parallel once 4 lands? Recommended: yes.
 - Before task 5: still wanted, and at what sequence length and k?
-- Cluster tests inherit h12's 4-LR sweep (4 jobs per switch): keep, or pin one LR?
-- Launch the QK-norm cluster test (4 jobs, 2 GPUs each).
 
-**Last change:** 2026-11-16: QK-norm landed, Qwen-style per-head norm; its cluster config is ready.
+**Last change:** 2026-11-26: output gate landed (Qwen-style sigmoid gate); later tasks now say how their h12 runs match FLOPs.
 
 ## AI
 
@@ -78,7 +76,7 @@ Janek can't review everything, so most calls are yours.
 | # | Task | Status | What landed |
 | --- | --- | --- | --- |
 | 1 | QK-norm | done | `common.attention.qk_norm`, on (`true`) in `base.yaml` since 2026-11-17, off before. Pick: per-head RMSNorm over `dhead` (eps 1e-6) on q and k before RoPE, k on kv heads before `repeat_kv`, SDPA's default scale, because 3 of the 4 surveyed models with full QK-norm use it (Qwen3.8, MiniMax-M3.1, Gemma 4; `documents/notes/qk_norm_survey.md`). Gain `(1 + w)`, w zero-init (`ZeroCenteredRMSNorm`, as Qwen3.8 and MiniMax), so weight decay pulls it to 1, not 0. No `scale` argument. Plumbing: `SWITCHES` in `attention.py`, `SWITCHES_OFF` in `tests/test_attention_registry.py`. Configs in `configs/jm/feature/`: `tiny_local_qk_norm`, `tiny_local_line1_all`, `h12_qk_norm`. |
-| 2 | Attention output gate | todo | |
+| 2 | Attention output gate | done | `common.attention.output_gate`, off (`false`) in `base.yaml`. `_rope_attention` turns it into `g_proj_fn` (a `_linear_fn(dmodel → q_heads·dhead)`, or `None` when off) for `RoPEAttention`, which builds `g_proj` last, after the QK-norm gains, and multiplies the flattened attention output by `sigmoid(g_proj(x))` before `o_proj`. Matches Qwen3-Next's fused-`q_proj` gate exactly (throwaway check, max diff 0). At h12 it adds 7.08M params and 4.97% FLOPs/token, so `h12_output_gate` runs 47_630 steps instead of 50_000 (FLOPs-matched). `h12_output_gate` drops `h12_chinchilla`'s `baseline` tag. Configs in `configs/jm/feature/`: `tiny_local_output_gate`, `h12_output_gate`, and the switch in `tiny_local_line1_all`. |
 | 3 | NoPE (RoPE off switch) | todo | |
 | 4 | Document masking | todo | |
 | 5 | Indexer sparse attention (tentative) | todo | |
@@ -126,7 +124,7 @@ and the strict `common` schema catches a typo at compose time.
   common:
     attention:
       type: gqa
-      qk_norm: false            # task 1
+      qk_norm: true             # task 1
       output_gate: false        # task 2
       no_rope_layers: null      # task 3
       document_masking: false   # task 4
@@ -197,17 +195,25 @@ Every config for a feature test run, local or cluster, goes in `configs/jm/featu
    Janek to launch. Agents never submit cluster jobs.
    - **What goes in it:** follow `configs/jm/h12_param_groups.yaml`'s pattern, one level down:
      `defaults: [../h12_chinchilla@_global_, _self_]`, then turn the switch on and set
-     `infrastructure.metric_logger.name: h12_<switch>` and the tags. Nothing else, so the run
-     compares directly with the `h12_chinchilla` baseline.
+     `infrastructure.metric_logger.name: h12_<switch>` and the tags. Nothing else except
+     FLOPs-matching, so the run compares directly with the `h12_chinchilla` baseline.
+   - **FLOPs-matched:** total training FLOPs (`model_flops_per_token` in `src/core/mfu.py` ×
+     tokens) must equal `h12_chinchilla`'s (50_000 steps × 64×1023 tokens: a step feeds
+     `batch[:, :-1]`). Compute both models at s=1023, as live MFU does (dense h12: 854,544,384
+     FLOPs/token). If the switch changes FLOPs per token, set `trainer.n_steps` to match, rounded
+     to a multiple of 10 (decay and checkpoint intervals derive from it), with the arithmetic in a
+     one-line comment. A switch with no counted FLOPs change (QK-norm) keeps 50_000.
    - **Tags:** the list is replaced, not merged, so restate `h12_chinchilla`'s tags and add the
      switch's name.
-   - **Size:** it inherits `h12_chinchilla`'s `^learning_rate` grid, so it launches four jobs of
-     2 GPUs each.
+   - **One LR:** `h12_chinchilla`'s tuned LR, 2^-10 (`learning_rate: 10`, best of its 5-LR
+     8–12 grid), as a single value, not a `^learning_rate` grid. Change it only for a known LR
+     effect of the switch, with a one-line reason in a comment.
+   - **Size:** one job of 2 GPUs.
    - **Group refs** are relative (`../../` from `configs/jm/feature/`), and any `override`
      entry goes after the group entries.
    - **Check that it composes:**
      `pixi run python scripts/expand_config.py --config-path configs/jm/feature --config-name h12_<switch> --list`
-     prints 4 grid points. Then expand point 0 with `-o $CLAUDE_JOB_DIR/tmp/h12_<switch>.yaml`
+     prints 1 grid point. Then expand point 0 with `-o $CLAUDE_JOB_DIR/tmp/h12_<switch>.yaml`
      and confirm the switch is on in it.
    - **In the report,** give the launch command:
      `pixi run python run_exp.py --config-path configs/jm/feature --config-name h12_<switch>`.
@@ -306,6 +312,11 @@ and into your report, not into the diff. Don't add new test files unless your se
   - line 2 sees an ordinary hidden matrix.
   - Fusing is a later speed optimization.
 - **Combines with QK-norm:** works together.
+- **As built (2026-11-23):**
+  - `RoPEAttention` takes `g_proj_fn` (no default; `None` is off) rather than an `output_gate`
+    bool, since the builder owns the init (`_linear_fn`). `g_proj` is built after the QK-norm
+    gains, which draw no RNG, so q/k/v/o draws match the off model.
+  - The gate adds a counted matmul, so its h12 run is FLOPs-matched (47_630 steps).
 
 #### 3. NoPE (RoPE off switch)
 
@@ -325,6 +336,7 @@ and into your report, not into the diff. Don't add new test files unless your se
 - **Out of scope:** partial RoPE (`rope_fraction`). Mention it in the report if it would be a
   few lines.
 - **Combines with QK-norm and the gate:** works together.
+- **h12 run:** RoPE has no counted FLOPs, so `h12_no_rope` keeps 50_000 steps.
 
 #### 4. Document masking
 
@@ -367,7 +379,8 @@ and into your report, not into the diff. Don't add new test files unless your se
 - **Not verified locally:** the compiled path (`compile_blocks_full`, FSDP2, a `BlockMask` as a
   block input) only runs on GPU. `h12_document_masking` is its first compiled run, so write
   "compiled path untested until the h12 run" in "what landed".
-- **MFU:** see Cross-cutting issues.
+- **MFU:** see Cross-cutting issues. The count stays dense, so `h12_document_masking` keeps
+  50_000 steps.
 - **Combines with tasks 1–3:** works together.
 
 #### 5. Indexer sparse attention (tentative)
@@ -391,6 +404,8 @@ and into your report, not into the diff. Don't add new test files unless your se
 - **MFU:** a `dsa` layer must report its own cost. Add a hook that `mfu.py` asks each attention
   module for (`origin/ame_improve` has an `attention_score_flops_per_token` one to borrow), and
   count k keys plus the indexer's dense scores.
+- **h12 run:** FLOPs-match `n_steps` with that count. It can go either way: k keys cost fewer
+  score FLOPs than dense, and the indexer adds its own.
 - **Combines:** works with QK-norm, the gate and NoPE (the indexer's keys follow the layer's RoPE
   setting), and with document masking via the AND above.
 
@@ -408,6 +423,7 @@ and into your report, not into the diff. Don't add new test files unless your se
   (for example, the norm of the input the sublayer reads) and record it.
 - **MFU:** the mixing parameters are small 2-D tensors that `mfu.py` would count as 6·P matmuls.
   Correct that if it's off by more than ~1%.
+- **h12 run:** FLOPs-match `n_steps` with the corrected count.
 - **Combines:** works with every attention switch and document masking. Raises with nGPT.
 - **Parallel with 5?** It edits the residual and block classes, which the indexer doesn't
   touch, so it could run beside task 5 once task 4 lands.
@@ -426,8 +442,9 @@ and into your report, not into the diff. Don't add new test files unless your se
   - `s_u` and `s_v` scale the SwiGLU branches.
   - A learned logit scale `s_z` sits in the head.
   - No weight decay and no warmup; that goes in the configs, not the code. So
-    `h12_ngpt.yaml` sets those beside the switch, the one departure from step 7's "nothing
-    else", and its comment says why.
+    `h12_ngpt.yaml` sets those beside the switch (departures beyond stage 2's switch, `n_steps`
+    and tags), and its comment says why. nGPT adds only 1-D scales and drops 1-D norms, so its
+    counted FLOPs don't change and it keeps 50_000 steps.
 - **The post-step renorm** needs a hook where the optimizer is built, which is line 2's code in
   `main.py` (`optimizer.register_step_post_hook`). Agree with Janek on where it goes. By then
   line 2 has likely landed.

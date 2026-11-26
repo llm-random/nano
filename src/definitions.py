@@ -42,6 +42,7 @@ class AttentionSchema:
     # resolve_layer_types in src/core/attention.py, which validates its keys.
     mix: Any = None
     qk_norm: bool = MISSING
+    output_gate: bool = MISSING
 
 
 @dataclass

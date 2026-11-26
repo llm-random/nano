@@ -25,7 +25,7 @@ PLANNED = ("mla", "mamba2", "gated_deltanet")
 DIMS = dict(dmodel=64, q_heads=4, kv_heads=2, seq_len=16)
 
 # Every line-1 attention switch off; each task adds its key.
-SWITCHES_OFF = {"qk_norm": False}
+SWITCHES_OFF = {"qk_norm": False, "output_gate": False}
 
 
 def _build(attention_type, seed=0, **overrides):
@@ -75,10 +75,11 @@ def test_planned_types_construct_but_refuse_to_run(name):
         module(x)
 
 
+@pytest.mark.parametrize("switch", SWITCHES_OFF)
 @pytest.mark.parametrize("name", PLANNED)
-def test_a_planned_type_refuses_a_switch_at_build(name):
-    attention = {"type": name, **SWITCHES_OFF, "qk_norm": True}
-    with pytest.raises(ValueError, match="qk_norm"):
+def test_a_planned_type_refuses_a_switch_at_build(name, switch):
+    attention = {"type": name, **SWITCHES_OFF, switch: True}
+    with pytest.raises(ValueError, match=switch):
         build_attention(0, attention=attention, n_blocks=1, **DIMS)
 
 

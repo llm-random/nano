@@ -239,6 +239,7 @@ class RoPEAttention(nn.Module):
         k_proj_fn,
         v_proj_fn,
         o_proj_fn,
+        g_proj_fn,
         dmodel,
         q_heads,
         kv_heads,
@@ -280,6 +281,11 @@ class RoPEAttention(nn.Module):
             self.q_norm = ZeroCenteredRMSNorm(self.dhead, eps=1e-6)
             self.k_norm = ZeroCenteredRMSNorm(self.dhead, eps=1e-6)
 
+        # Output gate projection (None = off), built last so the off model's RNG draws don't move.
+        self.output_gate = g_proj_fn is not None
+        if self.output_gate:
+            self.g_proj = g_proj_fn()
+
     def forward(self, x):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
@@ -306,7 +312,11 @@ class RoPEAttention(nn.Module):
             query=q, key=k, value=v, causal=True
         )
 
-        output = self.o_proj(attention_output.transpose(1, 2).contiguous().flatten(-2))
+        attention_output = attention_output.transpose(1, 2).contiguous().flatten(-2)
+        if self.output_gate:
+            # Elementwise, head-specific, query-dependent gate (Qwen's best variant).
+            attention_output = attention_output * torch.sigmoid(self.g_proj(x))
+        output = self.o_proj(attention_output)
 
         return output
 

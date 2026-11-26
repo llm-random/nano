@@ -27,6 +27,8 @@ common:
     type: gqa
     # per-head RMSNorm on q and k before RoPE (documents/notes/qk_norm_survey.md)
     qk_norm: true
+    # sigmoid(g_proj(x)) gate on the attention output before o_proj (arXiv 2505.06708)
+    output_gate: false
 
 
 model:
