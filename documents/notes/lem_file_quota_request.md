@@ -10,9 +10,9 @@ Temat: Limit liczby plików dla grantu plgllmefficont3 (/lustre/pd03, projekt 64
 
 Dzień dobry,
 
-otrzymaliśmy Państwa wiadomość o obniżeniu limitu liczby plików do 200 000. Piszę w imieniu naszego zespołu z grantu plgllmefficont3, ponieważ taki limit byłby dla nas zdecydowanie za niski. Prośba jest uzgodniona z kierownikiem grantu.
+otrzymaliśmy Państwa wiadomość o planowanym obniżeniu limitu liczby plików do 200 000. Piszę w imieniu naszego zespołu z grantu plgllmefficont3, ponieważ taki limit byłby dla nas zdecydowanie za niski. Prośba jest uzgodniona z kierownikiem grantu.
 
-Jesteśmy dużym zespołem badawczym, który zajmuje się pretrenowaniem dużych modeli językowych (LLM) i prowadzi równolegle wiele projektów. Jest nas wielu – do grantu należy 14 osób. Mamy też duży przydział mocy obliczeniowej: 100 000 godzin GPU, z których ok. 69 000 jest jeszcze do wykorzystania.
+Jesteśmy dużym zespołem badawczym, który zajmuje się pretrenowaniem dużych modeli językowych (LLM) i prowadzi równolegle wiele projektów. Jest nas wielu – do grantu należy 14 osób. Mamy też duży przydział mocy obliczeniowej: 100 000 godzin GPU.
 
 Nasz katalog projektu, /lustre/pd03/plgrid/plgllmefficont3 (projekt Lustre 649), ma duży limit przestrzeni dyskowej (29,3 TB), z czego wykorzystujemy ok. 17 TB. Limit liczby plików wynosi jednak 1 048 576 i dochodzimy do niego na długo przed wyczerpaniem miejsca.
 
@@ -20,7 +20,7 @@ Uruchamiamy setki eksperymentów, a każdy z nich zostawia własne logi i checkp
 
 Zauważyliśmy, że MDT systemu plików /lustre/pd03 jest prawie pełny (97% według lfs df -i). Rozumiemy, że liczba plików to zasób współdzielony, dlatego prosimy o umiarkowane zwiększenie limitu.
 
-Zamiast obniżenia prosimy o trwałe zwiększenie limitu liczby plików do 2 milionów. Jeśli nie będzie to możliwe, prosimy przynajmniej o pozostawienie obecnego limitu 1 miliona plików. Ze swojej strony ograniczymy też liczbę plików, na przykład pakując do archiwów starsze wyniki, które przechowujemy jedynie jako zapis historyczny.
+Prosimy o trwałe zwiększenie limitu liczby plików do 2 milionów. Jeśli nie będzie to możliwe, prosimy przynajmniej o pozostawienie obecnego limitu 1 miliona plików. Ze swojej strony ograniczymy też liczbę plików, na przykład pakując do archiwów starsze wyniki, które przechowujemy jedynie jako zapis historyczny.
 
 Bardzo dziękujemy za pomoc.
 
