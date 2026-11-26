@@ -380,6 +380,28 @@ As landed (simpleP; why full muP was dropped: `documents/notes/simplep_over_mup.
 
 ### Task 3: Muon
 
+Since task 2 (2026-11-26), read before the scope:
+- Config: `optimizer.roles.<role>` holds only `weight_decay`; `optimizer.base_dmodel`
+  turns on simpleP, which the builder applies to the hidden and head LR. Add Muon as
+  an option that extends `adamw_groups` (`defaults: [adamw_groups, _self_]`, as
+  `adamw_simplep.yaml` does) plus its own keys; when options stop sharing keys, add
+  the class key described under Config surface.
+- simpleP's hidden LR ÷ m is AdamW's rule. Muon's update scale changes it (task 4), so
+  in task 3 make the builder assert `base_dmodel` is null for Muon, or apply simpleP
+  to the AdamW groups only. Don't silently divide a Muon LR by m.
+- Schedulers: cosine and WSD both scale each group relative to its own LR (cosine
+  per group since task 2), so Muon groups can have their own LR under either.
+- MoE has landed (line 3, #201): each expert is a `GatedFeedForward` with 2D weights,
+  and the router (`num_experts × dmodel`) is `hidden`, so by role both go to Muon.
+  Decide whether the router belongs in Muon or AdamW and record it. No 3D expert
+  tensors on `pretraining-jm` yet; line 3's dropless follow-up may add them.
+- Torch is still 2.7.1. If `pretraining-jm` moves to a newer torch (line 3's dropless
+  follow-up targets 2.11), check whether it ships `torch.optim.Muon` and how it works
+  with FSDP2 before writing your own.
+- The builder logs each param group once at startup (rank 0); add which optimizer
+  each group uses. Check new configs with `run_exp.expand_and_check(cfg)`, the
+  launcher's own pre-submit check (never call `run_exp.py` itself).
+
 Scope:
 - Muon on `hidden`; AdamW on `embedding`, `head` and `vector`. Both live in one optimizer
   class, e.g. the `MuonWithAuxAdam` pattern in the reference implementation
@@ -413,9 +435,10 @@ Checks:
   - The sharded step equals the unsharded one, in a 2-rank gloo CPU test built on the
     FSDP2 harness in `tests/test_distributed.py`.
 - Stage 2: `configs/jm/feature/h12_muon.yaml`. h12_chinchilla runs on 2 GPUs, so this run
-  exercises FSDP2 Muon. Compare it with h12_chinchilla by loss and s/step. If your update
-  scale doesn't reuse AdamW's LR, the inherited 2^-10 is in the wrong range: set one LR
-  in this config and say why in a one-line comment.
+  exercises FSDP2 Muon. Compare it by loss and s/step with `jm/h12_param_groups` (same
+  groups and decay, AdamW everywhere: the like-for-like baseline) and h12_chinchilla.
+  If your update scale doesn't reuse AdamW's LR, the inherited 2^-10 is in the wrong
+  range: set one LR in this config and say why in a one-line comment.
 
 ### Task 4: muP for Muon
 
@@ -429,6 +452,10 @@ Scope:
   as 1/√width. Derive the rules from task 3's choice, verify them, and write the table
   here.
 - The config surface is the same: a Muon + muP option in `_trainer/_optimizer/`.
+
+Since task 2: the AdamW groups' rule is simpleP's (LR ÷ m on head; decay unscaled).
+Reuse `scripts/mup_coord_check.py` (add the Muon option), the paired-grid sweep configs
+`configs/jm/feature/mup_width_*.yaml`, and `jupyter_notebooks/mup_lr_plots.ipynb`.
 
 Checks: as in task 2, a CPU coordinate check at fixed depth. Then stage 2,
 `configs/jm/feature/h12_muon_mup.yaml` with a base width below h12, and on top of it a width sweep
