@@ -68,7 +68,10 @@ comparison against a handicapped baseline.
 - **Load balance.** Ranks agree to 0.2 ms at 4 GPUs; no straggler.
 - **Data pipeline.** `data_fetch` is 0.1–0.2 ms at 4 ranks, so the long-standing
   worry that 2 dataloader workers could not feed a multi-GPU run does not bite
-  at this scale (it may still bite at 8+).
+  at this scale (it may still bite at 8+). Measured with per-rank shards: since
+  2026-11-26 each rank's workers tokenize the whole stream (fineweb's train
+  loader is world_size_independent), 4× that load at 4 GPUs, so read
+  `data_fetch` again on the first such run.
 
 ### What is known-bad
 
@@ -84,7 +87,7 @@ comparison against a handicapped baseline.
 | world size > 4 | never run. Communication is flat in absolute terms and so grows as a share of the step (2.3% → 5.9% → 8.7% at 1/2/4); 8 GPUs is where it should start to bite |
 | non-NVLink interconnect | everything here is one node with NV18 full NVLink. These numbers are a best case |
 | multi-GPU checkpointing | a real sharded dcp round-trip has never been run at world size > 1 |
-| resume across a changed GPU count | **unsafe.** The dataloader shards per rank and the checkpoint does not record `world_size`, so a run is reproducible only at fixed (seed, world_size) |
+| resume across a changed GPU count | **unverified.** The data no longer stands in the way: since 2026-11-26 fineweb's train loader is world_size_independent, so every step trains on the same sequences at any count. But the checkpoint does not record `world_size`, and a resharded load at another world size has never been run |
 | FSDP1 | untouched and unmeasured; it remains a legacy fallback |
 
 ### Open, ranked by measured worth
@@ -758,9 +761,9 @@ caught a rung that had already passed on throughput.
 
 What has *not* been established, and should not be assumed from these runs:
 multi-node (never run), any world size above 4, non-NVLink interconnects, a real
-multi-GPU checkpoint round-trip, and resume across a changed GPU count (the
-dataloader shards per rank, so a run is reproducible at fixed (seed, world_size)
-only — see training_efficiency.md §8.2).
+multi-GPU checkpoint round-trip, and resume across a changed GPU count (never
+run; the data no longer stands in the way, since fineweb's train loader is
+world_size_independent from 2026-11-26).
 
 ## 9. Log
 

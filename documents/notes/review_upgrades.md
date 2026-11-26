@@ -25,8 +25,9 @@ OK before it costs GPU time.** The fixes to apply before the reviewed commits se
 | [U9](#u9-runs-already-planned) | Runs already planned | Four runs from the standard-models plan | standard_model_improvements.md | Maciej's OK |
 | [U10](#u10-the-shift-effect-without-the-init-difference) | The shift effect, clean | Re-measure the KV shift's gain now that the switch no longer moves the init | Reviewer A (N6) | Runs |
 | [U11](#u11-the-v2-init-against-the-v1-references) | The v2 init | Does a v2 standard run tie its v1 reference? | Reviewer A (N6) | One run per model, or accept |
-| [U12](#u12-a-data-order-independent-of-workers-and-gpus) | Data order | A pipeline whose order depends only on the seed | This session (audit A1, A2) | Code |
+| [U12](#u12-a-data-order-independent-of-workers-and-gpus) | Data order | A pipeline whose order depends only on the seed | This session (audit A1, A2) | **Decided and done 2026-11-26:** the same data at any GPU count and accumulation; workers stay 2 |
 | [U13](#u13-a-separate-init-seed) | Init seed | Vary the data order and the init separately | This session (audit A4) | Code |
+| [U14](#u14-corpus-coverage) | Corpus coverage | Every FineWeb run so far trained on the start of the same two of 64 shards | This session (U12 work) | A look at the corpus's row order, then Maciej's call |
 
 ## U1. Bank rows under dense AdamW
 
@@ -223,6 +224,21 @@ Maciej's OK":
   - A pre-tokenized, pre-packed, map-style dataset with one seeded global permutation,
     sliced by rank and worker. The order then depends only on the seed, at no extra CPU,
     but it changes the data pipeline and the packing.
+- **Decided 2026-11-26 (Maciej):** no pre-tokenized dataset, and online tokenization in the
+  loader workers stays as it is. What must hold: the same seed gives the same data whatever
+  the GPU count and `gradient_accumulation_steps`.
+- **Done (`c5097166`):** fineweb's train loader sets `world_size_independent: true`, so every
+  GPU reads the whole stream and keeps every world_size-th sequence, and the GPUs of a step
+  together hold exactly the 1-GPU step. At one GPU nothing changed: the v2 baselines still
+  pair with the v1 references in data (U11). Accumulation only ever split a GPU's batch
+  after loading; a batch that does not split evenly over GPUs × accumulation is now refused
+  at submit, by the loader and by the trainer. `num_workers` stays 2 and stays part of the
+  order (review_issues.md, A1 and A2).
+- **Still open, the CPU cost:** every GPU's 2 workers now tokenize the whole stream,
+  world_size times their old share. Fine at 4 GPUs with per-GPU shards
+  (multigpu_efficiency.md: `data_fetch` 0.1–0.2 ms), not yet measured with the whole stream:
+  read `data_fetch` on the first 4-GPU run. Faster tokenization inside a worker keeps the
+  data; more workers would reorder it.
 
 ## U13. A separate init seed
 
@@ -231,3 +247,20 @@ Maciej's OK":
 - **To check:** a separate init seed (by default the data seed) would let an ablation vary
   the data order at a fixed init, or the reverse, and measure the two sources of run-to-run
   noise apart (U6).
+
+## U14. Corpus coverage
+
+- Each loader worker reads its shards one after another, through a 10k-document shuffle
+  buffer (datasets 3.1). At seed 123 with 2 workers, worker 0 starts at shard 20 and worker 1
+  at shard 15 of 64 (the same calls on a synthetic 64-shard set, 2026-11-26). A shard is
+  about 20M rows, roughly 24B tokens, so a 4B-token run reads about a tenth of one shard per
+  worker: every FineWeb run so far trained on the start of the same two slices of the
+  corpus. That kept every comparison paired.
+- The eval holdout is the corpus's last 262,144 rows. If the rows are in crawl order, the
+  two differ in time, which would explain the held-out shift: ' COVID' occurs twice in 4B
+  training tokens and 1,686 times in the 16.8M held-out tokens
+  ([ame_bank_gates_report.md](ame_bank_gates_report.md)).
+- **To check:** the corpus's row order (which dumps each shard holds), and whether the
+  stream should draw from all 64 shards, for example by interleaving them, which keeps
+  online tokenization. It changes the data, so it belongs before a round of reruns, not in
+  the middle of one.
