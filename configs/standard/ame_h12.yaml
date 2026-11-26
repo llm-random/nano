@@ -14,6 +14,13 @@
 # seed builds other weights than for the runs named above, and the QK-norm keeps
 # q and k in the compute dtype. These runs pair with those in data order, steps
 # and schedule, not in init: hence the _v2 run name and the standard_v2 tag.
+#
+# Recipe v3 (2026-11-26, branch ame_f1; PR #200, ee6e3742 on pretraining-jm):
+# the held-out set is the end of each of fineweb's 64 equal segments, not the
+# corpus tail (one easy crawl), so final_ce now matches pretraining-jm's at the
+# same sequence_length. The training rows shift with the cut: these runs pair
+# with no earlier run, in final_ce or in train batches, hence the _v3 run name
+# and the standard_v3 tag.
 defaults:
   - /base_schema
   - ../_misc@_here_: default
@@ -63,11 +70,11 @@ infrastructure:
     exclude: r16-11 # bad GPU (2026-11-06)
   metric_logger:
     project_name: nano-ame
-    name: std_ame_h12_lr8_v2
+    name: std_ame_h12_lr8_v3
     tags:
       - ame
       - h12
       - standard
-      - standard_v2
+      - standard_v3
       - bank_lr4
       - bank_std1e4

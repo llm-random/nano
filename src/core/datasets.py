@@ -2,7 +2,7 @@ import os
 from typing import Callable
 import torch
 from typing import Optional, List
-from datasets import load_from_disk
+from datasets import load_from_disk, concatenate_datasets
 import itertools
 import numpy as np
 import random
@@ -85,6 +85,7 @@ class AbstractDataset(IterableDataset):
         self.use_new_sampling_method = use_new_sampling_method
         self.shuffle = shuffle
         self.world_size_independent = world_size_independent
+        self._cached_samples = None
 
     def sample_packer(self):
         buffer: List[int] = []
@@ -134,15 +135,31 @@ class AbstractDataset(IterableDataset):
         which is the dependence the eval set exists to remove. Capping first and
         striding second makes the union across ranks exactly `max_samples`, the same
         samples at any world size.
+
+        A capped stream is packed once and then replayed from memory, so later passes
+        skip reading and tokenizing the data.
         """
         self._check_the_cap_can_be_honoured()
+        if self._cached_samples is not None:
+            return (sample.tolist() for sample in self._cached_samples)
         self.rng.seed(self.seed)
         stream = self.sample_packer()
         if self.max_samples is not None:
             stream = itertools.islice(stream, self.max_samples)
         if self.world_size_independent:
             stream = itertools.islice(stream, self.rank, None, self.world_size)
-        return stream
+        if self.max_samples is None:
+            return stream
+        # int32 is 4 bytes per token: 8192 x 1024 split over 4 ranks is 8 MiB per rank.
+        samples = [np.asarray(sample, dtype=np.int32) for sample in stream]
+        self._cached_samples = np.array(samples, dtype=np.int32).reshape(
+            -1, self.sequence_length
+        )
+        logger.info(
+            f"Cached {len(self._cached_samples)} samples of the capped stream "
+            f"({self._cached_samples.nbytes / 2**20:.1f} MiB)"
+        )
+        return (sample.tolist() for sample in self._cached_samples)
 
     def _check_the_cap_can_be_honoured(self):
         """`max_samples` is a budget for the whole job, and two settings silently break
@@ -200,10 +217,12 @@ class FineWebEduDataset(AbstractDataset):
         fineweb ships only a `train` directory -- no validation split was ever
         downloaded -- so eval was pointed at the training data and scored the batches
         the model was training on. There is no second directory to point at, but there
-        is no need for one: the last `holdout_fraction` of the rows can be reserved.
-        Pass holdout="train" to take everything before the cut and holdout="eval" to
-        take everything after it. Both are computed from the same row count, so the two
-        are disjoint by construction.
+        is no need for one: rows can be reserved. The rows are cut into NUM_SHARDS
+        equal segments and the end of each segment is held out, so eval spans every
+        part of the corpus rather than one tail (which is one crawl, and an easy one).
+        Pass holdout="train" for the rest of each segment and holdout="eval" for the
+        held-out ends. Both cut at the same places, so they are disjoint by
+        construction.
 
         The reserve is a fixed number of rows rather than a fraction, so the eval set
         does not grow with the corpus: an eval number is only comparable across runs if
@@ -246,14 +265,27 @@ class FineWebEduDataset(AbstractDataset):
                 f"trainer.train_dataloader.dataset.holdout_rows=N "
                 f"trainer.eval_dataloader.dataset.holdout_rows=N"
             )
-        cut = total - self.holdout_rows
+        n_segments = min(self.NUM_SHARDS, total)
+        per_segment, extra = divmod(self.holdout_rows, n_segments)
+        parts = []
+        for index in range(n_segments):
+            # Contiguous shard and select only slice the Arrow table: no index, no copy.
+            segment = hf_dataset.shard(n_segments, index, contiguous=True)
+            cut = len(segment) - per_segment - (1 if index < extra else 0)
+            if self.holdout == "train":
+                rows = range(cut)
+            else:
+                rows = range(cut, len(segment))
+            if len(rows) > 0:
+                parts.append(segment.select(rows))
+        selected = concatenate_datasets(parts)
 
-        if self.holdout == "train":
-            selected = hf_dataset.select(range(cut))
-        else:
-            selected = hf_dataset.select(range(cut, total))
+        if self.holdout == "eval":
+            # Row-level order so every eval batch mixes all segments; in memory, never on disk.
+            selected = selected.shuffle(seed=self.seed, keep_in_memory=True)
         logger.info(
-            f"holdout='{self.holdout}': {len(selected)} of {total} rows (cut at {cut})"
+            f"holdout='{self.holdout}': {len(selected)} of {total} rows, "
+            f"from {n_segments} segments"
         )
         return selected
 
