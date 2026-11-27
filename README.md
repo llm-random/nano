@@ -27,6 +27,11 @@ python update_pixi.py --config-path configs --config-name tiny_remote
 2. Runs `pixi install` on compute node via SLURM (GPU params auto-removed)
 3. Archives old pixi files before installing new environment
 
+**lem packs instead of installing.** Its cluster config sets `infrastructure.pixi_pack_dir`
+and no `PIXI_HOME`: `update_pixi.py` packs the local `pixi.lock` into one tar on Lustre, and
+each job unpacks it to node-local disk. Run it again whenever `pixi.lock` changes. See
+`documents/notes/lem_packed_pixi_env.md`.
+
 ## Running Experiments
 
 ### Local

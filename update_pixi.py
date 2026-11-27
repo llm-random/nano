@@ -6,6 +6,7 @@ import hydra
 from omegaconf import OmegaConf
 from run_exp import ConnectWithPassphrase
 from grid_generator.sbatch_builder import create_slurm_parameters
+from resolver import pixi_lock_hash
 
 
 def get_project_root() -> Path:
@@ -19,6 +20,101 @@ def get_project_root() -> Path:
         current = current.parent
 
     raise FileNotFoundError("Could not find pixi.toml in parent directories")
+
+
+def pack_remote_pixi(
+    server: str,
+    pack_dir: str,
+    slurm_config: dict,
+    dry_run: bool,
+    force: bool,
+    wait: bool,
+):
+    """Pack the local pixi.lock into pack_dir on the cluster, in a batch job (scripts/pixi_pack_env.sh)."""
+    project_root = get_project_root()
+    lock_hash = pixi_lock_hash()
+    files = [
+        project_root / "pixi.lock",
+        project_root / "scripts" / "pixi_pack_env.sh",
+        project_root / "scripts" / "pixi_unpack_env.sh",
+    ]
+    # More than the install job: the test unpack holds the extracted tar and the env, and imports torch.
+    slurm_config.update(
+        {"job-name": "pack_pixi", "cpus-per-task": 8, "mem": "32G", "time": "01:00:00"}
+    )
+
+    print(f"Cluster: {server}")
+    print(f"pixi.lock hash: {lock_hash}")
+    print(f"Pack: {pack_dir}/nano-env-{lock_hash}.tar")
+    if dry_run:
+        print(
+            "\n[DRY RUN] Would copy these into <pack dir>/builds/<timestamp>_<hash>/:"
+        )
+        for f in files:
+            print(f"  - {f}")
+        mode = "--wait" if wait else "--parsable"
+        print(f"and run scripts/pixi_pack_env.sh there with sbatch {mode} and:")
+        for param in create_slurm_parameters(slurm_config):
+            print(f"      {param}")
+        return
+
+    print(f"\nConnecting to {server}...")
+    with ConnectWithPassphrase(host=server, inline_ssh_env=True) as connection:
+        # The remote shell expands $USER; sftp paths below need it expanded.
+        pack_dir = connection.run(f'echo "{pack_dir}"', hide=True).stdout.strip()
+        tar = f"{pack_dir}/nano-env-{lock_hash}.tar"
+        if not force and connection.run(f'test -f "{tar}"', hide=True, warn=True).ok:
+            print(f"Already packed: {tar}\nPass +force=true to rebuild it.")
+            if not wait:
+                print(
+                    "No pack job, so nothing to wait for: submit without a dependency."
+                )
+            return
+
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        stage = f"{pack_dir}/builds/{timestamp}_{lock_hash}"
+        connection.run(f'mkdir -p "{stage}"', hide=True)
+        for f in files:
+            connection.put(str(f), remote=f"{stage}/{f.name}")
+
+        slurm_config["output"] = f"{stage}/slurm-%j.out"
+        sbatch_flags = " ".join(
+            p.replace("#SBATCH ", "") for p in create_slurm_parameters(slurm_config)
+        )
+        force_flag = " --force" if force else ""
+        command = f"bash -l {stage}/pixi_pack_env.sh {stage} {pack_dir}{force_flag}"
+        if not wait:
+            # +wait=false: submit and print the job id, so jobs can wait for it with afterok
+            result = connection.run(
+                f'sbatch --parsable {sbatch_flags} --wrap="{command}"',
+                pty=True,
+                warn=True,
+            )
+            if not result.ok:
+                print("\n✗ Submitting the pack job failed")
+                sys.exit(1)
+            # with a pty, sbatch's stderr notes land in stdout too; the id is the last line
+            job_id = result.stdout.strip().splitlines()[-1].split(";")[0].strip()
+            print(
+                f"\nSubmitted pack job {job_id}, log in {stage}/; it has not run yet."
+            )
+            print(
+                f"Jobs that need it: ++infrastructure.slurm.dependency=afterok:{job_id}"
+            )
+            return
+        print(f"\nSubmitting the pack job (sbatch --wait), log in {stage}/")
+        result = connection.run(
+            f'sbatch --wait {sbatch_flags} --wrap="{command}"', pty=True, warn=True
+        )
+        log = connection.run(
+            f"ls {stage}/slurm-*.out", hide=True, warn=True
+        ).stdout.strip()
+        connection.run(f"tail -n 25 {log}", warn=True)
+        print(f"\nLog: {log}")
+        if not result.ok:
+            print("\n✗ Packing failed")
+            sys.exit(1)
+        print(f"\n✓ Packed {tar}")
 
 
 @hydra.main(version_base=None)
@@ -36,10 +132,6 @@ def update_remote_pixi(cfg: OmegaConf):
     # Convert to plain dict to avoid struct mode restrictions
     slurm_config = OmegaConf.to_container(cfg.infrastructure.slurm, resolve=True)
 
-    assert "export PIXI_HOME" in "\n".join(
-        script_lines
-    ), "PIXI_HOME must be set in the cluster script."
-
     # This job is just "pixi install" → no GPU needed.
     # Remove GPU-related keys inherited from the main cluster config.
     for key in ("gres", "cpus_per_gpu", "mem_per_gpu"):
@@ -54,6 +146,23 @@ def update_remote_pixi(cfg: OmegaConf):
         4  # requires your create_slurm_parameters to map this
     )
     slurm_config["mem"] = "8G"  # normal mem, not mem-per-gpu
+
+    # Clusters with a pixi_pack_dir (lem) unpack a packed env per job instead of installing one.
+    pack_dir = cfg.infrastructure.get("pixi_pack_dir", None)
+    if pack_dir is not None:
+        pack_remote_pixi(
+            server,
+            pack_dir,
+            slurm_config,
+            cfg.get("dry_run", False),
+            cfg.get("force", False),
+            cfg.get("wait", True),
+        )
+        return
+
+    assert "export PIXI_HOME" in "\n".join(
+        script_lines
+    ), "PIXI_HOME must be set in the cluster script."
 
     print(f"Cluster: {server}")
 
