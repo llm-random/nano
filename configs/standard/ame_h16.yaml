@@ -26,6 +26,17 @@
 # same sequence_length. The training rows shift with the cut: these runs pair
 # with no earlier run, in final_ce or in train batches, hence the _v3 run name
 # and the standard_v3 tag.
+#
+# Recipe v4 (2026-11-27, AME only): the feed-forward is dense's plus dmodel/3,
+# rounded to a multiple of 32 (common.dff below; AMEm in
+# documents/concepts/ame-model.md). AME has no W_Q or W_K and a full-width W_V,
+# d^2 fewer attention weights per layer than dense GQA, and the wider FF puts
+# them back: AME now matches the dense model of its H in active parameters and
+# training FLOPs per token. The dense configs did not change and stay v3. Only
+# the feed-forward inits differently from v3 at the same seed, so these runs
+# pair with v3 AME in data order, steps, schedule and every other part's init,
+# and with v3 dense in data order, steps and schedule: hence the _v4 run name
+# and the standard_v4 tag.
 defaults:
   - /base_schema
   - ../_misc@_here_: default
@@ -39,6 +50,11 @@ defaults:
 common:
   sequence_length: 2049 # the model sees 2048 = 16 x 128, so flex blocks align
   batch_size: 512 # sequences per optimizer step = 1,048,576 tokens
+  # Recipe v4: 32 * round(26H/3) = 256H + 64H/3 rounded to 32, i.e. dense's
+  # dff + dmodel/3 = 4096 + 341.3, rounded to 4448. AME then has dense h16's
+  # active parameters (a token reads one row of each bank) to +590,336, +0.17%,
+  # and its training FLOPs per token to +0.15%.
+  dff: ${eval:'32 * round(26 * ${common.h} / 3)'}
   # shift: true learns (alpha_1, alpha_2) and (beta_1, beta_2) per head and
   # layer. slopes is unset, so AME uses its ALiBi ladder: horizons from 16 to
   # 8192 tokens spread over the 16 heads. The sink and bank_gate: none are
@@ -83,11 +99,12 @@ infrastructure:
     exclude: r16-11 # bad GPU (2026-11-06)
   metric_logger:
     project_name: nano-ame
-    name: std_ame_h16_lr8_v3
+    name: std_ame_h16_lr8_v4
     tags:
       - ame
       - h16
       - standard
-      - standard_v3
+      - standard_v4
       - bank_lr4
       - bank_std1e4
+      - dff_matched

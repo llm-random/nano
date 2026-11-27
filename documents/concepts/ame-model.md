@@ -11,7 +11,7 @@ counts need. Until 2026-11-07 it was `sam-model.md`, after the method's earlier 
 predates AME's design and charged no attention cost at all, which the costs below replace.
 
 A variant with the FF widened to the vanilla weight count, **AMEm**, is at the
-[end of this doc](#amem--the-matched-variant).
+[end of this doc](#amem--the-matched-variant). The standard AME configs use it since 2026-11-27.
 
 ## Definition
 
@@ -215,6 +215,13 @@ FLOPs, so matching the rest matches the weight work per token.
 | 158 | 10112 | 43808 | 4.3323 | 243.31B | 243.36B | −51.1M (−0.02%) |
 | 200 | 12800 | 55456 | 4.3325 | 492.73B | 492.81B | −81.9M (−0.02%) |
 | 252 | 16128 | 69888 | 4.3333 | 984.86B | 984.86B | 0 |
+
+**The standard AME configs are AMEm since 2026-11-27** (recipe v4,
+[`configs/standard/`](../../configs/standard/)): `common.dff: ${eval:'32 * round(26 * ${common.h} / 3)'}`
+is the rule above, and the dense configs keep `256·H`. Built from the configs, with each bank
+counted at the one row a token reads and dense's QK-norm and shift scalars included, AME's active
+parameters match dense's to +0.020% at h12, +0.166% at h16 and −0.115% at h20, and its training
+FLOPs per token to +0.010%, +0.150% and −0.116%.
 
 ### What AMEm costs
 

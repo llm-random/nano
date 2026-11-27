@@ -25,10 +25,12 @@ Their step-by-step loss difference then measures only the change under test.
 | The experiment runs: Stages 1–2c, bank gates, σ grid, init ablations, document mask, settle runs | 2026-11-06 → 11-20 | — | init, data, steps, at equal seed, batch and `sequence_length` |
 | Standard v1: [configs/standard/](../../configs/standard/) | 2026-11-22 (`7597f382`) | the six standard configs; `bank_lr_ratio` defaults to 4 | everything: v1 at h12 *is* the recipe of `zdmv3qci` (AME) and `chne4w91` (dense) |
 | Standard v2 | 2026-11-25 | each part inits from its own seed (N6); the QK-norm keeps q and k in the compute dtype (N7); `bank_init_std` defaults to 1e-4 under the QK-norm (N1) | data order, steps and schedule, **not init**. v2 ties v1: last-500 paired gap dense +0.0071 (`p15ixjnf`), AME +0.0039 (`4fknyjba`) ([review_upgrades.md](../notes/review_upgrades.md), U11) |
-| Standard v3, current | 2026-11-26 (`29a04918`) | the spread held-out set (PR #200) | **nothing**: the training rows shift with the cut, and `final_ce` scores other samples |
+| Standard v3, current for dense | 2026-11-26 (`29a04918`) | the spread held-out set (PR #200) | **nothing**: the training rows shift with the cut, and `final_ce` scores other samples |
+| Standard v4, AME only, current | 2026-11-27 | AME's feed-forward widened by dmodel/3: `dff = 32·round(26H/3)`, 3328, 4448 and 5536 at h12, h16 and h20 ([AMEm](ame-model.md#amem--the-matched-variant)). AME then matches dense of the same `H` in active parameters and training FLOPs per token; dense is unchanged | v3 AME in data order, steps, schedule and the init of every part but the feed-forward; v3 dense in data order, steps and schedule |
 
 The config headers in `configs/standard/` say the same. Each version has its own run-name suffix
-and tag (`_v3`, `standard_v3`), so W&B never files two recipes under one name.
+and tag (`_v3`, `standard_v3`; AME `_v4`, `standard_v4`), so W&B never files two recipes under
+one name.
 
 ## Measuring a difference
 

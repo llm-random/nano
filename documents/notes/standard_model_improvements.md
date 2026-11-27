@@ -26,6 +26,7 @@ row says otherwise. Negative is better. For AME, a change under 0.022 is a tie
 | ST (STEM) bank gate | **Rejected** (Maciej, 2026-11-21): it breaks AME's precomputed score table | A tie at h12; −0.048 beyond the small bank init at h16 | +3.1–3.8% s/step |
 | Bank gates B1, B2, B3 | **Rejected**: no gain | B1 +0.07 to +0.11; B2 and B3 ties | — |
 | New init bundle (Xavier embedding and head, pkmf Linears, no embedding weight decay) | **Rejected**: no gain | +0.014 (h16: +0.032) | — |
+| Feed-forward widened by dmodel/3: `dff = 32·round(26H/3)`, 3328, 4448 and 5536 at h12, h16 and h20 ([AMEm](../concepts/ame-model.md#amem--the-matched-variant)) | **Apply** (Maciej, 2026-11-27), recipe v4: AME then matches dense of the same H in active parameters and training FLOPs per token, so the dense baseline stays as it is. Without it AME has 3.8%, 4.7% and 5.3% fewer active parameters | Not measured. Chinchilla's parameter term predicts about −0.008 at h12 | +4.0%, +4.9% and +5.1% training FLOPs per token |
 
 ### Dense
 
@@ -67,7 +68,10 @@ the QK-norm keeps q and k in the compute dtype ([review_issues.md](archive/revie
 v2 runs pair with v1 in data order, steps and schedule, not in init. **Since 2026-11-26 they
 are recipe v3:** the held-out set is the end of each of FineWeb's 64 segments (PR #200), the
 training rows shift with it, and v3 runs pair with no earlier run, in `final_ce` or in train
-batches (`29a04918`). Every version and what it pairs with:
+batches (`29a04918`). **AME is recipe v4 since 2026-11-27:** its feed-forward is dense's plus
+dmodel/3 ([AMEm](../concepts/ame-model.md#amem--the-matched-variant)), so it matches dense of
+the same H in active parameters and training FLOPs; dense stays v3. Every version and what it
+pairs with:
 [comparing-runs.md](../concepts/comparing-runs.md#which-runs-pair). Neither config has a
 `document_mask` key: it exists only on the rejected branch `doc_mask`.
 
@@ -75,6 +79,7 @@ AME:
 
 ```yaml
 common:
+  dff: ${eval:'32 * round(26 * ${common.h} / 3)'}  # dense's dff + dmodel/3 (recipe v4)
   attention:
     type: ame
     ame:
