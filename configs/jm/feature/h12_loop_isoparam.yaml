@@ -1,0 +1,28 @@
+# h12_chinchilla iso-param looped: its 12 blocks (2 prelude, 8 core looped twice, 2 coda) = depth 20, fewer steps.
+defaults:
+  - ../h12_chinchilla@_global_
+  - _self_
+
+common:
+  loop:
+    n_loops: 2
+    n_prelude: 2
+    n_coda: 2
+    injection: none
+
+trainer:
+  # FLOPs-matched: 50_000 * 854_544_384 / 1_269_706_752 FLOPs/token (depth 20) = 33_651 -> 33_650
+  n_steps: 33_650
+
+infrastructure:
+  metric_logger:
+    name: h12_loop_isoparam
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - loop
+      - loop_isoparam

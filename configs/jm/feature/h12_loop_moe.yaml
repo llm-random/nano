@@ -1,0 +1,31 @@
+# h12_moe iso-FLOP looped: 8 unique MoE blocks (2 prelude, 4 core looped twice, 2 coda) = depth 12; compare with h12_moe.
+defaults:
+  - ../h12_chinchilla@_global_
+  - ../../_ff_layer@model.encoder.block_fn.ff_layer_fn: moe
+  - _self_
+
+common:
+  n_blocks: 8
+  loop:
+    n_loops: 2
+    n_prelude: 2
+    n_coda: 2
+    injection: none
+
+trainer:
+  # FLOPs-matched: depth 12 costs h12_moe's 854_986_752 FLOPs/token, so its 49_970 steps
+  n_steps: 49_970
+
+infrastructure:
+  metric_logger:
+    name: h12_loop_moe
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - moe
+      - loop
+      - loop_isoflop

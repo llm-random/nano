@@ -153,8 +153,13 @@ def setup_from_config(run, gpu, n_gpus):
         n_experts, topk, dff, ff_matrices = 1, 1, common["dff"], FF_MATRICES[kind]
     else:
         return None
+    loop = common.get("loop", {"n_loops": 1, "n_prelude": 0, "n_coda": 0})
+    if loop.get("injection", "none") != "none":
+        return None  # Setup has no term for the injection matrix
+    # Looped core runs n_loops times, so FLOPs follow the effective depth.
+    n_core = common["n_blocks"] - loop["n_prelude"] - loop["n_coda"]
     return Setup(
-        n_layers=common["n_blocks"],
+        n_layers=common["n_blocks"] + (loop["n_loops"] - 1) * n_core,
         dmodel=common["dmodel"],
         dff=dff,
         q_heads=common["q_heads"],
