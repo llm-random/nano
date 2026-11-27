@@ -3,7 +3,7 @@
 # submit = 1 run on 1 GH200 under --qos=now, which starts within minutes (1 GPU,
 # up to 12 h, one job at a time); 4-GPU jobs queue under normal QoS.
 #
-#   Plan: documents/notes/ame_experiments.md, "Helios -- what Stages 1c and 2c
+#   Plan: documents/notes/archive/ame_experiments.md, "Helios -- what Stages 1c and 2c
 #   need first". torch.compile died on Helios at the first forward (job
 #   25828493): the aarch64 torch 2.6.0+cu126 wheel declared no Triton. The fix
 #   moves aarch64 to torch 2.7.1 from the cu128 index, with triton 3.3.1

@@ -1,6 +1,6 @@
 """Tier 1 of the baseline audit: CPU unit tests for the framework itself.
 
-See documents/notes/main_baseline_audit.md. These cover src/core and the grid
+See documents/notes/archive/main_baseline_audit.md. These cover src/core and the grid
 generator -- the parts a new, non-PC project inherits wholesale from main -- so they
 matter most for main as a branch point. No GPU, no data, no cluster.
 """

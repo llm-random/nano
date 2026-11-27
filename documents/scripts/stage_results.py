@@ -1,5 +1,5 @@
 """Stage 1-2 results from W&B: the numbers and figures in stage_1_report.md and
-stage_2_report.md (documents/notes/).
+stage_2_report.md (documents/notes/archive/).
 
 Read-only. Runs are named by their W&B id in ideas_cv/nano-ame. The logged config
 is the truth (ame_experiments.md, "Reporting"), so every row is built from what

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bank gates (documents/notes/ame_bank_gates_plan.md): run evaluation scripts on one
+# Bank gates (documents/notes/archive/ame_bank_gates_plan.md): run evaluation scripts on one
 # LEM H100, from a committed state of the repo -- the LEM counterpart of
 # parity_audit's parity_submit.sh + parity_score_runs.sh, which target entropy.
 #

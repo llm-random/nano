@@ -146,7 +146,7 @@ def test_qk_norm_keeps_q_and_k_in_the_compute_dtype(attention, monkeypatch):
     """CUDA autocast runs F.normalize in fp32, which promoted q and k: the
     shift, RoPE, tau and repeat_kv then ran in fp32 until the kernel cast them
     back. Both layers cast straight back to the compute dtype
-    (documents/notes/review_issues.md, N7). Emulated on the CPU, whose autocast
+    (documents/notes/archive/review_issues.md, N7). Emulated on the CPU, whose autocast
     keeps the norm in bf16, with a normalize that returns fp32 as CUDA's does."""
     real_normalize = F.normalize
     monkeypatch.setattr(

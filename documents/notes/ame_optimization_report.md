@@ -34,6 +34,11 @@ steps ≥ 15 is 26.16% while the median is 27.32% — a 1.13-point gap that
 between mean and median to within 0.19 points, most within 0.1. §1.1 says why
 the mean is the right reading there. 
 
+**Quality (2026-11-07): none of this costs AME anything measurable.** The
+efficiency-parity audit switched off every AME-only efficiency change active in the
+best h12 run; production scored −0.0061 against that, 95% [−0.022, +0.009], at 4B
+tokens ([archive/ame_efficiency_parity_report.md](archive/ame_efficiency_parity_report.md)).
+
 ---
 
 ## Headline
@@ -586,7 +591,7 @@ numbers on AME's recipe. Each ladder starts one doubling higher than AME's (two
 for h20 at 1 GPU, none for h12 at 4 GPUs) because dense carries no bank state.
 Jobs 33106–33131 (§3), wandb `dense_<model>_<GPUs>g_mb<N>_entr`, same
 aggregation as §1.15. Step, tokens/s, peak memory and forward/backward time per
-run are in [ame_microbatch_sweep.md](ame_microbatch_sweep.md).
+run are in [the appendix](#appendix-the-micro-batch-sweep-2026-11-05).
 
 **Dense MFU/GPU, %** (bold = best in the row):
 
@@ -1764,7 +1769,7 @@ returns (§2.13), or the forward and backward kernels themselves.
 
 "Save that results to .md, now do the same experiments but for dense not ame",
 then at 18:47 "save exactly those two tables 1:1". The two AME tables went
-verbatim into [ame_microbatch_sweep.md](ame_microbatch_sweep.md), indexed in
+verbatim into `ame_microbatch_sweep.md` (since 2026-11-27 [the appendix](#appendix-the-micro-batch-sweep-2026-11-05)), indexed in
 `documents/README.md`. For dense I reused the 24 configs with two overrides
 instead of writing dense configs, so the control differs from AME in the
 attention layer only (§1.16), and moved each ladder up one doubling where dense's
@@ -2131,10 +2136,11 @@ limit, and it will recur.
 
 **Companion documents:**
 [ame_implementation.md](ame_implementation.md) — what the AME layer is;
-[ame_experiments.md](ame_experiments.md) — the scientific program, unrun, and the next
-thing to do;
-[ame_microbatch_sweep.md](ame_microbatch_sweep.md) — all 48 micro-batch runs, AME and
-dense, with step, tokens/s, peak memory and forward/backward time.
+[archive/ame_experiments.md](archive/ame_experiments.md) — the scientific program, run from
+2026-11-06 to 11-10 and closed; its results are in
+[standard_model_improvements.md](standard_model_improvements.md);
+[the appendix](#appendix-the-micro-batch-sweep-2026-11-05) — all 48 micro-batch runs, AME and dense, with step,
+tokens/s, peak memory and forward/backward time.
 
 **Archived, but still the source for two things.**
 [archive/ame_optimization_plan.md](archive/ame_optimization_plan.md) §3 is the ledger
@@ -2629,3 +2635,95 @@ ms ahead of the GPU, so the gaps there are GPU-side waits, not launch cost):
 (~27 ms per step) and the GEMMs held back by bank-stream kernels (~35 ms,
 estimated) found above: ~62 ms if fully recovered, about a quarter of the
 257 ms. The rest still needs C6–C10.
+
+---
+
+## Appendix: the micro-batch sweep (2026-11-05)
+
+*Merged here on 2026-11-27 from `ame_microbatch_sweep.md`; its four tables are unchanged.*
+Setup and analysis: §1.15 (AME) and §1.16 (dense). The dense runs use the same configs
+with attention switched to dense (`gqa`).
+
+### AME
+
+**All 24 runs** (MFU per GPU; tokens/s is across all GPUs; fwd/bwd are time-profiler ms per step):
+
+| model | GPUs | micro-batch × grad-accum | MFU/GPU | step (s) | tokens/s | peak GiB | fwd / bwd ms | job | result |
+|---|---|---|---|---|---|---|---|---|---|
+| h12 | 1 | 8 × 64 | 29.57 % | 3.776 | 277,693 | 30.35 | 1244 / 2489 | 33078 | |
+| h12 | 1 | 16 × 32 | 33.01 % | 3.382 | 310,003 | 42.43 | 1030 / 2311 | 33079 | |
+| **h12** | **1** | **32 × 16** | **34.57 %** | 3.230 | 324,661 | 66.54 | 977 / 2212 | 33022 | **best** |
+| h12 | 1 | 64 × 8 | — | — | — | — | — | 33080 | OOM: needs +12.28 GiB, 70.82 in use |
+| h16 | 1 | 4 × 128 | 25.45 % | 8.843 | 118,681 | 41.64 | 3907 / 4861 | 33081 | |
+| h16 | 1 | 8 × 64 | 34.93 % | 6.438 | 162,879 | 50.54 | 2022 / 4343 | 33082 | |
+| **h16** | **1** | **16 × 32** | **37.73 %** | 5.960 | 175,925 | 68.35 | 1808 / 4081 | 33034 | **best overall** |
+| h16 | 1 | 32 × 16 | — | — | — | — | — | 33083 | OOM: +6.14 GiB, 77.08 in use |
+| h20 | 1 | 1 × 512 | 16.51 % | 24.209 | 43,340 | 59.60 | 12235 / 11827 | 33084 | |
+| h20 | 1 | 2 × 256 | 31.13 % | 12.833 | 81,717 | 60.02 | 4024 / 8694 | 33085 | |
+| **h20** | **1** | **4 × 128** | **35.45 %** | 11.271 | 93,036 | 66.87 | 3437 / 7724 | 33051 | **best** |
+| h20 | 1 | 8 × 64 | — | — | — | — | — | 33086 | OOM: +1.54 GiB, 79.08 in use |
+| h12 | 4 | 8 × 16 | 24.66 % | 1.133 | 926,461 | 17.01 | 384 / 733 | 33073 | |
+| h12 | 4 | 16 × 8 | 28.53 % | 0.979 | 1,072,026 | 29.08 | 305 / 658 | 33075 | |
+| **h12** | **4** | **32 × 4** | **30.04 %** | 0.929 | 1,128,504 | 53.22 | 278 / 635 | 33076 | **best** (first time measured) |
+| h12 | 4 | 64 × 2 | — | — | — | — | — | 33077 | OOM: +12.28 GiB, 78.12 in use |
+| h16 | 4 | 4 × 32 | 24.83 % | 2.266 | 463,093 | 17.80 | 910 / 1331 | 33069 | |
+| h16 | 4 | 8 × 16 | 30.34 % | 1.854 | 565,920 | 26.71 | 627 / 1202 | 33070 | |
+| **h16** | **4** | **16 × 8** | **33.29 %** | 1.689 | 621,003 | 44.53 | 511 / 1153 | 33071 | **best** |
+| h16 | 4 | 32 × 4 | — | — | — | — | — | 33072 | OOM: +6.14 GiB, 75.18 in use |
+| h20 | 4 | 4 × 32 | 30.23 % | 3.304 | 317,377 | 26.80 | 1114 / 2155 | 33065 | |
+| h20 | 4 | 8 × 16 | 33.48 % | 2.984 | 351,476 | 39.43 | 936 / 2012 | 33066 | |
+| **h20** | **4** | **16 × 8** | **34.91 %** | 2.861 | 366,543 | 64.63 | 850 / 1976 | 33067 | **best** |
+| h20 | 4 | 32 × 4 | — | — | — | — | — | 33068 | OOM: +320 MiB, 79.12 in use |
+
+**Same MFU numbers, one row per model and GPU count:**
+
+| model | GPUs | mb 1 | mb 2 | mb 4 | mb 8 | mb 16 | mb 32 | mb 64 |
+|---|---|---|---|---|---|---|---|---|
+| h12 | 1 | | | | 29.57 | 33.01 | **34.57** | OOM |
+| h16 | 1 | | | 25.45 | 34.93 | **37.73** | OOM | |
+| h20 | 1 | 16.51 | 31.13 | **35.45** | OOM | | | |
+| h12 | 4 | | | | 24.66 | 28.53 | **30.04** | OOM |
+| h16 | 4 | | | 24.83 | 30.34 | **33.29** | OOM | |
+| h20 | 4 | | | 30.23 | 33.48 | **34.91** | OOM | |
+
+### Dense (`gqa`)
+
+**All 24 runs** (MFU per GPU; tokens/s is across all GPUs; fwd/bwd are time-profiler ms per step):
+
+| model | GPUs | micro-batch × grad-accum | MFU/GPU | step (s) | tokens/s | peak GiB | fwd / bwd ms | job | result |
+|---|---|---|---|---|---|---|---|---|---|
+| h12 | 1 | 16 × 32 | 38.77 % | 2.995 | 350,151 | 23.57 | 963 / 2024 | 33118 | |
+| **h12** | **1** | **32 × 16** | **40.32 %** | 2.879 | 364,197 | 44.28 | 927 / 1944 | 33119 | **best** |
+| h12 | 1 | 64 × 8 | — | — | — | — | — | 33120 | OOM: needs +12.28 GiB, 72.62 in use |
+| h12 | 1 | 128 × 4 | — | — | — | — | — | 33122 | OOM: +384 MiB, 78.85 in use |
+| h16 | 1 | 8 × 64 | 40.84 % | 5.769 | 181,776 | 20.15 | 1872 / 3884 | 33123 | |
+| h16 | 1 | 16 × 32 | 43.31 % | 5.439 | 192,772 | 34.93 | 1742 / 3686 | 33124 | |
+| **h16** | **1** | **32 × 16** | **44.91 %** | 5.246 | 199,885 | 64.49 | 1677 / 3558 | 33125 | **best** |
+| h16 | 1 | 64 × 8 | — | — | — | — | — | 33126 | OOM: +128 MiB, 79.13 in use |
+| h20 | 1 | 4 × 128 | 40.97 % | 10.260 | 102,198 | 21.47 | 3138 / 7104 | 33127 | |
+| h20 | 1 | 8 × 64 | 43.33 % | 9.705 | 108,078 | 32.47 | 2997 / 6692 | 33128 | |
+| **h20** | **1** | **16 × 32** | **44.98 %** | 9.347 | 112,188 | 54.48 | 2907 / 6425 | 33129 | **best overall** |
+| h20 | 1 | 32 × 16 | — | — | — | — | — | 33131 | OOM: +6.14 GiB, 74.24 in use |
+| h12 | 4 | 8 × 16 | 33.57 % | 0.866 | 1,212,929 | 11.48 | 304 / 557 | 33114 | |
+| h12 | 4 | 16 × 8 | 37.75 % | 0.769 | 1,363,667 | 21.84 | 251 / 513 | 33115 | |
+| **h12** | **4** | **32 × 4** | **39.34 %** | 0.738 | 1,421,163 | 42.56 | 235 / 498 | 33116 | **best** |
+| h12 | 4 | 64 × 2 | — | — | — | — | — | 33117 | OOM: +12.28 GiB, 72.73 in use |
+| h16 | 4 | 8 × 16 | 39.73 % | 1.483 | 707,267 | 16.87 | 483 / 994 | 33110 | |
+| h16 | 4 | 16 × 8 | 42.78 % | 1.377 | 761,599 | 31.65 | 443 / 928 | 33111 | |
+| **h16** | **4** | **32 × 4** | **43.68 %** | 1.348 | 777,675 | 61.21 | 430 / 912 | 33112 | **best** |
+| h16 | 4 | 64 × 2 | — | — | — | — | — | 33113 | OOM: +256 MiB, 78.98 in use |
+| h20 | 4 | 8 × 16 | 41.96 % | 2.516 | 418,663 | 24.09 | 834 / 1674 | 33106 | |
+| **h20** | **4** | **16 × 8** | **44.47 %** | 2.363 | 443,719 | 44.53 | 743 / 1612 | 33107 | **best** |
+| h20 | 4 | 32 × 4 | — | — | — | — | — | 33108 | OOM: +6.14 GiB, 73.05 in use |
+| h20 | 4 | 64 × 2 | — | — | — | — | — | 33109 | OOM: +320 MiB, 79.10 in use |
+
+**Same MFU numbers, one row per model and GPU count:**
+
+| model | GPUs | mb 4 | mb 8 | mb 16 | mb 32 | mb 64 | mb 128 |
+|---|---|---|---|---|---|---|---|
+| h12 | 1 | | | 38.77 | **40.32** | OOM | OOM |
+| h16 | 1 | | 40.84 | 43.31 | **44.91** | OOM | |
+| h20 | 1 | 40.97 | 43.33 | **44.98** | OOM | | |
+| h12 | 4 | | 33.57 | 37.75 | **39.34** | OOM | |
+| h16 | 4 | | 39.73 | 42.78 | **43.68** | OOM | |
+| h20 | 4 | | 41.96 | **44.47** | OOM | OOM | |

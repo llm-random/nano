@@ -2,7 +2,7 @@
 # ALiBi positional encoding and the KV shift -- the best AME variant at h12 and
 # h16 (Stages 2 and 2b) -- on one LEM node (4 H100). One submit = 1 run.
 #
-#   Plan: documents/notes/ame_experiments.md, "Stage 2c -- the best AME variant
+#   Plan: documents/notes/archive/ame_experiments.md, "Stage 2c -- the best AME variant
 #   at h20". This is configs/stage_2b/ame_h16_pe_shift.yaml with Stage 1c's
 #   changes (model h20, 16B tokens, 4 GPUs per run under FSDP2 with
 #   reshard_after_forward: false, micro-batch 16 x 8 per GPU) and the banks
@@ -38,7 +38,7 @@
 #
 # The banks train at the default bank_lr_ratio, 4.0 since standard_models, and
 # initialize at the default bank_init_std, 1e-4 since 2026-11-25; the Stage 2c
-# runs trained at 1.0 for both (documents/notes/stage_runs.md).
+# runs trained at 1.0 for both (documents/notes/archive/stage_runs.md).
 defaults:
   - /base_schema
   - ../_misc@_here_: default

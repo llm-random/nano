@@ -7,7 +7,7 @@ approved features on branch `standard_models`.
 **Implementation (2026-11-22): merged** as `7597f382`. Steps 7–9 pass: the CPU and GPU
 tests, 60-step smokes of all six configs, and both h12 reproductions. The first AME
 reproduction spiked (+0.077 against the 0.022 band); its rerun on entropy ties `zdmv3qci`
-(+0.002). Log: [standard_models_report.md](standard_models_report.md).
+(+0.002). Log: [standard_models_report.md](archive/standard_models_report.md).
 
 ## Decisions
 
@@ -20,7 +20,7 @@ row says otherwise. Negative is better. For AME, a change under 0.022 is a tie
 | Change | Decision | Effect on loss | Cost |
 |---|---|---|---|
 | ALiBi + KV shift + sink (S2-PS), LR 2⁻⁸ | **Keep** (already the default) | Without the shift +0.12, without both +1.14 | — |
-| Bank init σ = 1e-4 | **Apply,** and the code default under the QK-norm since 2026-11-25 (it was 1.0, and stays 1.0 without the QK-norm; [review_issues.md](review_issues.md), I17 and N1) | −0.09 vs σ = 1; at h16, σ = 0.01 gave −0.08 | None |
+| Bank init σ = 1e-4 | **Apply,** and the code default under the QK-norm since 2026-11-25 (it was 1.0, and stays 1.0 without the QK-norm; [review_issues.md](archive/review_issues.md), I17 and N1) | −0.09 vs σ = 1; at h16, σ = 0.01 gave −0.08 | None |
 | Banks at 4× the learning rate | **Apply** (Maciej, 2026-11-18), as the default (2026-11-21) | −0.008 on top of σ = 1e-4, a tie (−0.034 at σ = 1) | None |
 | Document mask | **Rejected** (Maciej, 2026-11-21): a small gain, 12% slower, and unmasked packed rows are a valid way to train | −0.016 to −0.018 | +12% s/step |
 | ST (STEM) bank gate | **Rejected** (Maciej, 2026-11-21): it breaks AME's precomputed score table | A tie at h12; −0.048 beyond the small bank init at h16 | +3.1–3.8% s/step |
@@ -61,10 +61,14 @@ row says otherwise. Negative is better. For AME, a change under 0.022 is a tie
 ## Standard configs
 
 The files are in `configs/standard/` on `ame_main`: AME and dense at h12, h16 and h20.
-`zdmv3qci` (AME) and `chne4w91` (dense) are these configs at h12 as recipe v1. Since
-2026-11-25 they are recipe v2: each part of the model initializes from its own seed, and the
-QK-norm keeps q and k in the compute dtype ([review_issues.md](review_issues.md), N6-N8). So
-v2 runs pair with v1 in data order, steps and schedule, not in init. Neither config has a
+`zdmv3qci` (AME) and `chne4w91` (dense) are these configs at h12 as recipe v1. On
+2026-11-25 they became recipe v2: each part of the model initializes from its own seed, and
+the QK-norm keeps q and k in the compute dtype ([review_issues.md](archive/review_issues.md), N6-N8);
+v2 runs pair with v1 in data order, steps and schedule, not in init. **Since 2026-11-26 they
+are recipe v3:** the held-out set is the end of each of FineWeb's 64 segments (PR #200), the
+training rows shift with it, and v3 runs pair with no earlier run, in `final_ce` or in train
+batches (`29a04918`). Every version and what it pairs with:
+[comparing-runs.md](../concepts/comparing-runs.md#which-runs-pair). Neither config has a
 `document_mask` key: it exists only on the rejected branch `doc_mask`.
 
 AME:
@@ -98,6 +102,9 @@ trainer:
 
 ### How the numbers are measured
 
+The rules for any comparison, with the recipe versions:
+[comparing-runs.md](../concepts/comparing-runs.md). For the numbers here:
+
 - **Sizes:** h12, h16 and h20 are the [H-balanced model](../concepts/h-balanced-model.md) at
   H = 12, 16 and 20, trained on 4B, 8B and 16B tokens. Batch 512 × 2,048 tokens, seed 123,
   learning rate 2⁻ⁿ. h12 and h16 run on one LEM H100, h20 on four.
@@ -105,13 +112,13 @@ trainer:
   runs see the same batches, so it is finer than `final_ce`.
 - **`final_ce`:** the held-out loss at the end of training, rounded to bf16 (±0.008).
 - **Tie:** for AME, under 0.022, which is 3 × the same-seed sd of 0.0072
-  ([ame_comparison_h12.md](ame_comparison_h12.md)). The bank-gates reports use ±0.019 on a
+  ([ame_comparison_h12.md](archive/ame_comparison_h12.md)). The bank-gates reports use ±0.019 on a
   common evaluator. Dense varies 6–24× more between same-seed runs, so a single dense
   difference is weaker evidence.
 
 ### Baselines (Stages 1–2c)
 
-Best run per model and size, `final_ce` ([stage_runs.md](stage_runs.md)):
+Best run per model and size, `final_ce` ([stage_runs.md](archive/stage_runs.md)):
 
 | | h12 | h16 | h20 |
 |---|---|---|---|
@@ -119,21 +126,21 @@ Best run per model and size, `final_ce` ([stage_runs.md](stage_runs.md)):
 | AME, S2-PS | 2⁻⁸: 3.1250 `doi36p8k` | 2⁻⁸: 2.8594 `hjw7znbz` (grid edge) | 2⁻⁸: 2.5596 `tg4h4g66` |
 
 - AME at h12: ALiBi without the shift 3.2480; the shift without ALiBi 3.9346; neither 4.2656
-  ([stage_2_report.md](stage_2_report.md)).
+  ([stage_2_report.md](archive/stage_2_report.md)).
 - Dense without RoPE: 3.3027 against 3.0244, both at 2⁻⁹ (`b93tal8j`): +0.28.
 - Dense h16 at 2⁻⁸ is unstable: 102 spike steps, `final_ce` 3.4346 (`ezzyvpn8`). So 2⁻⁹ is
   its optimum. AME h16 at 2⁻⁷ has never run.
 - On 2026-11-06 Maciej set 2⁻⁹ at h12 for stability
-  ([stage_1_report.md](stage_1_report.md), decision 9). 2⁻⁸ measured best in both models,
+  ([stage_1_report.md](archive/stage_1_report.md), decision 9). 2⁻⁸ measured best in both models,
   and every later h12 test ran at 2⁻⁸.
 
 ### Bank init σ (AME)
 
 Key `common.attention.ame.bank_init_std`, on `ame_main`; the default is 1e-4 under the QK-norm since
-2026-11-25, 1.0 before and without the QK-norm ([review_issues.md](review_issues.md), I17 and
+2026-11-25, 1.0 before and without the QK-norm ([review_issues.md](archive/review_issues.md), I17 and
 N1). Reports:
-[ame_bank_gates_stage2_report.md](ame_bank_gates_stage2_report.md),
-[ame_bank_sigma_grid.md](ame_bank_sigma_grid.md).
+[ame_bank_gates_stage2_report.md](archive/ame_bank_gates_stage2_report.md),
+[ame_bank_sigma_grid.md](archive/ame_bank_sigma_grid.md).
 
 - **h12:** σ = 0.01 (`kf4q4t4s`) scores 3.0358 against 3.1252 for σ = 1 (`doi36p8k`), on
   the common evaluator: −0.0895.
@@ -157,7 +164,7 @@ N1). Reports:
 
 Key `trainer.bank_lr_ratio`, from branch `ame_improve` (on `ame_main` since 2026-11-22): the
 Q/K banks' learning rate as a multiple of the base rate. Report:
-[ame_improve_runs_report.md](ame_improve_runs_report.md).
+[ame_improve_runs_report.md](archive/ame_improve_runs_report.md).
 
 | | Ratio 4 | Ratio 1 | `final_ce` Δ | Paired gap |
 |---|---|---|---:|---:|
@@ -169,7 +176,7 @@ On top of the small σ it is a tie. Both levers let Adam turn the bank rows fast
 QK-norm only a row's direction counts. It costs nothing (the same s/step and memory, no
 spikes), so it stays, and 4 is the default (Maciej, 2026-11-21). Runs and checkpoints from
 before the merge need `bank_lr_ratio: 1` to resume; an exact rerun needs the run's own
-code, since the init changed on 2026-11-25 ([review_issues.md](review_issues.md), N6).
+code, since the init changed on 2026-11-25 ([review_issues.md](archive/review_issues.md), N6).
 
 ### KV shift and QK-norm (dense)
 
@@ -181,7 +188,7 @@ Keys from branch `ame_improve` (on `ame_main` since 2026-11-22):
   learns one (c1, c2) pair per KV head for the keys and one for the values.
 
 h12, paired gap against `x0xlqroj`, with `final_ce` in brackets
-([settle_runs_report.md](settle_runs_report.md), item 5):
+([settle_runs_report.md](archive/settle_runs_report.md), item 5):
 
 | | No shift | Shift |
 |---|---:|---:|
@@ -205,7 +212,7 @@ way to train.
 Key `common.attention.document_mask`, on the local branch `doc_mask` only (feature
 `18175ed7`, compiled-eval fix `3974addd`). Attention stays
 inside each document of a packed row, and AME's shift stops at document starts. Reports:
-[doc_mask_report.md](doc_mask_report.md), [settle_runs_report.md](settle_runs_report.md)
+[doc_mask_report.md](archive/doc_mask_report.md), [settle_runs_report.md](archive/settle_runs_report.md)
 item 4.
 
 | | Masked runs | Unmasked | Paired gap |
@@ -228,7 +235,7 @@ a function of token ids and distance.
 Key `common.attention.ame.bank_gate: stem`, on `ame_main`, off by default. It is named after
 STEM ([Sadhukhan et al., ICLR 2026](https://arxiv.org/abs/2601.10639)) and gates the query
 per channel: `q_i = silu(W_g x_i) ⊙ norm(E_Q[t_i])`. Report:
-[ame_bank_gates_report.md](ame_bank_gates_report.md).
+[ame_bank_gates_report.md](archive/ame_bank_gates_report.md).
 
 - h12: a tie, 3.0191 (`l54pyyqp`) against 3.0358 for no gate at σ = 0.01 (`kf4q4t4s`).
 - h16: −0.048 beyond the σ = 0.01 init (`ug8g2i2x` against `eeaz5uy1`, paired).
@@ -240,10 +247,10 @@ per channel: `q_i = silu(W_g x_i) ⊙ norm(E_Q[t_i])`. Report:
 |---|---|---|
 | B1, the confidence gate | 0.07–0.11 worse than no gate at the same σ | `ame_main`, `bank_gate: confidence` |
 | B2 (context) and B3 (backoff) gates | Ties beyond the σ = 0.01 init: B2 −0.0003, B3 +0.0001 at h12; B3 +0.017 at h16 | `ame_main`, `bank_gate: context` and `backoff` |
-| New init bundle: Xavier embedding, head and banks; pkmf's √(0.1/fan_in) Linears; no embedding weight decay | AME +0.014 (h16 +0.032), dense +1.271 (h16 +0.213) ([ame_init_exp.md](ame_init_exp.md)) | `ame_initialization` `79108114` |
-| Its Xavier embedding alone | Dense +0.999, AME +0.003 ([ame_init_embed_ablation.md](ame_init_embed_ablation.md)) | `ame_initialization` |
+| New init bundle: Xavier embedding, head and banks; pkmf's √(0.1/fan_in) Linears; no embedding weight decay | AME +0.014 (h16 +0.032), dense +1.271 (h16 +0.213) ([ame_init_exp.md](archive/ame_init_exp.md)) | `ame_initialization` `79108114` |
+| Its Xavier embedding alone | Dense +0.999, AME +0.003 ([ame_init_embed_ablation.md](archive/ame_init_embed_ablation.md)) | `ame_initialization` |
 | Its undecayed embedding alone | AME +0.012, dense +0.039 | `ame_initialization` |
-| Its pkmf Linears and head alone | AME +0.099, dense +0.101 ([ame_init_pkmf_linears.md](ame_init_pkmf_linears.md)) | `ame_initialization` `4457ba17` |
+| Its pkmf Linears and head alone | AME +0.099, dense +0.101 ([ame_init_pkmf_linears.md](archive/ame_init_pkmf_linears.md)) | `ame_initialization` `4457ba17` |
 
 The bundle's only real gain was its small bank σ: Xavier banks start near 0.006. The
 current init stays:
@@ -253,144 +260,7 @@ current init stays:
 
 ## Implementation plan
 
-**Done on 2026-11-22:** merged as `7597f382`. The record is
-[standard_models_report.md](standard_models_report.md).
-
-**Goal:** one branch, `standard_models`, holds every approved feature and the standard
-configs. It passes the tests and reproduces the two h12 standard runs, then merges into
-`ame_main`. This section is written for the agent that executes it.
-
-**Done when:**
-- `standard_models` holds:
-  - the four `ame_improve` commits and the `run_exp.py` fix;
-  - the readout fix;
-  - six standard configs: AME and dense at h12, h16 and h20.
-- The CPU suite passes, and the GPU tests pass on one cluster GPU.
-- The h12 reproduction runs match step 0 and tie with `zdmv3qci` and `chne4w91`.
-- `standard_models` is merged into `ame_main`, not pushed.
-
-**Rules:**
-- Never change the session's working directory. Reach the worktree by absolute path and
-  `git -C`.
-- The W&B key goes on stdin only, never into argv or a file.
-- Never delete a branch; remove your own worktree when done.
-- LEM jobs exclude node r16-11.
-- If a GPU test fails, run it on `ame_main` too before you blame the merge.
-- Code goes on `standard_models`. Docs (.md) go on `ame_main` in `~/code/nano`, staging
-  only your own hunks. Keep the log and results in
-  `documents/notes/standard_models_report.md`.
-- Push nothing to origin. The cemetery snapshot that `run_exp.py` pushes at submit is fine.
-- Check each job about 2 minutes after it starts, then only at the end of training.
-
-### What to gather
-
-| Feature | Config key | First implemented | Tests |
-|---|---|---|---|
-| AME S2-PS: ALiBi ladder, KV shift, sink | `common.attention.ame.shift`, `sink`, `slopes` | `ame_main`: the defaults in `src/core/ame.py` | On `ame_main` already |
-| AME bank init σ | `common.attention.ame.bank_init_std` | `ame_main`, default 1.0 | On `ame_main` already |
-| AME banks at 4× | `trainer.bank_lr_ratio` | `ame_improve` `e64a466c`: `main.py`, `src/core/schedulers.py`, `src/core/trainer.py`, `src/definitions.py`, `configs/_trainer/llama.yaml` | `tests/test_bank_lr_ratio.py`, `tests/test_memory_parallel.py` |
-| Dense QK-norm | `common.attention.qk_norm` | `ame_improve` `7762da98`: `src/core/attention.py`, `src/core/model.py`, `src/definitions.py`, `configs/_model/h_balanced/base.yaml` | `tests/test_qk_norm.py` |
-| Dense KV shift | `common.attention.shift` | `ame_improve` `7345eebc`: the same four files | `tests/test_dense_kv_shift.py` |
-| Training length in tokens (comes with the merge) | `trainer.n_tokens_b` | `ame_improve` `62a59d2f`; its `run_exp.py` fix `83ebaa85` is on `ame_improve_runs` | `tests/test_training_tokens.py` |
-| The two h12 standard configs | — | `settle_runs_improve` `08b75753`: `configs/ame_improve/ame_h12_ps_bank4_std1e4.yaml` and `dense_h12_qknorm_shift.yaml` | — |
-
-**Where the rejected work stays:**
-- The rejected code stays put: the branches `doc_mask` and `ame_initialization`, and the
-  bank gates, which are on `ame_main` and off by default.
-- The tool for paired gaps, `scripts/paired_gap.py`, is on branch `bank_sigma_grid`.
-
-### Steps
-
-1. **Branch.** `git -C ~/code/nano worktree add ~/code/nano-standard -b standard_models ame_main`.
-2. **Merge `ame_improve`.** `git -C ~/code/nano-standard merge --no-ff ame_improve`.
-   - A trial merge on 2026-11-21 had one conflict, in `src/core/trainer.py`.
-   - Both branches add `Trainer` fields after `mem_parallel_size`. Keep all three:
-     `count_token_updates` from `ame_main`, and `n_tokens_b` and `bank_lr_ratio` from
-     `ame_improve`.
-3. **Take the run_exp fix.** `git -C ~/code/nano-standard cherry-pick 83ebaa85`. Without it,
-   `run_exp.py` cannot submit a config that gives its length as `trainer.n_tokens_b`.
-4. **Keep `bank_lr_ratio`'s default at 4.0,** as `ame_improve` has it (Maciej, 2026-11-21).
-   - After the merge, all of these must say 4.0:
-     - `DEFAULT_BANK_LR_RATIO` and the schema field in `src/definitions.py`;
-     - the `Trainer` field in `src/core/trainer.py`, which the step-2 conflict touches;
-     - `configs/_trainer/llama.yaml`.
-   - Every AME config that does not set the key now trains its banks at 4×.
-   - To reproduce an AME run from before the merge, or to resume its checkpoint, set
-     `bank_lr_ratio: 1`. On the ordinary path an old checkpoint fails loudly at 4×, because
-     the optimizer has one more param group. Under memory parallelism it resumes at 4×
-     without an error.
-   - Add that rule to the comment beside the default in `configs/_trainer/llama.yaml`.
-   - `bank_init_std` keeps its default of 1.0, so the standard configs set 1e-4.
-5. **Fix the AME readouts under FSDP2.**
-   - **The bug:** under FSDP2, α/β/τ, the horizons and attention entropy are never logged
-     (0 of 38 FSDP2 AME runs logged `alpha_2` or `tau`; [stage_2c_report.md](stage_2c_report.md),
-     "Readouts"). `AMEAttention.instrumentation` runs `attention_diagnostics(token_ids)`,
-     which embeds outside FSDP2's hooks on sharded parameters and raises. The trainer
-     (`_log_layer_instrumentation`) then drops the layer's whole readout for the rest of
-     the run.
-   - **The fix:** in `instrumentation` (`src/core/ame.py`), call `attention_diagnostics`
-     only when no parameter of the layer is sharded, that is, has no `full_tensor`
-     attribute. The parameter half already gathers sharded tensors with `_full`, a
-     collective that every rank runs, so it keeps working.
-   - **The test:** add one to `tests/test_instrumentation_is_not_fatal.py` or
-     `tests/test_distributed.py`. It runs the readout on an FSDP2-wrapped AME layer and
-     gets back `alpha_2/mean` and `tau/mean`.
-6. **Write the six standard configs** in a new folder, `configs/standard/`.
-   - Start each file from the source below and change only what is listed.
-   - Keep `n_steps` as the source has it, so every run pairs with its baseline.
-   - In every file: no `document_mask`, `bank_gate` left at its default (none), and a
-     `standard` tag.
-
-   | File | Start from | Change |
-   |---|---|---|
-   | `ame_h12.yaml` | `settle_runs_improve:configs/ame_improve/ame_h12_ps_bank4_std1e4.yaml` (`zdmv3qci`) | Run name, tags, comments |
-   | `dense_h12.yaml` | `settle_runs_improve:configs/ame_improve/dense_h12_qknorm_shift.yaml` (`chne4w91`) | Run name, tags, comments |
-   | `ame_h16.yaml` | `configs/stage_2b/ame_h16_pe_shift.yaml` | `learning_rate: 8` (the file says 9, but the best AME h16 run is at 2⁻⁸); add `bank_init_std: 1.0e-4` and `bank_lr_ratio: 4.0` |
-   | `dense_h16.yaml` | `configs/stage_1b/dense_h16_lr_grid.yaml` | A single `learning_rate: 9` instead of the grid; `/base_schema` in the defaults; add `qk_norm: true` and `shift: true` |
-   | `ame_h20.yaml` | `configs/stage_2c/ame_h20_pe_shift.yaml` | `learning_rate: 8` (the file leaves it null); add `bank_init_std: 1.0e-4` and `bank_lr_ratio: 4.0` |
-   | `dense_h20.yaml` | `configs/stage_1c/dense_h20_lr_grid.yaml` | A single `learning_rate: 9`; `/base_schema`; add `qk_norm: true` and `shift: true` |
-7. **Run the tests.**
-   - In the worktree, run the CI gate from `.github/workflows/tests.yml`:
-     `pytest -m "not gpu and not slow and not network"`.
-   - Then run `pytest -m gpu` on one cluster GPU. LEM's env has no pytest, so put it on
-     `PYTHONPATH` from a copy ([doc_mask_report.md](doc_mask_report.md), log 09:16).
-8. **Smoke-run all six configs:** 60 steps each (`trainer.n_steps: 60`) on LEM, h20 on 4
-   GPUs.
-   - These catch config errors and running out of memory. Dense h16 and h20 have never run
-     with QK-norm and the shift, which add 6.3 GiB at h12.
-   - Check that the h20 AME smoke now logs `alpha_2/mean` and `tau/mean` (step 5).
-   - If a smoke runs out of memory, double `gradient_accumulation_steps`, which keeps the
-     batch, and record it.
-9. **Reproduce at h12:** run `ame_h12.yaml` and `dense_h12.yaml` from `standard_models`,
-   about 4 GPU-h each on LEM.
-   - **Submit** as in [settle_runs_report.md](settle_runs_report.md#submission). Check each
-     job about 2 minutes after it starts, then only at the end.
-   - **Step 0:** its loss must equal the reference's (`zdmv3qci`, `chne4w91`).
-   - **Last 500 steps:** run `python scripts/paired_gap.py NEW_ID zdmv3qci`, and the same
-     for dense with `chne4w91`. Copy the script from branch `bank_sigma_grid`.
-   - **AME passes** under 0.022.
-   - **Dense has no measured tie band.** A gap under 0.022 passes. For a larger one, look
-     at where it opens: a spike episode on either side explains most of them.
-10. **Merge into `ame_main`** once steps 7–9 pass, without asking (Maciej, 2026-11-21). If
-    any of them fails, do not merge: record why and tell Maciej.
-    - Other sessions work in `~/code/nano`. First check that no file the merge touches has
-      uncommitted changes there: compare `git -C ~/code/nano status --short` with
-      `git -C ~/code/nano diff --name-only ame_main...standard_models`.
-    - Then run `git -C ~/code/nano merge --no-ff standard_models`, and run the CPU suite
-      again.
-    - Remove the worktree (`git -C ~/code/nano worktree remove ~/code/nano-standard`) and
-      keep the branch.
-11. **Update this file:**
-    - mark the status merged;
-    - add the reproduction runs and their gaps to the AME − dense gap table;
-    - drop "only on branch `ame_improve`" from [Standard configs](#standard-configs).
-
-### Later, each only with Maciej's OK
-
-Each of these costs GPU budget:
-- Dense h16 with QK-norm and the shift, about 13 GPU-h per run:
-  - at 2⁻⁹, to see whether the gain holds;
-  - at 2⁻⁸, to see whether QK-norm makes it stable.
-- AME h16 at 2⁻⁷. Its best learning rate is at the edge of the grid.
-- The standard configs at h20, about 14 h on 4 GPUs each.
-- σ = 1e-4 at other learning rates, to see whether the cliff moves.
+**Done on 2026-11-22:** merged as `7597f382`. The plan, written for the agent that built
+branch `standard_models`, is archived with its log since 2026-11-27:
+[standard_models_report.md](archive/standard_models_report.md#appendix-the-implementation-plan).
+The runs it left for later are [review_upgrades.md](review_upgrades.md), U9.

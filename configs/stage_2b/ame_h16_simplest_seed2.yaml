@@ -3,7 +3,7 @@
 # reading Stage 2b's 2 x 2: differences smaller than the gap between S1b-A0's
 # two seeds are reported as ties. One submit = 1 run.
 #
-#   Plan: documents/notes/ame_experiments.md, "Stage 2b -- positional encoding
+#   Plan: documents/notes/archive/ame_experiments.md, "Stage 2b -- positional encoding
 #   and the shift at h16". This is configs/stage_2/ame_h12_simplest_seed2.yaml
 #   with Stage 1b's changes. Its first seed is the n* run of
 #   configs/stage_1b/ame_h16_simplest_lr_grid.yaml. The training recipe (steps,

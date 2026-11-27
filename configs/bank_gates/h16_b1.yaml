@@ -1,5 +1,5 @@
 # B1, per-row confidence, at h16 on 8B tokens (the plan's h16 extension).
-# Plan: documents/notes/ame_bank_gates_plan.md. Everything else is h16_base.yaml.
+# Plan: documents/notes/archive/ame_bank_gates_plan.md. Everything else is h16_base.yaml.
 defaults:
   - h16_base
   - _self_

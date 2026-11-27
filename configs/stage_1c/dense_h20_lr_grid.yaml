@@ -2,7 +2,7 @@
 # trained on 16B tokens on one LEM node (4 H100), as a learning-rate grid.
 # One submit = 3 runs (one sbatch array), one per learning_rate n, LR = 2^-n.
 #
-#   Plan: documents/notes/ame_experiments.md, "Stage 1c -- dense h20 at 16B
+#   Plan: documents/notes/archive/ame_experiments.md, "Stage 1c -- dense h20 at 16B
 #   tokens, on 4 GPUs". This is configs/stage_1b/dense_h16_lr_grid.yaml with the
 #   plan's changes: model h20, 16B tokens, 4 GPUs per run under FSDP2
 #   with reshard_after_forward: false, micro-batch 16 x 8 per GPU, and the grid

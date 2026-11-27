@@ -5,7 +5,7 @@ the head -- is built from its own seed (the run's seed and the component's name)
 and an optional parameter inside one draws from a private generator. So a switch
 changes only the parameters it adds or changes, never another one's init, and the
 global stream after the model is built does not depend on the model
-(documents/notes/review_issues.md, N6). Before, the dense KV shift alone changed
+(documents/notes/archive/review_issues.md, N6). Before, the dense KV shift alone changed
 25 of a small model's 39 shared parameters.
 """
 

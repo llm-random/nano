@@ -1,5 +1,5 @@
 # B3, backoff: every row is mixed with one shared, densely trained vector per head.
-# Plan: documents/notes/ame_bank_gates_plan.md. Everything else is base.yaml.
+# Plan: documents/notes/archive/ame_bank_gates_plan.md. Everything else is base.yaml.
 defaults:
   - base
   - _self_

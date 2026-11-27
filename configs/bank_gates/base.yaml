@@ -1,4 +1,4 @@
-# AME bank gates (documents/notes/ame_bank_gates_plan.md): the shared recipe.
+# AME bank gates (documents/notes/archive/ame_bank_gates_plan.md): the shared recipe.
 # One arm file per gate sets the two attention options and `bank_gates_arm`;
 # this file on its own is S2-PS as W&B doi36p8k ran it on LEM, and is what the
 # common evaluator composes to score that run. Exactly, except for two defaults

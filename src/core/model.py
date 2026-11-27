@@ -343,7 +343,7 @@ class RoPEAttention(nn.Module):
             # to the projections' dtype: CUDA autocast runs the norm in fp32,
             # which promoted q and k, so the shift, RoPE, tau and repeat_kv ran
             # in fp32 until SDPA cast them back -- time and memory for nothing
-            # (documents/notes/review_issues.md, N7).
+            # (documents/notes/archive/review_issues.md, N7).
             q = F.normalize(q, dim=-1).to(v.dtype)
             k = F.normalize(k, dim=-1).to(v.dtype)
         if self.shift:

@@ -3,7 +3,7 @@
 # old plan's A1), and the setting the configs/ame MFU benchmarks ran.
 # One submit = 1 run.
 #
-#   Plan: documents/notes/ame_experiments.md, "Stage 2 -- positional encoding
+#   Plan: documents/notes/archive/ame_experiments.md, "Stage 2 -- positional encoding
 #   and the shift". Its 2 x 2 design:
 #     - S1-A0: neither (configs/stage_1/ame_h12_simplest_lr_grid.yaml);
 #     - S2-P: positional encoding only;
@@ -23,7 +23,7 @@
 # Runs on LEM, switched from entropy on 2026-11-05 like every Stage 1-2
 # config, so that all their runs share one hardware. The s/step figures
 # quoted below are entropy's; the LEM smoke runs set LEM's baseline
-# (documents/notes/stage_1_report.md).
+# (documents/notes/archive/stage_1_report.md).
 defaults:
   - /base_schema
   - ../_misc@_here_: default

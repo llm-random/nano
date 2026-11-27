@@ -43,7 +43,7 @@ def _point(overrides=()):
 def test_steps_are_the_hand_written_counts():
     # 512 rows of sequence_length 2049 train on 512 x 2048 = 1,048,576 tokens a
     # step. The stage configs' n_steps rounded up (8e9 / 1,048,576 = 7629.4), and
-    # so does the knob (documents/notes/review_issues.md, N4).
+    # so does the knob (documents/notes/archive/review_issues.md, N4).
     assert steps_for_tokens(4, 512, 2049) == 3815
     assert steps_for_tokens(8, 512, 2049) == 7630
     assert steps_for_tokens(16, 512, 2049) == 15259
@@ -125,7 +125,7 @@ def _token_sweep(key, values):
 def test_run_exp_checks_missing_keys_on_a_token_sweep(key, values):
     """A sweep over the budget, or over what a step holds, has no single budget
     or batch to resolve before the grid expands; the check runs on every point
-    (documents/notes/review_issues.md, N5). Both raised before."""
+    (documents/notes/archive/review_issues.md, N5). Both raised before."""
     from run_exp import check_missing_keys
 
     cfg = _token_sweep(key, values)

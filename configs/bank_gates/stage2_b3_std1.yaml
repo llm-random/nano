@@ -1,5 +1,5 @@
 # Stage 2, b3_std1: B3 at production's init -- sigma = 1 (Q1, Q2).
-# Plan: documents/notes/ame_bank_gates_stage2_plan.md. Everything else is base.yaml.
+# Plan: documents/notes/archive/ame_bank_gates_stage2_plan.md. Everything else is base.yaml.
 defaults:
   - base
   - _self_

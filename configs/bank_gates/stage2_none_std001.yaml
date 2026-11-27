@@ -1,5 +1,5 @@
 # Stage 2, none_std001: the init alone -- sigma = 0.01 and no gate (answers Q1).
-# Plan: documents/notes/ame_bank_gates_stage2_plan.md. Everything else is base.yaml.
+# Plan: documents/notes/archive/ame_bank_gates_stage2_plan.md. Everything else is base.yaml.
 defaults:
   - base
   - _self_

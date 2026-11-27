@@ -1,5 +1,5 @@
 # CPU smoke run of one bank-gates arm, end to end through main.py
-# (documents/notes/ame_bank_gates_plan.md, "Local checks").
+# (documents/notes/archive/ame_bank_gates_plan.md, "Local checks").
 #
 # h4 at the production vocabulary and recipe shape (Tier 2 banks, the KV shift,
 # count_token_updates, a final checkpoint), on the 300-row local `data` copy.

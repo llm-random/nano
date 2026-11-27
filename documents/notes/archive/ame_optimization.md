@@ -16,7 +16,7 @@ works, its parameters — which the report's one-line inventory does not carry. 
 what you need to implement one of the untried items. Also **O22–O26**, which the report
 omits because they are not MFU work at all: GPU-count-invariant schedule sizing, variable
 gradient accumulation, granular micro-batching, token-space WSD and Step-Law LR. Those
-matter for the training program in [ame_experiments.md](../ame_experiments.md), not for
+matter for the training program in [ame_experiments.md](ame_experiments.md), not for
 throughput.
 
 ---

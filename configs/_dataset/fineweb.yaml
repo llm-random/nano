@@ -17,7 +17,7 @@ trainer:
       # true: every GPU reads the whole stream and keeps every world_size-th
       # sequence, so the GPUs of a step together hold exactly the sequences a 1-GPU
       # run trains on in that step: the same data at any GPU count (Maciej,
-      # 2026-11-26; documents/notes/review_issues.md, A2). false handed each GPU its
+      # 2026-11-26; documents/notes/archive/review_issues.md, A2). false handed each GPU its
       # own shards, so a 4-GPU run trained on other data than its 1-GPU twin. At one
       # GPU the two are the same stream. The cost: each GPU's loader workers
       # tokenize the whole stream, world_size times their old share.
@@ -38,7 +38,7 @@ trainer:
     # loader worker its own subset of the 64 shards, and the loader takes batches
     # from the workers in turn, so another count trains on other rows in another
     # order (0 and 1 agree; 2 and 4 do not). Every FineWeb run so far used 2
-    # (documents/notes/review_issues.md, second audit): keep it. The GPU count and
+    # (documents/notes/archive/review_issues.md, second audit): keep it. The GPU count and
     # gradient_accumulation_steps do not change the data (world_size_independent).
     num_workers: 2
 

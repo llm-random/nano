@@ -299,7 +299,7 @@ def get_model_optimizer_scheduler(cfg, model, learning_rate):
         # eager, and that logging now sits behind @torch.compiler.disable.
         # The compiled unit is also exactly the module FSDP2 shards, which is
         # the pairing FSDP2 documents. Watch for recompile warnings anyway --
-        # this failure mode is silent (documents/notes/multigpu_compile_scope_plan.md).
+        # this failure mode is silent (documents/notes/archive/multigpu_compile_scope_plan.md).
         for block in model.encoder.blocks:
             block.compile()
         logger.info(

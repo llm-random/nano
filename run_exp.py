@@ -273,7 +273,7 @@ def tmux_session_name(experiment_branch_name: str) -> str:
     session. So a run named after a float learning rate (`..._lr9.0_...`, which
     every config loading /base_schema produces) could not be addressed: the
     submit failed after the clone, with nothing queued
-    (documents/notes/stage_2_report.md, decision 2).
+    (documents/notes/archive/stage_2_report.md, decision 2).
     """
     return experiment_branch_name.replace(".", "_").replace(":", "_")
 
@@ -318,7 +318,7 @@ def check_missing_keys(cfg: DictConfig) -> None:
     fills it in, so the warmup's ${trainer.n_steps} would fail on None. On the
     unexpanded config a sweep over the budget (`^n_tokens_b`) or over what a step
     holds (`^batch_size`, `^sequence_length`) could not be resolved at all
-    (documents/notes/review_issues.md, N5). cfg keeps n_tokens_b as written, for
+    (documents/notes/archive/review_issues.md, N5). cfg keeps n_tokens_b as written, for
     the grid expansion and the dump.
     """
     for point, overrides in create_grid_config(copy.deepcopy(cfg)):

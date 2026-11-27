@@ -346,7 +346,7 @@ def test_scores_start_at_std_one_with_the_prescribed_init():
 def test_the_bank_init_default_follows_the_qk_norm():
     """sigma defaults to 1e-4 under the QK-norm, where only a row's direction
     reaches the scores, and to 1.0 without it, where tau is frozen at 1/sqrt(d)
-    and 1e-4 would start attention uniform (documents/notes/review_issues.md,
+    and 1e-4 would start attention uniform (documents/notes/archive/review_issues.md,
     N1). Either way the scores start at std ~1."""
     dims = dict(dmodel=256, q_heads=4, kv_heads=4, seq_len=64, vocab_size=512)
     options = dict(sink=False, slopes=[0.0] * 4, backend="reference")
@@ -1244,7 +1244,7 @@ def test_the_trainer_logs_the_parameter_readout_even_with_no_batch():
 
 
 # ---------------------------------------------------------------------------
-# Bank gates (documents/notes/ame_bank_gates_plan.md): four ways to trust a bank
+# Bank gates (documents/notes/archive/ame_bank_gates_plan.md): four ways to trust a bank
 # row. `none` is the model every test above checks; each gate must change
 # exactly what the plan says and nothing else.
 

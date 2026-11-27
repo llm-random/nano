@@ -30,7 +30,7 @@ program's record is [ame_optimization_report.md](../ame_optimization_report.md),
 which carries h20 from there to 35.02% at 4 GPUs and h16 to 37.96% at 1 GPU.
 F2 — weight decay confounding both of the method's headline readouts — is a
 prerequisite of the Stage 0 experiment in
-[ame_experiments.md](../ame_experiments.md), which has still not been run.
+[ame_experiments.md](ame_experiments.md), which has still not been run.
 
 **Paired reading:** [ame_implementation.md](../ame_implementation.md), the record
 of what the layer is and what was built.

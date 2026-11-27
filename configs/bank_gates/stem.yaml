@@ -1,5 +1,5 @@
 # ST, STEM gate: silu(W_g x) scales each channel of the normalized query.
-# Plan: documents/notes/ame_bank_gates_plan.md. Everything else is base.yaml.
+# Plan: documents/notes/archive/ame_bank_gates_plan.md. Everything else is base.yaml.
 defaults:
   - base
   - _self_

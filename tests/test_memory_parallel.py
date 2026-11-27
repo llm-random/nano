@@ -1228,7 +1228,7 @@ def test_bank_norm_readout_is_global_without_ddp(mem_parallel_size, tmp_path):
     """train/grad_norm/banks on FSDP2's path (a process group, no DDP): the
     banks' global norm, the same on every rank, and the joint norm unchanged.
     It used to be skipped there, so FSDP2 runs such as the h20 standard ones
-    never logged it (documents/notes/review_issues.md, I19)."""
+    never logged it (documents/notes/archive/review_issues.md, I19)."""
     from conftest import spawn_on_free_port
 
     out = str(tmp_path / f"bank_readout_mp{mem_parallel_size}.pt")
@@ -1271,7 +1271,7 @@ def test_a_weights_only_load_ignores_the_optimizer_and_scheduler(tmp_path):
     """checkpoint.load.only_weights reads the weights and nothing else, so a
     checkpoint written at bank_lr_ratio 1 (no bank group) loads into a run at 4
     (one more group). A full load of it still refuses the mismatch
-    (documents/notes/review_issues.md, N3)."""
+    (documents/notes/archive/review_issues.md, N3)."""
     from src.core.checkpointing import load_checkpoint_from_file
     from src.core.schedulers import get_cosine_scheduler_with_warmup
 
@@ -1303,7 +1303,7 @@ def test_a_weights_only_load_ignores_the_optimizer_and_scheduler(tmp_path):
 def test_a_weights_only_load_leaves_the_banks_adam_state_fresh(tmp_path):
     """Under a controller, a weights-only load restores the banks' masters and
     leaves their optimizer state as built; a full load restores it too
-    (documents/notes/review_issues.md, N3)."""
+    (documents/notes/archive/review_issues.md, N3)."""
     from src.core.checkpointing import load_checkpoint_from_file
     from src.core.schedulers import get_cosine_scheduler_with_warmup
 

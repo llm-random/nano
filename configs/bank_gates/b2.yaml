@@ -1,5 +1,5 @@
 # B2, context gate: the query's hidden state sets one trust scalar per head (W_g = 0, b = 3).
-# Plan: documents/notes/ame_bank_gates_plan.md. Everything else is base.yaml.
+# Plan: documents/notes/archive/ame_bank_gates_plan.md. Everything else is base.yaml.
 defaults:
   - base
   - _self_

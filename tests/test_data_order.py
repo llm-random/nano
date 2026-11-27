@@ -1,7 +1,7 @@
 """What a training step trains on is a function of the seed and the step.
 
 Not of the GPU count, and not of gradient_accumulation_steps (Maciej, 2026-11-26;
-documents/notes/review_issues.md, A2). fineweb's train loader is
+documents/notes/archive/review_issues.md, A2). fineweb's train loader is
 world_size_independent: every GPU reads the whole stream and keeps every
 world_size-th sequence, so the GPUs of step k together hold exactly the sequences
 a 1-GPU run trains on at step k. The trainer then cuts each GPU's share into

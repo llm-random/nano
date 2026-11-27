@@ -250,7 +250,7 @@ class Trainer:
     # rows get a gradient. Not their updates: AdamW's momentum keeps moving a
     # row for some steps after its token last occurred
     # (documents/notes/review_upgrades.md, U1). Written as `token_counts.pt`
-    # beside every checkpoint (documents/notes/ame_bank_gates_plan.md, "Token
+    # beside every checkpoint (documents/notes/archive/ame_bank_gates_plan.md, "Token
     # update counts"). One scatter-add per micro-batch and one fold per step,
     # all on the device and with no host sync; off by default.
     count_token_updates: bool = False
@@ -767,7 +767,7 @@ class Trainer:
         FSDP2 that distinction matters: `compile_loss` traces `self.model`,
         so it is whole-model compile and has to survive the all-gather hooks,
         whereas this does not touch the model at all
-        (documents/notes/multigpu_compile_scope_plan.md, R2).
+        (documents/notes/archive/multigpu_compile_scope_plan.md, R2).
         """
         mask_loss = F.cross_entropy(
             predicted_ids.flatten(0, -2),

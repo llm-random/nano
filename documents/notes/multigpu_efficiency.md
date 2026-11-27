@@ -547,7 +547,7 @@ the backward re-gather, which is what `reshard_after_forward` buys memory with.
 
 ### 7.7 R1 — widening the compile unit (2026-11-03)
 
-Executed from [multigpu_compile_scope_plan.md](multigpu_compile_scope_plan.md).
+Executed from [multigpu_compile_scope_plan.md](archive/multigpu_compile_scope_plan.md).
 `+compile_blocks_full=true` compiles each whole `TransformerBlock` instead of
 only its inner attention and ff modules, so the two `Residual` wrappers — the
 RMSNorm, the `out + x` add and the boundary casts — are traced rather than left
@@ -767,7 +767,7 @@ world_size_independent from 2026-11-26).
 
 ## 9. Log
 
-- **2026-11-03 (later)** — [multigpu_compile_scope_plan.md](multigpu_compile_scope_plan.md)
+- **2026-11-03 (later)** — [multigpu_compile_scope_plan.md](archive/multigpu_compile_scope_plan.md)
   executed. R1 (`compile_blocks_full`) adopted: 4 GPUs 33.70% → **44.28%**,
   1 GPU 34.45% → **45.57%**, 2 GPUs **44.69%**, peak memory −21%, zero recompile
   warnings, numerics clean. R2 (`compile_ce`) measured, then **rejected** by the

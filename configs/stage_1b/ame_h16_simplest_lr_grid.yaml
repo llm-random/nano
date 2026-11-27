@@ -2,7 +2,7 @@
 # no KV shift, trained on 8B tokens, as a learning-rate grid. One submit = 3 runs
 # (one sbatch array), one per learning_rate n, LR = 2^-n.
 #
-#   Plan: documents/notes/ame_experiments.md, "Stage 1b -- Stage 1 at h16 and
+#   Plan: documents/notes/archive/ame_experiments.md, "Stage 1b -- Stage 1 at h16 and
 #   8B tokens". This is configs/stage_1/ame_h12_simplest_lr_grid.yaml with the
 #   plan's changes: model h16, 8B tokens, micro-batch 16 x 32, the grid
 #   n in {9, 10, 11}, 16 zero slopes and a 24 h limit.

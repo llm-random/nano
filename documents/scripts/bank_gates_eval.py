@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Bank gates, the secondary evaluation: is a rarely updated row less influential?
 
-documents/notes/ame_bank_gates_plan.md, "Evaluation". Loads a final checkpoint
+documents/notes/archive/ame_bank_gates_plan.md, "Evaluation". Loads a final checkpoint
 into the common evaluator's model (`ame_ref32`: fp32, eager, reference attention,
 banks from the fp32 masters; documents/scripts/parity_numerics.py), buckets the
 vocabulary by `steps_seen` u from the run's token_counts.pt -- the number of

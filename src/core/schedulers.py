@@ -86,7 +86,7 @@ class CosineAnnealingToFraction(torch.optim.lr_scheduler.CosineAnnealingLR):
         # before the per-group floors (torch's CosineAnnealingLR, one scalar
         # eta_min) reads it on resume. So it carries the floor that code computed,
         # the backbone's (group 0's): with 0 such a resume would anneal to 0
-        # instead (documents/notes/review_issues.md, N2).
+        # instead (documents/notes/archive/review_issues.md, N2).
         group = optimizer.param_groups[0]
         backbone_floor = final_lr_fraction * group.get("initial_lr", group["lr"])
         super().__init__(

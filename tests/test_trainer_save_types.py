@@ -1,6 +1,6 @@
 """Tier 1: the checkpoint save-type contract between core and its subclasses.
 
-See documents/notes/main_baseline_audit.md. src/core/trainer.py declares only the save
+See documents/notes/archive/main_baseline_audit.md. src/core/trainer.py declares only the save
 types it can write itself and lets subclasses widen SUPPORTED_SAVE_TYPES and override
 save_final_checkpoint. These tests pin that contract down, so the layering cannot
 quietly come undone.

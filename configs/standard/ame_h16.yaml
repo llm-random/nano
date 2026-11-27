@@ -14,7 +14,7 @@
 # Pair with hjw7znbz or eeaz5uy1: the same seed, data order, steps and
 # schedule. No document mask and no bank gate (both rejected, 2026-11-21).
 #
-# Recipe v2 (2026-11-25; documents/notes/review_issues.md, N6-N8): each part of
+# Recipe v2 (2026-11-25; documents/notes/archive/review_issues.md, N6-N8): each part of
 # the model now initializes from its own seed (src/core/init_rng.py), so the same
 # seed builds other weights than for the runs named above, and the QK-norm keeps
 # q and k in the compute dtype. These runs pair with those in data order, steps

@@ -1,6 +1,6 @@
 """The repo's config schema: typed `common` and `trainer`, validated at submit time.
 
-Built per documents/notes/typed_config_goal.md. Three jobs:
+Built per documents/notes/archive/typed_config_goal.md. Three jobs:
 
 1. IDE support: entry points annotate `cfg: RootSchema`, so Pylance autocompletes
    and typo-checks `cfg.common.*` / `cfg.trainer.*` in code.
@@ -185,7 +185,7 @@ class TrainerSchema:
     mem_parallel_size: Optional[int] = None
     # Per-token occurrence counts and steps with a gradient (`steps_seen`),
     # saved as token_counts.pt beside every checkpoint
-    # (documents/notes/ame_bank_gates_plan.md).
+    # (documents/notes/archive/ame_bank_gates_plan.md).
     count_token_updates: bool = False
 
 
@@ -290,7 +290,7 @@ def steps_for_tokens(n_tokens_b: float, batch_size: int, sequence_length: int) -
     did (8e9 / 1,048,576 = 7629.4 -> 7630), so 4, 8 and 16 give their 3815, 7630
     and 15259, and a run ends at its budget or less than one step past it.
     Until 2026-11-25 it counted sequence_length tokens a row and rounded down,
-    3812 for 4B (documents/notes/review_issues.md, N4).
+    3812 for 4B (documents/notes/archive/review_issues.md, N4).
 
     The token count is rounded to a whole number first, so a budget that is an
     exact multiple of the step survives float noise: 0.067 * 10**9 is

@@ -1,4 +1,4 @@
-# AME bank gates, the h16 extension (documents/notes/ame_bank_gates_plan.md,
+# AME bank gates, the h16 extension (documents/notes/archive/ame_bank_gates_plan.md,
 # "h16 extension"): the shared h16 recipe. One arm file per gate (h16_b1,
 # h16_b2, h16_b3, h16_stem) sets the two attention options and `bank_gates_arm`;
 # this file on its own is S2b-PS h16 as W&B hjw7znbz ran it on LEM, and is what

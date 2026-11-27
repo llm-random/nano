@@ -2,7 +2,7 @@
 # KV shift, as a learning-rate grid. One submit = 4 runs (one sbatch array), one
 # per learning_rate n, LR = 2^-n.
 #
-#   Plan: documents/notes/ame_experiments.md, "Stage 1 -- first models".
+#   Plan: documents/notes/archive/ame_experiments.md, "Stage 1 -- first models".
 #   Pair: configs/stage_1/dense_h12_lr_grid.yaml (S1-D), the same recipe with
 #   dense attention. The training recipe (steps, batch, schedule, eval,
 #   precision, checkpointing) is identical in all six configs/stage_1 and
@@ -18,7 +18,7 @@
 # Runs on LEM, switched from entropy on 2026-11-05 like every Stage 1-2
 # config, so that all their runs share one hardware. The s/step figures
 # quoted below are entropy's; the LEM smoke runs set LEM's baseline
-# (documents/notes/stage_1_report.md).
+# (documents/notes/archive/stage_1_report.md).
 defaults:
   - ../_misc@_here_: default
   - ../_cluster@_here_: lem

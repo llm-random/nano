@@ -2,13 +2,13 @@
 
 **Status (2026-11-26): proposals, except U11 (done: v2 ties v1) and U12 (done). Every run
 here needs Maciej's OK before it costs GPU time.** The fixes to apply before the reviewed commits settle on
-`ame_main` are in [review_issues.md](review_issues.md).
+`ame_main` are in [review_issues.md](archive/review_issues.md).
 
 - **Sources:**
-  - the review of the nine older unpushed `ame_main` commits: [rev1.md](rev1.md) and
-    [rev2.md](rev2.md), each with Maciej's response, plus rev2's reply;
+  - the review of the nine older unpushed `ame_main` commits: [rev1.md](archive/rev1.md) and
+    [rev2.md](archive/rev2.md), each with Maciej's response, plus rev2's reply;
   - the checks run during that review;
-  - the standard-models task ([standard_models_report.md](standard_models_report.md)).
+  - the standard-models task ([standard_models_report.md](archive/standard_models_report.md)).
 - **"Proposed by"** names who raised each item. "This session" means the agent that checked
   the reviews against the code.
 
@@ -77,19 +77,19 @@ here needs Maciej's OK before it costs GPU time.** The fixes to apply before the
 
 - **The plan's estimate:** B1's trust "moves only in steps where t occurs, by about one
   learning rate per update", so reaching s = 0.5 "takes at least 754 of the token's own
-  updates" ([ame_bank_gates_plan.md:121-124](ame_bank_gates_plan.md#L121-L124)).
+  updates" ([ame_bank_gates_plan.md:131-134](archive/ame_bank_gates_plan.md#L131-L134)).
 - **Under U1** that holds for a token present in every step. A rare token's trust moves many
   lr per occurrence (rev2's reply).
 - **What was measured:** the trust "stays where it is put", 0.949-0.950 in `b1open_std001` and
   0.050-0.054 in `b1_std1`
-  ([ame_bank_gates_stage2_report.md:373-374](ame_bank_gates_stage2_report.md#L373-L374)). So
+  ([ame_bank_gates_stage2_report.md:379-380](archive/ame_bank_gates_stage2_report.md#L379-L380)). So
   the practical difference may be small.
 - **What to do:** B1 is rejected and off by default. Re-read its results with U1 only if the
   gates are revisited. The plan gets a correction note now (review_issues.md, I7).
 
 ## U3. Bank init σ
 
-- **The evidence** ([ame_bank_sigma_grid.md](ame_bank_sigma_grid.md), "The answer"):
+- **The evidence** ([ame_bank_sigma_grid.md](archive/ame_bank_sigma_grid.md), "The answer"):
   - at h12, all ten σ from 1e-5 to 0.0178 tie, inside one tie band; the measured best is
     3.16e-5;
   - below the plateau the init fails: 1e-7 is +0.064, 1e-8 +0.183, 1e-10 +0.442. The edge lies
@@ -106,7 +106,7 @@ here needs Maciej's OK before it costs GPU time.** The fixes to apply before the
 | # | Readout | The gap today | Proposed by | What it takes |
 |---|---|---|---|---|
 | a | The banks' grad norm, `train/grad_norm/banks`, under FSDP2 | Was skipped under FSDP2, even on one GPU, so the h20 standard runs (FSDP2, `mem_parallel_size: 4`) would never have logged it, though the σ grid relied on the banks' share of the clip | rev1 #4, rev2 #9 | **Done 2026-11-25** (review_issues.md, I19) |
-| b | Attention entropy and top-k mass on a sharded layer | Still skipped after `8b78b805` ([standard_models_report.md:39](standard_models_report.md#L39)) | The standard-models report | The diagnostics re-run the gather and `v_proj` outside FSDP2's hooks. They would need gathered weights or a hook-aware path (this session's reading) |
+| b | Attention entropy and top-k mass on a sharded layer | Still skipped after `8b78b805` ([standard_models_report.md:47](archive/standard_models_report.md#L47)) | The standard-models report | The diagnostics re-run the gather and `v_proj` outside FSDP2's hooks. They would need gathered weights or a hook-aware path (this session's reading) |
 | c | The real movement of a bank row | `steps_seen` counts the steps with a gradient (U1) | This session | Cumulative \|Δ\| per row, or the steps above a threshold, written beside `token_counts.pt` |
 | d | Dense τ, α and β from a checkpoint | `ame_ckpt_readouts.py` reads AME layers only. A dense layer with QK-norm and the KV shift has `tau`, `alpha` and `beta` but no `slopes` (rev2 #15) | rev2 #15 | Accept a layer without `slopes` and skip its horizons |
 | e | Token counts in the runs meant for rare-token analysis | `trainer.count_token_updates` is off by default ([trainer.py:232](../../src/core/trainer.py#L232)) | This session | Set it to `true` in those runs; it writes `token_counts.pt` beside every checkpoint |
@@ -127,7 +127,7 @@ of `bank_gates_eval.py` is I23 there.
 
 ## U6. Stability of the AME h12 recipe
 
-**What happened** in the standard-models task ([standard_models_report.md](standard_models_report.md)):
+**What happened** in the standard-models task ([standard_models_report.md](archive/standard_models_report.md)):
 - The recipe (σ 1e-4, `bank_lr_ratio` 4, 2⁻⁸) spiked in 1 of its 3 runs.
   - `zs1bceoy`: the grad norm reached 3.0 at step 356 and the loss peaked at 7.47 (reference
     4.03), recovering only slowly.
@@ -184,13 +184,17 @@ of `bank_gates_eval.py` is I23 there.
 
 ## U9. Runs already planned
 
-From [standard_model_improvements.md](standard_model_improvements.md), "Later, each only with
-Maciej's OK":
+From the standard-models plan, "Later, each only with Maciej's OK"
+([archive/standard_models_report.md](archive/standard_models_report.md#later-each-only-with-maciejs-ok);
+the list was the end of standard_model_improvements.md until 2026-11-27):
 - **Dense h16 with QK-norm and the shift,** about 13 GPU-h per run:
   - at 2⁻⁹, to see whether the gain holds;
   - at 2⁻⁸, to see whether QK-norm makes it stable.
 - **AME h16 at 2⁻⁷:** its best learning rate is at the edge of the grid.
-- **The standard configs at h20,** about 14 h on 4 GPUs each.
+- **The standard configs at h20,** about 14 h on 4 GPUs each. The first `ame_h20` run is
+  also the first GPU run of `ddfcd2fa`, the banks' grad norm under FSDP2: at its 2-minute
+  check, `train/grad_norm/banks` must be logged, at about 2.96 s/step
+  ([review_issues.md](archive/review_issues.md), N9).
 - **σ = 1e-4 at other learning rates,** to see whether the cliff moves (U3).
 
 ## U10. The shift effect without the init difference
@@ -301,7 +305,7 @@ Maciej's OK":
 - The eval holdout is the corpus's last 262,144 rows. If the rows are in crawl order, the
   two differ in time, which would explain the held-out shift: ' COVID' occurs twice in 4B
   training tokens and 1,686 times in the 16.8M held-out tokens
-  ([ame_bank_gates_report.md](ame_bank_gates_report.md)).
+  ([ame_bank_gates_report.md](archive/ame_bank_gates_report.md)).
 - **To check:** the corpus's row order (which dumps each shard holds), and whether the
   stream should draw from all 64 shards, for example by interleaving them, which keeps
   online tokenization. It changes the data, so it belongs before a round of reruns, not in

@@ -2,7 +2,7 @@
 """The common evaluator: the final CE of a checkpoint on the full held-out set.
 
 Ported from `parity_audit`'s documents/scripts/parity_numerics.py for
-documents/notes/ame_bank_gates_plan.md. Only the scoring is here -- its `score`
+documents/notes/archive/ame_bank_gates_plan.md. Only the scoring is here -- its `score`
 check, the `dump_data` that produced the held-out set, and the helpers both
 need -- with one change: a model is composed from a run config (`--config`)
 rather than from the parity configs, so it builds whatever the run trained,

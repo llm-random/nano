@@ -37,7 +37,7 @@ AME Q/K banks               = H · 2·V·64H         = 128·V·H²
 ```
 
 These are the parameters nano trains: at `H = 12` and the padded vocab 50,304 they give
-1,103,599,056 for AME, the count [stage_2_report.md](../notes/stage_2_report.md) reports for S2-PS,
+1,103,599,056 for AME, the count [stage_2_report.md](../notes/archive/stage_2_report.md) reports for S2-PS,
 and the notebook asserts it.
 
 ## Parameters, against the vanilla H model

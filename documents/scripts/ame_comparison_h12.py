@@ -1,6 +1,6 @@
 """AME against dense at h12: the training logs of the two best h12 runs, side by side.
 
-The numbers and figures in documents/notes/ame_comparison_h12.md. Read-only on W&B.
+The numbers and figures in documents/notes/archive/ame_comparison_h12.md. Read-only on W&B.
 
     python documents/scripts/ame_comparison_h12.py tables
     python documents/scripts/ame_comparison_h12.py figures OUT_DIR

@@ -9,7 +9,7 @@ indexed (or not indexed at all): `pretraining_stage3_mfu_plan.md`,
 `backbone_mfu_audit.md`, `mfu_gap_nanogpt_audit.md`, `mfu_ablation_plan.md`,
 `mfu_speedup_plan.md`. All five are in git history before this commit; every
 measurement, table and wandb link they held is reproduced here. Timestamped
-per-session detail stays in [pretraining_reset_log.md](pretraining_reset_log.md).
+per-session detail stays in [pretraining_reset_log.md](archive/pretraining_reset_log.md).
 
 **The short version.** A stage-3 audit measured the backbone at 25.2/27.7/30.8%
 MFU (h12/h16/h20) on one H100 and found no efficiency anomaly — just no

@@ -1,11 +1,13 @@
 # AME in this repo: the layer, the plumbing, the review, and what is left
 
 **Status: established.** The layer, the plumbing and all eight review findings are done
-and tested, on CPU and on an H100, and the code is committed. **No *scientific* experiment
-has been run — Stage 0 has not started.** The cluster jobs run since are throughput
-benchmarks, not quality measurements; their record is
-[ame_optimization_report.md](ame_optimization_report.md).
-Written 2026-11-03, last updated 2026-11-07.
+and tested, on CPU and on an H100, and the code is committed. **Its quality experiments ran
+from 2026-11-06 to 2026-11-22** (Stages 1–2c, then the changes tested for the standard
+models); their results and decisions are
+[standard_model_improvements.md](standard_model_improvements.md). Only the synthetic
+Stage 0 test of the mechanism has never run ([open item 1](#open-items-in-the-order-they-matter)).
+The throughput record is [ame_optimization_report.md](ame_optimization_report.md).
+Written 2026-11-03; this status block corrected 2026-11-27.
 
 AME — *Attention Memory Embedding* — replaces the Q and K projections of a standard
 attention head with two memory banks indexed by **token id**. The design record lives
@@ -36,7 +38,7 @@ developed in the `/home/maciej/code/nano-small-changes` worktree, which was remo
 | GPU *performance* | **18.1% MFU** at h20 when this was written. **Optimized since** to 35.02% at 4 GPUs and 37.96% at h16/1 GPU — [ame_optimization_report.md](ame_optimization_report.md) |
 | Code review (2026-11-03) | 8 findings, F1–F8, **all fixed** |
 | Fix plan | **all four phases applied** |
-| Experiments | **none run.** Stage 0 has not started. |
+| Experiments | **Run 2026-11-06 → 11-22**: Stages 1–2c and the standard-model tests, [standard_model_improvements.md](standard_model_improvements.md). The synthetic Stage 0 test has not run |
 | Decode system | **not built, deliberately** |
 
 ## The method, as implemented
@@ -257,7 +259,7 @@ says it hurts, so it is not planned.
   - Untested lever: initialize `E_K := E_Q`. That gives `T[a,a] = 1` for every token from
     step 0, at the cost of every head starting out as a same-token head.
 - **"A steep slope is a previous-token head" overstates it** (analysis).
-  [ame_experiments.md](ame_experiments.md) E0.1 and `ame.md` §4.1 say a steep enough slope
+  [ame_experiments.md](archive/ame_experiments.md) E0.1 and `ame.md` §4.1 say a steep enough slope
   puts "nearly all mass on j = i−1".
   - Here the causal mask includes `j = i` at zero distance penalty
     ([src/core/ame.py:572](../../src/core/ame.py#L572)), so a steep slope alone
@@ -271,7 +273,7 @@ says it hurts, so it is not planned.
 
 ### Plans and open items
 
-1. **Stage 0** ([ame_experiments.md](ame_experiments.md) E0.1) measures exactly this. The
+1. **Stage 0** ([ame_experiments.md](archive/ame_experiments.md) E0.1) measures exactly this. The
    arms:
    - **A1:** α and β free.
    - **A2:** α free, β pinned. This is the irreplaceable half.
@@ -284,14 +286,22 @@ says it hurts, so it is not planned.
    ladder identical across arms. Kill criterion: A4 scores the same as A1. Headline
    readout: the α₂ and β₂ trajectories, where a collapse to 0 means the model declined
    the shift.
-2. **The matched dense control does not exist.** `RoPEAttention` has no α/β, so any
+2. ~~**The matched dense control does not exist.**~~ **Built:** the dense KV shift
+   (`common.attention.shift`, `7345eebc`, on `ame_main` since 2026-11-22) shifts K and V
+   after the QK-norm and before RoPE, and is on in the standard dense configs
+   ([standard_model_improvements.md](standard_model_improvements.md), "KV shift and
+   QK-norm"). The positional encoding still differs. Original wording:
+   `RoPEAttention` has no α/β, so any
    AME-versus-dense win is confounded with Xu et al.'s published gain (risk R8, baseline
    #5, "mandatory"). Matching Xu exactly means shifting K and V *before* the rotary
    embedding. It is about 30 lines (`ame_theory.md`), and should be built before the
    first comparison run. The positional encoding differs as well (ALiBi vs RoPE); all
    three candidate controls are in
    [Positional encoding, and what a dense comparison must control](#positional-encoding-and-what-a-dense-comparison-must-control).
-3. **The α₂/β₂ readouts are lost under FSDP2** (found 2026-11-05).
+3. ~~**The α₂/β₂ readouts are lost under FSDP2**~~ (found 2026-11-05). **Fixed
+   2026-11-22** (`8b78b805`, merged with the standard models): the readout skips the
+   attention diagnostics on a sharded layer, so α₂, β₂, τ and the horizons log under
+   FSDP2; attention entropy and top-k still do not. Original wording:
    - `instrumentation()` re-runs the bank gather and `v_proj` outside FSDP2's hooks, which
      raises on DTensor parameters. The trainer then disables that layer's
      instrumentation for the rest of the run
@@ -527,7 +537,7 @@ the code 2026-11-07. Values at h16 (`dmodel` 1024, `dff` 4096). Points marked
 | token embedding | both | `trunc_normal_` with PyTorch's defaults: std 1, cut at ±2 | 1 | |
 | attention Q, K, V, O | dense | truncated normal, std `1/√fan_in`, cut at ±2σ ([src/core/model.py:19-23](../../src/core/model.py#L19-L23)) | 0.031 | |
 | attention V, O (`v_proj`, `o_proj`) | AME | the same rule | 0.031 | |
-| **memory banks** `q_bank`, `k_bank` | AME | N(0, σ²) with σ = `bank_init_std`, not truncated; two independent draws ([src/core/ame.py:421](../../src/core/ame.py#L421)) | 1e-4 with the QK-norm since 2026-11-25 (1 without it); 1 before | Was σ ≈ 1 (`ame.md` §1 and §7: the per-element scale `W_Q·x` has in a standard transformer). The σ grid then found a plateau from 1e-5 to 0.0178, with σ = 1 at +0.097 ([ame_bank_sigma_grid.md](ame_bank_sigma_grid.md)). Without QK-norm, σ = 0.02 would make attention uniform at init. |
+| **memory banks** `q_bank`, `k_bank` | AME | N(0, σ²) with σ = `bank_init_std`, not truncated; two independent draws ([src/core/ame.py:421](../../src/core/ame.py#L421)) | 1e-4 with the QK-norm since 2026-11-25 (1 without it); 1 before | Was σ ≈ 1 (`ame.md` §1 and §7: the per-element scale `W_Q·x` has in a standard transformer). The σ grid then found a plateau from 1e-5 to 0.0178, with σ = 1 at +0.097 ([ame_bank_sigma_grid.md](archive/ame_bank_sigma_grid.md)). Without QK-norm, σ = 0.02 would make attention uniform at init. |
 | FF in and gate (SwiGLU) | both | the `1/√fan_in` rule | 0.031 | |
 | FF out | both | the `1/√fan_in` rule; its fan_in is `dff` | 0.0156 | |
 | output head | both | the `1/√fan_in` rule; its own `Linear`, not tied to the embedding | 0.031 | |
@@ -549,7 +559,7 @@ the code 2026-11-07. Values at h16 (`dmodel` 1024, `dff` 4096). Points marked
   seed and its name, and optional parameters (the KV shift, the ST gate) from private
   generators ([src/core/init_rng.py](../../src/core/init_rng.py)). So no switch moves another
   part's init, and a run started before that date does not share its starting weights with
-  one started after ([review_issues.md](review_issues.md), N6).
+  one started after ([review_issues.md](archive/review_issues.md), N6).
 
 **What follows** (analysis):
 - **No token matches itself at init.** The banks are independent draws, so `T[a,a] ≈ 0`.
@@ -1068,7 +1078,7 @@ likely way to waste a month, and nothing in Stages 0–1 needs it. Also absent: 
 ## The h20 dense baseline next to AME: architecture and active parameters
 
 *Written 2026-11-05, from the evening micro-batch sweep on entropy. Every run, with job
-IDs, is in [ame_microbatch_sweep.md](ame_microbatch_sweep.md).*
+IDs, is in [the appendix of ame_optimization_report.md](ame_optimization_report.md#appendix-the-micro-batch-sweep-2026-11-05).*
 
 **The like-for-like dense model is the H-balanced h20 with `gqa` attention.** It has the
 same feed-forward, shape, embeddings and training recipe as AME; only the attention layer

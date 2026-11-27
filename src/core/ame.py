@@ -32,7 +32,7 @@ Five things here are load-bearing and easy to get subtly wrong:
    banks' inverse learning rate. At h12 every sigma from 1e-5 to 0.0178 ties;
    sigma = 1 (the default until 2026-11-25) is 0.097 worse, and the init fails
    at 1e-7 and below and at 0.0316 and above
-   (documents/notes/ame_bank_sigma_grid.md). Without the QK-norm the scores
+   (documents/notes/archive/ame_bank_sigma_grid.md). Without the QK-norm the scores
    scale with sigma^2, so the default there stays 1.0: 1e-4, like the embedding
    habit of 0.02 (scores of std ~4e-4), would start attention uniform.
 4. **The shift must not wrap.** `_shift1` pads and slices; `torch.roll` would mix
@@ -46,7 +46,7 @@ KV shifting (`alpha`, `beta`) is prior art -- Xu, Cheng, Wang & Chen, arXiv
 2411.19574 -- not this project's contribution. Any dense baseline AME is compared
 against must have it too, or AME collects someone else's gain.
 
-**Bank gates** (`bank_gate`, documents/notes/ame_bank_gates_plan.md). A bank row
+**Bank gates** (`bank_gate`, documents/notes/archive/ame_bank_gates_plan.md). A bank row
 gets a gradient only in steps where its token occurs (AdamW's momentum carries
 it further for a few dozen steps after), yet under the hard QK-norm a rarely
 trained row acts at full strength. Each gate changes how much a row's identity
@@ -85,16 +85,16 @@ BANK_GATES = ("none", "confidence", "context", "backoff", "stem")
 # score starts at 0.05 * 0.05 = 0.0025 of its ungated size: attention begins as
 # the ALiBi prior plus the sink, until a token's own updates earn it trust.
 # Stage 2's b1open_std001 starts it at 0.95 instead, so scores start at 0.9025
-# of their size (documents/notes/ame_bank_gates_stage2_plan.md).
+# of their size (documents/notes/archive/ame_bank_gates_stage2_plan.md).
 CONFIDENCE_INIT = 0.05
 # B2: W_g = 0 and b = 3 open every gate to sigmoid(3) = 0.953, the strongest of
 # Highway networks' carry settings (a transform-gate bias of -1 to -3,
 # Srivastava, Greff & Schmidhuber 2015). Not tuned.
 CONTEXT_GATE_INIT_BIAS = 3.0
 # The banks' default init sigma depends on the QK-norm
-# (documents/notes/review_issues.md, N1). Under it a row's scale never reaches the
+# (documents/notes/archive/review_issues.md, N1). Under it a row's scale never reaches the
 # scores and only sets how far one Adam step turns the row: 1e-4 sits inside the
-# plateau the sigma grid found (1e-5 to 0.0178, documents/notes/ame_bank_sigma_grid.md).
+# plateau the sigma grid found (1e-5 to 0.0178, documents/notes/archive/ame_bank_sigma_grid.md).
 # Without it the scores scale with sigma^2 and tau is frozen at 1/sqrt(dhead), so
 # 1e-4 would start attention uniform; sigma ~ 1 puts the scores at std ~1 there.
 BANK_INIT_STD = 1.0e-4
@@ -711,7 +711,7 @@ class AMEAttention(nn.Module):
             # On the bank ROWS, before the mix. Not on the mixed key. Cast to the
             # compute dtype (v's): CUDA autocast runs the norm in fp32, and fp32
             # banks gather fp32 rows, so the gates, the mix and tau would run in
-            # fp32 until the cast below (documents/notes/review_issues.md, N7).
+            # fp32 until the cast below (documents/notes/archive/review_issues.md, N7).
             q = F.normalize(q, dim=-1).to(v.dtype)
             k = F.normalize(k, dim=-1).to(v.dtype)
 

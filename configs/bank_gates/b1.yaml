@@ -1,5 +1,5 @@
 # B1, per-row confidence: a learned trust scalar per token, head and bank, starting at 0.05.
-# Plan: documents/notes/ame_bank_gates_plan.md. Everything else is base.yaml.
+# Plan: documents/notes/archive/ame_bank_gates_plan.md. Everything else is base.yaml.
 defaults:
   - base
   - _self_

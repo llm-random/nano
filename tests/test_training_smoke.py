@@ -1,6 +1,6 @@
 """Tier 2 of the baseline audit, in the form that runs without a cluster.
 
-See documents/notes/main_baseline_audit.md. These drive main.py end to end the way the
+See documents/notes/archive/main_baseline_audit.md. These drive main.py end to end the way the
 README documents a local run -- a tiny model, the dummy dataset in data/, CPU only --
 and assert that a checkpoint actually lands on disk.
 

@@ -83,7 +83,7 @@ def test_older_code_resumes_this_codes_checkpoint_on_the_same_schedule():
     the per-group floors (torch's CosineAnnealingLR, one scalar eta_min) reads it
     on resume. It must hold the backbone's floor: with the 0 this class used to
     save, such a resume annealed to 0 instead of 0.1 x lr
-    (documents/notes/review_issues.md, N2)."""
+    (documents/notes/archive/review_issues.md, N2)."""
     n_steps, warmup_steps, cut = 101, 2, 50
     whole = _lr_trace(get_cosine_scheduler_with_warmup, [1, 1], n_steps, warmup_steps)
 

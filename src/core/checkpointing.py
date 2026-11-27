@@ -143,7 +143,7 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
     # states first, to be discarded, failed on a checkpoint whose param groups
     # differ -- a pre-merge AME checkpoint (bank_lr_ratio 1, no bank group) into
     # a run at 4 -- and the banks' sidecar handed back their Adam moments
-    # (documents/notes/review_issues.md, N3).
+    # (documents/notes/archive/review_issues.md, N3).
     only_weights = bool(getattr(load_config, "only_weights", False))
 
     if checkpoint_path is not None:

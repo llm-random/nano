@@ -1,4 +1,4 @@
-"""The typed-config layer (src/definitions.py, per documents/notes/typed_config_goal.md).
+"""The typed-config layer (src/definitions.py, per documents/notes/archive/typed_config_goal.md).
 
 Three things are locked in here:
 

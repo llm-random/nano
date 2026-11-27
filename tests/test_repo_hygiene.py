@@ -1,6 +1,6 @@
 """Tier 0 of the baseline audit: static checks that need no GPU and no data.
 
-See documents/notes/main_baseline_audit.md. Each test here locks in a defect that was
+See documents/notes/archive/main_baseline_audit.md. Each test here locks in a defect that was
 found on main and fixed, so that branching from main cannot silently reintroduce it.
 
 Everything in this file runs in seconds and is safe for CI.

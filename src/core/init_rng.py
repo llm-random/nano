@@ -6,7 +6,7 @@ coefficient draws, a layer's attention type, a gate -- moved the stream under
 everything built after it: with the shift on, a block's feed-forward, every later
 block and the head started from other weights than with it off. Two rules now make
 each part's init a function of the run's seed and the part's name, and of nothing
-else (documents/notes/review_issues.md, N6):
+else (documents/notes/archive/review_issues.md, N6):
 
 1. `component_init_rng(name)`: a component -- the token embedding, each block's
    attention and feed-forward, the output head -- is built from its own seed,
