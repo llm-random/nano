@@ -29,6 +29,8 @@ common:
     qk_norm: true
     # sigmoid(g_proj(x)) gate on the attention output before o_proj (arXiv 2505.06708)
     output_gate: false
+    # layers that skip RoPE (NoPE), same syntax as mix.layers; null = RoPE everywhere
+    no_rope_layers: null
 
 
 model:

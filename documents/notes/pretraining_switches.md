@@ -18,7 +18,7 @@ after the survey in `open_model_architectures.md`.
 | H-net | Missing | No code | None found |
 | Token superposition | Missing | No code | None found |
 | nGPT (normalized activations) | Missing | No code | None found |
-| RoPE | Exists | Always on; base and llama-3 scaling configurable | |
+| RoPE | Exists | On by default; `common.attention.no_rope_layers` skips it per layer (NoPE); base and llama-3 scaling configurable | |
 | QK-norm | Exists | `common.attention.qk_norm`: per-head RMSNorm before RoPE (`qk_norm_survey.md`) | `pre_attn_fn` on `origin/ctx_scl` |
 | SwiGLU | Exists | Default FF; GELU MLP via `_target_` swap | |
 | GQA | Exists | Default; `common.attention.type` picks gqa, mha or mqa | |
@@ -36,7 +36,7 @@ switched by swapping a Hydra `_target_`.
 
 | Item | Where | How it is switched today |
 | --- | --- | --- |
-| RoPE | `RoPE` and `RoPEAttention` in `src/core/model.py` | Always on: every attention type in `src/core/attention.py` builds a `RoPEAttention`. `attention_fn.rope_base` (10000 in H-balanced) and `rope_scale_freqs` (llama-3 frequency scaling, off) are configurable. A NoPE ablation needs a new flag. |
+| RoPE | `RoPE` and `RoPEAttention` in `src/core/model.py` | Always on: every attention type in `src/core/attention.py` builds a `RoPEAttention`. `attention_fn.rope_base` (10000 in H-balanced) and `rope_scale_freqs` (llama-3 frequency scaling, off) are configurable. `common.attention.no_rope_layers` (`all`, `every_4th`, indices) skips RoPE on those layers. |
 | SwiGLU | `GatedFeedForward` in `src/core/model.py` | Default `ff_layer_fn` in `configs/_model/h_balanced/base.yaml`. The alternative is the GPT-2 GELU MLP: set `ff_layer_fn._target_=src.core.model.GeluFeedForward` and drop `gate_fn`, as in the comment in `configs/mfu_audit/h20_mgpu.yaml`. |
 | GQA | `ATTENTION_TYPES` registry in `src/core/attention.py` | `common.attention.type`: `gqa` (default, kv_heads = H/2), `mha` or `mqa`. An optional `common.attention.mix` swaps the type on every 2nd, every 4th or listed layers. |
 
@@ -63,4 +63,4 @@ asserts exactly one param group (`src/core/schedulers.py:65`).
 
 ## Open questions
 
-- Should RoPE get a real on/off switch (NoPE), or does configurable RoPE count as done?
+- Should RoPE get a real on/off switch (NoPE)? Answered: yes, `common.attention.no_rope_layers` (line 1 task 3).

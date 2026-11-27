@@ -3,7 +3,9 @@
 Every type shares one constructor contract so they are interchangeable per layer:
 
     (dmodel, q_heads, kv_heads, seq_len, rope_base, rope_scale_freqs, init_scale,
-     **one keyword per SWITCHES entry)
+     rope, **one keyword per SWITCHES entry)
+
+`rope` is the layer's RoPE on/off, resolved from `common.attention.no_rope_layers`.
 
 `mha`, `mqa` and `gqa` are real today and are all the same `RoPEAttention` -- they
 differ only in how many kv heads they keep (mha: q_heads, mqa: 1, gqa: the config's
@@ -25,6 +27,7 @@ from src.core.model import Linear, RoPEAttention, llm_random_weight_init
 
 # Line-1 switch keys in common.attention, passed to every builder; base.yaml holds their defaults.
 SWITCHES = ("qk_norm", "output_gate")
+# no_rope_layers is not in SWITCHES: build_attention resolves it to each layer's `rope`.
 
 
 def _linear_fn(in_features, out_features, init_scale):
@@ -44,6 +47,7 @@ def _rope_attention(
     rope_base,
     rope_scale_freqs,
     init_scale,
+    rope,
     qk_norm,
     output_gate,
 ):
@@ -61,6 +65,7 @@ def _rope_attention(
         seq_len=seq_len,
         rope_base=rope_base,
         rope_scale_freqs=rope_scale_freqs,
+        rope=rope,
         qk_norm=qk_norm,
     )
 
@@ -128,8 +133,10 @@ class GatedDeltaNet(_PlannedAttention):
 
 
 def _planned(cls):
-    def build(dmodel, q_heads, kv_heads, **kwargs):
+    def build(dmodel, q_heads, kv_heads, rope, **kwargs):
         on = [key for key in SWITCHES if kwargs.pop(key)]
+        if not rope:
+            on.append("no_rope_layers")
         if on:
             raise ValueError(f"attention type {cls.__name__} does not support {on}")
         return cls(dmodel, q_heads, kv_heads, **kwargs)
@@ -176,29 +183,30 @@ def resolve_layer_types(n_blocks, base_type, mix=None):
     if unknown:
         raise ValueError(f"unknown mix keys {sorted(unknown)}; expected type, layers")
     name = _check_type(mix["type"])
-    layers = mix["layers"]
+    for i in _layer_indices(n_blocks, mix["layers"], "mix layer"):
+        types[i] = name
+    return types
+
+
+def _layer_indices(n_blocks, layers, key):
+    """The 0-based layer indices a pattern names (see resolve_layer_types)."""
     if isinstance(layers, str):
         if layers == "all":
-            return [name] * n_blocks
+            return list(range(n_blocks))
         if layers not in _NTH_PATTERNS:
             raise ValueError(
                 f"unknown layer pattern {layers!r}; "
                 f"expected {sorted(_NTH_PATTERNS)}, 'all' or a list of indices"
             )
         step = _NTH_PATTERNS[layers]
-        indices = [i for i in range(n_blocks) if (i + 1) % step == 0]
-    else:
-        indices = [int(i) for i in layers]
-        out_of_range = [i for i in indices if not 0 <= i < n_blocks]
-        if out_of_range:
-            raise ValueError(
-                f"mix layer indices {out_of_range} outside 0..{n_blocks - 1}"
-            )
-        if len(set(indices)) != len(indices):
-            raise ValueError(f"duplicate mix layer indices in {indices}")
-    for i in indices:
-        types[i] = name
-    return types
+        return [i for i in range(n_blocks) if (i + 1) % step == 0]
+    indices = [int(i) for i in layers]
+    out_of_range = [i for i in indices if not 0 <= i < n_blocks]
+    if out_of_range:
+        raise ValueError(f"{key} indices {out_of_range} outside 0..{n_blocks - 1}")
+    if len(set(indices)) != len(indices):
+        raise ValueError(f"duplicate {key} indices in {indices}")
+    return indices
 
 
 def build_attention(
@@ -218,19 +226,24 @@ def build_attention(
 
     `attention` is the config mapping: {"type": <name>} for a uniform stack, plus
     an optional "mix" (see resolve_layer_types) to swap the type on some layers,
-    plus every key in SWITCHES, which goes to the layer's builder as a keyword.
+    plus every key in SWITCHES, which goes to the layer's builder as a keyword,
+    plus "no_rope_layers", a layer pattern resolved to the builder's `rope` bool.
     """
-    unknown = set(attention) - {"type", "mix", *SWITCHES}
+    unknown = set(attention) - {"type", "mix", "no_rope_layers", *SWITCHES}
     if unknown:
         raise ValueError(
             f"unknown attention config keys {sorted(unknown)}; "
-            f"expected type, mix, {', '.join(SWITCHES)}"
+            f"expected type, mix, no_rope_layers, {', '.join(SWITCHES)}"
         )
     if not 0 <= block_id < n_blocks:
         raise ValueError(f"block_id {block_id} outside 0..{n_blocks - 1}")
     name = resolve_layer_types(n_blocks, attention["type"], attention.get("mix"))[
         block_id
     ]
+    no_rope = attention["no_rope_layers"]
+    rope = no_rope is None or block_id not in _layer_indices(
+        n_blocks, no_rope, "no_rope_layers"
+    )
     return ATTENTION_TYPES[name](
         dmodel,
         q_heads,
@@ -239,5 +252,6 @@ def build_attention(
         rope_base=rope_base,
         rope_scale_freqs=rope_scale_freqs,
         init_scale=init_scale,
+        rope=rope,
         **{key: attention[key] for key in SWITCHES},
     )

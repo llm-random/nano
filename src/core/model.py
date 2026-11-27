@@ -254,6 +254,7 @@ class RoPEAttention(nn.Module):
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
+        rope: bool,
         qk_norm: bool,
         factor=32,
         low_freq_factor=1,
@@ -272,16 +273,19 @@ class RoPEAttention(nn.Module):
         self.dhead = self.q_proj.weight.shape[0] // self.q_heads
         self.dmodel = dmodel
 
-        self.rope = RoPE(
-            dhead=self.dhead,
-            length=seq_len,
-            base=rope_base,
-            apply_freq_scaling=rope_scale_freqs,
-            factor=factor,
-            low_freq_factor=low_freq_factor,
-            high_freq_factor=high_freq_factor,
-            original_max_position_embeddings=original_max_position_embeddings,
-        )
+        # NoPE when rope=False: no RoPE module, which holds no state-dict entries.
+        self.use_rope = rope
+        if rope:
+            self.rope = RoPE(
+                dhead=self.dhead,
+                length=seq_len,
+                base=rope_base,
+                apply_freq_scaling=rope_scale_freqs,
+                factor=factor,
+                low_freq_factor=low_freq_factor,
+                high_freq_factor=high_freq_factor,
+                original_max_position_embeddings=original_max_position_embeddings,
+            )
 
         # Per-head gains, built last and only when on, so the off model is unchanged.
         self.qk_norm = qk_norm
@@ -305,8 +309,9 @@ class RoPEAttention(nn.Module):
         if self.qk_norm:
             # Before RoPE; k on its kv heads, before repeat_kv.
             q, k = self.q_norm(q), self.k_norm(k)
-        q = self.rope(q)
-        k = self.rope(k)
+        if self.use_rope:
+            q = self.rope(q)
+            k = self.rope(k)
 
         v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
 

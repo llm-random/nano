@@ -43,6 +43,8 @@ class AttentionSchema:
     mix: Any = None
     qk_norm: bool = MISSING
     output_gate: bool = MISSING
+    # Layers that skip RoPE, same syntax as mix.layers; null = RoPE everywhere.
+    no_rope_layers: Any = MISSING
 
 
 @dataclass
