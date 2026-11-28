@@ -1,0 +1,15 @@
+# tiny_local with its middle 2 blocks looped twice and concat injection. Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_loop
+defaults:
+  - ../../tiny_local@_global_
+  - _self_
+
+common:
+  loop:
+    n_loops: 2
+    n_prelude: 1
+    n_coda: 1
+    injection: concat
+
+infrastructure:
+  metric_logger:
+    type: stdout

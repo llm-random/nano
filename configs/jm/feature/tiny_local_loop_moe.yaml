@@ -1,0 +1,16 @@
+# tiny_local_moe with its middle 2 blocks looped twice. Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_loop_moe
+defaults:
+  - ../../tiny_local@_global_
+  - ../../_ff_layer@model.encoder.block_fn.ff_layer_fn: moe
+  - _self_
+
+common:
+  loop:
+    n_loops: 2
+    n_prelude: 1
+    n_coda: 1
+    injection: none
+
+infrastructure:
+  metric_logger:
+    type: stdout

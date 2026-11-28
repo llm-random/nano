@@ -1,0 +1,30 @@
+# h12_moe iso-param looped: its 12 MoE blocks (2 prelude, 8 core looped twice, 2 coda) = depth 20, fewer steps; compare with h12_moe.
+defaults:
+  - ../h12_chinchilla@_global_
+  - ../../_ff_layer@model.encoder.block_fn.ff_layer_fn: moe
+  - _self_
+
+common:
+  loop:
+    n_loops: 2
+    n_prelude: 2
+    n_coda: 2
+    injection: none
+
+trainer:
+  # FLOPs-matched: 50_000 * 854_544_384 / 1_270_444_032 FLOPs/token (depth 20 + routers) = 33_632 -> 33_630
+  n_steps: 33_630
+
+infrastructure:
+  metric_logger:
+    name: h12_loop_isoparam_moe
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - moe
+      - loop
+      - loop_isoparam

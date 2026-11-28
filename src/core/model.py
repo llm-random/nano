@@ -254,7 +254,9 @@ class RoPEAttention(nn.Module):
         seq_len,
         rope_base,
         rope_scale_freqs: bool,
+        rope: bool,
         qk_norm: bool,
+        qk_clip,
         factor=32,
         low_freq_factor=1,
         high_freq_factor=4,
@@ -272,16 +274,19 @@ class RoPEAttention(nn.Module):
         self.dhead = self.q_proj.weight.shape[0] // self.q_heads
         self.dmodel = dmodel
 
-        self.rope = RoPE(
-            dhead=self.dhead,
-            length=seq_len,
-            base=rope_base,
-            apply_freq_scaling=rope_scale_freqs,
-            factor=factor,
-            low_freq_factor=low_freq_factor,
-            high_freq_factor=high_freq_factor,
-            original_max_position_embeddings=original_max_position_embeddings,
-        )
+        # NoPE when rope=False: no RoPE module, which holds no state-dict entries.
+        self.use_rope = rope
+        if rope:
+            self.rope = RoPE(
+                dhead=self.dhead,
+                length=seq_len,
+                base=rope_base,
+                apply_freq_scaling=rope_scale_freqs,
+                factor=factor,
+                low_freq_factor=low_freq_factor,
+                high_freq_factor=high_freq_factor,
+                original_max_position_embeddings=original_max_position_embeddings,
+            )
 
         # Per-head gains, built last and only when on, so the off model is unchanged.
         self.qk_norm = qk_norm
@@ -294,6 +299,44 @@ class RoPEAttention(nn.Module):
         if self.output_gate:
             self.g_proj = g_proj_fn()
 
+        # QK-Clip threshold (None = off): each head's max logit, for optimizers.qk_clip_.
+        self.qk_clip = qk_clip
+        if qk_clip is not None:
+            if qk_norm:
+                raise ValueError(
+                    "qk_clip scales W_q and W_k, which qk_norm normalizes away"
+                )
+            if qk_clip <= 0:
+                raise ValueError(f"qk_clip must be null or > 0, got {qk_clip}")
+            self.register_buffer(
+                "max_logits", torch.full((q_heads,), float("-inf")), persistent=False
+            )
+
+    def _attention_tracking_max_logits(self, q, k, v):
+        """Causal attention that also raises max_logits to each head's largest logit here.
+
+        On GPU in bf16/fp16 that logit is flash attention's logsumexp, free with the output:
+        per query row it is at least the row's max logit and at most that plus log(row
+        length), so QK-Clip acts slightly early, never late. Elsewhere the logits are computed.
+        """
+        if q.is_cuda and q.dtype in (torch.bfloat16, torch.float16):
+            # The kernel SDPA picks here, called directly for its logsumexp.
+            output, lse = torch.ops.aten._scaled_dot_product_flash_attention(
+                q, k, v, is_causal=True
+            )[:2]
+            with torch.no_grad():
+                head_max = lse.amax(dim=(0, 2))
+        else:
+            output = self.attention_mechanism(query=q, key=k, value=v, causal=True)
+            with torch.no_grad():
+                logits = q @ k.transpose(-2, -1) * self.dhead**-0.5
+                seq = logits.shape[-1]
+                future = torch.ones(seq, seq, dtype=torch.bool, device=q.device).triu(1)
+                head_max = logits.masked_fill(future, float("-inf")).amax(dim=(0, 2, 3))
+        with torch.no_grad():
+            self.max_logits.copy_(torch.maximum(self.max_logits, head_max.float()))
+        return output
+
     def forward(self, x):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
@@ -305,8 +348,9 @@ class RoPEAttention(nn.Module):
         if self.qk_norm:
             # Before RoPE; k on its kv heads, before repeat_kv.
             q, k = self.q_norm(q), self.k_norm(k)
-        q = self.rope(q)
-        k = self.rope(k)
+        if self.use_rope:
+            q = self.rope(q)
+            k = self.rope(k)
 
         v = value_states.view(batch, seq_len, self.kv_heads, -1).transpose(1, 2)
 
@@ -316,9 +360,12 @@ class RoPEAttention(nn.Module):
 
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
-        attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=True
-        )
+        if self.qk_clip is not None and self.training:
+            attention_output = self._attention_tracking_max_logits(q, k, v)
+        else:
+            attention_output = self.attention_mechanism(
+                query=q, key=k, value=v, causal=True
+            )
 
         attention_output = attention_output.transpose(1, 2).contiguous().flatten(-2)
         if self.output_gate:
@@ -396,6 +443,12 @@ class TransformerBlock(nn.Module):
         x = self.ff_layer(x)
         return x
 
+    def set_log_pass(self, loop_pass):
+        """Log this block's metrics per pass when a looped encoder runs it several times."""
+        prefix = f"{self.log_name}/pass[{loop_pass}]"
+        self.attention_layer.log_name = f"{prefix}/residual_attention"
+        self.ff_layer.log_name = f"{prefix}/residual_feedforward"
+
 
 class TransformerEncoder(nn.Module):
     def get_model_dimensions(self):
@@ -415,14 +468,84 @@ class TransformerEncoder(nn.Module):
         self,
         block_fn: Callable[[int], nn.Module],
         n_blocks: int,
+        dmodel: int,
+        loop,
     ):
         super().__init__()
         self.blocks = nn.ModuleList([block_fn(i) for i in range(n_blocks)])
+        # Looped depth: blocks [n_prelude, n_blocks - n_coda) run n_loops times.
+        self.n_loops = loop["n_loops"]
+        self.core_start = loop["n_prelude"]
+        self.core_end = n_blocks - loop["n_coda"]
+        if self.n_loops < 1:
+            raise ValueError(f"loop.n_loops must be >= 1, got {self.n_loops}")
+        if not 0 <= self.core_start < self.core_end <= n_blocks:
+            raise ValueError(
+                f"loop needs n_prelude, n_coda >= 0 and a non-empty core, got "
+                f"n_prelude={loop['n_prelude']}, n_coda={loop['n_coda']} of {n_blocks} blocks"
+            )
+        if loop["injection"] not in ("none", "concat"):
+            raise ValueError(
+                f"loop.injection must be none or concat, got {loop['injection']!r}"
+            )
+        self.injection = (
+            ConcatInjection(dmodel) if loop["injection"] == "concat" else None
+        )
+        # Lazy: src.core.moe imports this module.
+        from src.core.moe import MoE
+
+        # MoE keeps only its last call's aux loss and stats, so forward merges a looped one's passes.
+        core = self.blocks[self.core_start : self.core_end]
+        self._looped_moe = (
+            [m for m in core.modules() if isinstance(m, MoE)]
+            if self.n_loops > 1
+            else []
+        )
+
+    def looped_modules(self):
+        """The modules forward runs n_loops times: the core blocks and the injection."""
+        core = list(self.blocks[self.core_start : self.core_end])
+        return core + ([self.injection] if self.injection is not None else [])
 
     def forward(self, x):
-        for block in self.blocks:
+        for block in self.blocks[: self.core_start]:
+            x = block(x)
+        prelude_out = x
+        moe_calls = []
+        for loop_pass in range(self.n_loops):
+            if self.injection is not None:
+                x = self.injection(x, prelude_out)
+            for block in self.blocks[self.core_start : self.core_end]:
+                if self.n_loops > 1:
+                    block.set_log_pass(loop_pass)
+                x = block(x)
+            if self.training and self._looped_moe:
+                moe_calls.append([(m.aux_loss, m.stats) for m in self._looped_moe])
+        if moe_calls:
+            self._merge_moe_calls(moe_calls)
+        for block in self.blocks[self.core_end :]:
             x = block(x)
         return x
+
+    def _merge_moe_calls(self, moe_calls):
+        """Per looped MoE layer: sum the aux losses of its passes, average their stats."""
+        for moe, calls in zip(self._looped_moe, zip(*moe_calls)):
+            moe.aux_loss = sum(aux_loss for aux_loss, _ in calls)
+            moe.stats = torch.stack([stats for _, stats in calls]).mean(0)
+
+
+class ConcatInjection(nn.Module):
+    """Huginn-style input injection: x <- W [x; e], W init [I | 0] so it starts as plain looping."""
+
+    def __init__(self, dmodel):
+        super().__init__()
+        self.proj = nn.Linear(2 * dmodel, dmodel, bias=False)
+        with torch.no_grad():
+            self.proj.weight.zero_()
+            self.proj.weight[:, :dmodel].copy_(torch.eye(dmodel))
+
+    def forward(self, x, prelude_out):
+        return self.proj(torch.cat([x, prelude_out], dim=-1))
 
 
 class TransformerHead(nn.Module):

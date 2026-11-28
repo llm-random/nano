@@ -1,0 +1,24 @@
+# h12_muon with Kimi K2's QK-Clip (MuonClip, arXiv 2507.20534) in place of QK-norm; no model FLOPs added, so 50_000 steps.
+defaults:
+  - ../h12_chinchilla@_global_
+  - override ../../_trainer/_optimizer@optimizer: muon
+  - _self_
+
+common:
+  attention:
+    # QK-Clip scales W_q and W_k, which QK-norm would normalize away; K2 has no QK-norm either
+    qk_norm: false
+    # K2's threshold; train/max_attention_logit shows whether a head ever reaches it
+    qk_clip: 100
+
+infrastructure:
+  metric_logger:
+    name: h12_muon_clip
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - bs64
+      - muon
+      - qk_clip

@@ -1,0 +1,45 @@
+# Step profile, h12 as h12_muon_clip on 2 GPUs: QK-Clip's logit tracking and clip; compare with h12_profile_muon_no_qk_norm.
+defaults:
+  - /base_schema
+  - ../../_cluster@_here_: lem
+  - ../../_model/h_balanced@_here_: h12
+  - ../../_trainer@_here_: nano
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
+  - override ../../_trainer/_optimizer@optimizer: muon
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 64
+  attention:
+    qk_norm: false
+    qk_clip: 100
+
+trainer:
+  # micro 32 x 1024 per GPU, as h12_chinchilla
+  gradient_accumulation_steps: 1
+  # kernel profile at steps 12-13 (qk_clip range for the clip); timers_ms lines for the rest
+  n_steps: 300
+  learning_rate: 10
+  kernel_profile: true
+  profile_timers: true
+  eval_interval: 0
+  eval_dataloader: null
+
+infrastructure:
+  metric_logger:
+    name: h12_profile_muon_clip
+    heavy_metrics_calculation_interval: 0
+    tags:
+      - nano
+      - h12
+      - muon
+      - qk_clip
+      - muon_profile
+
+  slurm:
+    time: "00:30:00"
+    gres: gpu:hopper:2
+    job-name: ${infrastructure.metric_logger.name}

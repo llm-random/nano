@@ -15,7 +15,7 @@ common:
   batch_size: 128
 
 trainer:
-  # micro 32 x 1024 per GPU: ~70 GiB (NVML) of 93.6, estimated as the dense ladder's 52.2 + 18 GiB of MoE
+  # micro 32 x 1024 per GPU: 53.4 GiB peak (dropless MoE, torch 2.11); micro 64 would need ~107
   gradient_accumulation_steps: 1
   n_steps: 300
   learning_rate: 10
@@ -34,6 +34,7 @@ infrastructure:
       - qk_norm
       - jm_mfu_benchmarking
       - moe_profile
+      - torch211
       - moe
 
   slurm:

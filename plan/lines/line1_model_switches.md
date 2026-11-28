@@ -2,12 +2,12 @@
 
 ## Human
 
-Line 1 adds seven model-code switches, one task at a time. Now: Task 2/7, output gate, done.
+Line 1 adds seven model-code switches, one task at a time. Now: Task 3/7, NoPE, done.
 Every switch is off by default, and off means identical training to before.
 
 - [x] QK-norm: per-head RMSNorm on q, k before RoPE
 - [x] Output gate: sigmoid gate on attention output; extra projection, FLOPs-matched h12 run
-- [ ] NoPE: skip RoPE on chosen layers
+- [x] NoPE: skip RoPE on chosen layers; h12 (every 4th) ties baseline
 - [ ] Document masking: attend only within each document
 - [ ] Indexer sparse attention (tentative): attend to top-k keys
 - [ ] Wider residual (tentative): several parallel residual streams
@@ -17,7 +17,7 @@ Every switch is off by default, and off means identical training to before.
 - Run tasks 5 and 6 in parallel once 4 lands? Recommended: yes.
 - Before task 5: still wanted, and at what sequence length and k?
 
-**Last change:** 2026-11-26: output gate landed (Qwen-style sigmoid gate); later tasks now say how their h12 runs match FLOPs.
+**Last change:** 2026-11-27: h12 NoPE run ties the baseline (final loss +0.002, same speed); kept as a feature, no more tests.
 
 ## AI
 
@@ -77,7 +77,7 @@ Janek can't review everything, so most calls are yours.
 | --- | --- | --- | --- |
 | 1 | QK-norm | done | `common.attention.qk_norm`, on (`true`) in `base.yaml` since 2026-11-17, off before. Pick: per-head RMSNorm over `dhead` (eps 1e-6) on q and k before RoPE, k on kv heads before `repeat_kv`, SDPA's default scale, because 3 of the 4 surveyed models with full QK-norm use it (Qwen3.8, MiniMax-M3.1, Gemma 4; `documents/notes/qk_norm_survey.md`). Gain `(1 + w)`, w zero-init (`ZeroCenteredRMSNorm`, as Qwen3.8 and MiniMax), so weight decay pulls it to 1, not 0. No `scale` argument. Plumbing: `SWITCHES` in `attention.py`, `SWITCHES_OFF` in `tests/test_attention_registry.py`. Configs in `configs/jm/feature/`: `tiny_local_qk_norm`, `tiny_local_line1_all`, `h12_qk_norm`. |
 | 2 | Attention output gate | done | `common.attention.output_gate`, off (`false`) in `base.yaml`. `_rope_attention` turns it into `g_proj_fn` (a `_linear_fn(dmodel → q_heads·dhead)`, or `None` when off) for `RoPEAttention`, which builds `g_proj` last, after the QK-norm gains, and multiplies the flattened attention output by `sigmoid(g_proj(x))` before `o_proj`. Matches Qwen3-Next's fused-`q_proj` gate exactly (throwaway check, max diff 0). At h12 it adds 7.08M params and 4.97% FLOPs/token, so `h12_output_gate` runs 47_630 steps instead of 50_000 (FLOPs-matched). `h12_output_gate` drops `h12_chinchilla`'s `baseline` tag. Configs in `configs/jm/feature/`: `tiny_local_output_gate`, `h12_output_gate`, and the switch in `tiny_local_line1_all`. |
-| 3 | NoPE (RoPE off switch) | todo | |
+| 3 | NoPE (RoPE off switch) | done | `common.attention.no_rope_layers`, off (`null`) in `base.yaml`; same syntax as `mix.layers` (`all`, `every_2nd`, `every_4th`, index list). Not in `SWITCHES`: `build_attention` resolves it per layer (`_layer_indices`, factored out of `resolve_layer_types`) and passes `rope: bool` to every builder; `RoPEAttention(rope=False)` builds no `RoPE` module and skips the rotation; `_planned` raises naming `no_rope_layers` when `rope` is false. Tests: `SWITCHES_ON` (an on value per key) beside `SWITCHES_OFF`. No `mfu.py` change. `h12_no_rope` uses `every_4th` (layers 3, 7, 11), 50_000 steps, drops the `baseline` tag. Configs in `configs/jm/feature/`: `tiny_local_no_rope` (`every_4th`), `h12_no_rope`, and `every_4th` in `tiny_local_line1_all`. h12 result (`cfk0xvh4` vs baseline `kiu7rawb`): `final_ce` 3.1085 vs 3.1063 (+0.002, a tie), bf16 `eval/loss` both 3.1094; ahead ~0.006 at 5k–15k steps, behind ~0.002–0.003 from 30k; downstream mean 41.1 vs 41.8% (noise: the gate's lower loss also scored 40.9%); tokens/s within the baseline grid's spread. Janek, 2026-11-27: kept as a feature, no further testing. |
 | 4 | Document masking | todo | |
 | 5 | Indexer sparse attention (tentative) | todo | |
 | 6 | Wider residual stream (tentative) | todo | |
@@ -330,13 +330,21 @@ and into your report, not into the diff. Don't add new test files unless your se
   `layers → indices` part, rather than writing a second one.
 - **What a builder gets:** `build_attention` resolves the pattern into a per-layer `rope` bool
   and passes that, so "on" for a planned type means `rope=False`.
-- **The layer:** `RoPEAttention` gets `rope: bool` and builds no `RoPE` module when it's false
-  `RoPE` holds no parameters and non-persistent
-  buffers, so the state dict doesn't change.
+- **The layer:** `RoPEAttention` gets `rope: bool` and builds no `RoPE` module when it's false.
+  `RoPE` holds no parameters, only non-persistent buffers, so the state dict doesn't change.
 - **Out of scope:** partial RoPE (`rope_fraction`). Mention it in the report if it would be a
   few lines.
 - **Combines with QK-norm and the gate:** works together.
 - **h12 run:** RoPE has no counted FLOPs, so `h12_no_rope` keeps 50_000 steps.
+- **As built (2026-11-26):**
+  - `no_rope_layers` is not in `SWITCHES`, because the builder gets `rope`, not the config
+    value. `build_attention` accepts it beside `type` and `mix`, and `_planned` takes `rope`
+    and raises on `rope=False`. A later bool switch still appends to `SWITCHES`.
+  - Tests: `SWITCHES_ON` in `tests/test_attention_registry.py` holds an on value per key
+    (`no_rope_layers: all`), since `True` isn't a pattern. Later tasks add their key to both
+    dicts.
+  - The attribute is `use_rope`, because `self.rope` stays the module's name when on.
+  - `h12_no_rope` uses `every_4th` (SmolLM3's pattern, layers 3, 7, 11 at h12), not `all`.
 
 #### 4. Document masking
 

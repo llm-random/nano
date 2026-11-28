@@ -97,6 +97,7 @@ class Setup:
         inputs = ", ".join(text for name, text in parts.items() if name != missing[0])
         print(
             f"{parts[missing[0]]:<22} <- {inputs} | "
+            f"{time_h * self.n_gpus:,.0f} GPUh, "
             f"{tokens / 1e9:.2f}B tokens ({tokens / self.active_params:.1f}TTP), "
             f"{tokens / (time_h * 3600):,.0f} tok/s"
         )

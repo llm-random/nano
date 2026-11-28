@@ -1,19 +1,41 @@
 """src/core/optimizers.py: parameter roles, param groups and their checkpoints."""
 
+import copy
 import os
 import warnings
 
 import pytest
 import torch
+import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
+import torch.multiprocessing as mp
 from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
+from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.fsdp import fully_shard
+from torch.distributed.tensor import distribute_tensor
 
 import resolver  # noqa: F401  (registers the repo's custom OmegaConf resolvers)
+from conftest import free_port
+from src.core.attention import build_attention
 from src.core.checkpointing import TrainingState, load_checkpoint_from_file
+from src.core.model import (
+    RoPEAttention,
+    TransformerBlock,
+    TransformerEmbedding,
+    TransformerHead,
+)
 from src.core.moe import MoE
-from src.core.optimizers import ROLES, build_optimizer_and_scheduler, param_roles
+from src.core.optimizers import (
+    ROLES,
+    MuonWithAdamW,
+    add_qk_clip,
+    build_optimizer_and_scheduler,
+    newton_schulz,
+    param_roles,
+    qk_clip_,
+)
 from src.core.schedulers import get_cosine_scheduler_with_warmup
 from test_distributed import _shard, cpu_process_group  # noqa: F401  (fixture)
 
@@ -262,3 +284,303 @@ def test_adamw_simplep_checkpoint_resumes(tmp_path):
     _check_resume(
         str(tmp_path), sharded=False, option="adamw_simplep", overrides=overrides
     )
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("shape", [(1, 32, 128), (1, 128, 32), (3, 32, 128)])
+def test_newton_schulz_gives_singular_values_near_one(shape, dtype):
+    torch.manual_seed(0)
+    G = torch.randn(shape)
+    orthogonal = newton_schulz(G.to(dtype), 5).float()
+    singular_values = torch.linalg.svdvals(orthogonal)
+    # Keller's coefficients trade exactness for speed: about [0.68, 1.15] here.
+    assert singular_values.min() > 0.6 and singular_values.max() < 1.2
+    U, _, Vh = torch.linalg.svd(G, full_matrices=False)
+    cosine = torch.nn.functional.cosine_similarity(
+        orthogonal.flatten(-2), (U @ Vh).flatten(-2), dim=-1
+    )
+    assert (cosine > 0.98).all()
+
+
+def test_muon_puts_the_hidden_group_in_muon_and_the_rest_in_adamw():
+    _, optimizer, _ = _build("muon")
+    assert isinstance(optimizer, MuonWithAdamW)
+    groups = [
+        (g["role"], g["use_muon"], g["initial_lr"], g["weight_decay"])
+        for g in optimizer.param_groups
+    ]
+    # One LR for all: Moonlight's scale lets Muon take AdamW's LR and decay.
+    assert groups == [
+        ("vector", False, 1e-3, 0.0),
+        ("embedding", False, 1e-3, 0.0),
+        ("head", False, 1e-3, 0.1),
+        ("hidden", True, 1e-3, 0.1),
+    ]
+
+
+@pytest.mark.xfail(
+    strict=True, reason="dropless MoE experts are 3D/4D; Muon takes 2D only (follow-up)"
+)
+def test_muon_trains_every_moe_expert_and_the_router():
+    moe = ["+_ff_layer@model.encoder.block_fn.ff_layer_fn=moe"]
+    model, optimizer, _ = _build("muon", overrides=_width(4) + moe)
+    muon = {id(p) for g in optimizer.param_groups if g["use_muon"] for p in g["params"]}
+    moe_params = [
+        p for m in model.modules() if isinstance(m, MoE) for p in m.parameters()
+    ]
+    assert moe_params and all(id(p) in muon for p in moe_params)
+
+
+def test_muon_rejects_simplep():
+    with pytest.raises(AssertionError, match="base_dmodel"):
+        _build("muon", overrides=["optimizer.base_dmodel=128"])
+
+
+def test_muon_with_only_adamw_groups_matches_torchs_adamw():
+    reference = _build("adamw_groups")
+    ours = _build("muon")
+    for group in ours[1].param_groups:
+        group["use_muon"] = False
+    for _ in range(3):
+        _step(*reference)
+        _step(*ours)
+    for a, b in zip(reference[0].parameters(), ours[0].parameters()):
+        torch.testing.assert_close(a, b, rtol=0, atol=0)
+
+
+def test_muon_update_is_orthogonal_at_adamw_rms():
+    torch.manual_seed(0)
+    weight = torch.nn.Parameter(torch.randn(16, 48))
+    start = weight.detach().clone()
+    weight.grad = torch.randn(16, 48)
+    lr, decay = 0.01, 0.1
+    optimizer = MuonWithAdamW(
+        [{"params": [weight], "use_muon": True}],
+        lr=lr,
+        weight_decay=decay,
+        momentum=0.95,
+        ns_steps=5,
+        fused=False,
+    )
+    optimizer.step()
+    update = start * (1 - lr * decay) - weight.detach()
+    # From zero momentum: buffer (1 - 0.95) * grad, Nesterov step grad.lerp(buffer, 0.95).
+    grad = weight.grad
+    nesterov = grad.lerp(torch.zeros_like(grad).lerp(grad, 0.05), 0.95)
+    expected = lr * 0.2 * 48**0.5 * newton_schulz(nesterov[None], 5)[0].float()
+    torch.testing.assert_close(update, expected)
+    # Moonlight's RMS match: about 0.2 * lr, like AdamW's update.
+    assert 0.15 * lr < update.square().mean().sqrt() < 0.22 * lr
+
+
+def test_muon_checkpoint_resumes(tmp_path):
+    _check_resume(str(tmp_path), sharded=False, option="muon")
+
+
+def test_muon_sharded_checkpoint_resumes(cpu_process_group, tmp_path):
+    _check_resume(str(tmp_path), sharded=True, option="muon")
+
+
+def _random_grads(model, sharded, seed):
+    """The same full gradients on every rank; sharded params get their own rows."""
+    torch.manual_seed(seed)
+    for p in model.parameters():
+        grad = torch.randn(p.shape)
+        p.grad = (
+            distribute_tensor(grad, p.device_mesh, p.placements) if sharded else grad
+        )
+
+
+def _assert_same(sharded, reference):
+    for p, q in zip(sharded.parameters(), reference.parameters()):
+        torch.testing.assert_close(p.full_tensor(), q, rtol=0, atol=0)
+
+
+def _two_rank_muon(rank, port, folder):
+    os.environ.update(MASTER_ADDR="localhost", MASTER_PORT=str(port), RANK=str(rank))
+    dist.init_process_group("gloo", rank=rank, world_size=2)
+    try:
+        mesh = init_device_mesh("cpu", (2,))
+        cfg = _cfg("muon")
+
+        def build(seed):
+            """h4 with an odd-row matrix and a 1-row one: shards of 2 and 1, 1 and 0 rows."""
+            torch.manual_seed(seed)
+            model = instantiate(cfg.model, _convert_="all")
+            model.odd = torch.nn.Sequential(
+                torch.nn.Linear(4, 3, bias=False), torch.nn.Linear(3, 1, bias=False)
+            )
+            return model
+
+        def shard(model):
+            # As setup_fsdp2_model, on a CPU mesh.
+            for m in model.modules():
+                if isinstance(
+                    m, (TransformerEmbedding, TransformerBlock, TransformerHead)
+                ):
+                    fully_shard(m, mesh=mesh)
+            return fully_shard(model, mesh=mesh)
+
+        reference = build(0)
+        sharded = shard(copy.deepcopy(reference))
+        runs = [
+            (model, *build_optimizer_and_scheduler(cfg, model, 1e-2), is_sharded)
+            for model, is_sharded in ((reference, False), (sharded, True))
+        ]
+        for seed in range(3):
+            for model, optimizer, scheduler, is_sharded in runs:
+                _random_grads(model, is_sharded, seed)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+        _assert_same(sharded, reference)
+
+        # DCP: a fresh sharded run loads the momentum and AdamW state and steps the same.
+        _, optimizer, scheduler, _ = runs[1]
+        dcp.save(
+            {"app": TrainingState(sharded, optimizer, scheduler)}, checkpoint_id=folder
+        )
+        resumed = shard(build(99))
+        resumed_optimizer, resumed_scheduler = build_optimizer_and_scheduler(
+            cfg, resumed, 1e-2
+        )
+        dcp.load(
+            {"app": TrainingState(resumed, resumed_optimizer, resumed_scheduler)},
+            checkpoint_id=folder,
+        )
+        for model, optimizer in ((reference, runs[0][1]), (resumed, resumed_optimizer)):
+            _random_grads(model, model is resumed, 3)
+            optimizer.step()
+        _assert_same(resumed, reference)
+    finally:
+        dist.destroy_process_group()
+
+
+def test_muon_sharded_step_equals_unsharded_on_two_ranks(tmp_path):
+    mp.spawn(_two_rank_muon, args=(free_port(), str(tmp_path)), nprocs=2)
+
+
+def _attention(qk_clip, qk_norm=False):
+    """One small GQA layer: 4 query heads of 16 dims, 2 kv heads."""
+    torch.manual_seed(0)
+    attention = {
+        "type": "gqa",
+        "qk_norm": qk_norm,
+        "output_gate": False,
+        "no_rope_layers": None,
+        "qk_clip": qk_clip,
+    }
+    return build_attention(
+        0, attention=attention, n_blocks=1, dmodel=64, q_heads=4, kv_heads=2, seq_len=16
+    )
+
+
+def test_qk_clip_tracks_each_heads_max_causal_logit():
+    layer = _attention(qk_clip=100.0)
+    x = torch.randn(2, 16, 64)
+    layer(x)
+    q = layer.rope(layer.q_proj(x).view(2, 16, 4, 16).transpose(1, 2))
+    k = layer.rope(layer.k_proj(x).view(2, 16, 2, 16).transpose(1, 2))
+    logits = q @ k.repeat_interleave(2, dim=1).transpose(-2, -1) / 4
+    causal = torch.ones(16, 16, dtype=torch.bool).tril()
+    expected = logits[..., causal].amax(dim=(0, 2))
+    torch.testing.assert_close(layer.max_logits, expected)
+    layer.eval()
+    layer(3 * x)
+    torch.testing.assert_close(layer.max_logits, expected)
+
+
+def test_qk_clip_caps_every_heads_max_logit_at_the_threshold():
+    layer = _attention(qk_clip=100.0)
+    x = torch.randn(2, 16, 64)
+    layer(x)
+    before = layer.max_logits.clone()
+    # Between heads 0 and 1, which share a kv head: one is clipped, its partner not.
+    layer.qk_clip = before[:2].mean().item()
+    assert before[:2].min() < layer.qk_clip < before[:2].max()
+    assert qk_clip_([layer]) == before.max()
+    assert (layer.max_logits == float("-inf")).all()
+    layer(x)
+    torch.testing.assert_close(layer.max_logits, before.clamp(max=layer.qk_clip))
+
+
+def test_qk_clip_needs_qk_norm_off():
+    with pytest.raises(ValueError, match="qk_norm"):
+        _attention(qk_clip=100.0, qk_norm=True)
+
+
+def test_qk_clip_keeps_the_init_and_the_checkpoint_keys():
+    off, on = _attention(qk_clip=None), _attention(qk_clip=100.0)
+    assert not hasattr(off, "max_logits")
+    assert on.state_dict().keys() == off.state_dict().keys()
+    for a, b in zip(off.parameters(), on.parameters(), strict=True):
+        assert torch.equal(a, b)
+
+
+class _Recorder:
+    def __init__(self):
+        self.logged = []
+
+    def log(self, name, value):
+        self.logged.append((name, value))
+
+
+QK_CLIP = ["common.attention.qk_norm=false", "common.attention.qk_clip=0.5"]
+
+
+def test_add_qk_clip_clips_every_step_and_logs_the_window_max():
+    model, optimizer, scheduler = _build("muon", overrides=QK_CLIP)
+    recorder = _Recorder()
+    add_qk_clip(optimizer, model, recorder, log_every=2)
+    layers = [m for m in model.modules() if isinstance(m, RoPEAttention)]
+    for _ in range(4):
+        _step(model, optimizer, scheduler)
+        # qk_clip_ ran and reset the trackers after every step.
+        assert all((m.max_logits == float("-inf")).all() for m in layers)
+    assert [name for name, _ in recorder.logged] == ["train/max_attention_logit"] * 2
+    # h4's logits top 0.5 from the start, so every step clipped.
+    assert all(value > 0.5 for _, value in recorder.logged)
+
+
+def test_add_qk_clip_does_nothing_when_off():
+    model, optimizer, _ = _build("muon")
+    add_qk_clip(optimizer, model, _Recorder())
+    assert not optimizer._optimizer_step_post_hooks
+
+
+def _two_rank_qk_clip(rank, port):
+    os.environ.update(MASTER_ADDR="localhost", MASTER_PORT=str(port), RANK=str(rank))
+    dist.init_process_group("gloo", rank=rank, world_size=2)
+    try:
+        cfg = _cfg(
+            "muon", ["common.attention.qk_norm=false", "common.attention.qk_clip=1"]
+        )
+        torch.manual_seed(0)
+        reference = instantiate(cfg.model, _convert_="all")
+        sharded = copy.deepcopy(reference)
+        mesh = init_device_mesh("cpu", (2,))
+        for m in sharded.modules():
+            if isinstance(m, TransformerBlock):
+                fully_shard(m, mesh=mesh)
+        fully_shard(sharded, mesh=mesh)
+        ref_layers, layers = (
+            [m for m in model.modules() if isinstance(m, RoPEAttention)]
+            for model in (reference, sharded)
+        )
+        # Each rank saw its own batch; the clip must use the max over both.
+        seen = [
+            torch.rand(len(layers), 4, generator=torch.Generator().manual_seed(r)) * 4
+            for r in range(2)
+        ]
+        for i, (ref_layer, layer) in enumerate(zip(ref_layers, layers)):
+            layer.max_logits.copy_(seen[rank][i])
+            ref_layer.max_logits.copy_(torch.maximum(seen[0][i], seen[1][i]))
+        top = qk_clip_(layers)
+        assert top == qk_clip_(ref_layers) and top > 1, "nothing was clipped"
+        _assert_same(sharded, reference)
+    finally:
+        dist.destroy_process_group()
+
+
+def test_qk_clip_sharded_equals_unsharded_on_two_ranks():
+    mp.spawn(_two_rank_qk_clip, args=(free_port(),), nprocs=2)

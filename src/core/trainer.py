@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from typing import TYPE_CHECKING, Optional
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import FSDPModule, FullyShardedDataParallel as FSDP
 
 import torch.distributed.checkpoint as dcp
 import logging
@@ -459,6 +459,7 @@ class Trainer:
                 self.log_metrics(loss_metrics, grad_norm, bag_size)
 
             with self._timers.gpu("optim"):
+                self._update_expert_biases()
                 with self._rewarmed_lr(step):
                     self.optimizer.step()
                 self.optimizer.zero_grad()
@@ -878,6 +879,17 @@ class Trainer:
                 )
                 return total_norm
 
+    def _update_expert_biases(self):
+        """Aux-loss-free MoE balancing: every layer's step load in one all-reduce, then its bias step."""
+        layers = [m for m in self._moe_layers if m.expert_bias_update_rate > 0]
+        if not layers:
+            return
+        loads = torch.stack([m.expert_load for m in layers])
+        if dist.is_initialized():
+            dist.all_reduce(loads, op=dist.ReduceOp.SUM)
+        for layer, load in zip(layers, loads):
+            layer.update_expert_bias(load)
+
     def _update_processed_tokens(self, batch, bag_size):
         if self._flops_per_token is None:
             self._flops_per_token = model_flops_per_token(
@@ -996,11 +1008,8 @@ class Trainer:
             )
 
         if save_type == "nano":
-            if (
-                isinstance(self.model, FSDP)
-                or self.model.__module__
-                == "torch.distributed.fsdp._fully_shard._fully_shard"
-            ):
+            # FSDP2 by class, not by the generated class's __module__, which torch 2.11 changed
+            if isinstance(self.model, (FSDP, FSDPModule)):
                 # Sharded save
                 state_dict = {
                     "app": TrainingState(self.model, self.optimizer, self.scheduler)

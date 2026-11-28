@@ -1,0 +1,20 @@
+# h12_chinchilla with NoPE on every 4th layer (layers 3, 7, 11; SmolLM3 pattern); RoPE adds no counted FLOPs, so 50_000 steps.
+defaults:
+  - ../h12_chinchilla@_global_
+  - _self_
+
+common:
+  attention:
+    no_rope_layers: every_4th
+
+infrastructure:
+  metric_logger:
+    name: h12_no_rope
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - no_rope

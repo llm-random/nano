@@ -1,0 +1,27 @@
+# h12_chinchilla iso-FLOP looped: 8 unique blocks (2 prelude, 4 core looped twice, 2 coda) = depth 12, 2/3 of the block params.
+defaults:
+  - ../h12_chinchilla@_global_
+  - _self_
+
+common:
+  n_blocks: 8
+  loop:
+    n_loops: 2
+    n_prelude: 2
+    n_coda: 2
+    injection: none
+
+# FLOPs-matched as is: depth 12 gives the baseline's 854_544_384 FLOPs/token, so 50_000 steps.
+
+infrastructure:
+  metric_logger:
+    name: h12_loop
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - loop
+      - loop_isoflop

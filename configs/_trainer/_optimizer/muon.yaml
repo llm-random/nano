@@ -1,0 +1,8 @@
+# Muon on the hidden matrices, AdamW on gains, embedding and head (src/core/optimizers.py); Muon takes AdamW's LR and decay.
+defaults:
+  - adamw_groups
+  - _self_
+
+muon:
+  momentum: 0.95
+  ns_steps: 5
