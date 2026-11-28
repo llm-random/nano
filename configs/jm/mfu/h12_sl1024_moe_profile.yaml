@@ -15,7 +15,7 @@ common:
   batch_size: 64
 
 trainer:
-  # micro 32 x 1024 per GPU, as h12_moe: 32.5 GiB peak (NVML) of 93.6
+  # micro 32 x 1024 per GPU: 25.8 GiB peak (dropless MoE, torch 2.11)
   gradient_accumulation_steps: 1
   n_steps: 300
   learning_rate: 10
@@ -34,6 +34,7 @@ infrastructure:
       - qk_norm
       - jm_mfu_benchmarking
       - moe_profile
+      - torch211
       - moe
 
   slurm:
