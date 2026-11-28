@@ -45,6 +45,8 @@ class AttentionSchema:
     output_gate: bool = MISSING
     # Layers that skip RoPE, same syntax as mix.layers; null = RoPE everywhere.
     no_rope_layers: Any = MISSING
+    # QK-Clip's max-logit threshold (src/core/optimizers.py qk_clip_); null is off.
+    qk_clip: Optional[float] = MISSING
 
 
 @dataclass
@@ -201,12 +203,20 @@ class OptimizerRolesSchema:
 
 
 @dataclass
+class MuonSchema:
+    momentum: float = MISSING
+    ns_steps: int = MISSING
+
+
+@dataclass
 class OptimizerSchema:
     """Root `optimizer`, from configs/_trainer/_optimizer/; null roles is one group."""
 
     roles: Optional[OptimizerRolesSchema] = MISSING
     # simpleP's base width: hidden and head LR x base_dmodel / dmodel; null is off.
     base_dmodel: Optional[int] = MISSING
+    # Muon on the hidden matrices (src/core/optimizers.py); null is AdamW everywhere.
+    muon: Optional[MuonSchema] = MISSING
 
 
 @dataclass

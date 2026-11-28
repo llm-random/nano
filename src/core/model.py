@@ -256,6 +256,7 @@ class RoPEAttention(nn.Module):
         rope_scale_freqs: bool,
         rope: bool,
         qk_norm: bool,
+        qk_clip,
         factor=32,
         low_freq_factor=1,
         high_freq_factor=4,
@@ -298,6 +299,44 @@ class RoPEAttention(nn.Module):
         if self.output_gate:
             self.g_proj = g_proj_fn()
 
+        # QK-Clip threshold (None = off): each head's max logit, for optimizers.qk_clip_.
+        self.qk_clip = qk_clip
+        if qk_clip is not None:
+            if qk_norm:
+                raise ValueError(
+                    "qk_clip scales W_q and W_k, which qk_norm normalizes away"
+                )
+            if qk_clip <= 0:
+                raise ValueError(f"qk_clip must be null or > 0, got {qk_clip}")
+            self.register_buffer(
+                "max_logits", torch.full((q_heads,), float("-inf")), persistent=False
+            )
+
+    def _attention_tracking_max_logits(self, q, k, v):
+        """Causal attention that also raises max_logits to each head's largest logit here.
+
+        On GPU in bf16/fp16 that logit is flash attention's logsumexp, free with the output:
+        per query row it is at least the row's max logit and at most that plus log(row
+        length), so QK-Clip acts slightly early, never late. Elsewhere the logits are computed.
+        """
+        if q.is_cuda and q.dtype in (torch.bfloat16, torch.float16):
+            # The kernel SDPA picks here, called directly for its logsumexp.
+            output, lse = torch.ops.aten._scaled_dot_product_flash_attention(
+                q, k, v, is_causal=True
+            )[:2]
+            with torch.no_grad():
+                head_max = lse.amax(dim=(0, 2))
+        else:
+            output = self.attention_mechanism(query=q, key=k, value=v, causal=True)
+            with torch.no_grad():
+                logits = q @ k.transpose(-2, -1) * self.dhead**-0.5
+                seq = logits.shape[-1]
+                future = torch.ones(seq, seq, dtype=torch.bool, device=q.device).triu(1)
+                head_max = logits.masked_fill(future, float("-inf")).amax(dim=(0, 2, 3))
+        with torch.no_grad():
+            self.max_logits.copy_(torch.maximum(self.max_logits, head_max.float()))
+        return output
+
     def forward(self, x):
         query_states = self.q_proj(x)
         key_states = self.k_proj(x)
@@ -321,9 +360,12 @@ class RoPEAttention(nn.Module):
 
         k = repeat_kv(k, self.q_heads // self.kv_heads)
         v = repeat_kv(v, self.q_heads // self.kv_heads)
-        attention_output = self.attention_mechanism(
-            query=q, key=k, value=v, causal=True
-        )
+        if self.qk_clip is not None and self.training:
+            attention_output = self._attention_tracking_max_logits(q, k, v)
+        else:
+            attention_output = self.attention_mechanism(
+                query=q, key=k, value=v, causal=True
+            )
 
         attention_output = attention_output.transpose(1, 2).contiguous().flatten(-2)
         if self.output_gate:

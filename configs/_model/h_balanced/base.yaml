@@ -31,6 +31,8 @@ common:
     output_gate: false
     # layers that skip RoPE (NoPE), same syntax as mix.layers; null = RoPE everywhere
     no_rope_layers: null
+    # Kimi K2's QK-Clip threshold on each head's max logit (arXiv 2507.20534); null is off, needs qk_norm off
+    qk_clip: null
   # Looped depth: blocks [n_prelude, n_blocks - n_coda) run n_loops times; n_loops 1 = plain stack.
   loop:
     n_loops: 1

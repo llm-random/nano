@@ -1,0 +1,16 @@
+# tiny_local with MuonClip: Muon plus Kimi K2's QK-Clip. Run: pixi run python main.py --config-path configs/jm/feature --config-name tiny_local_muon_clip
+defaults:
+  - ../../tiny_local@_global_
+  - override ../../_trainer/_optimizer@optimizer: muon
+  - _self_
+
+common:
+  attention:
+    # QK-Clip scales W_q and W_k, which QK-norm would normalize away
+    qk_norm: false
+    # h4's max logit climbs from ~3 to ~5 in 200 steps; 4 makes the clip act (h12 uses K2's 100)
+    qk_clip: 4
+
+infrastructure:
+  metric_logger:
+    type: stdout

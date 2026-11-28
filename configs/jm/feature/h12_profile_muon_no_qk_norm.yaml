@@ -1,0 +1,43 @@
+# Step profile, h12_profile_muon with QK-norm off and no clip: separates QK-norm's cost from QK-Clip's in h12_profile_muon_clip.
+defaults:
+  - /base_schema
+  - ../../_cluster@_here_: lem
+  - ../../_model/h_balanced@_here_: h12
+  - ../../_trainer@_here_: nano
+  - ../../_dataset@_here_: fineweb
+  - ../../_checkpoints@_here_: none
+  - ../../_misc@_here_: default
+  - override ../../_trainer/_optimizer@optimizer: muon
+  - _self_
+
+common:
+  sequence_length: 1024
+  batch_size: 64
+  attention:
+    qk_norm: false
+
+trainer:
+  # micro 32 x 1024 per GPU, as h12_chinchilla
+  gradient_accumulation_steps: 1
+  # kernel profile at steps 12-13; per-step timers_ms lines for the rest
+  n_steps: 300
+  learning_rate: 10
+  kernel_profile: true
+  profile_timers: true
+  eval_interval: 0
+  eval_dataloader: null
+
+infrastructure:
+  metric_logger:
+    name: h12_profile_muon_no_qk_norm
+    heavy_metrics_calculation_interval: 0
+    tags:
+      - nano
+      - h12
+      - muon
+      - muon_profile
+
+  slurm:
+    time: "00:30:00"
+    gres: gpu:hopper:2
+    job-name: ${infrastructure.metric_logger.name}

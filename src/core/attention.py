@@ -26,7 +26,7 @@ import torch.nn as nn
 from src.core.model import Linear, RoPEAttention, llm_random_weight_init
 
 # Line-1 switch keys in common.attention, passed to every builder; base.yaml holds their defaults.
-SWITCHES = ("qk_norm", "output_gate")
+SWITCHES = ("qk_norm", "output_gate", "qk_clip")
 # no_rope_layers is not in SWITCHES: build_attention resolves it to each layer's `rope`.
 
 
@@ -50,6 +50,7 @@ def _rope_attention(
     rope,
     qk_norm,
     output_gate,
+    qk_clip,
 ):
     dhead = dmodel // q_heads
     g_proj_fn = _linear_fn(dmodel, dhead * q_heads, init_scale) if output_gate else None
@@ -67,6 +68,7 @@ def _rope_attention(
         rope_scale_freqs=rope_scale_freqs,
         rope=rope,
         qk_norm=qk_norm,
+        qk_clip=qk_clip,
     )
 
 

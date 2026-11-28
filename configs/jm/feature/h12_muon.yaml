@@ -1,0 +1,19 @@
+# h12_chinchilla with Muon on the hidden matrices (2 GPUs: FSDP2 Muon); Muon adds no model FLOPs, so 50_000 steps.
+defaults:
+  - ../h12_chinchilla@_global_
+  - override ../../_trainer/_optimizer@optimizer: muon
+  - _self_
+
+# learning_rate 10 (2^-10) inherited: Moonlight's update scale reuses AdamW's tuned LR and decay.
+
+infrastructure:
+  metric_logger:
+    name: h12_muon
+    tags:
+      - nano
+      - h12
+      - chinchilla
+      - wsd
+      - qk_norm
+      - bs64
+      - muon

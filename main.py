@@ -18,7 +18,7 @@ from src.core.checkpointing import (
 )
 from src.core.metric_loggers import WandbLogger, get_metric_logger
 from src.core.model import Residual
-from src.core.optimizers import build_optimizer_and_scheduler
+from src.core.optimizers import add_qk_clip, build_optimizer_and_scheduler
 
 # Importing src.definitions registers `base_schema` in Hydra's ConfigStore, which
 # every runnable config's defaults list references -- it must happen before compose.
@@ -274,6 +274,8 @@ def initialize_training_components(cfg: RootSchema, metric_logger=None):
         load_checkpoint_from_file(
             cfg.trainer.checkpoint.load, model, optimizer, scheduler
         )
+        # After the load: DCP's state init steps the optimizer, which must not clip.
+        add_qk_clip(optimizer, model, metric_logger)
     else:
         raise Exception(
             f"Not recognized load checkpoint format: {cfg.trainer.checkpoint.load.type}"

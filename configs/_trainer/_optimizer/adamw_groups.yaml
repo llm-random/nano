@@ -1,5 +1,6 @@
 # One AdamW group per role (src/core/optimizers.py); gains and embedding not decayed.
 base_dmodel: null
+muon: null
 roles:
   vector:
     weight_decay: 0.0
