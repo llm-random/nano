@@ -14,7 +14,7 @@ after the survey in `open_model_architectures.md`.
 | Muon | Missing | AdamW is hard-coded in `main.py` | None found |
 | muP | Missing | Fan-in init only, no width multipliers | Related simpleP config on `origin/ctx_scl-simpleP` |
 | FP8 | Missing | torchao 0.11.0 is a dependency, never imported | None found |
-| MoE | Missing | Removed in the 2026-10-30 reset | `src/core/moe.py` on `main`, `origin/ctx_scl` |
+| MoE | Done | Dropless token-choice top-2 of 8, grouped matmuls (torch 2.11), aux-loss-free balancing | `src/core/moe.py`, `configs/_ff_layer/moe.yaml` |
 | H-net | Missing | No code | None found |
 | Token superposition | Missing | No code | None found |
 | nGPT (normalized activations) | Missing | No code | None found |
@@ -51,7 +51,7 @@ asserts exactly one param group (`src/core/schedulers.py:65`).
 | Muon | Optimizer construction in `main.py`: Muon on hidden 2D matrices, AdamW on embedding, head and norms. Scheduler must accept several groups. Under FSDP2 the Newton-Schulz step needs full matrices, so gather or use a distributed Muon. | Nothing in the repo |
 | muP | Init is `llm_random_weight_init` (std = scale/sqrt(fan_in)), i.e. standard parametrization. Needs width-dependent init and per-group LR multipliers keyed on dmodel = 64·H, so the same param-group work as Muon. Its LR rules differ under Muon. | `configs/_parameterization/simpleP_k12.yaml` on `origin/ctx_scl-simpleP` (a related parametrization, not muP) |
 | FP8 | torchao `float8` conversion of the `Linear` layers in `main.py`, before FSDP2 wrapping, as a top-level flag like `compile_blocks`. Needs Hopper/Ada GPUs. | `torchao==0.11.0` already in `pixi.toml` |
-| MoE | A new `ff_layer_fn` target (the SwiGLU slot) plus the aux-loss logging that was removed from `trainer.py`. The reset log plans a rewrite with efficient granularity kernels. | `src/core/moe.py` on `main` (token-choice, capacity factor, 169 lines); `documents/notes/pretraining_reset_log.md` |
+| MoE | `ff_layer_fn` target `src.core.moe.MoE` (`configs/_ff_layer/moe.yaml`): dropless token-choice routing, one `F.grouped_mm` per projection (fused gate/up), DeepSeek-V3 aux-loss-free bias balancing. At h12, FLOPs-matched: final_ce 3.030 vs 3.106 dense, 1.15x wall-clock; step 1.23-1.26x dense at h12-h20 (profiles in `configs/jm/mfu/`). | Capacity-factor port in #201; torchtitan MoE for the grouped-mm design |
 | H-net | Byte-level input with learned dynamic chunking: replaces the GPT-NeoX tokenizer in the data pipeline and the flat `LLM` with encoder, main network and decoder. Loss per token stops being comparable, so eval needs bits per byte. The largest change on the list. | [goombalab/hnet](https://github.com/goombalab/hnet) |
 | Token superposition | Not assessed: the paper hasn't been read yet, so what it touches is an open question. | [arXiv 2605.06546](https://arxiv.org/abs/2605.06546) |
 | nGPT | Unit-norm weights and hidden states: renormalize weights after every optimizer step, replace `RMSNorm` + `Residual` with normalized updates and learned step sizes, add a learned logit scale in `TransformerHead`. nGPT drops weight decay and warmup. | Nothing in the repo |

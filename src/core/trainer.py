@@ -459,6 +459,7 @@ class Trainer:
                 self.log_metrics(loss_metrics, grad_norm, bag_size)
 
             with self._timers.gpu("optim"):
+                self._update_expert_biases()
                 with self._rewarmed_lr(step):
                     self.optimizer.step()
                 self.optimizer.zero_grad()
@@ -877,6 +878,17 @@ class Trainer:
                     params, self.gradient_clipping, total_norm
                 )
                 return total_norm
+
+    def _update_expert_biases(self):
+        """Aux-loss-free MoE balancing: every layer's step load in one all-reduce, then its bias step."""
+        layers = [m for m in self._moe_layers if m.expert_bias_update_rate > 0]
+        if not layers:
+            return
+        loads = torch.stack([m.expert_load for m in layers])
+        if dist.is_initialized():
+            dist.all_reduce(loads, op=dist.ReduceOp.SUM)
+        for layer, load in zip(layers, loads):
+            layer.update_expert_bias(load)
 
     def _update_processed_tokens(self, batch, bag_size):
         if self._flops_per_token is None:

@@ -1,13 +1,15 @@
-# MoE feed-forward (src/core/moe.py). Merged onto the dense ff_layer_fn node, whose
+# Dropless MoE feed-forward (src/core/moe.py). Merged onto the dense ff_layer_fn node, whose
 # ff_pre_act_fn / ff_post_act_fn / gate_fn partials build each expert. Turn it on with
 #   - ../../_ff_layer@model.encoder.block_fn.ff_layer_fn: moe
 # in a configs/jm/feature/ defaults list, after the parent config.
 _target_: src.core.moe.MoE
 num_experts: 8
 topk: 2
-capacity_factor: 1.25
-load_balancing_loss_factor: 0.01
+# Balanced by DeepSeek-V3's aux-loss-free expert bias (arXiv 2408.15664), not a balance loss:
+# at h12 it matched the 0.01 loss (final_ce 3.0299 vs 3.0330). Rate 0 + factor 0.01 restores the loss.
+load_balancing_loss_factor: 0.0
 router_z_loss_factor: 0.001
+expert_bias_update_rate: 0.001
 # Experts dff / topk wide, so active FF FLOPs per token match the dense layer.
 ff_pre_act_fn:
   out_features: ${eval:'${common.dff} // ${model.encoder.block_fn.ff_layer_fn.topk}'}

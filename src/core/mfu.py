@@ -67,10 +67,9 @@ def model_flops_per_token(model, seq_len):
         if isinstance(module, RoPEAttention):
             score_flops += n_runs * 12 * seq_len * module.q_heads * module.dhead
         if isinstance(module, MoE):
-            # a token runs topk of the experts: drop the inactive share
-            experts = sum(p.numel() for p in module.experts.parameters())
-            inactive = module.num_experts - module.topk
-            matmul_params -= n_runs * (experts // module.num_experts * inactive)
+            # 3D expert weights are skipped above; a token runs topk of the experts
+            experts = sum(p.numel() for p in module.expert_weights())
+            matmul_params += n_runs * (experts // module.num_experts * module.topk)
 
     return 6 * matmul_params + score_flops
 
