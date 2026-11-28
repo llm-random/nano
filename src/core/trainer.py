@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from typing import TYPE_CHECKING, Optional
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import FSDPModule, FullyShardedDataParallel as FSDP
 
 import torch.distributed.checkpoint as dcp
 import logging
@@ -996,11 +996,8 @@ class Trainer:
             )
 
         if save_type == "nano":
-            if (
-                isinstance(self.model, FSDP)
-                or self.model.__module__
-                == "torch.distributed.fsdp._fully_shard._fully_shard"
-            ):
+            # FSDP2 by class, not by the generated class's __module__, which torch 2.11 changed
+            if isinstance(self.model, (FSDP, FSDPModule)):
                 # Sharded save
                 state_dict = {
                     "app": TrainingState(self.model, self.optimizer, self.scheduler)

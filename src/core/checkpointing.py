@@ -1,6 +1,6 @@
 import os
 import torch
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import FSDPModule, FullyShardedDataParallel as FSDP
 from torch.distributed.checkpoint.stateful import Stateful
 from torch.distributed.checkpoint.state_dict import (
     get_model_state_dict,
@@ -146,10 +146,8 @@ def load_checkpoint_from_file(load_config, model, optimizer, scheduler):
         return
 
     if checkpoint_path is not None:
-        if (
-            isinstance(model, FSDP)
-            or model.__module__ == "torch.distributed.fsdp._fully_shard._fully_shard"
-        ):
+        # FSDP2 by class, not by the generated class's __module__, which torch 2.11 changed
+        if isinstance(model, (FSDP, FSDPModule)):
             # Sharded load
             if load_config.only_weights:
                 state_dict = {"app": ModelState(model)}
